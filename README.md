@@ -6,6 +6,8 @@ This project aim to reproducing Sora (Open AI T2V model), but we only have limit
 
 ### Install
 ```
+conda create -n videovae python=3.8 -y
+conda activate videovae
 pip install torch==1.13.1+cu117 torchvision==0.14.1+cu117 torchaudio==0.13.1 --extra-index-url https://download.pytorch.org/whl/cu117
 pip install transformers==4.3.1 kornia==0.6.4 torchmetrics==0.5.0
 pip install opencv-python==4.1.2.30 pytorch-lightning==1.4.2 omegaconf==2.1.1 einops==0.3.0 decord
