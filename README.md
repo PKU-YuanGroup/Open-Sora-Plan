@@ -20,9 +20,19 @@ pip install -e .
 cd ..
 ```
 
-### Inference
+### Inference (VideoVae)
 Download checkpoint and specify the path in `demo_videovae.py`
 
 ```
 python demo_videovae.py
+```
+
+### Inference (SiT_dynamic)
+
+```
+cd SiT_dynamic
+# for image
+python sample_videovae.py ODE --image-size 256 --seed 1 --is-image True
+# for video
+python sample_videovae.py ODE --image-size 256 --seed 1 --is-image False
 ```
