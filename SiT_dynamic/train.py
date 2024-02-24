@@ -24,13 +24,33 @@ import argparse
 import logging
 import os
 
+from einops import rearrange
+import torch.nn.functional as F
+
 from models import SiT_models
 from download import find_model
 from transport import create_transport, Sampler
-from diffusers.models import AutoencoderKL
 from train_utils import parse_transport_args
 import wandb_utils
 
+import yaml
+from omegaconf import OmegaConf
+from dataset_video import WebVid10M
+
+def load_config(config_path, display=False):
+    config = OmegaConf.load(config_path)
+    if display:
+        print(yaml.dump(OmegaConf.to_container(config)))
+    return config
+
+def load_vae(config, ckpt_path=None):
+    from ldm.models.autoencoder import AutoencoderKL
+    model = AutoencoderKL(**config.model.params)
+    # if ckpt_path is not None:
+    #     sd = torch.load(ckpt_path, map_location="cpu")["state_dict"]
+    #     missing, unexpected = model.load_state_dict(sd, strict=False)
+    #     print(missing, unexpected)
+    return model.train()
 
 #################################################################################
 #                             Training Helper Functions                         #
@@ -102,7 +122,6 @@ def center_crop_arr(pil_image, image_size):
     crop_x = (arr.shape[1] - image_size) // 2
     return Image.fromarray(arr[crop_y: crop_y + image_size, crop_x: crop_x + image_size])
 
-
 #################################################################################
 #                                  Training Loop                                #
 #################################################################################
@@ -137,10 +156,10 @@ def main(args):
         logger = create_logger(experiment_dir)
         logger.info(f"Experiment directory created at {experiment_dir}")
 
-        entity = os.environ["ENTITY"]
-        project = os.environ["PROJECT"]
-        if args.wandb:
-            wandb_utils.initialize(args, entity, experiment_name, project)
+        # entity = os.environ["ENTITY"]
+        # project = os.environ["PROJECT"]
+        # if args.wandb:
+        #     wandb_utils.initialize(args, entity, experiment_name, project)
     else:
         logger = create_logger(None)
 
@@ -173,20 +192,41 @@ def main(args):
         args.sample_eps
     )  # default: velocity; 
     transport_sampler = Sampler(transport)
-    vae = AutoencoderKL.from_pretrained(f"stabilityai/sd-vae-ft-{args.vae}").to(device)
+
+    if args.is_image:
+        from diffusers.models import AutoencoderKL
+        vae = AutoencoderKL.from_pretrained(f"stabilityai/sd-vae-ft-{args.vae}").to(device)
+    else:
+        config32x32 = load_config("latent-diffusion/configs/autoencoder/videoautoencoder_kl_32x32x4.yaml", display=False)
+        vae = load_vae(config32x32, ckpt_path="last.ckpt").to(device)
+
     logger.info(f"SiT Parameters: {sum(p.numel() for p in model.parameters()):,}")
 
     # Setup optimizer (we used default Adam betas=(0.9, 0.999) and a constant learning rate of 1e-4 in our paper):
     opt = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=0)
 
     # Setup data:
-    transform = transforms.Compose([
-        transforms.Lambda(lambda pil_image: center_crop_arr(pil_image, args.image_size)),
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], inplace=True)
-    ])
-    dataset = ImageFolder(args.data_path, transform=transform)
+    if args.is_image:
+        transform = transforms.Compose([
+            transforms.Lambda(lambda pil_image: center_crop_arr(pil_image, args.image_size)),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], inplace=True)
+        ])
+        dataset = ImageFolder(args.data_path, transform=transform)
+    else:
+        from diffusers import DDIMScheduler
+        noise_scheduler_kwargs = {
+            "num_train_timesteps": 1000,
+            "beta_start": 0.00085,
+            "beta_end": 0.012,
+            "beta_schedule": "linear",
+            "steps_offset": 1,
+            "clip_sample": False
+        }
+        # noise_scheduler = DDIMScheduler(**OmegaConf.to_container(noise_scheduler_kwargs, resolve=True))
+        dataset = WebVid10M(args.csv_path, args.data_path, args.sample_size, args.sample_stride, args.sample_n_frames, is_image=False)
+    
     sampler = DistributedSampler(
         dataset,
         num_replicas=dist.get_world_size(),
@@ -203,7 +243,7 @@ def main(args):
         pin_memory=True,
         drop_last=True
     )
-    logger.info(f"Dataset contains {len(dataset):,} images ({args.data_path})")
+    logger.info(f"Dataset contains {len(dataset):,} images/videos ({args.data_path})")
 
     # Prepare models for training:
     update_ema(ema, model.module, decay=0)  # Ensure EMA is initialized with synced weights
@@ -240,13 +280,23 @@ def main(args):
         logger.info(f"Beginning epoch {epoch}...")
         for x, y in loader:
             x = x.to(device)
+            x = rearrange(x, 'N F C H W -> N C F H W')  
+            if not args.is_image:
+                class_labels = [207, 360]
+                y = torch.tensor(class_labels, device=device)
             y = y.to(device)
             with torch.no_grad():
                 # Map input images to latent space + normalize latents:
-                x = vae.encode(x).latent_dist.sample().mul_(0.18215)
+                if args.is_image:
+                    x = vae.encode(x).latent_dist.sample().mul_(0.18215)
+                else:
+                    x = vae.encode(x)
+                    x = x.sample()
             model_kwargs = dict(y=y)
+            
             loss_dict = transport.training_losses(model, x, model_kwargs)
             loss = loss_dict["loss"].mean()
+
             opt.zero_grad()
             loss.backward()
             opt.step()
@@ -315,13 +365,21 @@ def main(args):
 if __name__ == "__main__":
     # Default args here will train SiT-XL/2 with the hyperparameters we used in our paper (except training iters).
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data-path", type=str, required=True)
+
+    parser.add_argument("--sample-size", type=int, default=128)
+    parser.add_argument("--sample-stride", type=int, default=4)
+    parser.add_argument("--sample-n-frames", type=int, default=16)
+    parser.add_argument("--is-image", type=bool, default=False)
+    parser.add_argument("--csv-path", type=str, default="/remote-home/ysh/ysh/0.TimeLapse/video/Processed/step_2/new/3_2_cus_webvid_format_forward.csv")
+    
+    parser.add_argument("--data-path", type=str, default="/remote-home/ysh/ysh/0.TimeLapse/video/Processed/step_2/new/train_data_512")
+
     parser.add_argument("--results-dir", type=str, default="results")
     parser.add_argument("--model", type=str, choices=list(SiT_models.keys()), default="SiT-XL/2")
     parser.add_argument("--image-size", type=int, choices=[256, 512], default=256)
     parser.add_argument("--num-classes", type=int, default=1000)
     parser.add_argument("--epochs", type=int, default=1400)
-    parser.add_argument("--global-batch-size", type=int, default=256)
+    parser.add_argument("--global-batch-size", type=int, default=2)
     parser.add_argument("--global-seed", type=int, default=0)
     parser.add_argument("--vae", type=str, choices=["ema", "mse"], default="ema")  # Choice doesn't affect training
     parser.add_argument("--num-workers", type=int, default=4)
