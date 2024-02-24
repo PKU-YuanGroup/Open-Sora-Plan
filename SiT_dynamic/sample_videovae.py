@@ -84,8 +84,7 @@ def main(mode, args):
                 atol=args.atol,
                 rtol=args.rtol,
                 reverse=args.reverse
-            )
-            
+            )      
     elif mode == "SDE":
         sample_fn = sampler.sample_sde(
             sampling_method=args.sampling_method,
@@ -95,7 +94,7 @@ def main(mode, args):
             last_step_size=args.last_step_size,
             num_steps=args.num_sampling_steps,
         )
-    
+    import pdb;pdb.set_trace()
     if args.is_image:
         from diffusers.models import AutoencoderKL
         vae = AutoencoderKL.from_pretrained(f"stabilityai/sd-vae-ft-{args.vae}").to(device)
@@ -132,7 +131,6 @@ def main(mode, args):
     else:
         # Use Video VAE
         # samples.shape = [bs, c, n_frame, latent_size, latent_size]
-        # import pdb;pdb.set_trace()
         xrec = vae.decode(samples)
         print(f"Sampling took {time() - start_time:.2f} seconds.")
     
@@ -151,6 +149,8 @@ if __name__ == "__main__":
     # parser.add_argument("--sampler-type", type=str, default="ODE", choices=["ODE", "SDE"])
     
     # parser.add_argument("--model", type=str, choices=list(SiT_models.keys()), default="SiT-XL/2")
+    parser.add_argument("--is-image", type=bool, default=False)
+    parser.add_argument("--n-frame", type=int, default=4)
     parser.add_argument("--vae", type=str, choices=["ema", "mse"], default="mse")
     parser.add_argument("--image-size", type=int, choices=[256, 512], default=256)
     parser.add_argument("--num-classes", type=int, default=1000)
@@ -159,8 +159,6 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--ckpt", type=str, default=None,
                         help="Optional path to a SiT checkpoint (default: auto-download a pre-trained SiT-XL/2 model).")
-    parser.add_argument("--is_image", type=bool, default=False)
-    parser.add_argument("--n-frame", type=int, default=4)
 
     parse_transport_args(parser)
     if mode == "ODE":
