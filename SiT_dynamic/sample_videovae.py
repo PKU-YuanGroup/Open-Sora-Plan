@@ -94,7 +94,6 @@ def main(mode, args):
             last_step_size=args.last_step_size,
             num_steps=args.num_sampling_steps,
         )
-    import pdb;pdb.set_trace()
     if args.is_image:
         from diffusers.models import AutoencoderKL
         vae = AutoencoderKL.from_pretrained(f"stabilityai/sd-vae-ft-{args.vae}").to(device)
