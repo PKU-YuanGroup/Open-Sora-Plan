@@ -12,6 +12,7 @@ pip install torch==1.13.1+cu117 torchvision==0.14.1+cu117 torchaudio==0.13.1 --e
 pip install transformers==4.3.1 kornia==0.6.4 torchmetrics==0.5.0
 pip install opencv-python==4.1.2.30 pytorch-lightning==1.4.2 omegaconf==2.1.1 einops==0.3.0 decord
 pip install pytorchvideo six test-tube albumentations
+pip install timm accelerate torchdiffeq
 cd latent-diffusion
 pip install -e .
 cd ..
