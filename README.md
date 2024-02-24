@@ -37,3 +37,12 @@ python sample_videovae.py ODE --image-size 256 --seed 1 --is-image True
 # for video
 python sample_videovae.py ODE --image-size 256 --seed 1 --is-image False
 ```
+### Training (SiT_dynamic)
+
+```
+cd SiT_dynamic
+# for image
+CUDA_VISIBLE_DEVICES=0 torchrun --nnodes=1 --nproc_per_node=1 --master_port=55552 train.py --model SiT-XL/2 --is-image True
+# for video
+CUDA_VISIBLE_DEVICES=0 torchrun --nnodes=1 --nproc_per_node=1 --master_port=55552 train.py --model SiT-XL/2 --is-image False
+```
