@@ -5,7 +5,6 @@
 # GLIDE: https://github.com/openai/glide-text2im
 # MAE: https://github.com/facebookresearch/mae/blob/main/models_mae.py
 # --------------------------------------------------------
-
 import torch
 import torch.nn as nn
 import numpy as np
@@ -294,7 +293,7 @@ class SiT(nn.Module):
         pos_embed = nn.Parameter(torch.from_numpy(pos_embed).float().unsqueeze(0), requires_grad=False).to(x.device)
         
         if x.dim() == 5:
-            temporal_pos_embed = get_2d_sincos_pos_embed(self.hidden_size, int(num_patches_height * (n_frame**0.5)), int(num_patches_width * (n_frame**0.5)))
+            temporal_pos_embed = get_2d_sincos_pos_embed(self.hidden_size, int(num_patches_height * n_frame), int(num_patches_width))
             temporal_pos_embed = nn.Parameter(torch.from_numpy(temporal_pos_embed).float().unsqueeze(0), requires_grad=False).to(x.device)
             # x = torch.randn(2, 4, 16, 32, 32)                       # (N, C, F, H, W)
             # Get Patches
@@ -463,7 +462,7 @@ SiT_models = {
 }
 
 # model = SiT(patch_size=2, depth=28, hidden_size=1152, num_heads=16)
-# x = torch.randn(2, 4, 16, 32, 128)
+# x = torch.randn(2, 4, 2, 32, 32)
 # t = torch.randint(0, 10, (1,))  # 假设的时间步，随机整数
 # y = torch.randint(0, 1000, (1,))  # 假设的类别标签，随机整数
 # output = model.forward_with_cfg(x, t, y, 0.1)
