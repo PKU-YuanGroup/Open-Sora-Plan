@@ -462,11 +462,11 @@ SiT_models = {
     'SiT-S/2':  SiT_S_2,   'SiT-S/4':  SiT_S_4,   'SiT-S/8':  SiT_S_8,
 }
 
-model = SiT(patch_size=2, depth=28, hidden_size=1152, num_heads=16)
-x = torch.randn(2, 4, 16, 32, 128)
-t = torch.randint(0, 10, (1,))  # 假设的时间步，随机整数
-y = torch.randint(0, 1000, (1,))  # 假设的类别标签，随机整数
-output = model.forward_with_cfg(x, t, y, 0.1)
+# model = SiT(patch_size=2, depth=28, hidden_size=1152, num_heads=16)
+# x = torch.randn(2, 4, 16, 32, 128)
+# t = torch.randint(0, 10, (1,))  # 假设的时间步，随机整数
+# y = torch.randint(0, 1000, (1,))  # 假设的类别标签，随机整数
+# output = model.forward_with_cfg(x, t, y, 0.1)
 
 # from torchinfo import summary
 # import sys
