@@ -103,8 +103,9 @@ def main(mode, args):
         vae = load_vae(config32x32, ckpt_path="last.ckpt").to(device)
 
     # Labels to condition the model with (feel free to change):
-    class_labels = [207, 360, 387, 974, 88, 979, 417, 279]
-    
+    # class_labels = [207, 360, 387, 974, 88, 979, 417, 279]
+    class_labels = [207, 360]
+
     # Create sampling noise:
     n = len(class_labels)
     if args.is_image:
@@ -131,6 +132,7 @@ def main(mode, args):
         # Use Video VAE
         # samples.shape = [bs, c, n_frame, latent_size, latent_size]
         xrec = vae.decode(samples)
+        # save_video(to_do)
         print(f"Sampling took {time() - start_time:.2f} seconds.")
     
 if __name__ == "__main__":
@@ -149,7 +151,7 @@ if __name__ == "__main__":
     
     # parser.add_argument("--model", type=str, choices=list(SiT_models.keys()), default="SiT-XL/2")
     parser.add_argument("--is-image", type=bool, default=False)
-    parser.add_argument("--n-frame", type=int, default=4)
+    parser.add_argument("--n-frame", type=int, default=2)
     parser.add_argument("--vae", type=str, choices=["ema", "mse"], default="mse")
     parser.add_argument("--image-size", type=int, choices=[256, 512], default=256)
     parser.add_argument("--num-classes", type=int, default=1000)
