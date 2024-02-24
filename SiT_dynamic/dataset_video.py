@@ -12,7 +12,6 @@ class WebVid10M(Dataset):
             csv_path, video_folder,
             sample_size=256, sample_stride=4, sample_n_frames=16,
             is_image=False,
-            is_uniform=False,
         ):
         with open(csv_path, 'r') as csvfile:
             self.dataset = list(csv.DictReader(csvfile))
@@ -22,7 +21,6 @@ class WebVid10M(Dataset):
         self.sample_stride   = sample_stride
         self.sample_n_frames = sample_n_frames
         self.is_image        = is_image
-        self.is_uniform      = is_uniform
         
         sample_size = tuple(sample_size) if not isinstance(sample_size, int) else (sample_size, sample_size)
         self.pixel_transforms = transforms.Compose([
@@ -67,28 +65,5 @@ class WebVid10M(Dataset):
 
             except Exception as e:
                 idx = random.randint(0, self.length-1)
-
         pixel_values = self.pixel_transforms(pixel_values)
-        sample = dict(pixel_values=pixel_values, text=name)
-        return sample
-
-
-
-if __name__ == "__main__":
-    from animatediff.utils.util import save_videos_grid
-
-    dataset = WebVid10M(
-        csv_path="/mnt/petrelfs/guoyuwei/projects/datasets/webvid/results_2M_val.csv",
-        video_folder="/mnt/petrelfs/guoyuwei/projects/datasets/webvid/2M_val",
-        sample_size=256,
-        sample_stride=4, sample_n_frames=16,
-        is_image=True,
-    )
-    import pdb
-    pdb.set_trace()
-    
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=4, num_workers=16,)
-    for idx, batch in enumerate(dataloader):
-        print(batch["pixel_values"].shape, len(batch["text"]))
-        # for i in range(batch["pixel_values"].shape[0]):
-        #     save_videos_grid(batch["pixel_values"][i:i+1].permute(0,2,1,3,4), os.path.join(".", f"{idx}-{i}.mp4"), rescale=True)
+        return pixel_values, name
