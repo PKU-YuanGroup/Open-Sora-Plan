@@ -35,7 +35,7 @@ import wandb_utils
 
 import yaml
 from omegaconf import OmegaConf
-from dataset_video import WebVid10M
+from dataset_video import UCF101ClassConditionedDataset
 
 def load_config(config_path, display=False):
     config = OmegaConf.load(config_path)
@@ -216,17 +216,8 @@ def main(args):
         dataset = ImageFolder(args.data_path, transform=transform)
     else:
         from diffusers import DDIMScheduler
-        noise_scheduler_kwargs = {
-            "num_train_timesteps": 1000,
-            "beta_start": 0.00085,
-            "beta_end": 0.012,
-            "beta_schedule": "linear",
-            "steps_offset": 1,
-            "clip_sample": False
-        }
-        # noise_scheduler = DDIMScheduler(**OmegaConf.to_container(noise_scheduler_kwargs, resolve=True))
-        dataset = WebVid10M(args.csv_path, args.data_path, args.sample_size, args.sample_stride, args.sample_n_frames, is_image=False)
-    
+        dataset = UCF101ClassConditionedDataset(args.data_path, args.sample_size, args.sample_n_frames, args.sample_stride)
+
     sampler = DistributedSampler(
         dataset,
         num_replicas=dist.get_world_size(),
@@ -280,10 +271,6 @@ def main(args):
         logger.info(f"Beginning epoch {epoch}...")
         for x, y in loader:
             x = x.to(device)
-            x = rearrange(x, 'N F C H W -> N C F H W')  
-            if not args.is_image:
-                class_labels = [207, 360]
-                y = torch.tensor(class_labels, device=device)
             y = y.to(device)
             with torch.no_grad():
                 # Map input images to latent space + normalize latents:
@@ -369,10 +356,8 @@ if __name__ == "__main__":
     parser.add_argument("--sample-size", type=int, default=128)
     parser.add_argument("--sample-stride", type=int, default=4)
     parser.add_argument("--sample-n-frames", type=int, default=16)
-    parser.add_argument("--is-image", type=bool, default=False)
-    parser.add_argument("--csv-path", type=str, default="/remote-home/ysh/ysh/0.TimeLapse/video/Processed/step_2/new/3_2_cus_webvid_format_forward.csv")
-    
-    parser.add_argument("--data-path", type=str, default="/remote-home/ysh/ysh/0.TimeLapse/video/Processed/step_2/new/train_data_512")
+    parser.add_argument("--is-image", type=bool, default=False)    
+    parser.add_argument("--data-path", type=str, default="/remote-home/ysh/ysh/data/UCF-101")
 
     parser.add_argument("--results-dir", type=str, default="results")
     parser.add_argument("--model", type=str, choices=list(SiT_models.keys()), default="SiT-XL/2")
