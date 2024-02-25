@@ -286,7 +286,6 @@ class SiT(nn.Module):
         t: (N,) tensor of diffusion timesteps
         y: (N,) tensor of class labels
         """
-        import pdb;pdb.set_trace()
         try:
             N, C, F, H, W = x.shape
             n_frame = F
