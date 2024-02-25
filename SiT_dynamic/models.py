@@ -5,6 +5,7 @@
 # GLIDE: https://github.com/openai/glide-text2im
 # MAE: https://github.com/facebookresearch/mae/blob/main/models_mae.py
 # --------------------------------------------------------
+
 import torch
 import torch.nn as nn
 import numpy as np
@@ -129,7 +130,12 @@ class SiTBlock(nn.Module):
             nn.Linear(hidden_size, 6 * hidden_size, bias=True)
         )
 
-    def forward(self, x, c):
+    def forward(self, x, c, space_embed=None, temporal_embed=None, N=None, F=None):
+        if space_embed is not None and temporal_embed is not None:
+            x = rearrange(x, 'N (F T) D -> (N F) T D', N=N, F=F)
+            x = x + space_embed
+            x = rearrange(x, '(N F) T D -> N (F T) D', N=N, F=F)
+            x = x + temporal_embed
         shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = self.adaLN_modulation(c).chunk(6, dim=1)
         x = x + gate_msa.unsqueeze(1) * self.attn(modulate(self.norm1(x), shift_msa, scale_msa))
         x = x + gate_mlp.unsqueeze(1) * self.mlp(modulate(self.norm2(x), shift_mlp, scale_mlp))
@@ -293,7 +299,7 @@ class SiT(nn.Module):
         pos_embed = nn.Parameter(torch.from_numpy(pos_embed).float().unsqueeze(0), requires_grad=False).to(x.device)
         
         if x.dim() == 5:
-            temporal_pos_embed = get_2d_sincos_pos_embed(self.hidden_size, int(num_patches_height * n_frame), int(num_patches_width))
+            temporal_pos_embed = get_2d_sincos_pos_embed(self.hidden_size, int(num_patches_height * (n_frame**0.5)), int(num_patches_width * (n_frame**0.5)))
             temporal_pos_embed = nn.Parameter(torch.from_numpy(temporal_pos_embed).float().unsqueeze(0), requires_grad=False).to(x.device)
             # x = torch.randn(2, 4, 16, 32, 32)                       # (N, C, F, H, W)
             # Get Patches
@@ -307,12 +313,12 @@ class SiT(nn.Module):
             x = rearrange(x, '(N F) T D -> N (F T) D', N=N, F=F)      # (N, FxHxW/ps/ps, D)
             x = x + temporal_embed
             # Add timestep and label embedding
-            t = self.t_embedder(t)                   # (N, D)
-            y = self.y_embedder(y, self.training)    # (N, D)
+            t = self.t_embedder(t)                                     # (N, D)
+            y = self.y_embedder(y, self.training)                      # (N, D)
             c = t + y
             for block in self.blocks:
-                x = block(x, c)                      # (N, FxHxW/ps/ps, D)
-            x = self.final_layer(x, c)               # (N, FxHxW/ps/ps, patch_size ** 2 * out_channels)
+                x = block(x, c, space_embed, temporal_embed, N, F)           # (N, FxHxW/ps/ps, D)
+            x = self.final_layer(x, c)                                 # (N, FxHxW/ps/ps, patch_size ** 2 * out_channels)
             x = self.unpatchify_video(x, F, self.patch_size, num_patches_height, num_patches_width)             # (N, out_channels, F, H, W)
             if self.learn_sigma:
                 x, _ = x.chunk(2, dim=1)
@@ -462,7 +468,7 @@ SiT_models = {
 }
 
 # model = SiT(patch_size=2, depth=28, hidden_size=1152, num_heads=16)
-# x = torch.randn(2, 4, 2, 32, 32)
+# x = torch.randn(2, 4, 16, 32, 128)
 # t = torch.randint(0, 10, (1,))  # 假设的时间步，随机整数
 # y = torch.randint(0, 1000, (1,))  # 假设的类别标签，随机整数
 # output = model.forward_with_cfg(x, t, y, 0.1)
