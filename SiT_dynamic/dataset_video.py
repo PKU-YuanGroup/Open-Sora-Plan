@@ -73,11 +73,13 @@ class UCF101ClassConditionedDataset(Dataset):
             frame_idx = start_frame + i * self.step_between_clips
             if frame_idx < total_frames:
                 frames.append(video[frame_idx])
-                clip = torch.stack(frames)
-        
-        clip = clip.float() / 255
-        # clip = clip.permute(0, 3, 1, 2)  # 从 T H W C 到 T C H W
-        clip = clip.permute(3, 0, 1, 2)    # 从 T H W C 到 C T H W
+            else:
+                # Handle the case where there aren't enough frames; for example, repeat the last frame
+                frames.append(video[-1])  # This line is a simple strategy; adapt as needed
+
+        # Ensure the clip is created outside the loop and only once, after collecting all frames
+        clip = torch.stack(frames).float() / 255
+        clip = clip.permute(3, 0, 1, 2)  # Change from T H W C to C T H W
 
         if self.transform is not None:
             clip = self.transform(clip)
