@@ -1,69 +1,85 @@
-import os, io, csv, math, random
-import numpy as np
-from einops import rearrange
-from decord import VideoReader
+import os
 import torch
+from torch.utils.data import Dataset
+from torchvision.io import read_video
+from torchvision.datasets.utils import list_dir
+from torchvision.datasets.folder import make_dataset
+from torchvision.datasets.video_utils import VideoClips
 import torchvision.transforms as transforms
-from torch.utils.data.dataset import Dataset
+from torchvision.transforms.functional import normalize
+import random
 
-class WebVid10M(Dataset):
-    def __init__(
-            self,
-            csv_path, video_folder,
-            sample_size=256, sample_stride=4, sample_n_frames=16,
-            is_image=False,
-        ):
-        with open(csv_path, 'r') as csvfile:
-            self.dataset = list(csv.DictReader(csvfile))
-        self.length = len(self.dataset)
+class NormalizeVideo(torch.nn.Module):
+    def __init__(self, mean, std):
+        super(NormalizeVideo, self).__init__()
+        self.mean = mean
+        self.std = std
 
-        self.video_folder    = video_folder
-        self.sample_stride   = sample_stride
-        self.sample_n_frames = sample_n_frames
-        self.is_image        = is_image
-        
-        sample_size = tuple(sample_size) if not isinstance(sample_size, int) else (sample_size, sample_size)
-        self.pixel_transforms = transforms.Compose([
+    def forward(self, video):
+        c, t, h, w = video.shape
+        # 创建一个新的张量来存储标准化后的帧
+        normalized_video = torch.zeros_like(video)
+        # 在时间维度上迭代每一帧
+        for i in range(t):
+            frame = video[:, i, :, :]
+            # 应用标准化到当前帧
+            normalized_frame = normalize(frame, self.mean, self.std)
+            normalized_video[:, i, :, :] = normalized_frame
+        return normalized_video
+
+class UCF101ClassConditionedDataset(Dataset):
+    def __init__(self, root_dir, sample_size=256, frames_per_clip=16, step_between_clips=4, frame_rate=None):
+        self.root_dir = root_dir
+        self.frames_per_clip = frames_per_clip
+        self.step_between_clips = step_between_clips
+        self.frame_rate = frame_rate
+        self.transform = transforms.Compose([
             transforms.RandomHorizontalFlip(),
-            transforms.Resize(sample_size[0], interpolation=transforms.InterpolationMode.BICUBIC),
+            transforms.Resize(sample_size),
             transforms.CenterCrop(sample_size),
-            transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], inplace=True),
+            NormalizeVideo(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
         ])
-    
-    def get_batch(self, idx):
-        video_dict = self.dataset[idx]
-        videoid, name = video_dict['videoid'], video_dict['name']
-        
-        video_dir    = os.path.join(self.video_folder, f"{videoid}.mp4")
-        video_reader = VideoReader(video_dir)
-        video_length = len(video_reader)
-        
-        if not self.is_image:
-            clip_length = min(video_length, (self.sample_n_frames - 1) * self.sample_stride + 1)
-            start_idx   = random.randint(0, video_length - clip_length)
-            batch_index = np.linspace(start_idx, start_idx + clip_length - 1, self.sample_n_frames, dtype=int)
-        else:
-            batch_index = [random.randint(0, video_length - 1)]
+        self.classes = sorted(os.listdir(root_dir))
+        self.class_to_idx = {cls_name: idx for idx, cls_name in enumerate(self.classes)}
+        self.samples = self._make_dataset()
 
-        pixel_values = torch.from_numpy(video_reader.get_batch(batch_index).asnumpy()).permute(0, 3, 1, 2).contiguous()
-        pixel_values = pixel_values / 255.
-        del video_reader
-
-        if self.is_image:
-            pixel_values = pixel_values[0]
-        
-        return pixel_values, name
+    def _make_dataset(self):
+        dataset = []
+        for class_name in self.classes:
+            class_path = os.path.join(self.root_dir, class_name)
+            for fname in os.listdir(class_path):
+                if fname.endswith('.avi'):
+                    item = (os.path.join(class_path, fname), self.class_to_idx[class_name])
+                    dataset.append(item)
+        return dataset
 
     def __len__(self):
-        return self.length
+        return len(self.samples)
 
     def __getitem__(self, idx):
-        while True:
-            try:
-                pixel_values, name = self.get_batch(idx)
-                break
+        video_path, label = self.samples[idx]
+        video, _, info = read_video(video_path, start_pts=0, end_pts=None, pts_unit='sec')
+        total_frames = video.size(0)
+        
+        start_frames = range(0, total_frames - self.frames_per_clip * self.step_between_clips, self.step_between_clips)
+        
+        if len(start_frames) > 0:
+            start_frame = random.choice(start_frames)
+        else:
+            start_frame = 0
+        
+        frames = []
+        for i in range(self.frames_per_clip):
+            frame_idx = start_frame + i * self.step_between_clips
+            if frame_idx < total_frames:
+                frames.append(video[frame_idx])
+                clip = torch.stack(frames)
+        
+        clip = clip.float() / 255
+        # clip = clip.permute(0, 3, 1, 2)  # 从 T H W C 到 T C H W
+        clip = clip.permute(3, 0, 1, 2)    # 从 T H W C 到 C T H W
 
-            except Exception as e:
-                idx = random.randint(0, self.length-1)
-        pixel_values = self.pixel_transforms(pixel_values)
-        return pixel_values, name
+        if self.transform is not None:
+            clip = self.transform(clip)
+
+        return clip, label
