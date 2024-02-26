@@ -1,8 +1,0 @@
-Metadata-Version: 2.1
-Name: taming-transformers
-Version: 0.0.1
-Summary: Taming Transformers for High-Resolution Image Synthesis
-License-File: License.txt
-Requires-Dist: torch
-Requires-Dist: numpy
-Requires-Dist: tqdm
