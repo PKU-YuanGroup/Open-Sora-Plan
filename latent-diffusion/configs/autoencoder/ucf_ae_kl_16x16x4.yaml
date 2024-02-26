@@ -8,7 +8,7 @@ model:
     lossconfig:
       target: ldm.modules.losses.LPIPSWithDiscriminator
       params:
-        disc_start: 10000
+        disc_start: 8000
         kl_weight: 0.000001
         disc_weight: 0.5
     ddconfig:
