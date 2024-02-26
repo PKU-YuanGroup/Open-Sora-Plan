@@ -1,0 +1,7 @@
+Metadata-Version: 2.1
+Name: latent-diffusion
+Version: 0.0.1
+License-File: LICENSE
+Requires-Dist: torch
+Requires-Dist: numpy
+Requires-Dist: tqdm
