@@ -36,8 +36,9 @@ class NLayerDiscriminator(nn.Module):
         else:
             use_bias = norm_layer != nn.BatchNorm3d
 
-        kw = 3
-        padw = 1
+        kw = (2, 4, 4)
+        padw = (0, 1, 1)
+        last_padw = (1, 1, 1)
         sequence = [nn.Conv3d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw), nn.LeakyReLU(0.2, True)]
         nf_mult = 1
         nf_mult_prev = 1
@@ -59,7 +60,7 @@ class NLayerDiscriminator(nn.Module):
         ]
 
         sequence += [
-            nn.Conv3d(ndf * nf_mult, 1, kernel_size=kw, stride=1, padding=padw)]  # output 1 channel prediction map
+            nn.Conv3d(ndf * nf_mult, 1, kernel_size=kw, stride=1, padding=last_padw)]  # output 1 channel prediction map
         self.main = nn.Sequential(*sequence)
 
 
@@ -97,6 +98,7 @@ class NLayerDiscriminator(nn.Module):
         # input_2d = rearrange(input, 'b c t h w -> (b t) c h w')
         # print('input', input.shape)
         out = self.main(input)
+        # print('out', out.shape)
         # print('out', out.shape)
         #
         # _, _, _, w = input_2d.shape

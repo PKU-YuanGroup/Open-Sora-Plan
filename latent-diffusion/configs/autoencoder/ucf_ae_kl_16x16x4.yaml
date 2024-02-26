@@ -1,0 +1,72 @@
+model:
+  base_learning_rate: 4.5e-6
+  target: ldm.models.autoencoder.AutoencoderKL
+  params:
+    monitor: "val/rec_loss"
+    embed_dim: 4
+    ckpt_path: "/remote-home/yeyang/OpenSora/latent-diffusion/kl-f8.ckpt"
+    lossconfig:
+      target: ldm.modules.losses.LPIPSWithDiscriminator
+      params:
+        disc_start: 10000
+        kl_weight: 0.000001
+        disc_weight: 0.5
+    ddconfig:
+      double_z: True
+      z_channels: 4
+      resolution: 256
+      in_channels: 3
+      out_ch: 3
+      ch: 128
+      ch_mult: [ 1,2,4,4 ]  # num_down = len(ch_mult)-1
+      num_res_blocks: 2
+      attn_resolutions: [ ]
+      dropout: 0.0
+    scheduler_config:
+      target: ldm.lr_scheduler.LambdaWarmUpCosineScheduler
+      params:
+        warm_up_steps: 1000
+        lr_min: 1e-8
+        lr_max: 1e-4
+        lr_start: 1e-10
+        max_decay_steps: 20000
+
+data:
+  target: main.DataModuleFromConfig
+  params:
+    batch_size: 4
+    wrap: True
+    num_workers: 8
+    train:
+      target: ldm.data.ucf.UCF101
+      params:
+        root_dir: "/remote-home/yeyang/UCF-101"
+        sample_rate: 4
+        num_frames: 16
+        short_size: 128
+        crop_size: 128
+    validation:
+      target: ldm.data.ucf.UCF101
+      params:
+        root_dir: "/remote-home/yeyang/UCF-101"
+        sample_rate: 4
+        num_frames: 16
+        short_size: 128
+        crop_size: 128
+
+lightning:
+  callbacks:
+    image_logger:
+      target: main.VideoLogger
+      params:
+        batch_frequency: 1000
+        max_videos: 2
+        increase_log_steps: True
+        disabled: False
+    lr_logger:
+      target: pytorch_lightning.callbacks.LearningRateMonitor
+
+  trainer:
+    benchmark: True
+    accumulate_grad_batches: 2
+    max_steps: 20000

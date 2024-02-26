@@ -51,9 +51,13 @@ class PadTemporal(torch.nn.Module):
             x = torch.cat([x, pad], dim=1)
         return x
 
-class WebVid(Dataset):
+
+class UCF101(Dataset):
     def __init__(self, root_dir, sample_rate, num_frames, short_size, crop_size, **kwargs):
         self.root_dir = root_dir
+
+        self.classes = sorted(os.listdir(root_dir))
+        self.class_to_idx = {cls_name: idx for idx, cls_name in enumerate(self.classes)}
         self.video_paths = self._make_dataset()
 
         self.sample_rate = sample_rate
@@ -63,16 +67,16 @@ class WebVid(Dataset):
         self.crop_size = crop_size
 
         self.transform = Compose(
-        [
-            # UniformTemporalSubsample(num_frames),
-            Lambda(lambda x: (2 * (x / 255.0) - 1)),
-            # NormalizeVideo(mean=OPENAI_DATASET_MEAN, std=OPENAI_DATASET_STD),
-            ShortSideScale(size=self.short_size),
-            RandomCropVideo(size=self.crop_size),
-            PadTemporal(size=self.num_frames),
-            # RandomHorizontalFlipVideo(p=0.5),
-        ]
-    )
+            [
+                # UniformTemporalSubsample(num_frames),
+                Lambda(lambda x: (2 * (x / 255.0) - 1)),
+                # NormalizeVideo(mean=OPENAI_DATASET_MEAN, std=OPENAI_DATASET_STD),
+                ShortSideScale(size=self.short_size),
+                RandomCropVideo(size=self.crop_size),
+                PadTemporal(size=self.num_frames),
+                # RandomHorizontalFlipVideo(p=0.5),
+            ]
+        )
 
     def __len__(self):
         return len(self.video_paths)
@@ -86,7 +90,7 @@ class WebVid(Dataset):
             return video_outputs
         except Exception as e:
             print(f'Error with {e}, {video_path}')
-            return self.__getitem__(random.randint(0, self.__len__()-1))
+            return self.__getitem__(random.randint(0, self.__len__() - 1))
 
     def read_video(self, video_path):
         decord_vr = VideoReader(video_path, ctx=cpu(0))
@@ -115,11 +119,11 @@ class WebVid(Dataset):
 
     def _make_dataset(self):
         dataset = []
-        for folder in os.listdir(self.root_dir):
-            sub_folder = os.path.join(self.root_dir, folder)
-            for fname in os.listdir(sub_folder):
-                item = os.path.join(sub_folder, fname)
-                dataset.append(item)
+        for class_name in self.classes:
+            class_path = os.path.join(self.root_dir, class_name)
+            for fname in os.listdir(class_path):
+                if fname.endswith('.avi'):
+                    item = os.path.join(class_path, fname)
+                    dataset.append(item)
         return dataset
-
 

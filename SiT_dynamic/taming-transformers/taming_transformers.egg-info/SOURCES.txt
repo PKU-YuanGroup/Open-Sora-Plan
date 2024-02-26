@@ -1,7 +1,0 @@
-README.md
-setup.py
-taming_transformers.egg-info/PKG-INFO
-taming_transformers.egg-info/SOURCES.txt
-taming_transformers.egg-info/dependency_links.txt
-taming_transformers.egg-info/requires.txt
-taming_transformers.egg-info/top_level.txt

@@ -1,3 +1,5 @@
+import os.path
+
 import torch
 import pytorch_lightning as pl
 import torch.nn.functional as F
@@ -11,6 +13,7 @@ from ldm.modules.diffusionmodules.model import Encoder, Decoder
 from ldm.modules.distributions.distributions import DiagonalGaussianDistribution
 
 from ldm.util import instantiate_from_config
+from torch.optim.lr_scheduler import LambdaLR
 
 
 class VQModel(pl.LightningModule):
@@ -294,6 +297,7 @@ class AutoencoderKL(pl.LightningModule):
                  image_key="image",
                  colorize_nlabels=None,
                  monitor=None,
+                 scheduler_config=None
                  ):
         super().__init__()
         self.image_key = image_key
@@ -311,17 +315,25 @@ class AutoencoderKL(pl.LightningModule):
             self.monitor = monitor
         if ckpt_path is not None:
             self.init_from_ckpt(ckpt_path, ignore_keys=ignore_keys)
+        self.scheduler_config = scheduler_config
 
     def init_from_ckpt(self, path, ignore_keys=list()):
-        sd = torch.load(path, map_location="cpu")["state_dict"]
-        keys = list(sd.keys())
-        for k in keys:
-            for ik in ignore_keys:
-                if k.startswith(ik):
-                    print("Deleting key {} from state_dict.".format(k))
-                    del sd[k]
-        self.load_state_dict(sd, strict=False)
-        print(f"Restored from {path}")
+        if os.path.exists(path):
+            sd = torch.load(path, map_location="cpu")["state_dict"]
+            keys = list(sd.keys())
+            for k in keys:
+                for ik in ignore_keys:
+                    if k.startswith(ik):
+                        print("Deleting key {} from state_dict.".format(k))
+                        del sd[k]
+                if 'loss.discriminator' in k and sd[k].ndim == 4:
+                    # print(k)
+                    sd[k] = sd[k].unsqueeze(-3).repeat(1, 1, 2, 1, 1)  # conv2d to 3d
+
+            msg = self.load_state_dict(sd, strict=False)
+            print(f"Restored from {path}, {msg}")
+        else:
+            print(f'FileNotFound at {path}')
 
     def encode(self, x):
         h = self.encoder(x)
@@ -372,6 +384,10 @@ class AutoencoderKL(pl.LightningModule):
             aeloss, log_dict_ae = self.loss(inputs, reconstructions, posterior, optimizer_idx, self.global_step,
                                             last_layer=self.get_last_layer(), split="train")
             self.log("aeloss", aeloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
+            self.log("aelr_1d", self.trainer.lr_schedulers[0]["scheduler"].optimizer.param_groups[0]['lr'],
+                     prog_bar=True, logger=True, on_step=True, on_epoch=True)
+            self.log("aelr_2d", self.trainer.lr_schedulers[0]["scheduler"].optimizer.param_groups[2]['lr'],
+                     prog_bar=True, logger=True, on_step=True, on_epoch=True)
             self.log_dict(log_dict_ae, prog_bar=False, logger=True, on_step=True, on_epoch=False)
             return aeloss
 
@@ -381,6 +397,8 @@ class AutoencoderKL(pl.LightningModule):
                                                 last_layer=self.get_last_layer(), split="train")
 
             self.log("discloss", discloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
+            self.log("disclr", self.trainer.lr_schedulers[1]["scheduler"].optimizer.param_groups[0]['lr'],
+                     prog_bar=True, logger=True, on_step=True, on_epoch=True)
             self.log_dict(log_dict_disc, prog_bar=False, logger=True, on_step=True, on_epoch=False)
             return discloss
 
@@ -401,13 +419,49 @@ class AutoencoderKL(pl.LightningModule):
 
     def configure_optimizers(self):
         lr = self.learning_rate
-        opt_ae = torch.optim.Adam(list(self.encoder.parameters())+
-                                  list(self.decoder.parameters())+
-                                  list(self.quant_conv.parameters())+
-                                  list(self.post_quant_conv.parameters()),
-                                  lr=lr, betas=(0.5, 0.9))
+        # opt_ae = torch.optim.Adam(list(self.encoder.parameters())+
+        #                           list(self.decoder.parameters())+
+        #                           list(self.quant_conv.parameters())+
+        #                           list(self.post_quant_conv.parameters()),
+        #                           lr=lr, betas=(0.5, 0.9))
+
+        coef_lr = 0.01
+        optimizer_grouped_parameters = [
+            {'params': [p for n, p in self.encoder.named_parameters() if '1d' in n], 'lr': lr},
+            {'params': [p for n, p in self.decoder.named_parameters() if '1d' in n], 'lr': lr},
+            {'params': [p for n, p in self.encoder.named_parameters() if '1d' not in n], 'lr': lr * coef_lr},
+            {'params': [p for n, p in self.decoder.named_parameters() if '1d' not in n], 'lr': lr * coef_lr},
+            {'params': list(self.quant_conv.parameters()), 'lr': lr * coef_lr},
+            {'params': list(self.post_quant_conv.parameters()), 'lr': lr * coef_lr}
+        ]
+        opt_ae = torch.optim.Adam(optimizer_grouped_parameters, lr=lr, betas=(0.5, 0.9))
+        # opt_ae = torch.optim.Adam([p for n, p in self.encoder.named_parameters() if '1d' in n]+
+        #                           [p for n, p in self.decoder.named_parameters() if '1d' in n],
+        #                           # list(self.quant_conv.parameters())+
+        #                           # list(self.post_quant_conv.parameters()),
+        #                           lr=lr, betas=(0.5, 0.9))
         opt_disc = torch.optim.Adam(self.loss.discriminator.parameters(),
                                     lr=lr, betas=(0.5, 0.9))
+        for n, p in self.named_parameters():
+            print(n, p.requires_grad)
+
+        if self.scheduler_config is not None:
+            scheduler = instantiate_from_config(self.scheduler_config)
+
+            print("Setting up LambdaLR scheduler...")
+            scheduler = [
+                {
+                    'scheduler': LambdaLR(opt_ae, lr_lambda=scheduler.schedule),
+                    'interval': 'step',
+                    'frequency': 1
+                },
+                {
+                    'scheduler': LambdaLR(opt_disc, lr_lambda=scheduler.schedule),
+                    'interval': 'step',
+                    'frequency': 1
+                },
+            ]
+            return [opt_ae, opt_disc], scheduler
         return [opt_ae, opt_disc], []
 
     def get_last_layer(self):
@@ -424,7 +478,7 @@ class AutoencoderKL(pl.LightningModule):
             if x.shape[1] > 3:
                 # colorize with random projection
                 assert xrec.shape[1] > 3
-                x = self.to_rgb(x)
+                # x = self.to_rgb(x)
                 xrec = self.to_rgb(xrec)
             log["samples"] = self.decode(torch.randn_like(posterior.sample()))
             log["reconstructions"] = xrec
