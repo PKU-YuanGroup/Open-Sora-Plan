@@ -76,6 +76,6 @@ def sinusoidal_position_embedding(batch_size=None, nums_head=None, seq_len=None,
 
     return embeddings
 
-q = torch.ones((1, 12, 10, 32))
-q1 = get_2d_sincos_pos_embed_from_RoPE(q)
-import pdb;pdb.set_trace()
+# q = torch.ones((1, 12, 10, 32))
+# q1 = get_2d_sincos_pos_embed_from_RoPE(q)
+# import pdb;pdb.set_trace()
