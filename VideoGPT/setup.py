@@ -4,6 +4,7 @@ def parse_requirements(filename):
     lines = (line.strip() for line in open(filename))
     return [line for line in lines if line and not line.startswith('#')]
 
+
 setup(name='VideoGPT', version='1.0',
       description='PyTorch package for VideoGPT',
       url='http://github.com/wilson1yan/VideoGPT',
