@@ -48,7 +48,18 @@ cd ..
 
 ### Datasets
 
-Refer to [DATA.md](docs/DATA.md)
+We test the code with UCF-101. In order to install UCF-101, you can download the necessary files [here](https://www.crcv.ucf.edu/data/UCF101.php). The code assumes a `ucf101` directory with the following structure
+```
+UCF-101/
+    ApplyEyeMakeup/
+        v1.avi
+        ...
+    ...
+    YoYo/
+        v1.avi
+        ...
+```
+
 
 ### Video-VQVAE (VideoGPT)
 
