@@ -61,16 +61,13 @@ class Attention(nn.Module):
         else:
             q = q * self.scale
             attn = q @ k.transpose(-2, -1)
-            # import ipdb
-            # ipdb.set_trace()
-            # if attention_mask is not None:
-            #     attention_mask = attention_mask.flatten(1).unsqueeze(-1)  # bs t h w -> bs thw 1
-            #     attention_mask = attention_mask @ attention_mask.transpose(1, 2)  # bs thw 1 @ bs 1 thw = bs thw thw
-            #     attention_mask = attention_mask.unsqueeze(1)
-            #     assert attn.shape[0] % attention_mask.shape[0] == 0
-            #     attention_mask = torch.cat([attention_mask] * (attn.shape[0] // attention_mask.shape[0]), dim=0)
-            #     attention_mask = attention_mask.masked_fill(attention_mask == 0, torch.finfo(attn.dtype).min)
-            #     attn = attn + attention_mask
+            if attention_mask is not None:
+                attention_mask = attention_mask.flatten(1).unsqueeze(-1)  # bs t h w -> bs thw 1
+                attention_mask = attention_mask @ attention_mask.transpose(1, 2)  # bs thw 1 @ bs 1 thw = bs thw thw
+                attention_mask = attention_mask.unsqueeze(1)
+                assert attn.shape[0] == attention_mask.shape[0]
+                attention_mask = attention_mask.masked_fill(attention_mask == 0, torch.finfo(attn.dtype).min)
+                attn = attn + attention_mask
             attn = attn.softmax(dim=-1)
             if torch.any(torch.isnan(attn)):
                 print('torch.any(torch.isnan(attn))')
