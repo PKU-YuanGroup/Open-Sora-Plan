@@ -8,6 +8,7 @@ This project aims to create a simple and scalable repo, to reproduce [Sora](http
 <p align="center">
 <img src="assets/we_want_you.jpg" width=30%>
 </p>
+
 ![The architecture of Open-Sora-Plan](assets/framework.jpg)
 
 
