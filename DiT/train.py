@@ -11,7 +11,6 @@ import torch
 # the first flag below was False when we tested this script but True makes A100 training a lot faster:
 from torch import nn
 from videogpt import load_vqvae
-
 from videodata import Collate, UCF101ClassConditionedDataset
 
 torch.backends.cuda.matmul.allow_tf32 = True
@@ -20,11 +19,7 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
-from torchvision.datasets import ImageFolder
-from torchvision import transforms
-import numpy as np
 from collections import OrderedDict
-from PIL import Image
 from copy import deepcopy
 from glob import glob
 from time import time
@@ -34,7 +29,6 @@ import os
 
 from models import DiT_models
 from diffusion import create_diffusion
-# from diffusers.models import AutoencoderKL
 
 
 #################################################################################
@@ -129,7 +123,7 @@ def main(args):
     assert vae_stride_h == vae_stride_w, "Support now."
     assert patch_size_h == patch_size_w, "Support now."
 
-    latent_size = args.max_image_size // vae_stride_h
+    latent_size = (args.num_frames // vae_stride_t, args.max_image_size // vae_stride_h, args.max_image_size // vae_stride_w)
 
     model = DiT_models[args.model](
         input_size=latent_size,
@@ -145,9 +139,8 @@ def main(args):
         del state_dict['x_embedder.proj.weight']
         del state_dict['final_layer.linear.weight']
         del state_dict['final_layer.linear.bias']
-        del state_dict['y_embedder.embedding_table.weight']
-
         del state_dict['pos_embed']
+        del state_dict['y_embedder.embedding_table.weight']
         missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
         print('missing_keys:', missing_keys, 'unexpected_keys:', unexpected_keys)
         assert len(missing_keys) == 4
@@ -160,6 +153,7 @@ def main(args):
     diffusion = create_diffusion(timestep_respacing="")  # default: 1000 steps, linear noise schedule
     # vae = AutoencoderKL.from_pretrained(f"stabilityai/sd-vae-ft-{args.vae}").to(device)
     vae = load_vqvae(args.vae, root='./').to(device)
+    logger.info(f"{model}")
     logger.info(f"DiT Parameters: {sum(p.numel() for p in model.parameters()):,}")
     for n, p in model.named_parameters():
         if p.requires_grad:
@@ -211,9 +205,7 @@ def main(args):
             attn_mask = attn_mask.to(device)
             with torch.no_grad():
                 # Map input images to latent space + normalize latents:
-                # x = vae.encode(x).latent_dist.sample().mul_(0.18215)
-                # x = vae.encode(x, include_embeddings=True)[1]
-                x = vae.pre_vq_conv(vae.encoder(x)).mul_(0.18215)
+                x = vae.pre_vq_conv(vae.encoder(x))
             t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=device)
             model_kwargs = dict(y=y, attention_mask=attn_mask)
             loss_dict = diffusion.training_losses(model, x, t, model_kwargs)
