@@ -4,19 +4,20 @@
 
 ![The architecture of Open-Sora-Plan](assets/framework.jpg)
 
-This project aim to reproducing Sora (Open AI T2V model), but we only have limited resource.
-
-The goal is to create a simple and scalable repo, to reproduce MUSE and build knowedge about VideoVAE + DiT at scale. We will use more data and GPUs for training.  We deeply wish the all open source community can contribute to this project.
+This project aim to create a simple and scalable repo, to reproduce [Sora](https://openai.com/sora) (Open AI T2V model) and build knowedge about VideoVAE + DiT at scale. But we only have limited resource, we deeply wish the all open source community can contribute to this project.
 
 这个项目旨在复现OpenAI的文生视频模型，但是我们计算资源有限，先搭建一个框架，我们希望整个开源社区能够一起合作共同为这个Project贡献力量，我们也会标注清楚大家的贡献。
 
 ## News
+[2024.03.01] Training code are available now! Welcome to watch 👀 this repository for the latest updates.
 
 ## Todo
 
 - [x] support variable aspect ratios, resolutions, durations training
 - [x] add class-conditioning on embeddings
 
+- [ ] sampling script
+- [ ] fine-tune Video-VQVAE on higher resolution
 - [ ] incorporating more conditions
 - [ ] training with more data and more GPU
 
@@ -42,27 +43,69 @@ pip install -e .
 cd ..
 ```
 
-## Training
+## Usage
 
-### VideoVAE
+### Datasets
 
+Refer to [DATA.md](docs/DATA.md)
+
+### Video-VQVAE (VideoGPT)
+
+#### Training
+
+Use the `scripts/train_vqvae.py` script to train a Video-VQVAE. Execute `python scripts/train_vqvae.py -h` for information on all available training settings. A subset of more relevant settings are listed below, along with default values.
 ```
+cd VideoGPT
 ```
 
-### VideoDiT
-```
+##### VQ-VAE Specific Settings
+* `--embedding_dim`: number of dimensions for codebooks embeddings
+* `--n_codes 2048`: number of codes in the codebook
+* `--n_hiddens 240`: number of hidden features in the residual blocks
+* `--n_res_layers 4`: number of residual blocks
+* `--downsample 4 4 4`: T H W downsampling stride of the encoder
 
+##### Training Settings
+* `--gpus 2`: number of gpus for distributed training
+* `--sync_batchnorm`: uses `SyncBatchNorm` instead of `BatchNorm3d` when using > 1 gpu
+* `--gradient_clip_val 1`: gradient clipping threshold for training
+* `--batch_size 16`: batch size per gpu
+* `--num_workers 8`: number of workers for each DataLoader
+
+##### Dataset Settings
+* `--data_path <path>`: path to an `hdf5` file or a folder containing `train` and `test` folders with subdirectories of videos
+* `--resolution 128`: spatial resolution to train on 
+* `--sequence_length 16`: temporal resolution, or video clip length
+
+#### Reconstructing
+
+
+### VideoDiT (DiT)
+
+#### Training
+```
+cd DiT
+torchrun  --nproc_per_node=8 train.py \
+  --model DiT-XL/122 --pt-ckpt DiT-XL-2-256x256.pt \
+  --vae ucf101_stride4x4x4 \
+  --data-path /remote-home/yeyang/UCF-101 --num-classes 101 \
+  --sample-rate 2 --num-frames 8 --max-image-size 128 \
+  --epochs 1400 --global-batch-size 256 --lr 1e-4 \
+  --ckpt-every 1000 --log-every 1000 
 ```
 
 <p align="center">
 <img src="assets/loss.jpg" width=50%>
 </p>
 
+#### Sampling
+Coming soon.
+
 ## Acknowledgement
-* [DiT](https://github.com/facebookresearch/DiT/tree/main) Scalable Diffusion Models with Transformers.
-* [VideoGPT](https://github.com/wilson1yan/VideoGPT) Video Generation using VQ-VAE and Transformers.
-* [FiT](https://github.com/whlzy/Fi) Flexible Vision Transformer for Diffusion Model.
-* [Positional Interpolation](https://arxiv.org/abs/2306.15595) Extending Context Window of Large Language Models via Positional Interpolation.
+* [DiT](https://github.com/facebookresearch/DiT/tree/main): Scalable Diffusion Models with Transformers.
+* [VideoGPT](https://github.com/wilson1yan/VideoGPT): Video Generation using VQ-VAE and Transformers.
+* [FiT](https://github.com/whlzy/Fi): Flexible Vision Transformer for Diffusion Model.
+* [Positional Interpolation](https://arxiv.org/abs/2306.15595): Extending Context Window of Large Language Models via Positional Interpolation.
 
 ## License
 * The service is a research preview intended for non-commercial use only. See [LICENSE.txt](LICENSE.txt) for details.
