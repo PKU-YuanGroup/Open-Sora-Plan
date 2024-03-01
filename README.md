@@ -9,7 +9,7 @@ This project aim to create a simple and scalable repo, to reproduce [Sora](https
 这个项目旨在复现OpenAI的文生视频模型，但是我们计算资源有限，先搭建一个框架，我们希望整个开源社区能够一起合作共同为这个Project贡献力量，我们也会标注清楚大家的贡献。
 
 ## News
-[2024.03.01] Training code are available now! Welcome to watch 👀 this repository for the latest updates.
+**[2024.03.01]** Training code are available now! Welcome to watch 👀 this repository for the latest updates.
 
 ## Todo
 
@@ -79,6 +79,9 @@ cd VideoGPT
 
 #### Reconstructing
 
+```Python
+python VideoGPT/rec_video.py --video-path "assets/origin_video_0.mp4"
+```
 
 ### VideoDiT (DiT)
 
@@ -104,7 +107,7 @@ Coming soon.
 ## Acknowledgement
 * [DiT](https://github.com/facebookresearch/DiT/tree/main): Scalable Diffusion Models with Transformers.
 * [VideoGPT](https://github.com/wilson1yan/VideoGPT): Video Generation using VQ-VAE and Transformers.
-* [FiT](https://github.com/whlzy/Fi): Flexible Vision Transformer for Diffusion Model.
+* [FiT](https://github.com/whlzy/FiT): Flexible Vision Transformer for Diffusion Model.
 * [Positional Interpolation](https://arxiv.org/abs/2306.15595): Extending Context Window of Large Language Models via Positional Interpolation.
 
 ## License
