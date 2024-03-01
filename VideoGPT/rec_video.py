@@ -10,6 +10,7 @@ from torchvision.transforms._transforms_video import RandomCropVideo
 from torch.nn import functional as F
 from videogpt import load_vqvae
 from videogpt.data import preprocess
+import argparse
 
 def array_to_video(image_array, fps=30.0, output_file='output_video.mp4'):
     height, width, channels = image_array[0].shape
@@ -74,34 +75,36 @@ def preprocess(video_data, short_size=128, crop_size=None):
 
 
 def main(args):
-  video_path = args.video_path
-  num_frames = args.num_frames
-  resolution = args.resolution
-  sample_fps = args.sample_fps
-  sample_rate = args.sample_rate
-  device = torch.device('cuda')
-  
-  vqvae = load_vqvae(args.ckpt, root='./').to(device)
-  
-  short_size, crop_size = resolution, resolution
-  
-  x_vae = preprocess(read_video(video_path, num_frames, sample_rate), short_size, crop_size)
-  x_vae = x_vae.to(device)
-  
-  encodings, embeddings = vqvae.encode(x_vae, include_embeddings=True)
-  video_recon = vqvae.decode(encodings)
-  
-  # custom_to_video(x_vae[0], fps=sample_fps/sample_rate, output_file='origin_input.mp4')
-  custom_to_video(video_recon[0], fps=sample_fps/sample_rate, output_file=args.rec_path)
+    video_path = args.video_path
+    num_frames = args.num_frames
+    resolution = args.resolution
+    crop_size = args.crop_size
+    sample_fps = args.sample_fps
+    sample_rate = args.sample_rate
+    device = torch.device('cuda')
+
+    vqvae = load_vqvae(args.ckpt, root='./').to(device)
+
+
+    x_vae = preprocess(read_video(video_path, num_frames, sample_rate), resolution, crop_size)
+    x_vae = x_vae.to(device)
+
+    encodings, embeddings = vqvae.encode(x_vae, include_embeddings=True)
+    video_recon = vqvae.decode(encodings)
+
+    # custom_to_video(x_vae[0], fps=sample_fps/sample_rate, output_file='origin_input.mp4')
+    custom_to_video(video_recon[0], fps=sample_fps/sample_rate, output_file=args.rec_path)
 
 if __name__ == '__main__':
-  parser = argparse.ArgumentParser()
-  parser.add_argument('--video-path', type=str, default='your/video.mp4')
-  parser.add_argument('--rec-path', type=str, default='your/rec_video.mp4')
-  parser.add_argument('--ckpt', type=str, default='ucf101_stride4x4x4', 
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--video-path', type=str, default='')
+    parser.add_argument('--rec-path', type=str, default='')
+    parser.add_argument('--ckpt', type=str, default='ucf101_stride4x4x4', 
                       choices=['bair_stride4x2x2', 'ucf101_stride4x4x4', 'kinetics_stride4x4x4', 'kinetics_stride2x4x4'])
-  parser.add_argument('--sample-fps', type=int, default=30)
-  parser.add_argument('--resolution', type=int, default=256)
-  parser.add_argument('--num-frames', type=int, default=8)
-  parser.add_argument('--sample-rate', type=int, default=4)
-  args = parser.parse_args()
+    parser.add_argument('--sample-fps', type=int, default=30)
+    parser.add_argument('--resolution', type=int, default=336)
+    parser.add_argument('--crop-size', type=int, default=None)
+    parser.add_argument('--num-frames', type=int, default=100)
+    parser.add_argument('--sample-rate', type=int, default=1)
+    args = parser.parse_args()
+    main(args)
