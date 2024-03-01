@@ -140,4 +140,5 @@ Coming soon.
 
 <a href="https://github.com/PKU-YuanGroup/Open-Sora-Plan/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=PKU-YuanGroup/Open-Sora-Plan" />
+  <img src="assets/wewantyou.jpg" />
 </a>
