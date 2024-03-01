@@ -113,7 +113,7 @@ torchrun  --nproc_per_node=8 train.py \
 ```
 
 <p align="center">
-<img src="assets/loss.jpg" width=50%>
+<img src="assets/loss.jpg" width=60%>
 </p>
 
 #### Sampling
