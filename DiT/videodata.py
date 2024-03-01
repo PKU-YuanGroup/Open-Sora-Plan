@@ -92,20 +92,20 @@ class UCF101ClassConditionedDataset(Dataset):
         decord_vr = VideoReader(video_path, ctx=cpu(0))
 
         total_frames = len(decord_vr)
-        # if total_frames > self.sample_frames_len:
-        s = random.randint(0, total_frames - self.sample_frames_len - 1)
-        e = s + self.sample_frames_len
-        num_frames = self.num_frames
-        # else:
-        #     s = 0
-        #     e = total_frames
-        #     num_frames = int(total_frames / self.sample_frames_len * self.num_frames)
-            # print(f'sample_frames_len {self.sample_frames_len}, only can {num_frames*self.sample_rate}', video_path, total_frames)
+        if total_frames > self.sample_frames_len:
+            s = random.randint(0, total_frames - self.sample_frames_len - 1)
+            e = s + self.sample_frames_len
+            num_frames = self.num_frames
+        else:
+            s = 0
+            e = total_frames
+            num_frames = int(total_frames / self.sample_frames_len * self.num_frames)
+            print(f'sample_frames_len {self.sample_frames_len}, only can {num_frames*self.sample_rate}', video_path, total_frames)
 
         # random drop to dynamic input frames
         frame_id_list = np.linspace(s, e - 1, num_frames, dtype=int)
-        if self.dynamic_frames:  # actually only second-half is dynamic, because num_frames are rare...
-            cut_idx = random.randint(self.num_frames // 2, self.num_frames)
+        if self.dynamic_frames and total_frames > self.sample_frames_len:  # actually only second-half is dynamic, because num_frames are rare...
+            cut_idx = random.randint(num_frames // 2, num_frames)
             frame_id_list = frame_id_list[:cut_idx]
 
         video_data = decord_vr.get_batch(frame_id_list).asnumpy()
