@@ -11,7 +11,7 @@ This project aims to create a simple and scalable repo, to reproduce [Sora](http
 
 ![The architecture of Open-Sora-Plan](assets/framework.jpg)
 
-
+  
 ## News
 **[2024.03.01]** Training codes are available now! Learn more in our [project page](https://pku-yuangroup.github.io/Open-Sora-Plan/). Please feel free to watch 👀 this repository for the latest updates.
 
