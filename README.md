@@ -101,14 +101,12 @@ python VideoGPT/rec_video.py --video-path "assets/origin_video_1.mp4" --rec-path
 
 
 
-https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/c15a5ee3-b2bd-4b6d-8460-8b679e4fe182
-
-https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/ce03c5bc-742e-4dfe-859f-96777f0f06c4
-
-
-
-
-
+<p align="center">
+<img src="assets/rec_video_0.gif"> 
+<img src="assets/rec_video_1.gif"> 
+<img src="assets/rec_video_2.gif"> 
+<img src="assets/rec_video_3.gif">
+</p>
 
 
 
