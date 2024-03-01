@@ -101,18 +101,10 @@ python VideoGPT/rec_video.py --video-path "assets/origin_video_1.mp4" --rec-path
 
 We present four reconstructed videos in this demonstration, arranged from left to right as follows: 
 
-a **3s 596x336** video, a **24s 168x96** video, a **10s 256x256** video, and a **18s 196x196** video.
 
-
-
-<p align="center">
-<img src="assets/rec_video_2.gif"> 
-<img src="assets/rec_video_0.gif"> 
-<img src="assets/rec_video_1.gif"> 
-<img src="assets/rec_video_3.gif">
-</p>
-
-
+| **3s 596x336** | **24s 168x96** | **10s 256x256** | **18s 196x196** |
+| --- | --- | --- | --- |
+| <img src="assets/rec_video_2.gif">  | <img src="assets/rec_video_0.gif">  | <img src="assets/rec_video_1.gif">  | <img src="assets/rec_video_3.gif"> |
 
 ### VideoDiT (DiT)
 
