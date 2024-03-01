@@ -91,12 +91,13 @@ def main(args):
   encodings, embeddings = vqvae.encode(x_vae, include_embeddings=True)
   video_recon = vqvae.decode(encodings)
   
-  custom_to_video(x_vae[0], fps=sample_fps/sample_rate, output_file='origin.mp4')
-  custom_to_video(video_recon[0], fps=sample_fps/sample_rate, output_file='decode.mp4')
+  # custom_to_video(x_vae[0], fps=sample_fps/sample_rate, output_file='origin_input.mp4')
+  custom_to_video(video_recon[0], fps=sample_fps/sample_rate, output_file=args.rec_path)
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser()
   parser.add_argument('--video-path', type=str, default='your/video.mp4')
+  parser.add_argument('--rec-path', type=str, default='your/rec_video.mp4')
   parser.add_argument('--ckpt', type=str, default='ucf101_stride4x4x4', 
                       choices=['bair_stride4x2x2', 'ucf101_stride4x4x4', 'kinetics_stride4x4x4', 'kinetics_stride2x4x4'])
   parser.add_argument('--sample-fps', type=int, default=30)
