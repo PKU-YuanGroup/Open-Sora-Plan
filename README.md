@@ -10,7 +10,7 @@ This project aim to create a simple and scalable repo, to reproduce [Sora](https
 
 
 ## News
-**[2024.03.01]** Training code are available now! Welcome to watch 👀 this repository for the latest updates.
+**[2024.03.01]** Training code are available now! Learn more in our [project page](). Welcome to watch 👀 this repository for the latest updates.
 
 ## Todo
 
