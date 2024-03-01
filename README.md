@@ -4,7 +4,7 @@
 
 ![The architecture of Open-Sora-Plan](assets/framework.jpg)
 
-This project aim to create a simple and scalable repo, to reproduce [Sora](https://openai.com/sora) (Open AI T2V model) and build knowedge about VideoVAE + DiT at scale. But we only have limited resource, we deeply wish the all open source community can contribute to this project.
+This project aim to create a simple and scalable repo, to reproduce [Sora](https://openai.com/sora) (Open AI T2V model) and build knowedge about Video-VQVAE (VideoGPT) + DiT at scale. But we only have limited resource, we deeply wish the all open source community can contribute to this project.
 
 ## News
 **[2024.03.01]** Training code are available now! Welcome to watch 👀 this repository for the latest updates.
