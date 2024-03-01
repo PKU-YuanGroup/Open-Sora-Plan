@@ -102,9 +102,9 @@ python VideoGPT/rec_video.py --video-path "assets/origin_video_1.mp4" --rec-path
 
 
 <p align="center">
+<img src="assets/rec_video_2.gif"> 
 <img src="assets/rec_video_0.gif"> 
 <img src="assets/rec_video_1.gif"> 
-<img src="assets/rec_video_2.gif"> 
 <img src="assets/rec_video_3.gif">
 </p>
 
