@@ -531,4 +531,9 @@ video {
     width: 256px; /* 设置视频宽度 */
     height: 256px; /* 设置视频高度，保持16:9的宽高比 */
   }
-
+.centered-images {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 120px; /* 创建20px的间隙 */
+        }
