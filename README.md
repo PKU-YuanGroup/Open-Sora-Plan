@@ -1,6 +1,6 @@
 # Open-Sora Plan
 
-[[Project Page]]()
+[[Project Page]](https://pku-yuangroup.github.io/Open-Sora-Plan/)
 
 This project aim to create a simple and scalable repo, to reproduce [Sora](https://openai.com/sora) (OpenAI, but we prefer to call it "CloseAI" ) and build knowedge about Video-VQVAE (VideoGPT) + DiT at scale. But we have limited resource, we deeply wish all open source community can contribute to this project. Pull request welcome!!!
 
@@ -10,7 +10,7 @@ This project aim to create a simple and scalable repo, to reproduce [Sora](https
 
 
 ## News
-**[2024.03.01]** Training code are available now! Learn more in our [project page](). Welcome to watch 👀 this repository for the latest updates.
+**[2024.03.01]** Training code are available now! Learn more in our [project page](https://pku-yuangroup.github.io/Open-Sora-Plan/). Welcome to watch 👀 this repository for the latest updates.
 
 ## Todo
 
