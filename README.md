@@ -2,8 +2,9 @@
 
 [[Project Page]]()
 
-This project aim to create a simple and scalable repo, to reproduce [Sora](https://openai.com/sora) (OpenAI T2V model) and build knowedge about Video-VQVAE (VideoGPT) + DiT at scale. But we only have limited resource, we deeply wish the all open source community can contribute to this project.
-本项目希望通过开源社区的力量复现Sora，由北大-兔展AIGC联合实验室共同发起，当前我们资源有限仅搭建了基础架构，无法进行完整训练，希望通过开源社区逐步增加模块并筹集资源进行训练。
+This project aim to create a simple and scalable repo, to reproduce [Sora](https://openai.com/sora) (OpenAI, but we prefer to call it "CloseAI" ) and build knowedge about Video-VQVAE (VideoGPT) + DiT at scale. But we have limited resource, we deeply wish all open source community can contribute to this project. Pull request welcome!!!
+
+本项目希望通过开源社区的力量复现Sora，由北大-兔展AIGC联合实验室共同发起，当前我们资源有限仅搭建了基础架构，无法进行完整训练，希望通过开源社区逐步增加模块并筹集资源进行训练，欢迎Pull request！！！
 
 ![The architecture of Open-Sora-Plan](assets/framework.jpg)
 
