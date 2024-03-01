@@ -84,6 +84,16 @@ python VideoGPT/rec_video.py --video-path "assets/origin_video_0.mp4" --rec-path
 python VideoGPT/rec_video.py --video-path "assets/origin_video_1.mp4" --rec-path "rec_video_1.mp4" --resolution 196 --num-frames 600 --sample-rate 1
 ```
 
+
+
+https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/fe677673-a1ee-43a5-965d-583f58812dd4
+
+
+
+https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/8c261a06-f367-4ceb-9121-3fc2ea0512a6
+
+
+
 ### VideoDiT (DiT)
 
 #### Training
