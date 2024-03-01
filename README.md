@@ -2,7 +2,7 @@
 
 [[Project Page]](https://pku-yuangroup.github.io/Open-Sora-Plan/) [[中文主页]](https://pku-yuangroup.github.io/Open-Sora-Plan/blog_cn.html)
 
-This project aims to create a simple and scalable repo, to reproduce [Sora](https://openai.com/sora) (OpenAI, but we prefer to call it "CloseAI" ) and build knowledge about Video-VQVAE (VideoGPT) + DiT at scale. But we have limited resources, we deeply wish all open source community can contribute to this project. Pull request welcome!!!
+This project aims to create a simple and scalable repo, to reproduce [Sora](https://openai.com/sora) (OpenAI, but we prefer to call it "CloseAI" ) and build knowledge about Video-VQVAE (VideoGPT) + DiT at scale. However, we have limited resources, we deeply wish all open-source community can contribute to this project. Pull request are welcome!!!
 
 本项目希望通过开源社区的力量复现Sora，由北大-兔展AIGC联合实验室共同发起，当前我们资源有限仅搭建了基础架构，无法进行完整训练，希望通过开源社区逐步增加模块并筹集资源进行训练，当前版本离目标差距巨大，仍需持续完善和快速迭代，欢迎Pull request！！！
 <p align="center">
@@ -13,7 +13,7 @@ This project aims to create a simple and scalable repo, to reproduce [Sora](http
 
 
 ## News
-**[2024.03.01]** Training codes are available now! Learn more in our [project page](https://pku-yuangroup.github.io/Open-Sora-Plan/). Welcome to watch 👀 this repository for the latest updates.
+**[2024.03.01]** Training codes are available now! Learn more in our [project page](https://pku-yuangroup.github.io/Open-Sora-Plan/). Please feel free to watch 👀 this repository for the latest updates.
 
 ## Todo
 
@@ -28,7 +28,7 @@ This project aims to create a simple and scalable repo, to reproduce [Sora](http
 
 ## Requirements and Installation
 
-We recommend the requirements as follows.
+The recommended requirements are as follows.
 
 * Python >= 3.8
 * Pytorch >= 1.13.1
@@ -51,7 +51,7 @@ cd ..
 
 ### Datasets
 
-We test the code with UCF-101. In order to install UCF-101, you can download the necessary files [here](https://www.crcv.ucf.edu/data/UCF101.php). The code assumes a `ucf101` directory with the following structure
+We test the code with UCF-101 dataset. In order to download UCF-101 dataset, you can download the necessary files in [here](https://www.crcv.ucf.edu/data/UCF101.php). The code assumes a `ucf101` directory with the following structure
 ```
 UCF-101/
     ApplyEyeMakeup/
