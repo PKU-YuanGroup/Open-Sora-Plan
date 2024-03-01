@@ -136,8 +136,3 @@ Coming soon.
 ## License
 * The service is a research preview intended for non-commercial use only. See [LICENSE.txt](LICENSE.txt) for details.
 
-## Contributors
-
-<a href="https://github.com/PKU-YuanGroup/Open-Sora-Plan/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=PKU-YuanGroup/Open-Sora-Plan" />
-</a>
