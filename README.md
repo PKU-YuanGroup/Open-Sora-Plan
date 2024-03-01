@@ -25,20 +25,9 @@ cd ..
 ### VideoVAE
 
 ```
-cd latent-diffusion
-CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 python main.py --base configs/autoencoder/ucf_ae_kl_16x16x4.yaml -t --gpus 0,1,2,3,4,5,6,7,
 ```
 
 ### VideoSiT
 ```
-cd SiT
-export WANDB_KEY="953e958793b218efb850fa194e85843e2c3bd88b"
-export ENTITY="your_wandb_name"
-export PROJECT="your_proj_name"
-CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun --nproc_per_node=8 train.py \
-    --model SiT-XL/2 --ckpt pretrained_models/SiT-XL-2-256x256.pt \
-	--data-path /remote-home/yeyang/UCF-101 --num-classes 1000 \
-	--sample-rate 4 --num-frames 16 --temproal-size 1 \
-	--max-image-size 256 --epochs 200 --global-batch-size 128 --lr 1e-4 \
-	--ckpt-every 1000 --sample-every 1000 --wandb
+
 ```
