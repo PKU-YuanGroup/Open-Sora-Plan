@@ -97,7 +97,8 @@ def main(args):
 if __name__ == '__main__':
   parser = argparse.ArgumentParser()
   parser.add_argument('--video-path', type=str, default='your/video.mp4')
-  parser.add_argument('--ckpt', type=str, default='ucf101_uncond_gpt')
+  parser.add_argument('--ckpt', type=str, default='ucf101_stride4x4x4', 
+                      choices=['bair_stride4x2x2', 'ucf101_stride4x4x4', 'kinetics_stride4x4x4', 'kinetics_stride2x4x4'])
   parser.add_argument('--sample-fps', type=int, default=30)
   parser.add_argument('--resolution', type=int, default=256)
   parser.add_argument('--num-frames', type=int, default=8)
