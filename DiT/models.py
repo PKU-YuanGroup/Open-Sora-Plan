@@ -72,8 +72,6 @@ class Attention(nn.Module):
             if torch.any(torch.isnan(attn)):
                 print('torch.any(torch.isnan(attn))')
                 attn = attn.masked_fill(torch.isnan(attn), float(0.))
-            # import ipdb
-            # ipdb.set_trace()
             attn = self.attn_drop(attn)
             x = attn @ v
 
