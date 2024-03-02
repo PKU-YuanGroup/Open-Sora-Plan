@@ -17,7 +17,7 @@ This project aims to create a simple and scalable repo, to reproduce [Sora](http
 
 ## Todo
 
-- [x] support variable aspect ratios, resolutions, durations training
+- [x] support variable aspect ratios, resolutions, durations training on DiT
 - [x] dynamic mask input
 - [x] add class-conditioning on embeddings
 
