@@ -20,6 +20,8 @@ This project aims to create a simple and scalable repo, to reproduce [Sora](http
 - [x] support variable aspect ratios, resolutions, durations training
 - [x] add class-conditioning on embeddings
 
+- [ ] incorporating SiT
+- [ ] dynamic mask input
 - [ ] sampling script
 - [ ] fine-tune Video-VQVAE on higher resolution
 - [ ] incorporating more conditions
