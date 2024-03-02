@@ -18,12 +18,13 @@ This project aims to create a simple and scalable repo, to reproduce [Sora](http
 ## Todo
 
 - [x] support variable aspect ratios, resolutions, durations training
+- [x] dynamic mask input
 - [x] add class-conditioning on embeddings
 
-- [ ] incorporating SiT
-- [ ] dynamic mask input
 - [ ] sampling script
+- [ ] add positional interpolation
 - [ ] fine-tune Video-VQVAE on higher resolution
+- [ ] incorporating SiT
 - [ ] incorporating more conditions
 - [ ] training with more data and more GPU
 
