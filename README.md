@@ -14,6 +14,7 @@ This project aims to create a simple and scalable repo, to reproduce [Sora](http
   
 ## News
 **[2024.03.03]** We open some [discussions](https://github.com/PKU-YuanGroup/Open-Sora-Plan/discussions) and clarify several issues.
+
 **[2024.03.01]** Training codes are available now! Learn more in our [project page](https://pku-yuangroup.github.io/Open-Sora-Plan/). Please feel free to watch 👀 this repository for the latest updates.
 
 ## Todo
