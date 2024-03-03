@@ -173,7 +173,7 @@ class VideoGPT(pl.LightningModule):
         parser.add_argument('--n_cond_frames', type=int, default=0)
         parser.add_argument('--class_cond', action='store_true')
 
-        # VideoGPT hyperparmeters
+        # VideoGPT hyperparameters
         parser.add_argument('--hidden_dim', type=int, default=576)
         parser.add_argument('--heads', type=int, default=4)
         parser.add_argument('--layers', type=int, default=8)
