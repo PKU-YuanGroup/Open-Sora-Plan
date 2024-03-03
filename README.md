@@ -121,7 +121,7 @@ torchrun  --nproc_per_node=8 train.py \
   --model DiT-XL/122 --pt-ckpt DiT-XL-2-256x256.pt \
   --vae ucf101_stride4x4x4 \
   --data-path /remote-home/yeyang/UCF-101 --num-classes 101 \
-  --sample-rate 2 --num-frames 8 --max-image-size 128 \
+  --sample-rate 2 --num-frames 8 --max-image-size 128 --clip-grad-norm 1 \
   --epochs 14000 --global-batch-size 256 --lr 1e-4 \
   --ckpt-every 1000 --log-every 1000 
 ```
