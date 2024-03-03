@@ -26,7 +26,7 @@ six==1.16.0
 tensorboard==2.14.0
 test-tube==0.7.5
 timm==0.9.16
-tokenizers==0.10.3
+tokenizers==0.13.3
 torch==1.13.1+cu117
 torchaudio==0.13.1+cu117
 torchdiffeq==0.2.3
