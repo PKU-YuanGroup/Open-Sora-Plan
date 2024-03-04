@@ -5,7 +5,10 @@
 [![Forks][forks-shield]][forks-url]
 [![Issues][issues-shield]][issues-url]
 [![Stargazers][stars-shield]][stars-url]
-<!-- [![CC BY-NC 4.0 License][license-shield]][license-url]  --> <!-- This could be updated later-->
+[![CC BY-NC 4.0 License][license-shield]][license-url]
+<!-- [![CC BY-NC 4.0 License][license-shield]][license-url]  --> 
+<!-- This could be updated later-->
+<!-- Currently, CC BY-NC 4.0 is supported by the Github template-->
 <br />
 
 [[Project Page]](https://pku-yuangroup.github.io/Open-Sora-Plan/) [[中文主页]](https://pku-yuangroup.github.io/Open-Sora-Plan/blog_cn.html)
