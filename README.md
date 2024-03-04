@@ -1,5 +1,13 @@
 # Open-Sora Plan
 
+<!-- PROJECT SHIELDS -->
+[![Contributors][contributors-shield]][contributors-url]
+[![Forks][forks-shield]][forks-url]
+[![Issues][issues-shield]][issues-url]
+[![Stargazers][stars-shield]][stars-url]
+<!-- [![CC BY-NC 4.0 License][license-shield]][license-url]  --> <!-- This could be updated later-->
+<br />
+
 [[Project Page]](https://pku-yuangroup.github.io/Open-Sora-Plan/) [[中文主页]](https://pku-yuangroup.github.io/Open-Sora-Plan/blog_cn.html)
 
 This project aims to create a simple and scalable repo, to reproduce [Sora](https://openai.com/sora) (OpenAI, but we prefer to call it "CloseAI" ) and build knowledge about Video-VQVAE (VideoGPT) + DiT at scale. However, we have limited resources, we deeply wish all open-source community can contribute to this project. Pull request are welcome!!!
@@ -149,3 +157,15 @@ Coming soon.
 <a href="https://github.com/PKU-YuanGroup/Open-Sora-Plan/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=PKU-YuanGroup/Open-Sora-Plan" />
 </a>
+
+<!-- PROJECT SHIELDS -->
+[contributors-shield]: https://img.shields.io/github/contributors/PKU-YuanGroup/Open-Sora-Plan.svg?style=flat-square
+[contributors-url]: https://github.com/PKU-YuanGroup/Open-Sora-Plan/graphs/contributors
+[forks-shield]: https://img.shields.io/github/forks/PKU-YuanGroup/Open-Sora-Plan.svg?style=flat-square
+[forks-url]: https://github.com/PKU-YuanGroup/Open-Sora-Plan/network/members
+[stars-shield]: https://img.shields.io/github/stars/PKU-YuanGroup/Open-Sora-Plan.svg?style=flat-square
+[stars-url]: https://github.com/PKU-YuanGroup/Open-Sora-Plan/stargazers
+[issues-shield]: https://img.shields.io/github/issues/PKU-YuanGroup/Open-Sora-Plan.svg?style=flat-square
+[issues-url]: https://img.shields.io/github/issues/PKU-YuanGroup/Open-Sora-Plan.svg
+[license-shield]: https://img.shields.io/github/license/PKU-YuanGroup/Open-Sora-Plan.svg?style=flat-square
+[license-url]: https://github.com/PKU-YuanGroup/Open-Sora-Plan/blob/main/LICENSE
