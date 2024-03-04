@@ -53,7 +53,7 @@ This project aims to create a simple and scalable repo, to reproduce [Sora](http
 │   │   │   ├── diffusion_2d
 │   │   │   ├── diffusion_3d
 |   ├── utils.py                   
-│   ├── train.py                   -> Training code.
+│   ├── train.py                   -> Training code
 ```
 
 ## Requirements and Installation
