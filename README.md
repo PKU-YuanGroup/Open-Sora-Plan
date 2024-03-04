@@ -17,6 +17,7 @@ This project aims to create a simple and scalable repo, to reproduce [Sora](http
 
 **[2024.03.01]** Training codes are available now! Learn more in our [project page](https://pku-yuangroup.github.io/Open-Sora-Plan/). Please feel free to watch 👀 this repository for the latest updates.
 
+
 ## Todo
 
 - [x] support variable aspect ratios, resolutions, durations training on DiT
@@ -30,6 +31,29 @@ This project aims to create a simple and scalable repo, to reproduce [Sora](http
 - [ ] incorporating more conditions
 - [ ] training with more data and more GPU
 
+## Repo structure
+```
+├── README.md
+├── docs
+│   ├── data.md.py                 -> Datasets description.
+├── scripts                        -> All training scripts.
+│   └── train.sh
+├── sora
+│   ├── dataset                    -> Dataset code to read videos
+│   ├── models 
+│   │   ├── captioner               
+│   │   ├── super_resolution        
+│   ├── modules
+│   │   ├── ae                     -> compress videos to latents
+│   │   │   ├── vqvae
+│   │   │   ├── vae
+│   │   ├── diffusion              -> denoise latents
+│   │   │   ├── diffusion_2d
+│   │   │   ├── diffusion_3d
+|   ├── utils.py                   
+│   ├── train.py                   -> Training code.
+
+```
 
 ## Requirements and Installation
 
