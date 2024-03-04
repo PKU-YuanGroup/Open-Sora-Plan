@@ -37,7 +37,7 @@ This project aims to create a simple and scalable repo, to reproduce [Sora](http
 ```
 ├── README.md
 ├── docs
-│   ├── data.md                 -> Datasets description.
+│   ├── data.md                    -> Datasets description.
 ├── scripts                        -> All training scripts.
 │   └── train.sh
 ├── sora
