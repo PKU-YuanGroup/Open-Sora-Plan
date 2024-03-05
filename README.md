@@ -87,10 +87,11 @@ Refer to [data.md](docs/data.md)
 
 #### Training
 
+```
+cd src/sora/modules/ae/vqvae/videogpt
+```
+
 Refer to origin [repo](https://github.com/wilson1yan/VideoGPT?tab=readme-ov-file#training-vq-vae). Use the `scripts/train_vqvae.py` script to train a Video-VQVAE. Execute `python scripts/train_vqvae.py -h` for information on all available training settings. A subset of more relevant settings are listed below, along with default values.
-```
-cd VideoGPT
-```
 
 ##### VQ-VAE Specific Settings
 * `--embedding_dim`: number of dimensions for codebooks embeddings
@@ -114,10 +115,10 @@ cd VideoGPT
 #### Reconstructing
 
 ```Python
-python VideoGPT/rec_video.py --video-path "assets/origin_video_0.mp4" --rec-path "rec_video_0.mp4" --num-frames 500 --sample-rate 1
+python rec_video.py --video-path "assets/origin_video_0.mp4" --rec-path "rec_video_0.mp4" --num-frames 500 --sample-rate 1
 ```
 ```Python
-python VideoGPT/rec_video.py --video-path "assets/origin_video_1.mp4" --rec-path "rec_video_1.mp4" --resolution 196 --num-frames 600 --sample-rate 1
+python rec_video.py --video-path "assets/origin_video_1.mp4" --rec-path "rec_video_1.mp4" --resolution 196 --num-frames 600 --sample-rate 1
 ```
 
 
