@@ -59,8 +59,6 @@ As a contributor, before submitting your request, kindly follow these guidelines
 
 8. Submit a pull request to `Open-Sora-Plan:main` on the GitHub repository page.
 
-9. Entries in the "最近更新" Section should be related to Video Generation and deemed Very Impressive Works.
-
 ## Commit Message Format
 
 Commit messages must include both `<type>` and `<summary>` sections.
