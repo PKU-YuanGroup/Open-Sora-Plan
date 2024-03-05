@@ -13,7 +13,7 @@ This project aims to create a simple and scalable repo, to reproduce [Sora](http
 
   
 ## News
-**[2024.03.04]** We re-organize and modulize our codes and make it easy to contribute to the project, please see the Repo structure.
+**[2024.03.04]** We re-organize and modulize our codes and make it easy to [contribute](https://github.com/PKU-YuanGroup/Open-Sora-Plan?tab=readme-ov-file#how-to-contribute-to-the-open-sora-plan-community) to the project, please see the [Repo structure](https://github.com/PKU-YuanGroup/Open-Sora-Plan?tab=readme-ov-file#repo-structure).
 
 **[2024.03.03]** We open some [discussions](https://github.com/PKU-YuanGroup/Open-Sora-Plan/discussions) and clarify several issues.
 
