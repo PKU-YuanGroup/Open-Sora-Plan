@@ -27,8 +27,8 @@ import os
 
 from sora.modules.ae.vqvae.videogpt.videogpt import load_vqvae as load_autoencoder
 from sora.dataset.videodata import Collate, UCF101ClassConditionedDataset as Dataset
-from sora.modules.diffusion.diffusion_2d.dit.models import DiT_models as Diffusion_models
-from sora.modules.diffusion.diffusion_2d.dit.diffusion import create_diffusion
+from sora.modules.diffusion.dit.models import DiT_models as Diffusion_models
+from sora.modules.diffusion.dit.diffusion import create_diffusion
 
 #################################################################################
 #                             Training Helper Functions                         #
