@@ -25,6 +25,9 @@ Project stages:
 
   
 ## News
+
+**[2024.03.05]**  See our latest [todo](https://github.com/PKU-YuanGroup/Open-Sora-Plan?tab=readme-ov-file#todo), welcome to pull request.
+
 **[2024.03.04]** We re-organize and modulize our codes and make it easy to [contribute](https://github.com/PKU-YuanGroup/Open-Sora-Plan?tab=readme-ov-file#how-to-contribute-to-the-open-sora-plan-community) to the project, please see the [Repo structure](https://github.com/PKU-YuanGroup/Open-Sora-Plan?tab=readme-ov-file#repo-structure).
 
 **[2024.03.03]** We open some [discussions](https://github.com/PKU-YuanGroup/Open-Sora-Plan/discussions) and clarify several issues.
@@ -34,40 +37,41 @@ Project stages:
 
 ## Todo
 
-### Setup the codebase and train a unconditional model on landscape dataset.
-- [x] Setup repo-structure
-- [x] Add Video-VQGAN model, which is borrowed from [VideoGPT](https://github.com/wilson1yan/VideoGPT)
-- [x] Support variable aspect ratios, resolutions, durations training on [Di](https://github.com/facebookresearch/DiT)
-- [x] Support Dynamic mask input inspired [FiT](https://github.com/whlzy/FiT)
-- [x] Add class-conditioning on embeddings
-- [ ] Incorporating [Latte](https://github.com/Vchitect/Latte) as main codebase
-- [ ] Add VAE model, which is borrowed from [Stable Diffusion](https://github.com/CompVis/latent-diffusion)
-- [ ] Joint dynamic mask input with VAE
+#### Setup the codebase and train a unconditional model on landscape dataset
+- [x] Setup repo-structure.
+- [x] Add Video-VQGAN model, which is borrowed from [VideoGPT](https://github.com/wilson1yan/VideoGPT).
+- [x] Support variable aspect ratios, resolutions, durations training on [Di](https://github.com/facebookresearch/DiT).
+- [x] Support Dynamic mask input inspired [FiT](https://github.com/whlzy/FiT).
+- [x] Add class-conditioning on embeddings.
+- [ ] Incorporating [Latte](https://github.com/Vchitect/Latte) as main codebase.
+- [ ] Add VAE model, which is borrowed from [Stable Diffusion](https://github.com/CompVis/latent-diffusion).
+- [ ] Joint dynamic mask input with VAE.
 - [ ] Make the codebase ready for the cluster training. Add SLURM scripts.
-- [ ] Add sampling script
-- [ ] Incorporating [SiT](https://github.com/willisma/SiT)
+- [ ] Add sampling script.
+- [ ] Incorporating [SiT](https://github.com/willisma/SiT).
 
-### Train models that boost resolution and duration.
+#### Train models that boost resolution and duration
 - [ ] Add [PI](https://arxiv.org/abs/2306.15595) to support out-of-domain size.
-- [ ] Add frame interpolation model
+- [ ] Add frame interpolation model.
 
-### Conduct text2video experiments on landscape dataset.
+#### Conduct text2video experiments on landscape dataset.
 - [ ] Finish data loading, pre-processing utils.
 - [ ] Add CLIP and T5 support.
 - [ ] Add text2image training script.
 - [ ] Add prompt captioner.
 
-### Train the 1080p model on video2text dataset.
+#### Train the 1080p model on video2text dataset
+- [ ] Looking for a suitable dataset, welcome to discuss and recommend.
 - [ ] Finish data loading, pre-processing utils.
-- [ ] Support memory friendly training
-  - [ ] Add flash-attention2 from pytorch
-  - [ ] Add xformers
+- [ ] Support memory friendly training.
+  - [ ] Add flash-attention2 from pytorch.
+  - [ ] Add xformers.
   - [ ] Add accelerate to automatically manage training, e.g. mixed precision training.
-  - [ ] Add gradient checkpoint
+  - [ ] Add gradient checkpoint.
   - [ ] Train using the deepspeed engine.
 
-### Control model with more condition.
-- [ ] Load pretrained weight from [PixArt-α](https://github.com/PixArt-alpha/PixArt-alpha)
+#### Control model with more condition
+- [ ] Load pretrained weight from [PixArt-α](https://github.com/PixArt-alpha/PixArt-alpha).
 - [ ] Incorporating [ControlNet](https://github.com/lllyasviel/ControlNet).
 
 ## Repo structure
