@@ -1,0 +1,9 @@
+
+seed: 2023
+
+network:
+  name: networks.AMT-G.Model
+  params:
+    corr_radius: 3
+    corr_lvls: 4
+    num_flows: 5
