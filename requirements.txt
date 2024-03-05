@@ -26,11 +26,8 @@ six==1.16.0
 tensorboard==2.14.0
 test-tube==0.7.5
 timm==0.9.16
-torch==1.13.1+cu117
-torchaudio==0.13.1+cu117
 torchdiffeq==0.2.3
 torchmetrics==0.5.0
-torchvision==0.14.1+cu117
 tqdm==4.66.2
 transformers==4.32.0
 urllib3==2.2.1
