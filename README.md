@@ -37,7 +37,8 @@ This project aims to create a simple and scalable repo, to reproduce [Sora](http
 ```
 ├── README.md
 ├── docs
-│   ├── data.md                    -> Datasets description.
+│   ├── Data.md                    -> Datasets description.
+│   ├── Contribution_Guidelines.md -> Contribution guidelines description.
 ├── scripts                        -> All training scripts.
 │   └── train.sh
 ├── sora
@@ -50,8 +51,8 @@ This project aims to create a simple and scalable repo, to reproduce [Sora](http
 │   │   │   ├── vqvae
 │   │   │   ├── vae
 │   │   ├── diffusion              -> denoise latents
-│   │   │   ├── diffusion_2d
-│   │   │   ├── diffusion_3d
+│   │   │   ├── dit
+│   │   │   ├── unet
 |   ├── utils.py                   
 │   ├── train.py                   -> Training code
 ```
@@ -80,7 +81,7 @@ cd ..
 ## Usage
 
 ### Datasets
-Refer to [data.md](docs/data.md)
+Refer to [Data.md](docs/Data.md)
 
 
 ### Video-VQVAE (VideoGPT)
