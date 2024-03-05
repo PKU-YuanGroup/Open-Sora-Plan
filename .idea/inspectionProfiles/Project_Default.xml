@@ -1,0 +1,136 @@
+<component name="InspectionProjectProfileManager">
+  <profile version="1.0">
+    <option name="myName" value="Project Default" />
+    <inspection_tool class="Eslint" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="PyPackageRequirementsInspection" enabled="true" level="WARNING" enabled_by_default="true">
+      <option name="ignoredPackages">
+        <value>
+          <list size="122">
+            <item index="0" class="java.lang.String" itemvalue="future" />
+            <item index="1" class="java.lang.String" itemvalue="seaborn" />
+            <item index="2" class="java.lang.String" itemvalue="quantulum3" />
+            <item index="3" class="java.lang.String" itemvalue="textdistance" />
+            <item index="4" class="java.lang.String" itemvalue="pint" />
+            <item index="5" class="java.lang.String" itemvalue="jupyterlab" />
+            <item index="6" class="java.lang.String" itemvalue="attrs" />
+            <item index="7" class="java.lang.String" itemvalue="tqdm" />
+            <item index="8" class="java.lang.String" itemvalue="ftfy" />
+            <item index="9" class="java.lang.String" itemvalue="regex" />
+            <item index="10" class="java.lang.String" itemvalue="torch" />
+            <item index="11" class="java.lang.String" itemvalue="torchvision" />
+            <item index="12" class="java.lang.String" itemvalue="PyYAML" />
+            <item index="13" class="java.lang.String" itemvalue="matplotlib" />
+            <item index="14" class="java.lang.String" itemvalue="numpy" />
+            <item index="15" class="java.lang.String" itemvalue="omegaconf" />
+            <item index="16" class="java.lang.String" itemvalue="Pillow" />
+            <item index="17" class="java.lang.String" itemvalue="blobfile" />
+            <item index="18" class="java.lang.String" itemvalue="scikit-image" />
+            <item index="19" class="java.lang.String" itemvalue="scipy" />
+            <item index="20" class="java.lang.String" itemvalue="transformers" />
+            <item index="21" class="java.lang.String" itemvalue="taming-transformers" />
+            <item index="22" class="java.lang.String" itemvalue="open-clip-torch" />
+            <item index="23" class="java.lang.String" itemvalue="scikit-learn" />
+            <item index="24" class="java.lang.String" itemvalue="h5py" />
+            <item index="25" class="java.lang.String" itemvalue="clean-fid" />
+            <item index="26" class="java.lang.String" itemvalue="lmdb" />
+            <item index="27" class="java.lang.String" itemvalue="albumentations" />
+            <item index="28" class="java.lang.String" itemvalue="openai" />
+            <item index="29" class="java.lang.String" itemvalue="gdown" />
+            <item index="30" class="java.lang.String" itemvalue="imageio" />
+            <item index="31" class="java.lang.String" itemvalue="wandb" />
+            <item index="32" class="java.lang.String" itemvalue="einops" />
+            <item index="33" class="java.lang.String" itemvalue="perceiver-pytorch" />
+            <item index="34" class="java.lang.String" itemvalue="pycocotools" />
+            <item index="35" class="java.lang.String" itemvalue="httpx" />
+            <item index="36" class="java.lang.String" itemvalue="traitlets" />
+            <item index="37" class="java.lang.String" itemvalue="protobuf" />
+            <item index="38" class="java.lang.String" itemvalue="torchmetrics" />
+            <item index="39" class="java.lang.String" itemvalue="joblib" />
+            <item index="40" class="java.lang.String" itemvalue="arrow" />
+            <item index="41" class="java.lang.String" itemvalue="huggingface-hub" />
+            <item index="42" class="java.lang.String" itemvalue="python-dateutil" />
+            <item index="43" class="java.lang.String" itemvalue="python-dotenv" />
+            <item index="44" class="java.lang.String" itemvalue="h11" />
+            <item index="45" class="java.lang.String" itemvalue="deepdiff" />
+            <item index="46" class="java.lang.String" itemvalue="rfc3986" />
+            <item index="47" class="java.lang.String" itemvalue="lightning-cloud" />
+            <item index="48" class="java.lang.String" itemvalue="httptools" />
+            <item index="49" class="java.lang.String" itemvalue="starsessions" />
+            <item index="50" class="java.lang.String" itemvalue="starlette" />
+            <item index="51" class="java.lang.String" itemvalue="anyio" />
+            <item index="52" class="java.lang.String" itemvalue="fire" />
+            <item index="53" class="java.lang.String" itemvalue="soupsieve" />
+            <item index="54" class="java.lang.String" itemvalue="uvicorn" />
+            <item index="55" class="java.lang.String" itemvalue="nvidia-cuda-runtime-cu11" />
+            <item index="56" class="java.lang.String" itemvalue="pyparsing" />
+            <item index="57" class="java.lang.String" itemvalue="uvloop" />
+            <item index="58" class="java.lang.String" itemvalue="beautifulsoup4" />
+            <item index="59" class="java.lang.String" itemvalue="lightning" />
+            <item index="60" class="java.lang.String" itemvalue="tokenizers" />
+            <item index="61" class="java.lang.String" itemvalue="email-validator" />
+            <item index="62" class="java.lang.String" itemvalue="inquirer" />
+            <item index="63" class="java.lang.String" itemvalue="dnspython" />
+            <item index="64" class="java.lang.String" itemvalue="pydantic" />
+            <item index="65" class="java.lang.String" itemvalue="dateutils" />
+            <item index="66" class="java.lang.String" itemvalue="nvidia-cuda-nvrtc-cu11" />
+            <item index="67" class="java.lang.String" itemvalue="sacremoses" />
+            <item index="68" class="java.lang.String" itemvalue="wrapt" />
+            <item index="69" class="java.lang.String" itemvalue="orjson" />
+            <item index="70" class="java.lang.String" itemvalue="click" />
+            <item index="71" class="java.lang.String" itemvalue="test-tube" />
+            <item index="72" class="java.lang.String" itemvalue="readchar" />
+            <item index="73" class="java.lang.String" itemvalue="httpcore" />
+            <item index="74" class="java.lang.String" itemvalue="mkl-service" />
+            <item index="75" class="java.lang.String" itemvalue="PyJWT" />
+            <item index="76" class="java.lang.String" itemvalue="more-itertools" />
+            <item index="77" class="java.lang.String" itemvalue="antlr4-python3-runtime" />
+            <item index="78" class="java.lang.String" itemvalue="lightning-lite" />
+            <item index="79" class="java.lang.String" itemvalue="python-editor" />
+            <item index="80" class="java.lang.String" itemvalue="importlib-metadata" />
+            <item index="81" class="java.lang.String" itemvalue="Jinja2" />
+            <item index="82" class="java.lang.String" itemvalue="nvidia-cublas-cu11" />
+            <item index="83" class="java.lang.String" itemvalue="sniffio" />
+            <item index="84" class="java.lang.String" itemvalue="websocket-client" />
+            <item index="85" class="java.lang.String" itemvalue="mkl-fft" />
+            <item index="86" class="java.lang.String" itemvalue="nvidia-cudnn-cu11" />
+            <item index="87" class="java.lang.String" itemvalue="lightning-utilities" />
+            <item index="88" class="java.lang.String" itemvalue="s3fs" />
+            <item index="89" class="java.lang.String" itemvalue="aiobotocore" />
+            <item index="90" class="java.lang.String" itemvalue="itsdangerous" />
+            <item index="91" class="java.lang.String" itemvalue="websockets" />
+            <item index="92" class="java.lang.String" itemvalue="aioitertools" />
+            <item index="93" class="java.lang.String" itemvalue="watchfiles" />
+            <item index="94" class="java.lang.String" itemvalue="croniter" />
+            <item index="95" class="java.lang.String" itemvalue="dataclasses" />
+            <item index="96" class="java.lang.String" itemvalue="botocore" />
+            <item index="97" class="java.lang.String" itemvalue="ordered-set" />
+            <item index="98" class="java.lang.String" itemvalue="blessed" />
+            <item index="99" class="java.lang.String" itemvalue="packaging" />
+            <item index="100" class="java.lang.String" itemvalue="python-multipart" />
+            <item index="101" class="java.lang.String" itemvalue="jmespath" />
+            <item index="102" class="java.lang.String" itemvalue="pandas" />
+            <item index="103" class="java.lang.String" itemvalue="termcolor" />
+            <item index="104" class="java.lang.String" itemvalue="fastapi" />
+            <item index="105" class="java.lang.String" itemvalue="pytz" />
+            <item index="106" class="java.lang.String" itemvalue="ujson" />
+            <item index="107" class="java.lang.String" itemvalue="Werkzeug" />
+            <item index="108" class="java.lang.String" itemvalue="torch-fidelity" />
+            <item index="109" class="java.lang.String" itemvalue="opencv-python" />
+            <item index="110" class="java.lang.String" itemvalue="pudb" />
+            <item index="111" class="java.lang.String" itemvalue="streamlit" />
+            <item index="112" class="java.lang.String" itemvalue="imageio-ffmpeg" />
+            <item index="113" class="java.lang.String" itemvalue="mediapipe" />
+            <item index="114" class="java.lang.String" itemvalue="diffusers" />
+            <item index="115" class="java.lang.String" itemvalue="safetensors" />
+            <item index="116" class="java.lang.String" itemvalue="spacy" />
+            <item index="117" class="java.lang.String" itemvalue="SQLAlchemy" />
+            <item index="118" class="java.lang.String" itemvalue="gradio" />
+            <item index="119" class="java.lang.String" itemvalue="ultralytics" />
+            <item index="120" class="java.lang.String" itemvalue="jieba" />
+            <item index="121" class="java.lang.String" itemvalue="rouge-chinese" />
+          </list>
+        </value>
+      </option>
+    </inspection_tool>
+  </profile>
+</component>
