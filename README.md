@@ -52,7 +52,7 @@ Project stages:
 
 #### Train models that boost resolution and duration
 - [ ] Add [PI](https://arxiv.org/abs/2306.15595) to support out-of-domain size.
-- [ ] Add frame interpolation model.
+- [x] Add frame interpolation model.
 
 #### Conduct text2video experiments on landscape dataset.
 - [ ] Finish data loading, pre-processing utils.
