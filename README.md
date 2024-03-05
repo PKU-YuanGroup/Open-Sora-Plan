@@ -143,6 +143,11 @@ sh scripts/train.sh
 #### Sampling
 Coming soon.
 
+## How to Contribute to the Open-Sora Plan Community
+We greatly appreciate your contributions to the Open-Sora Plan open-source community and helping us make it even better than it is now!
+
+For more details, please refer to the [Contribution Guidelines](docs/Contribution_Guidelines.md)
+
 ## Acknowledgement
 * [DiT](https://github.com/facebookresearch/DiT/tree/main): Scalable Diffusion Models with Transformers.
 * [VideoGPT](https://github.com/wilson1yan/VideoGPT): Video Generation using VQ-VAE and Transformers.
