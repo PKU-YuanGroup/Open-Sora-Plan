@@ -12,7 +12,7 @@ import torch.nn as nn
 import numpy as np
 import math
 import torch.utils.checkpoint as cp
-from einops import rearrange
+from einops import rearrange, repeat
 from timm.layers import use_fused_attn, to_2tuple
 # from timm.models.vision_transformer import PatchEmbed, Attention, Mlp
 from timm.models.vision_transformer import PatchEmbed, Mlp
@@ -59,14 +59,8 @@ class Attention(nn.Module):
         #         dropout_p=self.attn_drop.p if self.training else 0.,
         #     )
         # else:
-        q = q * self.scale
-        attn = q @ k.transpose(-2, -1)
+        attn = (q @ k.transpose(-2, -1)) * self.scale
         if attention_mask is not None:
-            attention_mask = attention_mask.flatten(1).unsqueeze(-1)  # bs t h w -> bs thw 1
-            attention_mask = attention_mask @ attention_mask.transpose(1, 2)  # bs thw 1 @ bs 1 thw = bs thw thw
-            attention_mask = attention_mask.unsqueeze(1)
-            assert attn.shape[0] == attention_mask.shape[0]
-            attention_mask = attention_mask.masked_fill(attention_mask == 0, torch.finfo(attn.dtype).min)
             attn = attn + attention_mask
         attn = attn.softmax(dim=-1)
         if torch.any(torch.isnan(attn)):
@@ -110,7 +104,7 @@ class TimestepEmbedder(nn.Module):
                           These may be fractional.
         :param dim: the dimension of the output.
         :param max_period: controls the minimum frequency of the embeddings.
-        :return: an (N, D) Tensor of positional embeddings.
+        :return: an (N, C) Tensor of positional embeddings.
         """
         # https://github.com/openai/glide-text2im/blob/main/glide_text2im/nn.py
         half = dim // 2
@@ -224,6 +218,8 @@ class DiT(nn.Module):
         class_dropout_prob=0.1,
         num_classes=1000,
         learn_sigma=True,
+        extras=1,
+        attention_mode='math',
     ):
         super().__init__()
         self.gradient_checkpointing = False
@@ -234,11 +230,14 @@ class DiT(nn.Module):
         self.patch_size = patch_size
         self.patch_size_t = patch_size_t
         self.num_heads = num_heads
+        self.extras = extras
         self.hidden_size = hidden_size
         # import ipdb;ipdb.set_trace()
         self.x_embedder = PatchEmbed(input_size, patch_size, in_channels, hidden_size, bias=True)
         self.t_embedder = TimestepEmbedder(hidden_size)
-        self.y_embedder = LabelEmbedder(num_classes, hidden_size, class_dropout_prob)
+
+        if self.extras == 2:
+            self.y_embedder = LabelEmbedder(num_classes, hidden_size, class_dropout_prob)
         num_patches = self.x_embedder.num_patches
         # Will use fixed sin-cos embedding:
         # self.pos_embed = nn.Parameter(torch.zeros(1, num_patches, hidden_size), requires_grad=False)
@@ -287,17 +286,16 @@ class DiT(nn.Module):
 
     def unpatchify(self, x):
         """
-        x: (B, N, patch_size_t*patch_size**2 * C)
-        imgs: (B, C, T, H, W)
+        x: (B, N, patch_size**2 * C)
+        imgs: (B, C, H, W)
         """
         c = self.out_channels
         p = self.x_embedder.patch_size[0]
-        o = self.patch_size_t
-        assert self.t * self.h * self.w == x.shape[1]
+        assert self.h * self.w == x.shape[1]
 
-        x = x.reshape(shape=(x.shape[0], self.t, self.h, self.w, o, p, p, c))
-        x = torch.einsum('nthwopqc->nctohpwq', x)
-        imgs = x.reshape(shape=(x.shape[0], c, self.t * o, self.h * p, self.w * p))
+        x = x.reshape(shape=(x.shape[0], self.h, self.w, p, p, c))
+        x = torch.einsum('nhwpqc->nchpwq', x)
+        imgs = x.reshape(shape=(x.shape[0], c, self.h * p, self.w * p))
         return imgs
 
     def ckpt_wrapper(self, module):
@@ -306,44 +304,61 @@ class DiT(nn.Module):
             return outputs
         return ckpt_forward
 
+    def make_mask(self, attention_mask, dtype):
+        attention_mask = attention_mask.flatten(1).unsqueeze(-1)  # bs t h w -> bs thw 1
+        attention_mask = attention_mask @ attention_mask.transpose(1, 2)  # bs thw 1 @ bs 1 thw = bs thw thw
+        attention_mask = attention_mask.unsqueeze(1)
+        attention_mask = attention_mask.masked_fill(attention_mask == 0, torch.finfo(dtype).min)
+        return attention_mask
+
     def forward(self, x, t, y, attention_mask):
         """
         Forward pass of DiT.
-        x: (B, D, T, H, W) tensor of spatial inputs (images or latent representations of images)
+        x: (B, T, C, H, W) tensor of spatial inputs (images or latent representations of images)
         t: (B,) tensor of diffusion timesteps
         y: (B,) tensor of class labels
         """
         if x.ndim == 4:
             raise NotImplementedError
-        B, D, T, H, W = x.shape
+        B, T, C, H, W = x.shape
         self.h = num_patches_height = H // self.patch_size
         self.w = num_patches_width = W // self.patch_size
         self.t = num_tubes_length = T // self.patch_size_t  # 4 // 1
+        attention_mask = self.make_mask(attention_mask, x.dtype)
 
-        pos_embed = get_2d_sincos_pos_embed(self.hidden_size, [num_patches_height, num_patches_width])
+
+        pos_embed = get_2d_sincos_pos_embed(self.hidden_size, num_patches_height)
         pos_embed = nn.Parameter(torch.from_numpy(pos_embed).float().unsqueeze(0), requires_grad=False).to(x.device)
 
-        pos_embed_1d = get_2d_sincos_pos_embed(self.hidden_size, [num_tubes_length, 1])
+        pos_embed_1d = get_1d_sincos_temp_embed(self.hidden_size, num_tubes_length)
         pos_embed_1d = nn.Parameter(torch.from_numpy(pos_embed_1d).float().unsqueeze(0), requires_grad=False).to(x.device)
+
 
         # print(num_patches_height, num_patches_width, x.shape, pos_embed.shape)
         self.x_embedder.img_size = [H, W]
-        x = rearrange(x, 'b d t h w -> (b t) d h w')
-        x = self.x_embedder(x) + pos_embed  # (BT, N, D), where N = H * W / patch_size ** 2
-        x = rearrange(x, '(b t) n d -> (b n) t d', t=self.t)
+        x = rearrange(x, 'b t c h w -> (b t) c h w')
+        x = self.x_embedder(x) + pos_embed  # (BT, N, C), where N = H * W / patch_size ** 2
+        x = rearrange(x, '(b t) n c -> (b n) t c', t=self.t)
         x = x + pos_embed_1d
-        x = rearrange(x, '(b n) t d -> b (t n) d', b=B)
+        x = rearrange(x, '(b n) t c -> b (t n) c', b=B)
 
-        t = self.t_embedder(t)                   # (B, D)
-        y = self.y_embedder(y, self.training)    # (B, D)
-        c = t + y                                # (B, D)
-        for block in self.blocks:                  # (B, N, D)
+        t = self.t_embedder(t)                   # (B, C)
+        if self.extras == 2:
+            y = self.y_embedder(y, self.training)    # (B, C)
+            c = t + y                              # (B, C)
+        else:
+            c = t
+        for block in self.blocks:                  # (B, N, C)
             if self.gradient_checkpointing and self.training:
-                x = torch.utils.checkpoint.checkpoint(self.ckpt_wrapper(block), x, c, attention_mask)  # (B, N, D)
+                x = torch.utils.checkpoint.checkpoint(self.ckpt_wrapper(block), x, c, attention_mask)  # (B, N, C)
             else:
                 x = block(x, c, attention_mask)
-        x = self.final_layer(x, c)                # (B, N, patch_size_t * patch_size ** 2 * out_channels)
-        x = self.unpatchify(x)                   # (B, out_channels, T, H, W)
+
+        x = rearrange(x, 'b (t n) c -> (b t) n c', t=self.t)
+        c = repeat(c, 'b c -> (b t) c', t=self.t)
+        x = self.final_layer(x, c)                # (B, N, patch_size ** 2 * out_channels)
+        x = self.unpatchify(x)                   # (B, out_channels, H, W)
+        x = rearrange(x, '(b t) c h w -> b t c h w', t=self.t)
         return x
 
     def forward_with_cfg(self, x, t, y, cfg_scale, attention_mask):
@@ -357,8 +372,8 @@ class DiT(nn.Module):
         # For exact reproducibility reasons, we apply classifier-free guidance on only
         # three channels by default. The standard approach to cfg applies it to all channels.
         # This can be done by uncommenting the following line and commenting-out the line following that.
-        # eps, rest = model_out[:, :self.in_channels], model_out[:, self.in_channels:]
-        eps, rest = model_out[:, :3], model_out[:, 3:]
+        eps, rest = model_out[:, :self.in_channels], model_out[:, self.in_channels:]
+        # eps, rest = model_out[:, :3], model_out[:, 3:]
         cond_eps, uncond_eps = torch.split(eps, len(eps) // 2, dim=0)
         half_eps = uncond_eps + cfg_scale * (cond_eps - uncond_eps)
         eps = torch.cat([half_eps, half_eps], dim=0)
@@ -370,20 +385,22 @@ class DiT(nn.Module):
 #################################################################################
 # https://github.com/facebookresearch/mae/blob/main/util/pos_embed.py
 
+def get_1d_sincos_temp_embed(embed_dim, length):
+    pos = torch.arange(0, length).unsqueeze(1)
+    return get_1d_sincos_pos_embed_from_grid(embed_dim, pos)
+
 def get_2d_sincos_pos_embed(embed_dim, grid_size, cls_token=False, extra_tokens=0):
     """
     grid_size: int of the grid height and width
     return:
     pos_embed: [grid_size*grid_size, embed_dim] or [1+grid_size*grid_size, embed_dim] (w/ or w/o cls_token)
     """
-    if isinstance(grid_size, int):
-        grid_size = to_2tuple(grid_size)
-    grid_h = np.arange(grid_size[0], dtype=np.float32)
-    grid_w = np.arange(grid_size[1], dtype=np.float32)
+    grid_h = np.arange(grid_size, dtype=np.float32)
+    grid_w = np.arange(grid_size, dtype=np.float32)
     grid = np.meshgrid(grid_w, grid_h)  # here w goes first
     grid = np.stack(grid, axis=0)
 
-    grid = grid.reshape([2, 1, grid_size[0], grid_size[1]])
+    grid = grid.reshape([2, 1, grid_size, grid_size])
     pos_embed = get_2d_sincos_pos_embed_from_grid(embed_dim, grid)
     if cls_token and extra_tokens > 0:
         pos_embed = np.concatenate([np.zeros([extra_tokens, embed_dim]), pos_embed], axis=0)
@@ -394,10 +411,10 @@ def get_2d_sincos_pos_embed_from_grid(embed_dim, grid):
     assert embed_dim % 2 == 0
 
     # use half of dimensions to encode grid_h
-    emb_h = get_1d_sincos_pos_embed_from_grid(embed_dim // 2, grid[0])  # (H*W, D/2)
-    emb_w = get_1d_sincos_pos_embed_from_grid(embed_dim // 2, grid[1])  # (H*W, D/2)
+    emb_h = get_1d_sincos_pos_embed_from_grid(embed_dim // 2, grid[0])
+    emb_w = get_1d_sincos_pos_embed_from_grid(embed_dim // 2, grid[1])
 
-    emb = np.concatenate([emb_h, emb_w], axis=1) # (H*W, D)
+    emb = np.concatenate([emb_h, emb_w], axis=1)
     return emb
 
 
@@ -410,16 +427,17 @@ def get_1d_sincos_pos_embed_from_grid(embed_dim, pos):
     assert embed_dim % 2 == 0
     omega = np.arange(embed_dim // 2, dtype=np.float64)
     omega /= embed_dim / 2.
-    omega = 1. / 10000**omega  # (D/2,)
+    omega = 1. / 10000**omega
 
-    pos = pos.reshape(-1)  # (M,)
-    out = np.einsum('m,d->md', pos, omega)  # (M, D/2), outer product
+    pos = pos.reshape(-1)
+    out = np.einsum('m,d->md', pos, omega)
 
-    emb_sin = np.sin(out) # (M, D/2)
-    emb_cos = np.cos(out) # (M, D/2)
+    emb_sin = np.sin(out)
+    emb_cos = np.cos(out)
 
-    emb = np.concatenate([emb_sin, emb_cos], axis=1)  # (M, D)
+    emb = np.concatenate([emb_sin, emb_cos], axis=1)
     return emb
+
 
 
 #################################################################################

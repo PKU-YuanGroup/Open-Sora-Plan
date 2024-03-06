@@ -14,7 +14,8 @@ def pad_to_multiple(number, ds_stride):
 class Collate:
     def __init__(self, args):
         self.max_image_size = args.max_image_size
-        self.vae_stride = args.vae_stride
+        self.ae_stride = args.ae_stride
+        self.ae_stride_t = args.ae_stride_t
         self.patch_size = args.patch_size
         self.patch_size_t = args.patch_size_t
         self.num_frames = args.num_frames
@@ -22,14 +23,14 @@ class Collate:
     def __call__(self, batch):
         batch_tubes, labels = tuple(zip(*batch))
         labels = torch.as_tensor(labels).to(torch.long)
-        ds_stride = self.vae_stride * self.patch_size
-        t_ds_stride = self.vae_stride * self.patch_size_t
+        ds_stride = self.ae_stride * self.patch_size
+        t_ds_stride = self.ae_stride_t * self.patch_size_t
 
         # pad to max multiple of ds_stride
         batch_input_size = [i.shape for i in batch_tubes]
-        max_t, max_h, max_w = max([i[1] for i in batch_input_size]), \
-                              max([i[2] for i in batch_input_size]), \
-                              max([i[3] for i in batch_input_size])
+        max_t, max_h, max_w = self.num_frames, \
+                              self.max_image_size, \
+                              self.max_image_size
         pad_max_t, pad_max_h, pad_max_w = pad_to_multiple(max_t, t_ds_stride), \
                                           pad_to_multiple(max_h, ds_stride), \
                                           pad_to_multiple(max_w, ds_stride)
@@ -44,9 +45,9 @@ class Collate:
 
         # make attention_mask
         max_tube_size = [pad_max_t, pad_max_h, pad_max_w]
-        max_latent_size = [max_tube_size[0] // self.vae_stride,
-                           max_tube_size[1] // self.vae_stride,
-                           max_tube_size[2] // self.vae_stride]
+        max_latent_size = [max_tube_size[0] // self.ae_stride_t,
+                           max_tube_size[1] // self.ae_stride,
+                           max_tube_size[2] // self.ae_stride]
         max_patchify_latent_size = [max_latent_size[0] // self.patch_size_t,
                                     max_latent_size[1] // self.patch_size,
                                     max_latent_size[2] // self.patch_size]
