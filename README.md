@@ -52,6 +52,7 @@ Project stages:
 
 #### Train models that boost resolution and duration
 - [ ] Add [PI](https://arxiv.org/abs/2306.15595) to support out-of-domain size.
+- [x] Extract offline feature.
 - [x] Add frame interpolation model.
 - [x] Add super resolution model.
 - [x] Add accelerate to automatically manage training.
@@ -187,7 +188,9 @@ sh scripts/train.sh
 </p>
 
 #### Sampling
-Coming soon.
+```
+sh scripts/sample.sh
+```
 
 ## How to Contribute to the Open-Sora Plan Community
 We greatly appreciate your contributions to the Open-Sora Plan open-source community and helping us make it even better than it is now!
