@@ -27,8 +27,9 @@ import os
 from opensora.dataset import getdataset
 from opensora.models.ae import getae
 from opensora.utils.dataset_utils import Collate
-from opensora.models.diffusion.dit.models import DiT_models as Diffusion_models
-from opensora.models.diffusion.dit.diffusion import create_diffusion
+from opensora.models.ae import ae_stride_config, ae_channel_config
+from opensora.models.diffusion import Diffusion_models
+from opensora.models.diffusion.diffusion import create_diffusion
 
 #################################################################################
 #                             Training Helper Functions                         #
@@ -114,23 +115,25 @@ def main(args):
         logger = create_logger(None)
 
     # Create model:
-    vae_stride_t, vae_stride_h, vae_stride_w = [int(i) for i in args.ae[-5:].split('x')]
-    args.vae_stride_t, args.vae_stride_h, args.vae_stride_w = vae_stride_t, vae_stride_h, vae_stride_w
-    args.vae_stride = args.vae_stride_h
+    ae_stride_t, ae_stride_h, ae_stride_w = ae_stride_config[args.ae]
+    args.ae_stride_t, args.ae_stride_h, args.ae_stride_w = ae_stride_t, ae_stride_h, ae_stride_w
+    args.ae_stride = args.ae_stride_h
     patch_size = args.model[-3:]
     patch_size_t, patch_size_h, patch_size_w = int(patch_size[0]), int(patch_size[1]), int(patch_size[2])
     args.patch_size = patch_size_h
     args.patch_size_t, args.patch_size_h, args.patch_size_w = patch_size_t, patch_size_h, patch_size_w
-    assert args.num_frames % vae_stride_t == 0, "Image size must be divisible by 8 (for the VAE encoder)."
-    assert args.max_image_size % vae_stride_h == 0, "Image size must be divisible by 8 (for the VAE encoder)."
-    assert vae_stride_h == vae_stride_w, "Support now."
+    assert args.num_frames % ae_stride_t == 0, "Image size must be divisible by 8 (for the VAE encoder)."
+    assert args.max_image_size % ae_stride_h == 0, "Image size must be divisible by 8 (for the VAE encoder)."
+    assert ae_stride_h == ae_stride_w, "Support now."
     assert patch_size_h == patch_size_w, "Support now."
 
-    latent_size = (args.num_frames // vae_stride_t, args.max_image_size // vae_stride_h, args.max_image_size // vae_stride_w)
+    latent_size = (args.num_frames // ae_stride_t, args.max_image_size // ae_stride_h, args.max_image_size // ae_stride_w)
 
     model = Diffusion_models[args.model](
         input_size=latent_size,
-        num_classes=args.num_classes
+        num_classes=args.num_classes,
+        in_channels=ae_channel_config[args.ae],
+        extras=args.extras
     )
     model.gradient_checkpointing = args.gradient_checkpointing
 
@@ -201,11 +204,12 @@ def main(args):
         sampler.set_epoch(epoch)
         logger.info(f"Beginning epoch {epoch}...")
         for x, y, attn_mask in loader:
-            x = x.to(device)
+            x = x.to(device)  # B C T H W
             y = y.to(device)
-            attn_mask = attn_mask.to(device)
+            attn_mask = attn_mask.to(device)  # B T H W
             with torch.no_grad():
-                x = ae.encode(x)  # Map input images to latent space + normalize latents
+                # Map input images to latent space + normalize latents
+                x = ae.encode(x)  # B C T H W -> B T C H W
             t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=device)
             model_kwargs = dict(y=y, attention_mask=attn_mask)
             loss_dict = diffusion.training_losses(model, x, t, model_kwargs)
@@ -277,8 +281,10 @@ if __name__ == "__main__":
 
     # --------------------------------------
     parser.add_argument("--ae", type=str, choices=['bair_stride4x2x2', 'ucf101_stride4x4x4',
-                                                    'kinetics_stride4x4x4', 'kinetics_stride2x4x4'],
+                                                    'kinetics_stride4x4x4', 'kinetics_stride2x4x4',
+                                                   'stabilityai/sd-vae-ft-mse', 'stabilityai/sd-vae-ft-ema'],
                         default="ucf101_stride4x4x4")
+    parser.add_argument("--extras", type=int, default=2, choices=[1, 2, 78])
     parser.add_argument("--pt-ckpt", type=str, default=None)
     parser.add_argument("--sample-rate", type=int, default=4)
     parser.add_argument("--num-frames", type=int, default=16)

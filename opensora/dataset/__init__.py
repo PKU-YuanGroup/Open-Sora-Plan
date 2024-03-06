@@ -1,12 +1,12 @@
 from torchvision.transforms import Compose
-from torchvision.transforms._transforms_video import ToTensorVideo, RandomHorizontalFlipVideo
+
 
 from opensora.models.ae import vae, vqvae, videovae, videovqvae
 from .feature_datasets import LandscopeFeatures
 from torchvision import transforms
 from torchvision.transforms import Lambda
 
-from .transform import LongSideScale, TemporalRandomCrop
+from .transform import ToTensorVideo, TemporalRandomCrop, RandomHorizontalFlipVideo, CenterCropResizeVideo
 from .ucf101 import UCF101
 
 
@@ -29,8 +29,8 @@ def getdataset(args):
     elif args.dataset == 'ucf101':
         transform = Compose(
             [
-                ToTensorVideo(),  # cthw
-                LongSideScale(size=args.max_image_size),
+                ToTensorVideo(),  # TCHW
+                CenterCropResizeVideo(size=args.max_image_size),
                 RandomHorizontalFlipVideo(p=0.5),
                 norm_fun,
             ]
