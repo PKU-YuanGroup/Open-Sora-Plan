@@ -10,8 +10,12 @@ class VideoBaseAE(nn.Module):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         
-    def download_and_load_model(self):
-        return None
+    @classmethod
+    def load_from_checkpoint(cls, model_path):
+        pass
+    @classmethod
+    def download_and_load_model(cls, model_name, cache_dir=None):
+        pass
     
     def encode(self, x, *args, **kwargs):
         pass

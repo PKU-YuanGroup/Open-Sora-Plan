@@ -1,5 +1,6 @@
 import sys
 sys.path.append(".")
+
 from opensora.models.ae.videobase import (
     VQVAEModel,
     VQVAEConfiguration,
@@ -10,11 +11,19 @@ import argparse
 from typing import Optional
 from accelerate.utils import set_seed
 from transformers import HfArgumentParser, TrainingArguments
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 
 
 @dataclass
-class VQVAEArgument(VQVAEConfiguration):
+class VQVAEArgument:
+    embedding_dim: int = field(default=256),
+    n_codes: int = field(default=2048),
+    n_hiddens: int = field(default=240),
+    n_res_layers: int = field(default=4),
+    resolution: int = field(default=128),
+    sequence_length: int = field(default=16),
+    downsample: str = field(default="4,4,4"),
+    no_pos_embd: bool = True,
     data_path: str = field(default=None, metadata={"help": "data path"})
 
 @dataclass
@@ -24,8 +33,10 @@ class VQVAETrainingArgument(TrainingArguments):
     )
 
 def train(args, vqvae_args, training_args):
+    # Load Config
+    config = VQVAEConfiguration(**asdict(vqvae_args))
     # Load Model
-    model = VQVAEModel(vqvae_args)
+    model = VQVAEModel(config)
     # Load Dataset
     dataset = VQVAEDataset(args.data_path, sequence_length=args.sequence_length)
 
