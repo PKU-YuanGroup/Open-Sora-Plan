@@ -62,10 +62,7 @@ class UCF101(Dataset):
         start_frame_ind, end_frame_ind = self.temporal_sample(total_frames)
         assert end_frame_ind - start_frame_ind >= self.num_frames
         frame_indice = np.linspace(start_frame_ind, end_frame_ind - 1, self.num_frames, dtype=int)
-        # frame_indice = np.linspace(0, 30, self.target_video_len, dtype=int)
-        # print(frame_indice)
-        video = vframes[frame_indice]  #
-        # video = video.permute(0, 2, 3, 1)  # (T, C, H, W) -> (T H W C)
+        video = vframes[frame_indice]  # (T, C, H, W)
 
         return video
 
