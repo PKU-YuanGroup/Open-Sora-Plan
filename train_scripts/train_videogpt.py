@@ -23,18 +23,9 @@ class VQVAETrainingArgument(TrainingArguments):
         default=False, metadata={"help": "Remove columns not required by the model when using an nlp.Dataset."}
     )
 
-def train(args, VQVAE_args, training_args):
+def train(args, vqvae_args, training_args):
     # Load Model
-    model_config = VQVAEConfiguration(
-        embedding_dim=args.embedding_dim,
-        n_codes=args.n_codes,
-        n_hiddens=args.n_hiddens,
-        n_res_layers=args.n_res_layers,
-        sequence_length=args.sequence_length,
-        downsample=args.downsample,
-        resolution=args.resolution
-    )
-    model = VQVAEModel(model_config)
+    model = VQVAEModel(vqvae_args)
     # Load Dataset
     dataset = VQVAEDataset(args.data_path, sequence_length=args.sequence_length)
 
@@ -45,8 +36,8 @@ def train(args, VQVAE_args, training_args):
 
 if __name__ == "__main__":
     parser = HfArgumentParser((VQVAEArgument, VQVAETrainingArgument))
-    VQVAE_args, training_args = parser.parse_args_into_dataclasses()
-    args = argparse.Namespace(**vars(VQVAE_args), **vars(training_args))
+    vqvae_args, training_args = parser.parse_args_into_dataclasses()
+    args = argparse.Namespace(**vars(vqvae_args), **vars(training_args))
     set_seed(args.seed)
 
-    train(args, VQVAE_args, training_args)
+    train(args, vqvae_args, training_args)
