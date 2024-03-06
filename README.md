@@ -45,7 +45,7 @@ Project stages:
 - [x] Add class-conditioning on embeddings.
 - [ ] Incorporating [Latte](https://github.com/Vchitect/Latte) as main codebase.
 - [x] Add VAE model, which is borrowed from [Stable Diffusion](https://github.com/CompVis/latent-diffusion).
-- [ ] Joint dynamic mask input with VAE.
+- [x] Joint dynamic mask input with VAE.
 - [ ] Make the codebase ready for the cluster training. Add SLURM scripts.
 - [ ] Add sampling script.
 - [ ] Incorporating [SiT](https://github.com/willisma/SiT).
