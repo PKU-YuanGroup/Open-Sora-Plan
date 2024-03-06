@@ -32,6 +32,12 @@ try:
     from fla.ops.triton.rebased_fast import parallel_rebased
 except:
     REBASED_IS_AVAILABLE = False
+
+try:
+    # needs to have https://github.com/lucidrains/ring-attention-pytorch installed
+    from ring_attention_pytorch.ring_flash_attention_cuda import ring_flash_attn_cuda
+except:
+    RING_ATTENTION_IS_AVAILABLE = False
     
 # from timm.models.layers.helpers import to_2tuple
 # from timm.models.layers.trace_utils import _assert
@@ -44,7 +50,7 @@ def modulate(x, shift, scale):
 #################################################################################
 
 class Attention(nn.Module):
-    def __init__(self, dim, num_heads=8, qkv_bias=False, attn_drop=0., proj_drop=0., use_lora=False, attention_mode='math', eps=1e-12):
+    def __init__(self, dim, num_heads=8, qkv_bias=False, attn_drop=0., proj_drop=0., use_lora=False, attention_mode='math', eps=1e-12, causal=True, ring_bucket_size=1024):
         super().__init__()
         assert dim % num_heads == 0, 'dim should be divisible by num_heads'
         self.num_heads = num_heads
@@ -56,6 +62,8 @@ class Attention(nn.Module):
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
         self.eps = eps
+        self.causal = causal
+        self.ring_bucket_size = ring_bucket_size
 
     def forward(self, x):
         B, N, C = x.shape
@@ -79,6 +87,9 @@ class Attention(nn.Module):
 
         elif self.attention_mode == 'rebased':
             x = parallel_rebased(q, k, v, self.eps, True, True).reshape(B, N, C)
+
+        elif self.attention_mode == 'ring':
+            x = ring_flash_attn_cuda(q, k, v, causal=self.causal, bucket_size=self.ring_bucket_size).reshape(B, N, C)
 
         else:
             raise NotImplemented
