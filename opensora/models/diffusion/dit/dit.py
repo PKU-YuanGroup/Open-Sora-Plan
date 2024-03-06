@@ -12,7 +12,7 @@ import torch.nn as nn
 import numpy as np
 import math
 import torch.utils.checkpoint as cp
-from einops import rearrange
+from einops import rearrange, repeat
 from timm.layers import use_fused_attn, to_2tuple
 # from timm.models.vision_transformer import PatchEmbed, Attention, Mlp
 from timm.models.vision_transformer import PatchEmbed, Mlp
@@ -110,7 +110,7 @@ class TimestepEmbedder(nn.Module):
                           These may be fractional.
         :param dim: the dimension of the output.
         :param max_period: controls the minimum frequency of the embeddings.
-        :return: an (N, D) Tensor of positional embeddings.
+        :return: an (N, C) Tensor of positional embeddings.
         """
         # https://github.com/openai/glide-text2im/blob/main/glide_text2im/nn.py
         half = dim // 2
@@ -287,17 +287,16 @@ class DiT(nn.Module):
 
     def unpatchify(self, x):
         """
-        x: (B, N, patch_size_t*patch_size**2 * C)
-        imgs: (B, C, T, H, W)
+        x: (B, N, patch_size**2 * C)
+        imgs: (B, C, H, W)
         """
         c = self.out_channels
         p = self.x_embedder.patch_size[0]
-        o = self.patch_size_t
-        assert self.t * self.h * self.w == x.shape[1]
+        assert self.h * self.w == x.shape[1]
 
-        x = x.reshape(shape=(x.shape[0], self.t, self.h, self.w, o, p, p, c))
-        x = torch.einsum('nthwopqc->nctohpwq', x)
-        imgs = x.reshape(shape=(x.shape[0], c, self.t * o, self.h * p, self.w * p))
+        x = x.reshape(shape=(x.shape[0], self.h, self.w, p, p, c))
+        x = torch.einsum('nhwpqc->nchpwq', x)
+        imgs = x.reshape(shape=(x.shape[0], c, self.h * p, self.w * p))
         return imgs
 
     def ckpt_wrapper(self, module):
@@ -309,13 +308,13 @@ class DiT(nn.Module):
     def forward(self, x, t, y, attention_mask):
         """
         Forward pass of DiT.
-        x: (B, D, T, H, W) tensor of spatial inputs (images or latent representations of images)
+        x: (B, T, C, H, W) tensor of spatial inputs (images or latent representations of images)
         t: (B,) tensor of diffusion timesteps
         y: (B,) tensor of class labels
         """
         if x.ndim == 4:
             raise NotImplementedError
-        B, D, T, H, W = x.shape
+        B, T, C, H, W = x.shape
         self.h = num_patches_height = H // self.patch_size
         self.w = num_patches_width = W // self.patch_size
         self.t = num_tubes_length = T // self.patch_size_t  # 4 // 1
@@ -328,22 +327,26 @@ class DiT(nn.Module):
 
         # print(num_patches_height, num_patches_width, x.shape, pos_embed.shape)
         self.x_embedder.img_size = [H, W]
-        x = rearrange(x, 'b d t h w -> (b t) d h w')
-        x = self.x_embedder(x) + pos_embed  # (BT, N, D), where N = H * W / patch_size ** 2
-        x = rearrange(x, '(b t) n d -> (b n) t d', t=self.t)
+        x = rearrange(x, 'b t c h w -> (b t) c h w')
+        x = self.x_embedder(x) + pos_embed  # (BT, N, C), where N = H * W / patch_size ** 2
+        x = rearrange(x, '(b t) n c -> (b n) t c', t=self.t)
         x = x + pos_embed_1d
-        x = rearrange(x, '(b n) t d -> b (t n) d', b=B)
+        x = rearrange(x, '(b n) t c -> b (t n) c', b=B)
 
-        t = self.t_embedder(t)                   # (B, D)
-        y = self.y_embedder(y, self.training)    # (B, D)
-        c = t + y                                # (B, D)
-        for block in self.blocks:                  # (B, N, D)
+        t = self.t_embedder(t)                   # (B, C)
+        y = self.y_embedder(y, self.training)    # (B, C)
+        c = t + y                                # (B, C)
+        for block in self.blocks:                  # (B, N, C)
             if self.gradient_checkpointing and self.training:
-                x = torch.utils.checkpoint.checkpoint(self.ckpt_wrapper(block), x, c, attention_mask)  # (B, N, D)
+                x = torch.utils.checkpoint.checkpoint(self.ckpt_wrapper(block), x, c, attention_mask)  # (B, N, C)
             else:
                 x = block(x, c, attention_mask)
-        x = self.final_layer(x, c)                # (B, N, patch_size_t * patch_size ** 2 * out_channels)
-        x = self.unpatchify(x)                   # (B, out_channels, T, H, W)
+
+        x = rearrange(x, 'b (t n) c -> (b t) n c', t=self.t)
+        c = repeat(c, 'b c -> (b t) c', t=self.t)
+        x = self.final_layer(x, c)                # (B, N, patch_size ** 2 * out_channels)
+        x = self.unpatchify(x)                   # (B, out_channels, H, W)
+        x = rearrange(x, '(b t) c h w -> b t c h w', t=self.t)
         return x
 
     def forward_with_cfg(self, x, t, y, cfg_scale, attention_mask):
@@ -357,8 +360,8 @@ class DiT(nn.Module):
         # For exact reproducibility reasons, we apply classifier-free guidance on only
         # three channels by default. The standard approach to cfg applies it to all channels.
         # This can be done by uncommenting the following line and commenting-out the line following that.
-        # eps, rest = model_out[:, :self.in_channels], model_out[:, self.in_channels:]
-        eps, rest = model_out[:, :3], model_out[:, 3:]
+        eps, rest = model_out[:, :self.in_channels], model_out[:, self.in_channels:]
+        # eps, rest = model_out[:, :3], model_out[:, 3:]
         cond_eps, uncond_eps = torch.split(eps, len(eps) // 2, dim=0)
         half_eps = uncond_eps + cfg_scale * (cond_eps - uncond_eps)
         eps = torch.cat([half_eps, half_eps], dim=0)
@@ -394,10 +397,10 @@ def get_2d_sincos_pos_embed_from_grid(embed_dim, grid):
     assert embed_dim % 2 == 0
 
     # use half of dimensions to encode grid_h
-    emb_h = get_1d_sincos_pos_embed_from_grid(embed_dim // 2, grid[0])  # (H*W, D/2)
-    emb_w = get_1d_sincos_pos_embed_from_grid(embed_dim // 2, grid[1])  # (H*W, D/2)
+    emb_h = get_1d_sincos_pos_embed_from_grid(embed_dim // 2, grid[0])  # (H*W, C/2)
+    emb_w = get_1d_sincos_pos_embed_from_grid(embed_dim // 2, grid[1])  # (H*W, C/2)
 
-    emb = np.concatenate([emb_h, emb_w], axis=1) # (H*W, D)
+    emb = np.concatenate([emb_h, emb_w], axis=1) # (H*W, C)
     return emb
 
 
@@ -405,20 +408,20 @@ def get_1d_sincos_pos_embed_from_grid(embed_dim, pos):
     """
     embed_dim: output dimension for each position
     pos: a list of positions to be encoded: size (M,)
-    out: (M, D)
+    out: (M, C)
     """
     assert embed_dim % 2 == 0
     omega = np.arange(embed_dim // 2, dtype=np.float64)
     omega /= embed_dim / 2.
-    omega = 1. / 10000**omega  # (D/2,)
+    omega = 1. / 10000**omega  # (C/2,)
 
     pos = pos.reshape(-1)  # (M,)
-    out = np.einsum('m,d->md', pos, omega)  # (M, D/2), outer product
+    out = np.einsum('m,d->md', pos, omega)  # (M, C/2), outer product
 
-    emb_sin = np.sin(out) # (M, D/2)
-    emb_cos = np.cos(out) # (M, D/2)
+    emb_sin = np.sin(out) # (M, C/2)
+    emb_cos = np.cos(out) # (M, C/2)
 
-    emb = np.concatenate([emb_sin, emb_cos], axis=1)  # (M, D)
+    emb = np.concatenate([emb_sin, emb_cos], axis=1)  # (M, C)
     return emb
 
 
