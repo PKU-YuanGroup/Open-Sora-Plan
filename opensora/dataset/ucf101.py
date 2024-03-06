@@ -69,7 +69,8 @@ class UCF101(Dataset):
 
         try:
             video = self.tv_read(video_path)
-            video = self.transform(video) # C T H W
+            video = self.transform(video)  # T C H W -> T C H W
+            video = video.transpose(0, 1)  # T C H W -> C T H W
             return video, label
         except Exception as e:
             print(f'Error with {e}, {video_path}')
@@ -86,7 +87,7 @@ class UCF101(Dataset):
         # frame_indice = np.linspace(0, 30, self.target_video_len, dtype=int)
         # print(frame_indice)
         video = vframes[frame_indice]  #
-        video = video.permute(0, 2, 3, 1)  # (T, C, H, W) -> (T H W C)
+        # video = video.permute(0, 2, 3, 1)  # (T, C, H, W) -> (T H W C)
 
         return video
 
@@ -100,6 +101,6 @@ class UCF101(Dataset):
 
         video_data = decord_vr.get_batch(frame_indice).asnumpy()
         video_data = torch.from_numpy(video_data)
-        # video_data = video_data.permute(0, 3, 1, 2)  # (T, H, W, C) -> (T C H W)
+        video_data = video_data.permute(0, 3, 1, 2)  # (T, H, W, C) -> (T C H W)
         return video_data
 

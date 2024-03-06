@@ -1,6 +1,6 @@
 # Open-Sora Plan
 
-[[Project Page]](https://pku-yuangroup.github.io/Open-Sora-Plan/) [[中文主页]](https://pku-yuangroup.github.io/Open-Sora-Plan/blog_cn.html)
+[[Project Page]](https://pku-yuangroup.github.io/Open-Sora-Plan/) [[中文主页]](https://pku-yuangroup.github.io/Open-Sora-Plan/blog_cn.html) [[Discord]](https://discord.gg/fqpmStRX) [[Wechat Group]](https://github.com/PKU-YuanGroup/Open-Sora-Plan/issues/53#issuecomment-1980312563)
 
 ## Goal
 This project aims to create a simple and scalable repo, to reproduce [Sora](https://openai.com/sora) (OpenAI, but we prefer to call it "CloseAI" ) and build knowledge about Video-VQVAE (VideoGPT) + DiT at scale. However, we have limited resources, we deeply wish all open-source community can contribute to this project. Pull request are welcome!!!
@@ -43,9 +43,9 @@ Project stages:
 - [x] Support variable aspect ratios, resolutions, durations training on [DiT](https://github.com/facebookresearch/DiT).
 - [x] Support Dynamic mask input inspired [FiT](https://github.com/whlzy/FiT).
 - [x] Add class-conditioning on embeddings.
-- [ ] Incorporating [Latte](https://github.com/Vchitect/Latte) as main codebase.
+- [x] Incorporating [Latte](https://github.com/Vchitect/Latte) as main codebase.
 - [x] Add VAE model, which is borrowed from [Stable Diffusion](https://github.com/CompVis/latent-diffusion).
-- [ ] Joint dynamic mask input with VAE.
+- [x] Joint dynamic mask input with VAE.
 - [ ] Make the codebase ready for the cluster training. Add SLURM scripts.
 - [ ] Add sampling script.
 - [ ] Incorporating [SiT](https://github.com/willisma/SiT).
@@ -53,6 +53,8 @@ Project stages:
 #### Train models that boost resolution and duration
 - [ ] Add [PI](https://arxiv.org/abs/2306.15595) to support out-of-domain size.
 - [x] Add frame interpolation model.
+- [ ] Add accelerate to automatically manage training.
+- [ ] Joint training with images.
 
 #### Conduct text2video experiments on landscape dataset.
 - [ ] Finish data loading, pre-processing utils.
@@ -64,9 +66,9 @@ Project stages:
 - [ ] Looking for a suitable dataset, welcome to discuss and recommend.
 - [ ] Finish data loading, pre-processing utils.
 - [ ] Support memory friendly training.
-  - [ ] Add flash-attention2 from pytorch.
-  - [ ] Add xformers.
-  - [ ] Add accelerate to automatically manage training, e.g. mixed precision training.
+  - [x] Add flash-attention2 from pytorch.
+  - [x] Add xformers.
+  - [ ] Support mixed precision training.
   - [x] Add gradient checkpoint.
   - [ ] Train using the deepspeed engine.
 
@@ -186,13 +188,14 @@ We greatly appreciate your contributions to the Open-Sora Plan open-source commu
 For more details, please refer to the [Contribution Guidelines](docs/Contribution_Guidelines.md)
 
 ## Acknowledgement
-* [DiT](https://github.com/facebookresearch/DiT/tree/main): Scalable Diffusion Models with Transformers.
+* [Latte](https://github.com/Vchitect/Latte): The **main codebase** we built upon and it is an wonderful video gererated model.
+* [DiT](https://github.com/facebookresearch/DiT): Scalable Diffusion Models with Transformers.
 * [VideoGPT](https://github.com/wilson1yan/VideoGPT): Video Generation using VQ-VAE and Transformers.
 * [FiT](https://github.com/whlzy/FiT): Flexible Vision Transformer for Diffusion Model.
 * [Positional Interpolation](https://arxiv.org/abs/2306.15595): Extending Context Window of Large Language Models via Positional Interpolation.
 
 ## License
-* The service is a research preview intended for non-commercial use only. See [LICENSE.txt](LICENSE.txt) for details.
+* The service is a research preview intended for non-commercial use only. See [LICENSE](LICENSE) for details.
 
 ## Contributors
 
