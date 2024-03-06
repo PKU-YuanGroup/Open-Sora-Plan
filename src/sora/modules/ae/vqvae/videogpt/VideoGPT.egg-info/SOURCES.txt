@@ -1,0 +1,15 @@
+setup.py
+VideoGPT.egg-info/PKG-INFO
+VideoGPT.egg-info/SOURCES.txt
+VideoGPT.egg-info/dependency_links.txt
+VideoGPT.egg-info/requires.txt
+VideoGPT.egg-info/top_level.txt
+VideoGPT.egg-info/zip-safe
+videogpt/__init__.py
+videogpt/attention.py
+videogpt/data.py
+videogpt/download.py
+videogpt/gpt.py
+videogpt/resnet.py
+videogpt/utils.py
+videogpt/vqvae.py
