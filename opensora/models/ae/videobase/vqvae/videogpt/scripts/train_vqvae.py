@@ -2,7 +2,7 @@ import argparse
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 from videogpt import VQVAE, VideoData
-
+from transformers import TrainingArguments, HfArgumentParser
 
 def main():
     pl.seed_everything(1234)
