@@ -28,9 +28,9 @@ class Collate:
 
         # pad to max multiple of ds_stride
         batch_input_size = [i.shape for i in batch_tubes]
-        max_t, max_h, max_w = max([i[1] for i in batch_input_size]), \
-                              max([i[2] for i in batch_input_size]), \
-                              max([i[3] for i in batch_input_size])
+        max_t, max_h, max_w = self.num_frames, \
+                              self.max_image_size, \
+                              self.max_image_size
         pad_max_t, pad_max_h, pad_max_w = pad_to_multiple(max_t, t_ds_stride), \
                                           pad_to_multiple(max_h, ds_stride), \
                                           pad_to_multiple(max_w, ds_stride)

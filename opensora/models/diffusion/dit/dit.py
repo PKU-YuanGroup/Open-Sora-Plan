@@ -59,14 +59,8 @@ class Attention(nn.Module):
         #         dropout_p=self.attn_drop.p if self.training else 0.,
         #     )
         # else:
-        q = q * self.scale
-        attn = q @ k.transpose(-2, -1)
+        attn = (q @ k.transpose(-2, -1)) * self.scale
         if attention_mask is not None:
-            attention_mask = attention_mask.flatten(1).unsqueeze(-1)  # bs t h w -> bs thw 1
-            attention_mask = attention_mask @ attention_mask.transpose(1, 2)  # bs thw 1 @ bs 1 thw = bs thw thw
-            attention_mask = attention_mask.unsqueeze(1)
-            assert attn.shape[0] == attention_mask.shape[0]
-            attention_mask = attention_mask.masked_fill(attention_mask == 0, torch.finfo(attn.dtype).min)
             attn = attn + attention_mask
         attn = attn.softmax(dim=-1)
         if torch.any(torch.isnan(attn)):
@@ -224,6 +218,8 @@ class DiT(nn.Module):
         class_dropout_prob=0.1,
         num_classes=1000,
         learn_sigma=True,
+        extras=1,
+        attention_mode='math',
     ):
         super().__init__()
         self.gradient_checkpointing = False
@@ -234,11 +230,14 @@ class DiT(nn.Module):
         self.patch_size = patch_size
         self.patch_size_t = patch_size_t
         self.num_heads = num_heads
+        self.extras = extras
         self.hidden_size = hidden_size
         # import ipdb;ipdb.set_trace()
         self.x_embedder = PatchEmbed(input_size, patch_size, in_channels, hidden_size, bias=True)
         self.t_embedder = TimestepEmbedder(hidden_size)
-        self.y_embedder = LabelEmbedder(num_classes, hidden_size, class_dropout_prob)
+
+        if self.extras == 2:
+            self.y_embedder = LabelEmbedder(num_classes, hidden_size, class_dropout_prob)
         num_patches = self.x_embedder.num_patches
         # Will use fixed sin-cos embedding:
         # self.pos_embed = nn.Parameter(torch.zeros(1, num_patches, hidden_size), requires_grad=False)
@@ -305,6 +304,13 @@ class DiT(nn.Module):
             return outputs
         return ckpt_forward
 
+    def make_mask(self, attention_mask, dtype):
+        attention_mask = attention_mask.flatten(1).unsqueeze(-1)  # bs t h w -> bs thw 1
+        attention_mask = attention_mask @ attention_mask.transpose(1, 2)  # bs thw 1 @ bs 1 thw = bs thw thw
+        attention_mask = attention_mask.unsqueeze(1)
+        attention_mask = attention_mask.masked_fill(attention_mask == 0, torch.finfo(dtype).min)
+        return attention_mask
+
     def forward(self, x, t, y, attention_mask):
         """
         Forward pass of DiT.
@@ -318,12 +324,15 @@ class DiT(nn.Module):
         self.h = num_patches_height = H // self.patch_size
         self.w = num_patches_width = W // self.patch_size
         self.t = num_tubes_length = T // self.patch_size_t  # 4 // 1
+        attention_mask = self.make_mask(attention_mask, x.dtype)
 
-        pos_embed = get_2d_sincos_pos_embed(self.hidden_size, [num_patches_height, num_patches_width])
+
+        pos_embed = get_2d_sincos_pos_embed(self.hidden_size, num_patches_height)
         pos_embed = nn.Parameter(torch.from_numpy(pos_embed).float().unsqueeze(0), requires_grad=False).to(x.device)
 
-        pos_embed_1d = get_2d_sincos_pos_embed(self.hidden_size, [num_tubes_length, 1])
+        pos_embed_1d = get_1d_sincos_temp_embed(self.hidden_size, num_tubes_length)
         pos_embed_1d = nn.Parameter(torch.from_numpy(pos_embed_1d).float().unsqueeze(0), requires_grad=False).to(x.device)
+
 
         # print(num_patches_height, num_patches_width, x.shape, pos_embed.shape)
         self.x_embedder.img_size = [H, W]
@@ -334,8 +343,11 @@ class DiT(nn.Module):
         x = rearrange(x, '(b n) t c -> b (t n) c', b=B)
 
         t = self.t_embedder(t)                   # (B, C)
-        y = self.y_embedder(y, self.training)    # (B, C)
-        c = t + y                                # (B, C)
+        if self.extras == 2:
+            y = self.y_embedder(y, self.training)    # (B, C)
+            c = t + y                              # (B, C)
+        else:
+            c = t
         for block in self.blocks:                  # (B, N, C)
             if self.gradient_checkpointing and self.training:
                 x = torch.utils.checkpoint.checkpoint(self.ckpt_wrapper(block), x, c, attention_mask)  # (B, N, C)
@@ -373,20 +385,22 @@ class DiT(nn.Module):
 #################################################################################
 # https://github.com/facebookresearch/mae/blob/main/util/pos_embed.py
 
+def get_1d_sincos_temp_embed(embed_dim, length):
+    pos = torch.arange(0, length).unsqueeze(1)
+    return get_1d_sincos_pos_embed_from_grid(embed_dim, pos)
+
 def get_2d_sincos_pos_embed(embed_dim, grid_size, cls_token=False, extra_tokens=0):
     """
     grid_size: int of the grid height and width
     return:
     pos_embed: [grid_size*grid_size, embed_dim] or [1+grid_size*grid_size, embed_dim] (w/ or w/o cls_token)
     """
-    if isinstance(grid_size, int):
-        grid_size = to_2tuple(grid_size)
-    grid_h = np.arange(grid_size[0], dtype=np.float32)
-    grid_w = np.arange(grid_size[1], dtype=np.float32)
+    grid_h = np.arange(grid_size, dtype=np.float32)
+    grid_w = np.arange(grid_size, dtype=np.float32)
     grid = np.meshgrid(grid_w, grid_h)  # here w goes first
     grid = np.stack(grid, axis=0)
 
-    grid = grid.reshape([2, 1, grid_size[0], grid_size[1]])
+    grid = grid.reshape([2, 1, grid_size, grid_size])
     pos_embed = get_2d_sincos_pos_embed_from_grid(embed_dim, grid)
     if cls_token and extra_tokens > 0:
         pos_embed = np.concatenate([np.zeros([extra_tokens, embed_dim]), pos_embed], axis=0)
@@ -397,10 +411,10 @@ def get_2d_sincos_pos_embed_from_grid(embed_dim, grid):
     assert embed_dim % 2 == 0
 
     # use half of dimensions to encode grid_h
-    emb_h = get_1d_sincos_pos_embed_from_grid(embed_dim // 2, grid[0])  # (H*W, C/2)
-    emb_w = get_1d_sincos_pos_embed_from_grid(embed_dim // 2, grid[1])  # (H*W, C/2)
+    emb_h = get_1d_sincos_pos_embed_from_grid(embed_dim // 2, grid[0])
+    emb_w = get_1d_sincos_pos_embed_from_grid(embed_dim // 2, grid[1])
 
-    emb = np.concatenate([emb_h, emb_w], axis=1) # (H*W, C)
+    emb = np.concatenate([emb_h, emb_w], axis=1)
     return emb
 
 
@@ -408,21 +422,22 @@ def get_1d_sincos_pos_embed_from_grid(embed_dim, pos):
     """
     embed_dim: output dimension for each position
     pos: a list of positions to be encoded: size (M,)
-    out: (M, C)
+    out: (M, D)
     """
     assert embed_dim % 2 == 0
     omega = np.arange(embed_dim // 2, dtype=np.float64)
     omega /= embed_dim / 2.
-    omega = 1. / 10000**omega  # (C/2,)
+    omega = 1. / 10000**omega
 
-    pos = pos.reshape(-1)  # (M,)
-    out = np.einsum('m,d->md', pos, omega)  # (M, C/2), outer product
+    pos = pos.reshape(-1)
+    out = np.einsum('m,d->md', pos, omega)
 
-    emb_sin = np.sin(out) # (M, C/2)
-    emb_cos = np.cos(out) # (M, C/2)
+    emb_sin = np.sin(out)
+    emb_cos = np.cos(out)
 
-    emb = np.concatenate([emb_sin, emb_cos], axis=1)  # (M, C)
+    emb = np.concatenate([emb_sin, emb_cos], axis=1)
     return emb
+
 
 
 #################################################################################
