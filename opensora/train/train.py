@@ -132,7 +132,8 @@ def main(args):
     model = Diffusion_models[args.model](
         input_size=latent_size,
         num_classes=args.num_classes,
-        in_channels=ae_channel_config[args.ae]
+        in_channels=ae_channel_config[args.ae],
+        extras=args.extras
     )
     model.gradient_checkpointing = args.gradient_checkpointing
 
@@ -205,7 +206,7 @@ def main(args):
         for x, y, attn_mask in loader:
             x = x.to(device)  # B C T H W
             y = y.to(device)
-            attn_mask = attn_mask.to(device)
+            attn_mask = attn_mask.to(device)  # B T H W
             with torch.no_grad():
                 # Map input images to latent space + normalize latents
                 x = ae.encode(x)  # B C T H W -> B T C H W
@@ -283,6 +284,7 @@ if __name__ == "__main__":
                                                     'kinetics_stride4x4x4', 'kinetics_stride2x4x4',
                                                    'stabilityai/sd-vae-ft-mse', 'stabilityai/sd-vae-ft-ema'],
                         default="ucf101_stride4x4x4")
+    parser.add_argument("--extras", type=int, default=2, choices=[1, 2, 78])
     parser.add_argument("--pt-ckpt", type=str, default=None)
     parser.add_argument("--sample-rate", type=int, default=4)
     parser.add_argument("--num-frames", type=int, default=16)
