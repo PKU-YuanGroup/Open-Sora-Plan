@@ -43,10 +43,10 @@ Project stages:
 - [x] Support variable aspect ratios, resolutions, durations training on [DiT](https://github.com/facebookresearch/DiT).
 - [x] Support Dynamic mask input inspired [FiT](https://github.com/whlzy/FiT).
 - [x] Add class-conditioning on embeddings.
-- [ ] Incorporating [Latte](https://github.com/Vchitect/Latte) as main codebase.
+- [x] Incorporating [Latte](https://github.com/Vchitect/Latte) as main codebase.
 - [x] Add VAE model, which is borrowed from [Stable Diffusion](https://github.com/CompVis/latent-diffusion).
 - [x] Joint dynamic mask input with VAE.
-- [ ] Make the codebase ready for the cluster training. Add SLURM scripts.
+- [x] Make the codebase ready for the cluster training. Add SLURM scripts.
 - [ ] Add sampling script.
 - [ ] Incorporating [SiT](https://github.com/willisma/SiT).
 
@@ -66,8 +66,8 @@ Project stages:
 - [ ] Looking for a suitable dataset, welcome to discuss and recommend.
 - [ ] Finish data loading, pre-processing utils.
 - [ ] Support memory friendly training.
-  - [ ] Add flash-attention2 from pytorch.
-  - [ ] Add xformers.
+  - [x] Add flash-attention2 from pytorch.
+  - [x] Add xformers.
   - [ ] Add accelerate to automatically manage training, e.g. mixed precision training.
   - [x] Add gradient checkpoint.
   - [ ] Train using the deepspeed engine.
@@ -194,7 +194,7 @@ For more details, please refer to the [Contribution Guidelines](docs/Contributio
 * [Positional Interpolation](https://arxiv.org/abs/2306.15595): Extending Context Window of Large Language Models via Positional Interpolation.
 
 ## License
-* The service is a research preview intended for non-commercial use only. See [LICENSE.txt](LICENSE.txt) for details.
+* The service is a research preview intended for non-commercial use only. See [LICENSE](LICENSE) for details.
 
 ## Contributors
 
