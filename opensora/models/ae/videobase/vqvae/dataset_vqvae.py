@@ -10,7 +10,7 @@ import torch.nn.functional as F
 from torchvision.datasets.video_utils import VideoClips
 
 # Copied from https://github.com/wilson1yan/VideoGPT
-class VideoGPTDataset(data.Dataset):
+class VQVAEDataset(data.Dataset):
     """ Generic dataset for videos files stored in folders
     Returns BCTHW videos in the range [-0.5, 0.5] """
     exts = ['avi', 'mp4', 'webm']

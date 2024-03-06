@@ -1,8 +1,8 @@
 from .imagebase import imagebase_ae, vae, vqvae, imagebase_ae_stride, imagebase_ae_channel
 from .videobase import videobase_ae, videovae, videovqvae, videobase_ae_stride, videobase_ae_channel
 from .videobase import (
-    VideoGPTConfiguration,
-    VideoGPTVQVAE
+    VQVAEConfiguration,
+    VQVAEModel
 )
 
 ae_stride_config = {}
