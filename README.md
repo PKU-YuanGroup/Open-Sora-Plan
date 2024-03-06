@@ -52,9 +52,10 @@ Project stages:
 
 #### Train models that boost resolution and duration
 - [ ] Add [PI](https://arxiv.org/abs/2306.15595) to support out-of-domain size.
+- [x] Extract offline feature.
 - [x] Add frame interpolation model.
 - [x] Add super resolution model.
-- [ ] Add accelerate to automatically manage training.
+- [x] Add accelerate to automatically manage training.
 - [ ] Joint training with images.
 
 #### Conduct text2video experiments on landscape dataset.
@@ -69,7 +70,7 @@ Project stages:
 - [ ] Support memory friendly training.
   - [x] Add flash-attention2 from pytorch.
   - [x] Add xformers.
-  - [ ] Support mixed precision training.
+  - [x] Support mixed precision training.
   - [x] Add gradient checkpoint.
   - [ ] Train using the deepspeed engine.
 
@@ -83,22 +84,28 @@ Project stages:
 ├── docs
 │   ├── Data.md                    -> Datasets description.
 │   ├── Contribution_Guidelines.md -> Contribution guidelines description.
-├── scripts                        -> All training scripts.
-│   └── train.sh
-├── sora
-│   ├── dataset                    -> Dataset code to read videos
-│   ├── models 
-│   │   ├── captioner               
-│   │   ├── super_resolution        
-│   ├── modules
-│   │   ├── ae                     -> compress videos to latents
-│   │   │   ├── vqvae
-│   │   │   ├── vae
-│   │   ├── diffusion              -> denoise latents
-│   │   │   ├── dit
-│   │   │   ├── unet
-|   ├── utils.py                   
-│   ├── train.py                   -> Training code
+├── scripts                        -> All scripts.
+├── opensora
+│   ├── dataset
+│   ├── models
+│   │   ├── ae                     -> Compress videos to latents
+│   │   │   ├── imagebase
+│   │   │   │   ├── vae
+│   │   │   │   └── vqvae
+│   │   │   └── videobase
+│   │   │       ├── vae
+│   │   │       └── vqvae
+│   │   ├── captioner
+│   │   ├── diffusion              -> Denoise latents
+│   │   │   ├── diffusion         
+│   │   │   ├── dit
+│   │   │   ├── latte
+│   │   │   └── unet
+│   │   ├── frame_interpolation
+│   │   └── super_resolution
+│   ├── sample
+│   ├── train                      -> Training code
+│   └── utils
 ```
 
 ## Requirements and Installation
@@ -181,7 +188,9 @@ sh scripts/train.sh
 </p>
 
 #### Sampling
-Coming soon.
+```
+sh scripts/sample.sh
+```
 
 ## How to Contribute to the Open-Sora Plan Community
 We greatly appreciate your contributions to the Open-Sora Plan open-source community and helping us make it even better than it is now!
