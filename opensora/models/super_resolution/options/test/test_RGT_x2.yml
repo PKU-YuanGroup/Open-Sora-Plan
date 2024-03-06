@@ -1,0 +1,94 @@
+# general settings
+name: test_RGT_x2
+model_type: RGTModel
+scale: 2
+num_gpu: 1
+manual_seed: 10
+
+datasets:
+  test_1:  # the 1st test dataset
+    task: SR
+    name: Set5
+    type: PairedImageDataset
+    dataroot_gt: datasets/benchmark/Set5/HR
+    dataroot_lq: datasets/benchmark/Set5/LR_bicubic/X2
+    filename_tmpl: '{}x2'
+    io_backend:
+      type: disk
+
+  # test_2:  # the 2st test dataset
+  #   task: SR
+  #   name: Set14
+  #   type: PairedImageDataset
+  #   dataroot_gt: datasets/benchmark/Set14/HR
+  #   dataroot_lq: datasets/benchmark/Set14/LR_bicubic/X2
+  #   filename_tmpl: '{}x2'
+  #   io_backend:
+  #     type: disk
+
+  # test_3:  # the 3st test dataset
+  #   task: SR
+  #   name: B100
+  #   type: PairedImageDataset
+  #   dataroot_gt: datasets/benchmark/B100/HR
+  #   dataroot_lq: datasets/benchmark/B100/LR_bicubic/X2
+  #   filename_tmpl: '{}x2'
+  #   io_backend:
+  #     type: disk
+
+  # test_4:  # the 4st test dataset
+  #   task: SR
+  #   name: Urban100
+  #   type: PairedImageDataset
+  #   dataroot_gt: datasets/benchmark/Urban100/HR
+  #   dataroot_lq: datasets/benchmark/Urban100/LR_bicubic/X2
+  #   filename_tmpl: '{}x2'
+  #   io_backend:
+  #     type: disk
+
+  # test_5:  # the 5st test dataset
+  #   task: SR
+  #   name: Manga109
+  #   type: PairedImageDataset
+  #   dataroot_gt: datasets/benchmark/Manga109/HR
+  #   dataroot_lq: datasets/benchmark/Manga109/LR_bicubic/X2
+  #   filename_tmpl: '{}_LRBI_x2'
+  #   io_backend:
+  #     type: disk
+
+
+# network structures
+network_g:
+  type: RGT
+  upscale: 2
+  in_chans: 3
+  img_size: 64
+  img_range: 1.
+  depth: [6,6,6,6,6,6,6,6]
+  embed_dim: 180
+  num_heads: [6,6,6,6,6,6,6,6]
+  mlp_ratio: 2
+  resi_connection: '1conv'
+  split_size: [8,32]
+  c_ratio: 0.5
+
+# path
+path:
+  pretrain_network_g: /remote-home/lzy/RGT/experiments/pretrained_models/RGT_x2.pth
+  strict_load_g: True
+
+# validation settings
+val:
+  save_img: True
+  suffix: ~  # add suffix to saved images, if None, use exp name
+  use_chop: False  # True to save memory, if img too large
+
+  metrics:
+    psnr: # metric name, can be arbitrary
+      type: calculate_psnr
+      crop_border: 2
+      test_y_channel: True
+    ssim:
+      type: calculate_ssim
+      crop_border: 2
+      test_y_channel: True
