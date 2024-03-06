@@ -1,5 +1,5 @@
-from .imagebase import imagebase_ae
-from .videobase import videobase_ae
+from .imagebase import imagebase_ae, vae, vqvae
+from .videobase import videobase_ae, videovae, videovqvae
 from .videobase import (
     VideoGPTConfiguration,
     VideoGPTVQVAE
