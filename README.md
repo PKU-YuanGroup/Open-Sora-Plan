@@ -188,7 +188,8 @@ We greatly appreciate your contributions to the Open-Sora Plan open-source commu
 For more details, please refer to the [Contribution Guidelines](docs/Contribution_Guidelines.md)
 
 ## Acknowledgement
-* [DiT](https://github.com/facebookresearch/DiT/tree/main): Scalable Diffusion Models with Transformers.
+* [Latte](https://github.com/Vchitect/Latte): The **main codebase** we built upon and it is an wonderful video gererated model.
+* [DiT](https://github.com/facebookresearch/DiT): Scalable Diffusion Models with Transformers.
 * [VideoGPT](https://github.com/wilson1yan/VideoGPT): Video Generation using VQ-VAE and Transformers.
 * [FiT](https://github.com/whlzy/FiT): Flexible Vision Transformer for Diffusion Model.
 * [Positional Interpolation](https://arxiv.org/abs/2306.15595): Extending Context Window of Large Language Models via Positional Interpolation.
