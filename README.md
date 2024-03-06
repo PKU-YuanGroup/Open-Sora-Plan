@@ -46,14 +46,14 @@ Project stages:
 - [x] Incorporating [Latte](https://github.com/Vchitect/Latte) as main codebase.
 - [x] Add VAE model, which is borrowed from [Stable Diffusion](https://github.com/CompVis/latent-diffusion).
 - [x] Joint dynamic mask input with VAE.
-- [x] Make the codebase ready for the cluster training. Add SLURM scripts.
+- [ ] Make the codebase ready for the cluster training. Add SLURM scripts.
 - [ ] Add sampling script.
 - [ ] Incorporating [SiT](https://github.com/willisma/SiT).
 
 #### Train models that boost resolution and duration
 - [ ] Add [PI](https://arxiv.org/abs/2306.15595) to support out-of-domain size.
 - [x] Add frame interpolation model.
-- [ ] Train with accelerate.
+- [ ] Add accelerate to automatically manage training.
 - [ ] Joint training with images.
 
 #### Conduct text2video experiments on landscape dataset.
@@ -68,7 +68,7 @@ Project stages:
 - [ ] Support memory friendly training.
   - [x] Add flash-attention2 from pytorch.
   - [x] Add xformers.
-  - [ ] Add accelerate to automatically manage training, e.g. mixed precision training.
+  - [ ] Support mixed precision training.
   - [x] Add gradient checkpoint.
   - [ ] Train using the deepspeed engine.
 
