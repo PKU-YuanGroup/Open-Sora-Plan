@@ -54,7 +54,7 @@ Project stages:
 - [ ] Add [PI](https://arxiv.org/abs/2306.15595) to support out-of-domain size.
 - [x] Add frame interpolation model.
 - [x] Add super resolution model.
-- [ ] Add accelerate to automatically manage training.
+- [x] Add accelerate to automatically manage training.
 - [ ] Joint training with images.
 
 #### Conduct text2video experiments on landscape dataset.
@@ -69,7 +69,7 @@ Project stages:
 - [ ] Support memory friendly training.
   - [x] Add flash-attention2 from pytorch.
   - [x] Add xformers.
-  - [ ] Support mixed precision training.
+  - [x] Support mixed precision training.
   - [x] Add gradient checkpoint.
   - [ ] Train using the deepspeed engine.
 

@@ -83,6 +83,7 @@ def main(args):
     assert patch_size_h == patch_size_w, "Support now."
 
     latent_size = (args.num_frames // ae_stride_t, args.max_image_size // ae_stride_h, args.max_image_size // ae_stride_w)
+    args.latent_size = latent_size[1]
 
     model = Diffusion_models[args.model](
         input_size=latent_size,
@@ -129,7 +130,6 @@ def main(args):
     if args.use_compile:
         model = torch.compile(model)
 
-    ae = getae(args).to(device)
     logger.info(f"{model}")
     logger.info(f"Model Parameters: {sum(p.numel() for p in model.parameters()):,}")
     for n, p in model.named_parameters():
@@ -148,8 +148,7 @@ def main(args):
         # sampler=sampler,
         num_workers=args.num_workers,
         pin_memory=True,
-        drop_last=True,
-        collate_fn=Collate(args)
+        drop_last=True
     )
     logger.info(f"Dataset contains {len(dataset):,} videos ({args.data_path})")
 
@@ -204,23 +203,20 @@ def main(args):
         logger.info(f"Training for {num_train_epochs} epochs...")
     for epoch in range(first_epoch, num_train_epochs):
         logger.info(f"Beginning epoch {epoch}...")
-        for step, (x, y, attn_mask) in enumerate(loader):
+        for step, (x, y) in enumerate(loader):
             if args.resume_from_checkpoint and epoch == first_epoch and step < resume_step:
                 continue
-            x = x.to(device)  # B C T H W
+            x = x.to(device)  # B T C H W
             y = y.to(device)
-            attn_mask = attn_mask.to(device)  # B T H W
-            with torch.no_grad():
-                # Map input images to latent space + normalize latents
-                x = ae.encode(x)  # B C T H W -> B T C H W
+
 
 
             if args.extras == 78: # text-to-video
                 raise 'T2V training are Not supported at this moment!'
             elif args.extras == 2:
-                model_kwargs = dict(y=y, attention_mask=attn_mask)
+                model_kwargs = dict(y=y, attention_mask=None)
             else:
-                model_kwargs = dict(y=None, attention_mask=attn_mask)
+                model_kwargs = dict(y=None, attention_mask=None)
 
             t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=device)
             loss_dict = diffusion.training_losses(model, x, t, model_kwargs)
