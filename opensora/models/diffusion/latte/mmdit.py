@@ -219,35 +219,26 @@ class TimestepEmbedder(nn.Module):
         return t_emb
 
 
-class LabelEmbedder(nn.Module):
-    """
-    Embeds class labels into vector representations. Also handles label dropout for classifier-free guidance.
-    """
-    def __init__(self, num_classes, hidden_size, dropout_prob):
-        super().__init__()
-        use_cfg_embedding = dropout_prob > 0
-        self.embedding_table = nn.Embedding(num_classes + use_cfg_embedding, hidden_size)
-        self.num_classes = num_classes
-        self.dropout_prob = dropout_prob
+class TextEmbeddingProjector(nn.Module): # Using instead of Label Embedder
+    def __init__(self, clip_in_text_channels, t5_in_text_channels, text_hidden_size, timestep_hidden_size, bias=True):
+        self.proj = nn.Linear(clip_in_text_channels + t5_in_text_channels, text_hidden_size, bias=bias)
+        self.timestep_proj = nn.Linear(clip_in_text_channels, timestep_hidden_size, bias=bias)
+    
+    def forward(self,
+                clip_embeds, # may be concat of multiple clip outputs (change the proj too then)
+                t5_embeds):
+        # Batch Len Chans
+        B, L, C = clip_embeds.shape
+        _, _, C_T5 = t5_embeds.shape
 
-    def token_drop(self, labels, force_drop_ids=None):
-        """
-        Drops labels to enable classifier-free guidance.
-        """
-        if force_drop_ids is None:
-            drop_ids = torch.rand(labels.shape[0], device=labels.device) < self.dropout_prob
-        else:
-            drop_ids = force_drop_ids == 1
-        labels = torch.where(drop_ids, self.num_classes, labels)
-        return labels
+        pooled_clip_embeds = clip_embeds.permute(1, 0, 2)[0] # SDXL takes 0th item as the pooled version
+        ts_proj = self.timestep_proj(pooled_clip_embeds)
 
-    def forward(self, labels, train, force_drop_ids=None):
-        use_dropout = self.dropout_prob > 0
-        if (train and use_dropout) or (force_drop_ids is not None):
-            labels = self.token_drop(labels, force_drop_ids)
-        embeddings = self.embedding_table(labels)
-        return embeddings
+        clip_embeds = nn.functional.pad(clip_embeds, (0, 0, C_T5 - C), mode='constant', value=0)
+        embeds = torch.cat([clip_embeds, t5_embeds], dim=1) # concat in L dim
+        c = self.proj(embeds)
 
+        return c, ts_proj
 
 #################################################################################
 #                                 Core MMDiT/Latte Model                                #
@@ -279,7 +270,7 @@ class TransformerBlock(nn.Module):
         self.pix_norm2 = nn.LayerNorm(pix_hidden_size, elementwise_affine=False, eps=1e-6)
 
         text_mlp_hidden_dim = int(text_hidden_size * mlp_ratio)
-        pix_mlp_hidden_dim = int(hidden_size * mlp_ratio)
+        pix_mlp_hidden_dim = int(pix_hidden_size * mlp_ratio)
 
         approx_gelu = lambda: nn.Identity() #nn.GELU(approximate="tanh")
         self.text_mlp = Mlp(in_features=text_hidden_size, hidden_features=text_mlp_hidden_dim, act_layer=approx_gelu, drop=0)
@@ -287,26 +278,27 @@ class TransformerBlock(nn.Module):
 
     def forward(self, y, x, c):
 
-        coefs_text = text_y_input(y)
-        coefs_pix = pix_y_input(y)
+        def bc(tnsr):
+            return tnsr.view(-1, 1, 1, 1, 1) # broadcasting
+
+        coefs_text = self.text_y_input(y)
+        coefs_pix = self.pix_y_input(y)
 
         alpha_txt, beta_txt, gamma_txt, delta_txt, eps_txt, dz_txt = coefs_text.unbind(-1)
         alpha_pix, beta_pix, gamma_pix, delta_pix, eps_pix, dz_pix = coefs_pix.unbind(-1)
-        
-        # FIXME make additive components (beta, eps) the same size as the tensors
 
         c = self.text_norm1(c)
         x = self.pix_norm1(x)
 
-        c = alpha_txt * c + beta_txt
-        x = alpha_pix * x + beta_pix
+        c = bc(alpha_txt) * c + beta_txt * torch.ones_like(alpha_txt)
+        x = bc(alpha_pix) * x + beta_pix * torch.ones_like(alpha_pix)
 
         x, c = self.attn(x, c)
-        x_new = self.pix_norm2(x * gamma_pix + x) * delta_pix + eps_pix
-        c_new = self.text_norm2(c * gamma_txt + c) * delta_pix + eps_pix
+        x_new = self.pix_norm2(x * bc(gamma_pix) + x) * bc(delta_pix) + eps_pix * torch.ones_like(x)
+        c_new = self.text_norm2(c * bc(gamma_txt) + c) * bc(delta_txt) + eps_txt * torch.ones_like(c)
 
-        x_new = self.pix_mlp(x_new) * dz_pix + x
-        c_new = self.text_mlp(c_new) * dz_txt + c
+        x_new = self.pix_mlp(x_new) * bc(dz_pix) + x
+        c_new = self.text_mlp(c_new) * bc(dz_txt) + c
 
         return x, c
 
@@ -337,6 +329,10 @@ class MMDiT(nn.Module):
     """
     def __init__(
         self,
+        clip_in_text_channels=384, # FIXME check the actual amount (note: it is the total number (i.e. after concating clips))
+        clip_seq_len=77,
+        t5_in_text_channels=4096,
+        t5_seq_len=77,
         input_size=32,
         patch_size=2,
         in_channels=4,
@@ -345,11 +341,9 @@ class MMDiT(nn.Module):
         num_heads=16,
         mlp_ratio=4.0,
         num_frames=16,
-        class_dropout_prob=0.1,
-        num_classes=1000,
         learn_sigma=True,
         extras=1,
-        attention_mode='math',
+        attention_mode='rebased',
     ):
         super().__init__()
         self.learn_sigma = learn_sigma
@@ -361,16 +355,9 @@ class MMDiT(nn.Module):
         self.num_frames = num_frames
         self.gradient_checkpointing = False
 
-        self.x_embedder = PatchEmbed(input_size, patch_size, in_channels, hidden_size, bias=True)
+        self.x_embedder = PatchEmbed(input_size, patch_size, in_channels, hidden_size, flatten=True)
+        self.c_embedder = TextEmbeddingProjector(clip_seq_len*clip_in_text_channels, t5_seq_len*t5_in_text_channels, hidden_size, hidden_size, bias=True)
         self.t_embedder = TimestepEmbedder(hidden_size)
-
-        if self.extras == 2:
-            self.y_embedder = LabelEmbedder(num_classes, hidden_size, class_dropout_prob)
-        if self.extras == 78: # timestep + text_embedding
-            self.text_embedding_projection = nn.Sequential(
-            nn.SiLU(),
-            nn.Linear(77 * 768, hidden_size, bias=True)
-        )
 
         num_patches = self.x_embedder.num_patches
         # Will use fixed sin-cos embedding:
@@ -379,51 +366,16 @@ class MMDiT(nn.Module):
         self.hidden_size =  hidden_size
 
         self.blocks = nn.ModuleList([
-            TransformerBlock(hidden_size, num_heads, mlp_ratio=mlp_ratio, attention_mode=attention_mode) for _ in range(depth)
+            # timestep_size, text_hidden size, pix_hidden size
+            TransformerBlock(hidden_size, hidden_size, hidden_size, num_heads, mlp_ratio=mlp_ratio, attention_mode=attention_mode) for _ in range(depth)
         ])
 
         self.final_layer = FinalLayer(hidden_size, patch_size, self.out_channels)
         self.initialize_weights()
 
     def initialize_weights(self):
-        # Initialize transformer layers:
-        def _basic_init(module):
-            if isinstance(module, nn.Linear):
-                torch.nn.init.xavier_uniform_(module.weight)
-                if module.bias is not None:
-                    nn.init.constant_(module.bias, 0)
-        self.apply(_basic_init)
-
-        # Initialize (and freeze) pos_embed by sin-cos embedding:
-        pos_embed = get_2d_sincos_pos_embed(self.pos_embed.shape[-1], int(self.x_embedder.num_patches ** 0.5))
-        self.pos_embed.data.copy_(torch.from_numpy(pos_embed).float().unsqueeze(0))
-
-        temp_embed = get_1d_sincos_temp_embed(self.temp_embed.shape[-1], self.temp_embed.shape[-2])
-        self.temp_embed.data.copy_(torch.from_numpy(temp_embed).float().unsqueeze(0))
-
-        # Initialize patch_embed like nn.Linear (instead of nn.Conv2d):
-        w = self.x_embedder.proj.weight.data
-        nn.init.xavier_uniform_(w.view([w.shape[0], -1]))
-        nn.init.constant_(self.x_embedder.proj.bias, 0)
-
-        if self.extras == 2:
-            # Initialize label embedding table:
-            nn.init.normal_(self.y_embedder.embedding_table.weight, std=0.02)
-
-        # Initialize timestep embedding MLP:
-        nn.init.normal_(self.t_embedder.mlp[0].weight, std=0.02)
-        nn.init.normal_(self.t_embedder.mlp[2].weight, std=0.02)
-
-        # Zero-out adaLN modulation layers in Latte blocks:
-        for block in self.blocks:
-            nn.init.constant_(block.adaLN_modulation[-1].weight, 0)
-            nn.init.constant_(block.adaLN_modulation[-1].bias, 0)
-
-        # Zero-out output layers:
-        nn.init.constant_(self.final_layer.adaLN_modulation[-1].weight, 0)
-        nn.init.constant_(self.final_layer.adaLN_modulation[-1].bias, 0)
-        nn.init.constant_(self.final_layer.linear.weight, 0)
-        nn.init.constant_(self.final_layer.linear.bias, 0)
+        # TODO (see latte.py)
+        ...
 
     def unpatchify(self, x):
         """
@@ -465,27 +417,21 @@ class MMDiT(nn.Module):
         batches, frames, channels, high, weight = x.shape 
         x = rearrange(x, 'b f c h w -> (b f) c h w')
         x = self.x_embedder(x) + self.pos_embed  
-        t = self.t_embedder(t, use_fp16=use_fp16)                  
+        t = self.t_embedder(t, use_fp16=use_fp16)
+
+        c, ts_proj = self.c_embedder(text_embedding.reshape(batches, -1))
+        text_embedding_spatial = repeat(c, 'n d -> (n c) d', c=self.temp_embed.shape[1])
+        text_embedding_temp = repeat(c, 'n d -> (n c) d', c=self.pos_embed.shape[1])
+
+        t = t + ts_proj
         timestep_spatial = repeat(t, 'n d -> (n c) d', c=self.temp_embed.shape[1]) 
         timestep_temp = repeat(t, 'n d -> (n c) d', c=self.pos_embed.shape[1])
 
-        if self.extras == 2:
-            y = self.y_embedder(y, self.training)
-            y_spatial = repeat(y, 'n d -> (n c) d', c=self.temp_embed.shape[1]) 
-            y_temp = repeat(y, 'n d -> (n c) d', c=self.pos_embed.shape[1])
-        elif self.extras == 78:
-            text_embedding = self.text_embedding_projection(text_embedding.reshape(batches, -1))
-            text_embedding_spatial = repeat(text_embedding, 'n d -> (n c) d', c=self.temp_embed.shape[1])
-            text_embedding_temp = repeat(text_embedding, 'n d -> (n c) d', c=self.pos_embed.shape[1])
-
         for i in range(0, len(self.blocks), 2):
             spatial_block, temp_block = self.blocks[i:i+2]
-            if self.extras == 2:
-                c = timestep_spatial + y_spatial
-            elif self.extras == 78:
-                c = timestep_spatial + text_embedding_spatial
-            else:
-                c = timestep_spatial
+
+            c = timestep_spatial + text_embedding_spatial
+
             if self.gradient_checkpointing and self.training:
                 x = torch.utils.checkpoint.checkpoint(self.ckpt_wrapper(spatial_block), x, c)
             else:
@@ -496,12 +442,7 @@ class MMDiT(nn.Module):
             if i == 0:
                 x = x + self.temp_embed
 
-            if self.extras == 2:
-                c = timestep_temp + y_temp
-            elif self.extras == 78:
-                c = timestep_temp + text_embedding_temp
-            else:
-                c = timestep_temp
+            c = timestep_temp + text_embedding_temp
 
             if self.gradient_checkpointing and self.training:
                 x = torch.utils.checkpoint.checkpoint(self.ckpt_wrapper(temp_block), x, c)
@@ -509,10 +450,7 @@ class MMDiT(nn.Module):
                 x = temp_block(x, c)
             x = rearrange(x, '(b t) f d -> (b f) t d', b=batches)
 
-        if self.extras == 2:
-            c = timestep_spatial + y_spatial
-        else:
-            c = timestep_spatial
+        c = timestep_spatial
         x = self.final_layer(x, c)               
         x = self.unpatchify(x)                  
         x = rearrange(x, '(b f) c h w -> b f c h w', b=batches)
