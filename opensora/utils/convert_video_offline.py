@@ -121,7 +121,7 @@ def main(args):
             assert b == 1
             x = x[0]
             B = x.shape[0]
-            n_sample = 32
+            n_sample = 16
             n_round = B // n_sample
             x_enc = []
             # print(x.shape)
