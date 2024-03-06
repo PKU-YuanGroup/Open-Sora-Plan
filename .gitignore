@@ -1,5 +1,10 @@
-src/sora/modules/ae/vqvae/videogpt/ucf101_stride4x4x4
+ucf101_stride4x4x4
 __pycache__
 *.mp4
 .ipynb_checkpoints
 *.pth
+UCF-101/
+results/
+vae
+build/
+opensora.egg-info/
