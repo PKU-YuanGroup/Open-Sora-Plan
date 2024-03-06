@@ -1,6 +1,6 @@
 accelerate launch \
   --config_file scripts/accelerate_configs/default_config.yaml \
-  train_scripts/train_videogpt.py \
+  opensora/train/train_videogpt.py \
   --do_train \
   --seed 1234 \
   --data_path UCF-101 \
@@ -15,7 +15,7 @@ accelerate launch \
   --save_strategy steps \
   --save_total_limit 5 \
   --logging_steps 5 \
-  --save_steps 500 \
+  --save_steps 5 \
   --n_codes 2048 \
   --n_hiddens 240 \
   --n_res_layers 4 \

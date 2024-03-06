@@ -1,3 +1,6 @@
+import sys
+sys.path.append(".")
+
 import random
 import cv2
 import numpy as np
@@ -81,8 +84,10 @@ def main(args):
     sample_fps = args.sample_fps
     sample_rate = args.sample_rate
     device = torch.device('cuda')
-
-    vqvae = VQVAEModel.download_and_load_model(args.ckpt)
+    if args.ckpt in ['bair_stride4x2x2', 'ucf101_stride4x4x4', 'kinetics_stride4x4x4', 'kinetics_stride2x4x4']:
+        vqvae = VQVAEModel.download_and_load_model(args.ckpt)
+    else:
+        vqvae = VQVAEModel.load_from_checkpoint(args.ckpt)
     vqvae.eval()
     vqvae = vqvae.to(device)
 
@@ -99,8 +104,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--video-path', type=str, default='')
     parser.add_argument('--rec-path', type=str, default='')
-    parser.add_argument('--ckpt', type=str, default='ucf101_stride4x4x4', 
-                      choices=['bair_stride4x2x2', 'ucf101_stride4x4x4', 'kinetics_stride4x4x4', 'kinetics_stride2x4x4'])
+    parser.add_argument('--ckpt', type=str, default='ucf101_stride4x4x4')
     parser.add_argument('--sample-fps', type=int, default=30)
     parser.add_argument('--resolution', type=int, default=336)
     parser.add_argument('--crop-size', type=int, default=None)
