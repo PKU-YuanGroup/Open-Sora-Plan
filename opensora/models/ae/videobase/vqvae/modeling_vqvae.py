@@ -5,8 +5,7 @@ import numpy as np
 import torch.distributed as dist
 import torch.nn.functional as F
 import math
-from transformers import LlamaForCausalLM
-from .configuration_videogpt import VideoGPTConfiguration
+from .configuration_vqvae import VQVAEConfiguration
 
 # Copied from https://github.com/wilson1yan/VideoGPT
 def view_range(x, i, j, shape):
@@ -639,7 +638,7 @@ class SparseAttention(nn.Module):
         return view_range(out, 2, 3, old_shape)
     
 # Modified from https://github.com/wilson1yan/VideoGPT
-class VideoGPTVQVAE(VideoBaseAE):
+class VQVAEModel(VideoBaseAE):
     
     DOWNLOADED_VQVAE = {
         'bair_stride4x2x2': '1iIAYJ2Qqrx5Q94s5eIXQYJgAydzvT_8L',
@@ -648,7 +647,7 @@ class VideoGPTVQVAE(VideoBaseAE):
         'kinetics_stride2x4x4': '1jvtjjtrtE4cy6pl7DK_zWFEPY3RZt2pB'
     }
 
-    def __init__(self, config: VideoGPTConfiguration):
+    def __init__(self, config: VQVAEConfiguration):
         super().__init__()
         self.embedding_dim = config.embedding_dim
         self.n_codes = config.n_codes
@@ -687,7 +686,7 @@ class VideoGPTVQVAE(VideoBaseAE):
             hyper_parameters =  vars(model_cpkt.get("hyper_parameters").get("args"))
             print(hyper_parameters)
             state_dict = model_cpkt.get("state_dict")
-            model = VideoGPTVQVAE(config=VideoGPTConfiguration(**hyper_parameters))
+            model = VQVAEModel(config=VQVAEConfiguration(**hyper_parameters))
             model.load_state_dict(state_dict)
             return model
         else:
@@ -696,6 +695,6 @@ class VideoGPTVQVAE(VideoBaseAE):
     @staticmethod
     def download_and_load_model(model_name, cache_dir=None):
         from .....utils.downloader import gdown_download
-        path = gdown_download(VideoGPTVQVAE.DOWNLOADED_VQVAE[model_name], model_name, cache_dir=cache_dir)
-        return VideoGPTVQVAE.load_from_checkpoint(path)
+        path = gdown_download(VQVAEModel.DOWNLOADED_VQVAE[model_name], model_name, cache_dir=cache_dir)
+        return VQVAEModel.load_from_checkpoint(path)
         
