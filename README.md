@@ -47,12 +47,13 @@ Project stages:
 - [x] Add VAE model, which is borrowed from [Stable Diffusion](https://github.com/CompVis/latent-diffusion).
 - [x] Joint dynamic mask input with VAE.
 - [ ] Make the codebase ready for the cluster training. Add SLURM scripts.
-- [ ] Add sampling script.
+- [x] Add sampling script.
 - [ ] Incorporating [SiT](https://github.com/willisma/SiT).
 
 #### Train models that boost resolution and duration
 - [ ] Add [PI](https://arxiv.org/abs/2306.15595) to support out-of-domain size.
 - [x] Add frame interpolation model.
+- [x] Add super resolution model.
 - [ ] Add accelerate to automatically manage training.
 - [ ] Joint training with images.
 
