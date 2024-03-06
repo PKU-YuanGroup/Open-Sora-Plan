@@ -15,7 +15,7 @@ accelerate launch \
   --save_strategy steps \
   --save_total_limit 5 \
   --logging_steps 5 \
-  --save_steps 1000 \
+  --save_steps 500 \
   --n_codes 2048 \
   --n_hiddens 240 \
   --n_res_layers 4 \

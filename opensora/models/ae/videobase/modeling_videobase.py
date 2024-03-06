@@ -12,3 +12,9 @@ class VideoBaseAE(nn.Module):
         
     def download_and_load_model(self):
         return None
+    
+    def encode(self, x, *args, **kwargs):
+        pass
+
+    def decode(self, encoding, *args, **kwargs):
+        pass

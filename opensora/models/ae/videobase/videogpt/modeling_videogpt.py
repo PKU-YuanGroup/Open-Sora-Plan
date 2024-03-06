@@ -665,6 +665,19 @@ class VideoGPTVQVAE(VideoBaseAE):
         recon_loss = F.mse_loss(x_recon, x) / 0.06
         return recon_loss, x_recon, vq_output
     
+    def encode(self, x, include_embeddings=False):
+        h = self.pre_vq_conv(self.encoder(x))
+        vq_output = self.codebook(h)
+        if include_embeddings:
+            return vq_output['encodings'], vq_output['embeddings']
+        else:
+            return vq_output['encodings']
+
+    def decode(self, encodings):
+        h = F.embedding(encodings, self.codebook.embeddings)
+        h = self.post_vq_conv(shift_dim(h, -1, 1))
+        return self.decoder(h)
+    
     @staticmethod
     def load_from_checkpoint(model_path):
         model_cpkt = torch.load(model_path)
