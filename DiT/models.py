@@ -240,7 +240,8 @@ class DiT(nn.Module):
         self.patch_size_t = patch_size_t
         self.num_heads = num_heads
         self.hidden_size = hidden_size
-        # import ipdb;ipdb.set_trace()
+        # import ipdb;
+        # ipdb.set_trace()
         self.x_embedder = PatchEmbed(input_size, patch_size, in_channels, hidden_size, bias=True)
         self.t_embedder = TimestepEmbedder(hidden_size)
         self.y_embedder = LabelEmbedder(num_classes, hidden_size, class_dropout_prob)
@@ -292,7 +293,7 @@ class DiT(nn.Module):
 
     def unpatchify(self, x):
         """
-        x: (B, N, patch_size_t*patch_size**2 * C)
+        x: (B, N, patch_size_t * patch_size**2 * C)
         imgs: (B, C, T, H, W)
         """
         c = self.out_channels
@@ -353,7 +354,7 @@ class DiT(nn.Module):
 
     def forward_with_cfg(self, x, t, y, cfg_scale, attention_mask):
         """
-        Forward pass of DiT, but also batches the unconDiTional forward pass for classifier-free guidance.
+        Forward pass of DiT, but also batches the unconditional forward pass for classifier-free guidance.
         """
         # https://github.com/openai/glide-text2im/blob/main/notebooks/text2im.ipynb
         half = x[: len(x) // 2]
