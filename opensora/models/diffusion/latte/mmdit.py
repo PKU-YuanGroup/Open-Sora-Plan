@@ -118,22 +118,27 @@ class JointAttention(nn.Module):
         self.ring_bucket_size = ring_bucket_size
 
     def forward(self, x, c):
-        B, N, C = x.shape
-        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4).contiguous()
+        B, N, C1 = x.shape
+        qkv_pix = self.qkv_pix(x).reshape(B, N, 3, self.num_heads, C1 // self.num_heads).permute(2, 0, 3, 1, 4).contiguous()
         q_pix, k_pix, v_pix = qkv_pix.unbind(0)   # make torchscript happy (cannot use tensor as tuple)
         q_pix = self.rms_q_pix(q_pix)
         k_pix = self.rms_k_pix(k_pix)
 
-        # FIXME need to account for text embedding dims
-        B, N, C = c.shape
-        qkv_text = self.qkv_text(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4).contiguous()
+        # Assuming 
+        B, N, C2 = c.shape
+        qkv_text = self.qkv_text(x).reshape(B, N, 3, self.num_heads, C2 // self.num_heads).permute(2, 0, 3, 1, 4).contiguous()
         q_text, k_text, v_text = qkv_text.unbind(0)   # make torchscript happy (cannot use tensor as tuple)
-        q_text = self.rms_q_text(q_text)
-        k_text = self.rms_k_text(k_text)
+
+        if self.attention_mode != 'rebased':
+            # Rebased does RMS norm inside already
+            q_text = self.rms_q_text(q_text)
+            k_text = self.rms_k_text(k_text)
 
         q = torch.cat([q_text, q_pix], dim=-1)
         k = torch.cat([k_text, k_pix], dim=-1)
         v = torch.cat([v_text, v_pix], dim=-1)
+
+        C = C1 + C2
         
         if self.attention_mode == 'xformers': # cause loss nan while using with amp
             z = xformers.ops.memory_efficient_attention(q, k, v).reshape(B, N, C)
