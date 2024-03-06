@@ -44,7 +44,7 @@ Project stages:
 - [x] Support Dynamic mask input inspired [FiT](https://github.com/whlzy/FiT).
 - [x] Add class-conditioning on embeddings.
 - [ ] Incorporating [Latte](https://github.com/Vchitect/Latte) as main codebase.
-- [ ] Add VAE model, which is borrowed from [Stable Diffusion](https://github.com/CompVis/latent-diffusion).
+- [x] Add VAE model, which is borrowed from [Stable Diffusion](https://github.com/CompVis/latent-diffusion).
 - [ ] Joint dynamic mask input with VAE.
 - [ ] Make the codebase ready for the cluster training. Add SLURM scripts.
 - [ ] Add sampling script.
@@ -67,7 +67,7 @@ Project stages:
   - [ ] Add flash-attention2 from pytorch.
   - [ ] Add xformers.
   - [ ] Add accelerate to automatically manage training, e.g. mixed precision training.
-  - [ ] Add gradient checkpoint.
+  - [x] Add gradient checkpoint.
   - [ ] Train using the deepspeed engine.
 
 #### Control model with more condition
@@ -114,7 +114,7 @@ conda create -n opensora python=3.8 -y
 conda activate opensora
 pip install torch==1.13.1+cu117 torchvision==0.14.1+cu117 torchaudio==0.13.1 --extra-index-url https://download.pytorch.org/whl/cu117
 pip install -r requirements.txt
-cd src/sora/modules/ae/vqvae/videogpt/
+cd VideoGPT
 pip install -e .
 cd ..
 ```

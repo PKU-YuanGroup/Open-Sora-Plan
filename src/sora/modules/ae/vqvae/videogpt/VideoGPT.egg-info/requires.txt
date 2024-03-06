@@ -1,9 +1,0 @@
-av
-gdown
-gradio
-h5py
-imageio
-moviepy
-requests
-scikit-video
-tqdm
