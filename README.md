@@ -83,22 +83,28 @@ Project stages:
 ├── docs
 │   ├── Data.md                    -> Datasets description.
 │   ├── Contribution_Guidelines.md -> Contribution guidelines description.
-├── scripts                        -> All training scripts.
-│   └── train.sh
-├── sora
-│   ├── dataset                    -> Dataset code to read videos
-│   ├── models 
-│   │   ├── captioner               
-│   │   ├── super_resolution        
-│   ├── modules
-│   │   ├── ae                     -> compress videos to latents
-│   │   │   ├── vqvae
-│   │   │   ├── vae
-│   │   ├── diffusion              -> denoise latents
-│   │   │   ├── dit
-│   │   │   ├── unet
-|   ├── utils.py                   
-│   ├── train.py                   -> Training code
+├── scripts                        -> All scripts.
+├── opensora
+│   ├── dataset
+│   ├── models
+│   │   ├── ae                     -> Compress videos to latents
+│   │   │   ├── imagebase
+│   │   │   │   ├── vae
+│   │   │   │   └── vqvae
+│   │   │   └── videobase
+│   │   │       ├── vae
+│   │   │       └── vqvae
+│   │   ├── captioner
+│   │   ├── diffusion              -> Denoise latents
+│   │   │   ├── diffusion         
+│   │   │   ├── dit
+│   │   │   ├── latte
+│   │   │   └── unet
+│   │   ├── frame_interpolation
+│   │   └── super_resolution
+│   ├── sample
+│   ├── train                      -> Training code
+│   └── utils
 ```
 
 ## Requirements and Installation
