@@ -8,6 +8,7 @@ from torchvision.transforms import Lambda
 
 from .transform import ToTensorVideo, TemporalRandomCrop, RandomHorizontalFlipVideo, CenterCropResizeVideo
 from .ucf101 import UCF101
+from .sky_datasets import Sky
 
 
 def getdataset(args):
@@ -36,3 +37,13 @@ def getdataset(args):
             ]
         )
         return UCF101(args, transform=transform, temporal_sample=temporal_sample)
+    elif args.dataset == 'sky':
+        transform_sky = transforms.Compose([
+            ToTensorVideo(),
+            CenterCropResizeVideo(args.max_image_size),
+            # video_transforms.RandomHorizontalFlipVideo(),
+            norm_fun
+        ])
+        return Sky(args, transform=transform_sky, temporal_sample=temporal_sample)
+    else:
+        raise NotImplementedError(args.dataset)
