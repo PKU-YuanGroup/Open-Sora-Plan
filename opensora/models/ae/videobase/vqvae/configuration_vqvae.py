@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Tuple
 
 @dataclass
-class VideoGPTConfiguration:
+class VQVAEConfiguration:
     embedding_dim: int
     n_codes: int
     n_hiddens: int

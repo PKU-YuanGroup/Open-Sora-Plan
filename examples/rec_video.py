@@ -8,7 +8,7 @@ from torchvision.io import read_video
 from torchvision.transforms import Lambda, Compose
 from torchvision.transforms._transforms_video import RandomCropVideo
 from torch.nn import functional as F
-from opensora.models.ae import VideoGPTVQVAE
+from opensora.models.ae import VQVAEModel
 import argparse
 
 def array_to_video(image_array, fps=30.0, output_file='output_video.mp4'):
@@ -82,7 +82,7 @@ def main(args):
     sample_rate = args.sample_rate
     device = torch.device('cuda')
 
-    vqvae = VideoGPTVQVAE.download_and_load_model(args.ckpt)
+    vqvae = VQVAEModel.download_and_load_model(args.ckpt)
     vqvae.eval()
     vqvae = vqvae.to(device)
 

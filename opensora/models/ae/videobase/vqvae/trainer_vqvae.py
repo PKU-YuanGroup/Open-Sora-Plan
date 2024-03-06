@@ -2,7 +2,7 @@ from torch import nn
 from transformers import Trainer
 import torch.nn.functional as F
 
-class VideoGPTTrainer(Trainer):
+class VQVAETrainer(Trainer):
     
     def compute_loss(self, model, inputs, return_outputs=False):
         model = model.module

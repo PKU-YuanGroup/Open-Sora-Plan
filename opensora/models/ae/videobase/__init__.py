@@ -1,11 +1,11 @@
 """
 new code
 """
-from .videogpt import (
-    VideoGPTConfiguration,
-    VideoGPTVQVAE,
-    VideoGPTTrainer,
-    VideoGPTDataset,
+from .vqvae import (
+    VQVAEConfiguration,
+    VQVAEModel,
+    VQVAETrainer,
+    VQVAEDataset,
 )
 
 
