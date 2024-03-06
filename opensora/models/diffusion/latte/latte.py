@@ -371,11 +371,13 @@ class Latte(nn.Module):
         """
         if use_fp16:
             x = x.to(dtype=torch.float16)
-        attention_mask_spatial = rearrange(attention_mask, 'b t h w -> (b t) h w')
-        attention_mask_spatial = self.make_mask(attention_mask_spatial, x.dtype)
+        attention_mask_temproal, attention_mask_spatial = None, None
+        if attention_mask is not None:
+            attention_mask_spatial = rearrange(attention_mask, 'b t h w -> (b t) h w')
+            attention_mask_spatial = self.make_mask(attention_mask_spatial, x.dtype)
 
-        attention_mask_temproal = rearrange(attention_mask, 'b t h w -> (b h w) t')
-        attention_mask_temproal = self.make_mask(attention_mask_temproal, x.dtype)
+            attention_mask_temproal = rearrange(attention_mask, 'b t h w -> (b h w) t')
+            attention_mask_temproal = self.make_mask(attention_mask_temproal, x.dtype)
 
         batches, frames, channels, high, weight = x.shape
         num_patches_height = high // self.patch_size
