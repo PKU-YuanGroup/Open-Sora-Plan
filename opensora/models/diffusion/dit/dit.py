@@ -241,8 +241,8 @@ class DiT(nn.Module):
         learn_sigma=True,
         extras=1,
         attention_mode='math',
-        pt_input_size=(16, 16),  # (pt_h, pt_w)
-        intp_vfreq=True,  # vision position interpolation
+        pt_input_size=(32, 32),  # (pt_h, pt_w)
+        intp_vfreq=False,  # vision position interpolation
     ):
         super().__init__()
         self.gradient_checkpointing = False
