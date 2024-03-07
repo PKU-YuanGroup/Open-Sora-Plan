@@ -54,6 +54,7 @@ Project stages:
 - [x] Refactor VideoGPT. 🤝 Thanks to [@qqingzheng](https://github.com/qqingzheng), [@luo3300612](https://github.com/luo3300612)
 - [x] Add sampling script.
 - [x] Incorporate [SiT](https://github.com/willisma/SiT). 🤝 Thanks to [@khan-yin](https://github.com/khan-yin)
+- [ ] Add eavluation scripts (FVD, CLIP score). 🙏 **[Need your contribution]**
 
 #### Train models that boost resolution and duration
 - [ ] Add [PI](https://arxiv.org/abs/2306.15595) to support out-of-domain size. 🙏 **[Need your contribution]**
