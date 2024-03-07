@@ -8,8 +8,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.distributed as dist
 
+
+
 from .attention import MultiHeadAttention
 from .utils import shift_dim
+
 
 class VQVAE(pl.LightningModule):
     def __init__(self, args):
@@ -317,4 +320,5 @@ class SamePadConvTranspose3d(nn.Module):
 
     def forward(self, x):
         return self.convt(F.pad(x, self.pad_input))
+
 

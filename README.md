@@ -43,17 +43,19 @@ Project stages:
 - [x] Support variable aspect ratios, resolutions, durations training on [DiT](https://github.com/facebookresearch/DiT).
 - [x] Support Dynamic mask input inspired [FiT](https://github.com/whlzy/FiT).
 - [x] Add class-conditioning on embeddings.
-- [ ] Incorporating [Latte](https://github.com/Vchitect/Latte) as main codebase.
+- [x] Incorporating [Latte](https://github.com/Vchitect/Latte) as main codebase.
 - [x] Add VAE model, which is borrowed from [Stable Diffusion](https://github.com/CompVis/latent-diffusion).
 - [x] Joint dynamic mask input with VAE.
 - [ ] Make the codebase ready for the cluster training. Add SLURM scripts.
-- [ ] Add sampling script.
+- [x] Add sampling script.
 - [ ] Incorporating [SiT](https://github.com/willisma/SiT).
 
 #### Train models that boost resolution and duration
 - [ ] Add [PI](https://arxiv.org/abs/2306.15595) to support out-of-domain size.
+- [x] Extract offline feature.
 - [x] Add frame interpolation model.
-- [ ] Train with accelerate.
+- [x] Add super resolution model.
+- [x] Add accelerate to automatically manage training.
 - [ ] Joint training with images.
 
 #### Conduct text2video experiments on landscape dataset.
@@ -66,9 +68,9 @@ Project stages:
 - [ ] Looking for a suitable dataset, welcome to discuss and recommend.
 - [ ] Finish data loading, pre-processing utils.
 - [ ] Support memory friendly training.
-  - [ ] Add flash-attention2 from pytorch.
-  - [ ] Add xformers.
-  - [ ] Add accelerate to automatically manage training, e.g. mixed precision training.
+  - [x] Add flash-attention2 from pytorch.
+  - [x] Add xformers.
+  - [x] Support mixed precision training.
   - [x] Add gradient checkpoint.
   - [ ] Train using the deepspeed engine.
 
@@ -82,22 +84,28 @@ Project stages:
 ├── docs
 │   ├── Data.md                    -> Datasets description.
 │   ├── Contribution_Guidelines.md -> Contribution guidelines description.
-├── scripts                        -> All training scripts.
-│   └── train.sh
-├── sora
-│   ├── dataset                    -> Dataset code to read videos
-│   ├── models 
-│   │   ├── captioner               
-│   │   ├── super_resolution        
-│   ├── modules
-│   │   ├── ae                     -> compress videos to latents
-│   │   │   ├── vqvae
-│   │   │   ├── vae
-│   │   ├── diffusion              -> denoise latents
-│   │   │   ├── dit
-│   │   │   ├── unet
-|   ├── utils.py                   
-│   ├── train.py                   -> Training code
+├── scripts                        -> All scripts.
+├── opensora
+│   ├── dataset
+│   ├── models
+│   │   ├── ae                     -> Compress videos to latents
+│   │   │   ├── imagebase
+│   │   │   │   ├── vae
+│   │   │   │   └── vqvae
+│   │   │   └── videobase
+│   │   │       ├── vae
+│   │   │       └── vqvae
+│   │   ├── captioner
+│   │   ├── diffusion              -> Denoise latents
+│   │   │   ├── diffusion         
+│   │   │   ├── dit
+│   │   │   ├── latte
+│   │   │   └── unet
+│   │   ├── frame_interpolation
+│   │   └── super_resolution
+│   ├── sample
+│   ├── train                      -> Training code
+│   └── utils
 ```
 
 ## Requirements and Installation
@@ -180,7 +188,9 @@ sh scripts/train.sh
 </p>
 
 #### Sampling
-Coming soon.
+```
+sh scripts/sample.sh
+```
 
 ## How to Contribute to the Open-Sora Plan Community
 We greatly appreciate your contributions to the Open-Sora Plan open-source community and helping us make it even better than it is now!
@@ -188,13 +198,14 @@ We greatly appreciate your contributions to the Open-Sora Plan open-source commu
 For more details, please refer to the [Contribution Guidelines](docs/Contribution_Guidelines.md)
 
 ## Acknowledgement
-* [DiT](https://github.com/facebookresearch/DiT/tree/main): Scalable Diffusion Models with Transformers.
+* [Latte](https://github.com/Vchitect/Latte): The **main codebase** we built upon and it is an wonderful video gererated model.
+* [DiT](https://github.com/facebookresearch/DiT): Scalable Diffusion Models with Transformers.
 * [VideoGPT](https://github.com/wilson1yan/VideoGPT): Video Generation using VQ-VAE and Transformers.
 * [FiT](https://github.com/whlzy/FiT): Flexible Vision Transformer for Diffusion Model.
 * [Positional Interpolation](https://arxiv.org/abs/2306.15595): Extending Context Window of Large Language Models via Positional Interpolation.
 
 ## License
-* The service is a research preview intended for non-commercial use only. See [LICENSE.txt](LICENSE.txt) for details.
+* The service is a research preview intended for non-commercial use only. See [LICENSE](LICENSE) for details.
 
 ## Contributors
 
