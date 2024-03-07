@@ -50,7 +50,7 @@ Project stages:
 - [ ] Make the codebase ready for the cluster training. Add SLURM scripts.
 - [x] Refactor VideoGPT. 🤝 Thanks to [@qqingzheng](https://github.com/qqingzheng), [@luo3300612](https://github.com/luo3300612)
 - [x] Add sampling script.
-- [ ] Incorporating [SiT](https://github.com/willisma/SiT). 🤝 Thanks to [@khan-yin](https://github.com/khan-yin)
+- [ ] Incorporate [SiT](https://github.com/willisma/SiT). 🤝 Thanks to [@khan-yin](https://github.com/khan-yin)
 
 #### Train models that boost resolution and duration
 - [ ] Add [PI](https://arxiv.org/abs/2306.15595) to support out-of-domain size.
@@ -59,7 +59,7 @@ Project stages:
 - [x] Add super resolution model. 🤝 Thanks to [@Linzy19](https://github.com/Linzy19)
 - [x] Add accelerate to automatically manage training.
 - [ ] Joint training with images.
-- [ ] Incorporating NaViT.
+- [ ] Incorporate [NaViT](https://arxiv.org/abs/2307.06304).
 
 #### Conduct text2video experiments on landscape dataset.
 - [ ] Finish data loading, pre-processing utils.
