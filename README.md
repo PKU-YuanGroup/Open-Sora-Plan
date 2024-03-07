@@ -60,6 +60,7 @@ Project stages:
 - [x] Add accelerate to automatically manage training.
 - [ ] Joint training with images. 🙏 [Need your contribution]
 - [ ] Incorporate [NaViT](https://arxiv.org/abs/2307.06304). 🙏 [Need your contribution]
+- [ ] Add [FreeNoise](https://github.com/arthur-qiu/FreeNoise-LaVie) support for training-free longer video generation. 🙏 [Need your contribution]
 
 #### Conduct text2video experiments on landscape dataset.
 - [ ] Finish data loading, pre-processing utils. ⌛ [WIP]
