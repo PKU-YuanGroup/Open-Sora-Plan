@@ -137,6 +137,7 @@ class SRModel(BaseModel):
         dataset_name = dataloader.dataset.opt['name']
         with_metrics = self.opt['val'].get('metrics') is not None
         use_pbar = self.opt['val'].get('pbar', False)
+        # print(with_metrics,use_pbar)
 
         if with_metrics:
             if not hasattr(self, 'metric_results'):  # only execute in the first run
@@ -155,9 +156,11 @@ class SRModel(BaseModel):
             img_name = osp.splitext(osp.basename(val_data['lq_path'][0]))[0]
             self.feed_data(val_data)
             self.test()
-
+            
+            # this is img data 
             visuals = self.get_current_visuals()
             sr_img = tensor2img([visuals['result']])
+
             metric_data['img'] = sr_img
             if 'gt' in visuals:
                 gt_img = tensor2img([visuals['gt']])
@@ -180,6 +183,7 @@ class SRModel(BaseModel):
                     else:
                         save_img_path = osp.join(self.opt['path']['visualization'], dataset_name,
                                                  f'{img_name}_{self.opt["name"]}.png')
+                # save img
                 imwrite(sr_img, save_img_path)
 
             if with_metrics:
