@@ -38,6 +38,7 @@ Project stages:
 ## Todo
 
 #### Setup the codebase and train a unconditional model on landscape dataset
+- [x] Fix typo & Update readme. 🤝 Thanks to [@mio2333](https://github.com/mio2333), [@CreamyLong](https://github.com/CreamyLong), [@chg0901](https://github.com/chg0901)
 - [x] Setup repo-structure.
 - [x] Add Video-VQGAN model, which is borrowed from [VideoGPT](https://github.com/wilson1yan/VideoGPT).
 - [x] Support variable aspect ratios, resolutions, durations training on [DiT](https://github.com/facebookresearch/DiT).
@@ -47,14 +48,15 @@ Project stages:
 - [x] Add VAE model, which is borrowed from [Stable Diffusion](https://github.com/CompVis/latent-diffusion).
 - [x] Joint dynamic mask input with VAE.
 - [ ] Make the codebase ready for the cluster training. Add SLURM scripts.
+- [x] Refactor VideoGPT. 🤝 Thanks to [@qqingzheng](https://github.com/qqingzheng), [@luo3300612](https://github.com/luo3300612)
 - [x] Add sampling script.
-- [ ] Incorporating [SiT](https://github.com/willisma/SiT).
+- [ ] Incorporating [SiT](https://github.com/willisma/SiT). 🤝 Thanks to [@khan-yin](https://github.com/khan-yin)
 
 #### Train models that boost resolution and duration
 - [ ] Add [PI](https://arxiv.org/abs/2306.15595) to support out-of-domain size.
 - [x] Extract offline feature.
-- [x] Add frame interpolation model.
-- [x] Add super resolution model.
+- [x] Add frame interpolation model. 🤝 Thanks to [@yunyangge](https://github.com/yunyangge)
+- [x] Add super resolution model. 🤝 Thanks to [@Linzy19](https://github.com/Linzy19)
 - [x] Add accelerate to automatically manage training.
 - [ ] Joint training with images.
 - [ ] Incorporating NaViT.
@@ -73,6 +75,7 @@ Project stages:
   - [x] Add xformers.
   - [x] Support mixed precision training.
   - [x] Add gradient checkpoint.
+  - [ ] Support for ReBased and Ring attention. 🤝 Thanks to [@kabachuha](https://github.com/kabachuha)
   - [ ] Train using the deepspeed engine.
 
 #### Control model with more condition
