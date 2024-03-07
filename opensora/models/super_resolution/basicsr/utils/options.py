@@ -79,10 +79,14 @@ def _postprocess_yml_value(value):
     return value
 
 
-def parse_options(root_path, is_train=True):
+def parse_options(root_path, SR, is_train=True):
     parser = argparse.ArgumentParser()
     # parser.add_argument('-opt', type=str, default = 'options/test/test_RGT_S_x2.yml',required=True, help='Path to option YAML file.')
-    parser.add_argument('-opt', type=str, default = "/remote-home/lzy/RGT/experiments/pretrained_models/RGT_x4.pth", help='Path to option YAML file.')
+    if SR == 'x4': 
+        file_path = osp.join(root_path,'options/test/test_RGT_x4.yml')
+    if SR == 'x2': 
+        file_path = osp.join(root_path,'options/test/test_RGT_x2.yml')
+    parser.add_argument('-opt', type=str, default = file_path, help='Path to option YAML file.')
     parser.add_argument('--launcher', choices=['none', 'pytorch', 'slurm'], default='none', help='job launcher')
     parser.add_argument('--auto_resume', action='store_true')
     parser.add_argument('--debug', action='store_true')
@@ -93,6 +97,7 @@ def parse_options(root_path, is_train=True):
 
     # parse yml to dict
     with open(args.opt, mode='r') as f:
+        # print(args.opt)
         opt = yaml.load(f, Loader=ordered_yaml()[0])
 
     # distributed settings
