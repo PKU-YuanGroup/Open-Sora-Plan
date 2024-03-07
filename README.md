@@ -134,25 +134,21 @@ Refer to [Data.md](docs/Data.md)
 
 #### Training
 
+To train VQVAE, run the script:
+
 ```
-cd src/sora/modules/ae/vqvae/videogpt
+scripts/train_vqvae.sh
 ```
 
-Refer to origin [repo](https://github.com/wilson1yan/VideoGPT?tab=readme-ov-file#training-vq-vae). Use the `scripts/train_vqvae.py` script to train a Video-VQVAE. Execute `python scripts/train_vqvae.py -h` for information on all available training settings. A subset of more relevant settings are listed below, along with default values.
+You can modify the training parameters within the script. For training parameters, please refer to [transformers.TrainingArguments](https://huggingface.co/docs/transformers/v4.38.2/en/main_classes/trainer#transformers.TrainingArguments). Other parameters are explained as follows:
 
 ##### VQ-VAE Specific Settings
+
 * `--embedding_dim`: number of dimensions for codebooks embeddings
 * `--n_codes 2048`: number of codes in the codebook
 * `--n_hiddens 240`: number of hidden features in the residual blocks
 * `--n_res_layers 4`: number of residual blocks
-* `--downsample 4 4 4`: T H W downsampling stride of the encoder
-
-##### Training Settings
-* `--gpus 2`: number of gpus for distributed training
-* `--sync_batchnorm`: uses `SyncBatchNorm` instead of `BatchNorm3d` when using > 1 gpu
-* `--gradient_clip_val 1`: gradient clipping threshold for training
-* `--batch_size 16`: batch size per gpu
-* `--num_workers 8`: number of workers for each DataLoader
+* `--downsample "4,4,4"`: T H W downsampling stride of the encoder
 
 ##### Dataset Settings
 * `--data_path <path>`: path to an `hdf5` file or a folder containing `train` and `test` folders with subdirectories of videos
@@ -162,19 +158,21 @@ Refer to origin [repo](https://github.com/wilson1yan/VideoGPT?tab=readme-ov-file
 #### Reconstructing
 
 ```Python
-python rec_video.py --video-path "assets/origin_video_0.mp4" --rec-path "rec_video_0.mp4" --num-frames 500 --sample-rate 1
+python examples/rec_video.py --video-path "assets/origin_video_0.mp4" --rec-path "rec_video_0.mp4" --num-frames 500 --sample-rate 1
 ```
 ```Python
-python rec_video.py --video-path "assets/origin_video_1.mp4" --rec-path "rec_video_1.mp4" --resolution 196 --num-frames 600 --sample-rate 1
+python examples/rec_video.py --video-path "assets/origin_video_1.mp4" --rec-path "rec_video_1.mp4" --resolution 196 --num-frames 600 --sample-rate 1
 ```
 
-
 We present four reconstructed videos in this demonstration, arranged from left to right as follows: 
-
 
 | **3s 596x336** | **10s 256x256** | **18s 196x196**  | **24s 168x96** |
 | --- | --- | --- | --- |
 | <img src="assets/rec_video_2.gif">  | <img src="assets/rec_video_0.gif">  | <img src="assets/rec_video_1.gif">  | <img src="assets/rec_video_3.gif"> |
+
+#### Others
+
+Please refer to the document [VQVAE](docs/VQVAE.md).
 
 ### VideoDiT (DiT)
 
