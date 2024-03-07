@@ -57,6 +57,7 @@ Project stages:
 - [x] Add super resolution model.
 - [x] Add accelerate to automatically manage training.
 - [ ] Joint training with images.
+- [ ] Incorporating NaViT.
 
 #### Conduct text2video experiments on landscape dataset.
 - [ ] Finish data loading, pre-processing utils.
