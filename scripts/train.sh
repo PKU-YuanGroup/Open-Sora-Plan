@@ -1,4 +1,5 @@
-accelerate launch --multi_gpu --num_processes 7 --mixed_precision bf16 opensora/train/train.py \
+accelerate launch --config_file scripts/accelerate_configs/default_config.yaml \
+  opensora/train/train.py \
   --model Latte-XL/122 --dataset sky \
   --ae ucf101_stride4x4x4 \
   --data-path "/remote-home/yeyang/sky_timelapse/sky_train/" --extras 1 \

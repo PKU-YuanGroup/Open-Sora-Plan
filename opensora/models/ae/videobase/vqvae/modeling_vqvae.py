@@ -8,6 +8,7 @@ import math
 import os
 import json
 from .configuration_vqvae import VQVAEConfiguration
+from typing import Union
 
 
 # Copied from https://github.com/wilson1yan/VideoGPT
@@ -712,8 +713,27 @@ class VQVAEModel(VideoBaseAE):
         "kinetics_stride2x4x4": "1jvtjjtrtE4cy6pl7DK_zWFEPY3RZt2pB",
     }
 
-    def __init__(self, config: VQVAEConfiguration):
+    STRIDE = {
+        "bair_stride4x2x2": [4, 2, 2],
+        "ucf101_stride4x4x4": [4, 4, 4],
+        "kinetics_stride4x4x4": [4, 4, 4],
+        "kinetics_stride2x4x4": [2, 4, 4],
+    }
+
+    CHANNEL = {
+        "bair_stride4x2x2": 256,
+        "ucf101_stride4x4x4": 256,
+        "kinetics_stride4x4x4": 256,
+        "kinetics_stride2x4x4": 256,
+    }
+
+    def __init__(self, config: Union[VQVAEConfiguration, str]):
         super().__init__()
+
+        # Adapt to old code. Will be removed in the future.
+        if isinstance(config, str):
+            return self.download_and_load_model(config)
+
         self.config = config
         self.embedding_dim = config.embedding_dim
         self.n_codes = config.n_codes
@@ -760,14 +780,17 @@ class VQVAEModel(VideoBaseAE):
         else:
             with open(os.path.join(model_path, "config.json"), "r") as file:
                 config = json.load(file)
-            state_dict = torch.load(os.path.join(model_path, "pytorch_model.bin"), map_location="cpu")
+            state_dict = torch.load(
+                os.path.join(model_path, "pytorch_model.bin"), map_location="cpu"
+            )
             model = cls(config=VQVAEConfiguration(**config))
             model.load_state_dict(state_dict)
             return model
-            
+
     @classmethod
     def download_and_load_model(cls, model_name, cache_dir=None):
         from .....utils.downloader import gdown_download
+
         path = gdown_download(
             cls.DOWNLOADED_VQVAE[model_name], model_name, cache_dir=cache_dir
         )

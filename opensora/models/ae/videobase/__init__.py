@@ -1,6 +1,3 @@
-"""
-new code
-"""
 from .vqvae import (
     VQVAEConfiguration,
     VQVAEModel,
@@ -8,37 +5,16 @@ from .vqvae import (
     VQVAEDataset,
 )
 
-
-"""
-old code
-"""
-from .vqvae.videogpt import VideoGPTVQVAEWrapper
-
-videovqvae = [
-    "bair_stride4x2x2",
-    "ucf101_stride4x4x4",
-    "kinetics_stride4x4x4",
-    "kinetics_stride2x4x4",
-]
+videovqvae = list(VQVAEModel.DOWNLOADED_VQVAE.keys())
 videovae = []
 
-videobase_ae_stride = {
-    'bair_stride4x2x2': [4, 2, 2],
-    'ucf101_stride4x4x4': [4, 4, 4],
-    'kinetics_stride4x4x4': [4, 4, 4],
-    'kinetics_stride2x4x4': [2, 4, 4],
-}
+videobase_ae_stride = VQVAEModel.STRIDE
 
-videobase_ae_channel = {
-    'bair_stride4x2x2': 256,
-    'ucf101_stride4x4x4': 256,
-    'kinetics_stride4x4x4': 256,
-    'kinetics_stride2x4x4': 256,
-}
+videobase_ae_channel = VQVAEModel.CHANNEL
 
 videobase_ae = {
-    "bair_stride4x2x2": VideoGPTVQVAEWrapper,
-    "ucf101_stride4x4x4": VideoGPTVQVAEWrapper,
-    "kinetics_stride4x4x4": VideoGPTVQVAEWrapper,
-    "kinetics_stride2x4x4": VideoGPTVQVAEWrapper,
+    "bair_stride4x2x2": VQVAEModel,
+    "ucf101_stride4x4x4": VQVAEModel,
+    "kinetics_stride4x4x4": VQVAEModel,
+    "kinetics_stride2x4x4": VQVAEModel,
 }

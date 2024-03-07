@@ -18,5 +18,7 @@ def getae(args):
     ae = imagebase_ae.get(args.ae, None)
     if ae is None:
         ae = videobase_ae.get(args.ae, None)
-    assert ae is not None
-    return ae(args.ae)
+        assert ae is not None
+        return ae.from_pretrained(args.ae)
+    else:
+        return ae(args.ae)
