@@ -350,7 +350,8 @@ class Latte(nn.Module):
         attention_mask = attention_mask.flatten(1).unsqueeze(-1)  # bs t h w -> bs thw 1
         attention_mask = attention_mask @ attention_mask.transpose(1, 2)  # bs thw 1 @ bs 1 thw = bs thw thw
         attention_mask = attention_mask.unsqueeze(1)
-        attention_mask = attention_mask.masked_fill(attention_mask == 0, torch.finfo(dtype).min)
+        attention_mask = attention_mask.masked_fill(attention_mask == 0, 1e-8)
+        # attention_mask = attention_mask.masked_fill(attention_mask == 0, torch.finfo(dtype).min)
         return attention_mask
 
     # @torch.cuda.amp.autocast()
