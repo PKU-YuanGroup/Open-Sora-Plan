@@ -2,7 +2,7 @@
 
 [[Project Page]](https://pku-yuangroup.github.io/Open-Sora-Plan/) [[中文主页]](https://pku-yuangroup.github.io/Open-Sora-Plan/blog_cn.html) [[Discord]](https://discord.gg/fqpmStRX) [[Wechat Group]](https://github.com/PKU-YuanGroup/Open-Sora-Plan/issues/53#issuecomment-1980312563) [![hf_space](https://img.shields.io/github/contributors/PKU-YuanGroup/Open-Sora-Plan.svg)](https://github.com/PKU-YuanGroup/Open-Sora-Plan/graphs/contributors)
 
-## Goal
+## 💪 Goal
 This project aims to create a simple and scalable repo, to reproduce [Sora](https://openai.com/sora) (OpenAI, but we prefer to call it "CloseAI" ) and build knowledge about Video-VQVAE (VideoGPT) + DiT at scale. However, we have limited resources, we deeply wish all open-source community can contribute to this project. Pull request are welcome!!!
 
 本项目希望通过开源社区的力量复现Sora，由北大-兔展AIGC联合实验室共同发起，当前我们资源有限仅搭建了基础架构，无法进行完整训练，希望通过开源社区逐步增加模块并筹集资源进行训练，当前版本离目标差距巨大，仍需持续完善和快速迭代，欢迎Pull request！！！
@@ -24,7 +24,7 @@ Project stages:
 </div>
 
   
-## News
+## 📰 News
 
 **[2024.03.05]**  See our latest [todo](https://github.com/PKU-YuanGroup/Open-Sora-Plan?tab=readme-ov-file#todo), welcome to pull request.
 
@@ -108,7 +108,7 @@ Project stages:
 │   └── utils
 ```
 
-## Requirements and Installation
+## 🛠️ Requirements and Installation
 
 The recommended requirements are as follows.
 
@@ -124,7 +124,7 @@ conda activate opensora
 pip install -e .
 ```
 
-## Usage
+## 🗝️ Usage
 
 ### Datasets
 Refer to [Data.md](docs/Data.md)
@@ -192,19 +192,24 @@ sh scripts/train.sh
 sh scripts/sample.sh
 ```
 
-## How to Contribute to the Open-Sora Plan Community
+## 🤝 How to Contribute to the Open-Sora Plan Community
 We greatly appreciate your contributions to the Open-Sora Plan open-source community and helping us make it even better than it is now!
 
 For more details, please refer to the [Contribution Guidelines](docs/Contribution_Guidelines.md)
 
 
-## Acknowledgement
+## 👍 Acknowledgement
 * [Latte](https://github.com/Vchitect/Latte): The **main codebase** we built upon and it is an wonderful video gererated model.
 * [DiT](https://github.com/facebookresearch/DiT): Scalable Diffusion Models with Transformers.
 * [VideoGPT](https://github.com/wilson1yan/VideoGPT): Video Generation using VQ-VAE and Transformers.
 * [FiT](https://github.com/whlzy/FiT): Flexible Vision Transformer for Diffusion Model.
 * [Positional Interpolation](https://arxiv.org/abs/2306.15595): Extending Context Window of Large Language Models via Positional Interpolation.
 
-## License
+
+## 🔒 License
 * The service is a research preview intended for non-commercial use only. See [LICENSE](LICENSE) for details.
 
+
+## ✨ Star History
+
+[![Star History](https://api.star-history.com/svg?repos=PKU-YuanGroup/Open-Sora-Plan)](https://star-history.com/#PKU-YuanGroup/Open-Sora-Plan&Date)
