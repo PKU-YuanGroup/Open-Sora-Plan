@@ -9,6 +9,7 @@ from torchvision.transforms import Lambda
 from .transform import ToTensorVideo, TemporalRandomCrop, RandomHorizontalFlipVideo, CenterCropResizeVideo
 from .ucf101 import UCF101
 from .sky_datasets import Sky
+from .t2v_dataset import T2V_dataset
 
 ae_norm = {
     "bair_stride4x2x2": Lambda(lambda x: x - 0.5),
@@ -36,8 +37,8 @@ ae_denorm = {
 
 def getdataset(args):
     temporal_sample = TemporalRandomCrop(args.num_frames * args.sample_rate)  # 16 x
-    norm_fun = ae_norm[args.ae]
-
+    #norm_fun = ae_norm[args.ae]
+    norm_fun = None
     if args.dataset == 'landscope_feature':
         temporal_sample = TemporalRandomCrop(args.num_frames)  # 16 1
         return LandscopeFeatures(args, temporal_sample=temporal_sample)
@@ -59,5 +60,7 @@ def getdataset(args):
             norm_fun
         ])
         return Sky(args, transform=transform_sky, temporal_sample=temporal_sample)
+    elif args.dataset == 't2v':
+        return T2V_dataset(csv_path=args.csv_path, video_folder=args.video_folder, sample_size=args.image_size, sample_stride=args.sample_rate)
     else:
         raise NotImplementedError(args.dataset)
