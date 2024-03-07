@@ -1,6 +1,6 @@
 # Open-Sora Plan
 
-[[Project Page]](https://pku-yuangroup.github.io/Open-Sora-Plan/) [[中文主页]](https://pku-yuangroup.github.io/Open-Sora-Plan/blog_cn.html) [[Discord]](https://discord.gg/fqpmStRX) [[Wechat Group]](https://github.com/PKU-YuanGroup/Open-Sora-Plan/issues/53#issuecomment-1980312563)
+[[Project Page]](https://pku-yuangroup.github.io/Open-Sora-Plan/) [[中文主页]](https://pku-yuangroup.github.io/Open-Sora-Plan/blog_cn.html) [[Discord]](https://discord.gg/fqpmStRX) [[Wechat Group]](https://github.com/PKU-YuanGroup/Open-Sora-Plan/issues/53#issuecomment-1980312563) 
 
 ## Goal
 This project aims to create a simple and scalable repo, to reproduce [Sora](https://openai.com/sora) (OpenAI, but we prefer to call it "CloseAI" ) and build knowledge about Video-VQVAE (VideoGPT) + DiT at scale. However, we have limited resources, we deeply wish all open-source community can contribute to this project. Pull request are welcome!!!
@@ -38,6 +38,7 @@ Project stages:
 ## Todo
 
 #### Setup the codebase and train a unconditional model on landscape dataset
+- [x] Fix typo & Update readme. 🤝 Thanks to [@mio2333](https://github.com/mio2333), [@CreamyLong](https://github.com/CreamyLong), [@chg0901](https://github.com/chg0901)
 - [x] Setup repo-structure.
 - [x] Add Video-VQGAN model, which is borrowed from [VideoGPT](https://github.com/wilson1yan/VideoGPT).
 - [x] Support variable aspect ratios, resolutions, durations training on [DiT](https://github.com/facebookresearch/DiT).
@@ -47,16 +48,18 @@ Project stages:
 - [x] Add VAE model, which is borrowed from [Stable Diffusion](https://github.com/CompVis/latent-diffusion).
 - [x] Joint dynamic mask input with VAE.
 - [ ] Make the codebase ready for the cluster training. Add SLURM scripts.
+- [x] Refactor VideoGPT. 🤝 Thanks to [@qqingzheng](https://github.com/qqingzheng), [@luo3300612](https://github.com/luo3300612)
 - [x] Add sampling script.
-- [ ] Incorporating [SiT](https://github.com/willisma/SiT).
+- [ ] Incorporate [SiT](https://github.com/willisma/SiT). 🤝 Thanks to [@khan-yin](https://github.com/khan-yin)
 
 #### Train models that boost resolution and duration
 - [ ] Add [PI](https://arxiv.org/abs/2306.15595) to support out-of-domain size.
 - [x] Extract offline feature.
-- [x] Add frame interpolation model.
-- [x] Add super resolution model.
+- [x] Add frame interpolation model. 🤝 Thanks to [@yunyangge](https://github.com/yunyangge)
+- [x] Add super resolution model. 🤝 Thanks to [@Linzy19](https://github.com/Linzy19)
 - [x] Add accelerate to automatically manage training.
 - [ ] Joint training with images.
+- [ ] Incorporate [NaViT](https://arxiv.org/abs/2307.06304).
 
 #### Conduct text2video experiments on landscape dataset.
 - [ ] Finish data loading, pre-processing utils.
@@ -72,6 +75,7 @@ Project stages:
   - [x] Add xformers.
   - [x] Support mixed precision training.
   - [x] Add gradient checkpoint.
+  - [ ] Support for ReBased and Ring attention. 🤝 Thanks to [@kabachuha](https://github.com/kabachuha)
   - [ ] Train using the deepspeed engine.
 
 #### Control model with more condition
@@ -195,6 +199,7 @@ We greatly appreciate your contributions to the Open-Sora Plan open-source commu
 
 For more details, please refer to the [Contribution Guidelines](docs/Contribution_Guidelines.md)
 
+
 ## Acknowledgement
 * [Latte](https://github.com/Vchitect/Latte): The **main codebase** we built upon and it is an wonderful video gererated model.
 * [DiT](https://github.com/facebookresearch/DiT): Scalable Diffusion Models with Transformers.
@@ -205,8 +210,3 @@ For more details, please refer to the [Contribution Guidelines](docs/Contributio
 ## License
 * The service is a research preview intended for non-commercial use only. See [LICENSE](LICENSE) for details.
 
-## Contributors
-
-<a href="https://github.com/PKU-YuanGroup/Open-Sora-Plan/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=PKU-YuanGroup/Open-Sora-Plan" />
-</a>
