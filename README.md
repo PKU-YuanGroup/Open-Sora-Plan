@@ -57,7 +57,7 @@ Project stages:
 ## ✊ Todo
 
 #### Setup the codebase and train a unconditional model on landscape dataset
-- [x] Fix typos & Update readme. 🤝 Thanks to [@mio2333](https://github.com/mio2333), [@CreamyLong](https://github.com/CreamyLong), [@chg0901](https://github.com/chg0901)
+- [x] Fix typos & Update readme. 🤝 Thanks to [@mio2333](https://github.com/mio2333), [@CreamyLong](https://github.com/CreamyLong), [@chg0901](https://github.com/chg0901), [@Nyx-177](https://github.com/Nyx-177), [@HowardLi1984](https://github.com/HowardLi1984), [@sennnnn](https://github.com/sennnnn)
 - [x] Setup repo-structure.
 - [ ] Add docker file. ⌛ [WIP]
 - [ ] Enable type hints for functions. 🙏 **[Need your contribution]**
