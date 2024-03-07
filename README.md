@@ -42,6 +42,7 @@ Project stages:
 #### Setup the codebase and train a unconditional model on landscape dataset
 - [x] Fix typo & Update readme. 🤝 Thanks to [@mio2333](https://github.com/mio2333), [@CreamyLong](https://github.com/CreamyLong), [@chg0901](https://github.com/chg0901)
 - [x] Setup repo-structure.
+- [ ] Enable type hints for functions. 🙏 **[Need your contribution]**
 - [x] Add Video-VQGAN model, which is borrowed from [VideoGPT](https://github.com/wilson1yan/VideoGPT).
 - [x] Support variable aspect ratios, resolutions, durations training on [DiT](https://github.com/facebookresearch/DiT).
 - [x] Support Dynamic mask input inspired [FiT](https://github.com/whlzy/FiT).
