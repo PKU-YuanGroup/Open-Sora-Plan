@@ -215,6 +215,7 @@ class DiT(nn.Module):
         depth=28,
         num_heads=16,
         mlp_ratio=4.0,
+        num_frames=16,
         class_dropout_prob=0.1,
         num_classes=1000,
         learn_sigma=True,
@@ -240,7 +241,8 @@ class DiT(nn.Module):
             self.y_embedder = LabelEmbedder(num_classes, hidden_size, class_dropout_prob)
         num_patches = self.x_embedder.num_patches
         # Will use fixed sin-cos embedding:
-        # self.pos_embed = nn.Parameter(torch.zeros(1, num_patches, hidden_size), requires_grad=False)
+        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches, hidden_size), requires_grad=False)
+        self.temp_embed = nn.Parameter(torch.zeros(1, num_frames, hidden_size), requires_grad=False)
 
         self.blocks = nn.ModuleList([
             DiTBlock(hidden_size, num_heads, mlp_ratio=mlp_ratio) for _ in range(depth)
@@ -258,8 +260,11 @@ class DiT(nn.Module):
         self.apply(_basic_init)
 
         # Initialize (and freeze) pos_embed by sin-cos embedding:
-        # pos_embed = get_2d_sincos_pos_embed(self.pos_embed.shape[-1], int(self.x_embedder.num_patches ** 0.5))
-        # self.pos_embed.data.copy_(torch.from_numpy(pos_embed).float().unsqueeze(0))
+        pos_embed = get_2d_sincos_pos_embed(self.pos_embed.shape[-1], int(self.x_embedder.num_patches ** 0.5))
+        self.pos_embed.data.copy_(torch.from_numpy(pos_embed).float().unsqueeze(0))
+
+        temp_embed = get_1d_sincos_temp_embed(self.temp_embed.shape[-1], self.temp_embed.shape[-2])
+        self.temp_embed.data.copy_(torch.from_numpy(temp_embed).float().unsqueeze(0))
 
         # Initialize patch_embed like nn.Linear (instead of nn.Conv2d):
         w = self.x_embedder.proj.weight.data
@@ -287,16 +292,17 @@ class DiT(nn.Module):
 
     def unpatchify(self, x):
         """
-        x: (B, N, patch_size**2 * C)
-        imgs: (B, C, H, W)
+        x: (N, T, patch_size**2 * C)
+        imgs: (N, H, W, C)
         """
         c = self.out_channels
         p = self.x_embedder.patch_size[0]
-        assert self.h * self.w == x.shape[1]
+        h = w = int(x.shape[1] ** 0.5)
+        assert h * w == x.shape[1]
 
-        x = x.reshape(shape=(x.shape[0], self.h, self.w, p, p, c))
+        x = x.reshape(shape=(x.shape[0], h, w, p, p, c))
         x = torch.einsum('nhwpqc->nchpwq', x)
-        imgs = x.reshape(shape=(x.shape[0], c, self.h * p, self.w * p))
+        imgs = x.reshape(shape=(x.shape[0], c, h * p, h * p))
         return imgs
 
     def ckpt_wrapper(self, module):
@@ -322,27 +328,19 @@ class DiT(nn.Module):
         """
         if x.ndim == 4:
             raise NotImplementedError
+
         B, T, C, H, W = x.shape
-        self.h = num_patches_height = H // self.patch_size
-        self.w = num_patches_width = W // self.patch_size
-        self.t = num_tubes_length = T // self.patch_size_t  # 4 // 1
+        self.t = T // self.patch_size_t  # 4 // 1
         if attention_mask is not None:
             attention_mask = self.make_mask(attention_mask, x.dtype)
 
 
-        pos_embed = get_2d_sincos_pos_embed(self.hidden_size, num_patches_height)
-        pos_embed = nn.Parameter(torch.from_numpy(pos_embed).float().unsqueeze(0), requires_grad=False).to(x.device)
-
-        pos_embed_1d = get_1d_sincos_temp_embed(self.hidden_size, num_tubes_length)
-        pos_embed_1d = nn.Parameter(torch.from_numpy(pos_embed_1d).float().unsqueeze(0), requires_grad=False).to(x.device)
-
 
         # print(num_patches_height, num_patches_width, x.shape, pos_embed.shape)
-        self.x_embedder.img_size = [H, W]
         x = rearrange(x, 'b t c h w -> (b t) c h w')
-        x = self.x_embedder(x) + pos_embed  # (BT, N, C), where N = H * W / patch_size ** 2
+        x = self.x_embedder(x) + self.pos_embed  # (BT, N, C), where N = H * W / patch_size ** 2
         x = rearrange(x, '(b t) n c -> (b n) t c', t=self.t)
-        x = x + pos_embed_1d
+        x = x + self.temp_embed
         x = rearrange(x, '(b n) t c -> b (t n) c', b=B)
 
         t = self.t_embedder(t)                   # (B, C)
