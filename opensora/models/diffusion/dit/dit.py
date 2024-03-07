@@ -17,6 +17,7 @@ from timm.layers import use_fused_attn, to_2tuple
 # from timm.models.vision_transformer import PatchEmbed, Attention, Mlp
 from timm.models.vision_transformer import PatchEmbed, Mlp
 from torch.nn import functional as F
+from .VisionRoPE import VisionRotaryEmbeddingFast
 
 
 class Attention(nn.Module):
@@ -31,6 +32,9 @@ class Attention(nn.Module):
             attn_drop: float = 0.,
             proj_drop: float = 0.,
             norm_layer: nn.Module = nn.LayerNorm,
+            hw_seq_len: int = 16,  # sqrt(h * w)
+            pt_hw_seq_len: int = 16,  # sqrt(pt_h * pt_w)
+            intp_vfreq: bool = True,  # vision position interpolation
     ) -> None:
         super().__init__()
         assert dim % num_heads == 0, 'dim should be divisible by num_heads'
@@ -46,11 +50,27 @@ class Attention(nn.Module):
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
 
+        half_head_dim = dim // num_heads // 2
+        self.hw_seq_len = hw_seq_len
+        self.rope = VisionRotaryEmbeddingFast(
+            dim=half_head_dim,
+            pt_seq_len=pt_hw_seq_len,
+            ft_seq_len=self.hw_seq_len if intp_vfreq else None,
+        )
+
     def forward(self, x: torch.Tensor, attention_mask) -> torch.Tensor:
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
         q, k, v = qkv.unbind(0)
         q, k = self.q_norm(q), self.k_norm(k)
+
+        q_t = q.view(B, self.num_heads, -1, self.hw_seq_len ** 2, C // self.num_heads)
+        ro_q_t = self.rope(q_t)
+        q = ro_q_t.view(B, self.num_heads, N, C // self.num_heads)
+
+        k_t = k.view(B, self.num_heads, -1, self.hw_seq_len ** 2, C // self.num_heads)
+        ro_k_t = self.rope(k_t)
+        k = ro_k_t.view(B, self.num_heads, N, C // self.num_heads)
 
         # if self.fused_attn:
         #     x = F.scaled_dot_product_attention(
@@ -221,6 +241,8 @@ class DiT(nn.Module):
         learn_sigma=True,
         extras=1,
         attention_mode='math',
+        pt_input_size=(16, 16),  # (pt_h, pt_w)
+        intp_vfreq=True,  # vision position interpolation
     ):
         super().__init__()
         self.gradient_checkpointing = False
@@ -244,8 +266,12 @@ class DiT(nn.Module):
         self.pos_embed = nn.Parameter(torch.zeros(1, num_patches, hidden_size), requires_grad=False)
         self.temp_embed = nn.Parameter(torch.zeros(1, num_frames, hidden_size), requires_grad=False)
 
+        hw_seq_len = int(math.sqrt(input_size[0] * input_size[1]))
+        pt_hw_seq_len = int(math.sqrt(pt_input_size[0] * pt_input_size[1]))
+
         self.blocks = nn.ModuleList([
-            DiTBlock(hidden_size, num_heads, mlp_ratio=mlp_ratio) for _ in range(depth)
+            DiTBlock(hidden_size, num_heads, mlp_ratio=mlp_ratio, hw_seq_len=hw_seq_len,
+                     pt_hw_seq_len=pt_hw_seq_len, intp_vfreq=intp_vfreq) for _ in range(depth)
         ])
         self.final_layer = FinalLayer(hidden_size, patch_size_t, patch_size, self.out_channels)
         self.initialize_weights()
