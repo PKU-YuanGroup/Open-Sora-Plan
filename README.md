@@ -3,19 +3,19 @@
 [[Project Page]](https://pku-yuangroup.github.io/Open-Sora-Plan/) [[中文主页]](https://pku-yuangroup.github.io/Open-Sora-Plan/blog_cn.html) [[Discord]](https://discord.gg/fqpmStRX) [[Wechat Group]](https://github.com/PKU-YuanGroup/Open-Sora-Plan/issues/53#issuecomment-1980312563) 
 
 ## 💪 Goal
-This project aims to create a simple and scalable repo, to reproduce [Sora](https://openai.com/sora) (OpenAI, but we prefer to call it "ClosedAI" ) and build knowledge about Video-VQVAE (VideoGPT) + DiT at scale. However, we have limited resources, we deeply wish all open-source community can contribute to this project. Pull request are welcome!!!
+This project aims to create a simple and scalable repo, to reproduce [Sora](https://openai.com/sora) (OpenAI, but we prefer to call it "ClosedAI" ) and build knowledge about Video-VQVAE (VideoGPT) + DiT at scale. However, since we have limited resources, we deeply wish all open-source community can contribute to this project. Pull requests are welcome!!!
 
 本项目希望通过开源社区的力量复现Sora，由北大-兔展AIGC联合实验室共同发起，当前我们资源有限仅搭建了基础架构，无法进行完整训练，希望通过开源社区逐步增加模块并筹集资源进行训练，当前版本离目标差距巨大，仍需持续完善和快速迭代，欢迎Pull request！！！
 
 Project stages:
 - Primary
-1. Setup the codebase and train a un-conditional model on landscape dataset.
+1. Setup the codebase and train a un-conditional model on a landscape dataset.
 2. Train models that boost resolution and duration.
 
 - Extensions
 3. Conduct text2video experiments on landscape dataset.
 4. Train the 1080p model on video2text dataset.
-5. Control model with more condition.
+5. Control model with more conditions.
 
 
 <div style="display: flex; justify-content: center;"> 
@@ -28,25 +28,25 @@ Project stages:
 
 **[2024.03.07]** We support training with 128 frames (when sample rate = 3, which is about 13 seconds) of 256x256, or 64 frames (which is about 6 seconds) of 512x512.
 
-**[2024.03.05]** See our latest [todo](https://github.com/PKU-YuanGroup/Open-Sora-Plan?tab=readme-ov-file#todo), welcome to pull request.
+**[2024.03.05]** See our latest [todo](https://github.com/PKU-YuanGroup/Open-Sora-Plan?tab=readme-ov-file#todo), pull requests are welcome.
 
-**[2024.03.04]** We re-organize and modulize our codes and make it easy to [contribute](https://github.com/PKU-YuanGroup/Open-Sora-Plan?tab=readme-ov-file#how-to-contribute-to-the-open-sora-plan-community) to the project, please see the [Repo structure](https://github.com/PKU-YuanGroup/Open-Sora-Plan?tab=readme-ov-file#repo-structure).
+**[2024.03.04]** We re-organizes and modulizes our code to make it easy to [contribute](https://github.com/PKU-YuanGroup/Open-Sora-Plan?tab=readme-ov-file#how-to-contribute-to-the-open-sora-plan-community) to the project, to contribute please see the [Repo structure](https://github.com/PKU-YuanGroup/Open-Sora-Plan?tab=readme-ov-file#repo-structure).
 
-**[2024.03.03]** We open some [discussions](https://github.com/PKU-YuanGroup/Open-Sora-Plan/discussions) and clarify several issues.
+**[2024.03.03]** We opened some [discussions](https://github.com/PKU-YuanGroup/Open-Sora-Plan/discussions) to clarify several issues.
 
-**[2024.03.01]** Training codes are available now! Learn more in our [project page](https://pku-yuangroup.github.io/Open-Sora-Plan/). Please feel free to watch 👀 this repository for the latest updates.
+**[2024.03.01]** Training code is available now! Learn more on our [project page](https://pku-yuangroup.github.io/Open-Sora-Plan/). Please feel free to watch 👀 this repository for the latest updates.
 
 
 ## ✊ Todo
 
 #### Setup the codebase and train a unconditional model on landscape dataset
-- [x] Fix typo & Update readme. 🤝 Thanks to [@mio2333](https://github.com/mio2333), [@CreamyLong](https://github.com/CreamyLong), [@chg0901](https://github.com/chg0901)
+- [x] Fix typos & Update readme. 🤝 Thanks to [@mio2333](https://github.com/mio2333), [@CreamyLong](https://github.com/CreamyLong), [@chg0901](https://github.com/chg0901)
 - [x] Setup repo-structure.
 - [ ] Add docker file. ⌛ [WIP]
 - [ ] Enable type hints for functions. 🙏 **[Need your contribution]**
 - [x] Add Video-VQGAN model, which is borrowed from [VideoGPT](https://github.com/wilson1yan/VideoGPT).
 - [x] Support variable aspect ratios, resolutions, durations training on [DiT](https://github.com/facebookresearch/DiT).
-- [x] Support Dynamic mask input inspired [FiT](https://github.com/whlzy/FiT).
+- [x] Support Dynamic mask input inspired by [FiT](https://github.com/whlzy/FiT).
 - [x] Add class-conditioning on embeddings.
 - [x] Incorporating [Latte](https://github.com/Vchitect/Latte) as main codebase.
 - [x] Add VAE model, which is borrowed from [Stable Diffusion](https://github.com/CompVis/latent-diffusion).
@@ -77,7 +77,7 @@ Project stages:
 
 #### Train the 1080p model on video2text dataset
 - [ ] Looking for a suitable dataset, welcome to discuss and recommend. 🙏 **[Need your contribution]**
-- [ ] Finish data loading, pre-processing utils. ⌛ [WIP]
+- [ ] Finish data loading, and pre-processing utils. ⌛ [WIP]
 - [ ] Support memory friendly training.
   - [x] Add flash-attention2 from pytorch.
   - [x] Add xformers.
@@ -85,14 +85,14 @@ Project stages:
   - [x] Add gradient checkpoint.
   - [x] Support for ReBased and Ring attention. 🤝 Thanks to [@kabachuha](https://github.com/kabachuha)
   - [ ] Train using the deepspeed engine. 🙏 **[Need your contribution]**
-  - [ ] Integrate with [Colossal-AI](https://github.com/PKU-YuanGroup/Open-Sora-Plan/issues/59#issue-2170735221), cheaper, faster, and more efficient. 🙏 **[Need your contribution]**
-- [ ] Train with text condition. Here we could conduct different experiments:
+  - [ ] Integrate with [Colossal-AI](https://github.com/PKU-YuanGroup/Open-Sora-Plan/issues/59#issue-2170735221) for a cheaper, faster, and more efficient. 🙏 **[Need your contribution]**
+- [ ] Train with a text condition. Here we could conduct different experiments:
   - [ ] Train with T5 conditioning. 🚀 **[Require more computation]**
   - [ ] Train with CLIP conditioning. 🚀 **[Require more computation]**
   - [ ] Train with CLIP + T5 conditioning (probably costly during training and experiments). 🚀 **[Require more computation]**
 
 #### Control model with more condition
-- [ ] Load pretrained weight from [PixArt-α](https://github.com/PixArt-alpha/PixArt-alpha). ⌛ [WIP]
+- [ ] Load pretrained weights from [PixArt-α](https://github.com/PixArt-alpha/PixArt-alpha). ⌛ [WIP]
 - [ ] Incorporating [ControlNet](https://github.com/lllyasviel/ControlNet). 🙏 **[Need your contribution]**
 
 ## 📂 Repo structure (WIP)
@@ -127,7 +127,7 @@ Project stages:
 
 ## 🛠️ Requirements and Installation
 
-The recommended requirements are as follows.
+The requirements are as follows.
 
 * Python >= 3.8
 * CUDA Version >= 11.7
