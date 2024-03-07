@@ -89,8 +89,9 @@ def main(args):
     x_vae = preprocess(read_video(video_path, num_frames, sample_rate), resolution, crop_size)
     x_vae = x_vae.to(device)
 
-    encodings, embeddings = vqvae.encode(x_vae, include_embeddings=True)
-    video_recon = vqvae.decode(encodings)
+    with torch.no_grad():
+        encodings, embeddings = vqvae.encode(x_vae, include_embeddings=True)
+        video_recon = vqvae.decode(encodings)
 
     # custom_to_video(x_vae[0], fps=sample_fps/sample_rate, output_file='origin_input.mp4')
     custom_to_video(video_recon[0], fps=sample_fps/sample_rate, output_file=args.rec_path)
