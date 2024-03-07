@@ -274,9 +274,9 @@ class Latte(nn.Module):
 
         num_patches = self.x_embedder.num_patches
         # Will use fixed sin-cos embedding:
-        # self.pos_embed = nn.Parameter(torch.zeros(1, num_patches, hidden_size), requires_grad=False)
-        # self.temp_embed = nn.Parameter(torch.zeros(1, num_frames, hidden_size), requires_grad=False)
-        self.hidden_size =  hidden_size
+        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches, hidden_size), requires_grad=False)
+        self.temp_embed = nn.Parameter(torch.zeros(1, num_frames, hidden_size), requires_grad=False)
+        self.hidden_size = hidden_size
 
         self.blocks = nn.ModuleList([
             TransformerBlock(hidden_size, num_heads, mlp_ratio=mlp_ratio, attention_mode=attention_mode) for _ in range(depth)
@@ -295,11 +295,11 @@ class Latte(nn.Module):
         self.apply(_basic_init)
 
         # Initialize (and freeze) pos_embed by sin-cos embedding:
-        # pos_embed = get_2d_sincos_pos_embed(self.pos_embed.shape[-1], int(self.x_embedder.num_patches ** 0.5))
-        # self.pos_embed.data.copy_(torch.from_numpy(pos_embed).float().unsqueeze(0))
-        #
-        # temp_embed = get_1d_sincos_temp_embed(self.temp_embed.shape[-1], self.temp_embed.shape[-2])
-        # self.temp_embed.data.copy_(torch.from_numpy(temp_embed).float().unsqueeze(0))
+        pos_embed = get_2d_sincos_pos_embed(self.pos_embed.shape[-1], int(self.x_embedder.num_patches ** 0.5))
+        self.pos_embed.data.copy_(torch.from_numpy(pos_embed).float().unsqueeze(0))
+
+        temp_embed = get_1d_sincos_temp_embed(self.temp_embed.shape[-1], self.temp_embed.shape[-2])
+        self.temp_embed.data.copy_(torch.from_numpy(temp_embed).float().unsqueeze(0))
 
         # Initialize patch_embed like nn.Linear (instead of nn.Conv2d):
         w = self.x_embedder.proj.weight.data
@@ -381,31 +381,24 @@ class Latte(nn.Module):
             attention_mask_temproal = self.make_mask(attention_mask_temproal, x.dtype)
 
         batches, frames, channels, high, weight = x.shape
-        num_patches_height = high // self.patch_size
-        num_tubes_length = frames // self.patch_size_t
-        pos_embed = get_2d_sincos_pos_embed(self.hidden_size, num_patches_height)
-        pos_embed = nn.Parameter(torch.from_numpy(pos_embed).float().unsqueeze(0), requires_grad=False).to(x.device)
-        temp_embed = get_1d_sincos_temp_embed(self.hidden_size, num_tubes_length)
-        temp_embed = nn.Parameter(torch.from_numpy(temp_embed).float().unsqueeze(0), requires_grad=False).to(x.device)
 
         x = rearrange(x, 'b f c h w -> (b f) c h w')
 
-        self.x_embedder.img_size = [high, weight]
-        x = self.x_embedder(x) + pos_embed
+        x = self.x_embedder(x) + self.pos_embed
         t = self.t_embedder(t, use_fp16=use_fp16)
 
 
-        timestep_spatial = repeat(t, 'n d -> (n c) d', c=temp_embed.shape[1])
-        timestep_temp = repeat(t, 'n d -> (n c) d', c=pos_embed.shape[1])
+        timestep_spatial = repeat(t, 'n d -> (n c) d', c=self.temp_embed.shape[1])
+        timestep_temp = repeat(t, 'n d -> (n c) d', c=self.pos_embed.shape[1])
 
         if self.extras == 2:
             y = self.y_embedder(y, self.training)
-            y_spatial = repeat(y, 'n d -> (n c) d', c=temp_embed.shape[1])
-            y_temp = repeat(y, 'n d -> (n c) d', c=pos_embed.shape[1])
+            y_spatial = repeat(y, 'n d -> (n c) d', c=self.temp_embed.shape[1])
+            y_temp = repeat(y, 'n d -> (n c) d', c=self.pos_embed.shape[1])
         elif self.extras == 78:
             text_embedding = self.text_embedding_projection(text_embedding.reshape(batches, -1))
-            text_embedding_spatial = repeat(text_embedding, 'n d -> (n c) d', c=temp_embed.shape[1])
-            text_embedding_temp = repeat(text_embedding, 'n d -> (n c) d', c=pos_embed.shape[1])
+            text_embedding_spatial = repeat(text_embedding, 'n d -> (n c) d', c=self.temp_embed.shape[1])
+            text_embedding_temp = repeat(text_embedding, 'n d -> (n c) d', c=self.pos_embed.shape[1])
 
         for i in range(0, len(self.blocks), 2):
             spatial_block, temp_block = self.blocks[i:i+2]
@@ -423,7 +416,7 @@ class Latte(nn.Module):
             x = rearrange(x, '(b f) t d -> (b t) f d', b=batches)
             # Add Time Embedding
             if i == 0:
-                x = x + temp_embed
+                x = x + self.temp_embed
 
             if self.extras == 2:
                 c = timestep_temp + y_temp
