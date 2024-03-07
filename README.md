@@ -84,6 +84,7 @@ Project stages:
   - [x] Add gradient checkpoint.
   - [x] Support for ReBased and Ring attention. 🤝 Thanks to [@kabachuha](https://github.com/kabachuha)
   - [ ] Train using the deepspeed engine. 🙏 **[Need your contribution]**
+  - [ ] Integrate with [Colossal-AI](https://github.com/PKU-YuanGroup/Open-Sora-Plan/issues/59#issue-2170735221), cheaper, faster, and more efficient. 🙏 **[Need your contribution]**
 - [ ] Train with text condition. Here we could conduct different experiments:
   - [ ] Train with T5 conditioning. 🚀 **[Require more computation]**
   - [ ] Train with CLIP conditioning. 🚀 **[Require more computation]**
