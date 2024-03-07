@@ -1,6 +1,16 @@
 # Open-Sora Plan
 
-[[Project Page]](https://pku-yuangroup.github.io/Open-Sora-Plan/) [[中文主页]](https://pku-yuangroup.github.io/Open-Sora-Plan/blog_cn.html) [[Discord]](https://discord.gg/fqpmStRX) [[Wechat Group]](https://github.com/PKU-YuanGroup/Open-Sora-Plan/issues/53#issuecomment-1980312563) 
+[[Project Page]](https://pku-yuangroup.github.io/Open-Sora-Plan/) [[中文主页]](https://pku-yuangroup.github.io/Open-Sora-Plan/blog_cn.html)
+
+[![slack badge](https://img.shields.io/badge/Discord-join-blueviolet?logo=discord&amp)](https://discord.gg/fqpmStRX)
+[![WeChat badge](https://img.shields.io/badge/微信-加入-green?logo=wechat&amp)](https://github.com/PKU-YuanGroup/Open-Sora-Plan/issues/53#issuecomment-1980312563)
+[![Twitter](https://img.shields.io/badge/-Twitter@LinBin46984-black?logo=twitter&logoColor=1D9BF0)](https://x.com/LinBin46984/status/1763476690385424554?s=20)
+[![License](https://img.shields.io/badge/License-MIT-yellow)](https://github.com/PKU-YuanGroup/Open-Sora-Plan/blob/main/LICENSE) 
+[![Contributors](https://img.shields.io/github/contributors/PKU-YuanGroup/Open-Sora-Plan?label=contributors)](https://github.com/PKU-YuanGroup/Open-Sora-Plan/graphs/contributors)
+[![Pr](https://img.shields.io/github/issues-pr/PKU-YuanGroup/Open-Sora-Plan?color=0088ff&label=Pull%20Request)](https://github.com/PKU-YuanGroup/Open-Sora-Plan/pulls)
+[![GitHub issues](https://img.shields.io/github/issues/PKU-YuanGroup/Open-Sora-Plan?color=critical&label=Issues)](https://github.com/PKU-YuanGroup/Video-LLaVA/issues?q=is%3Aopen+is%3Aissue)
+[![GitHub closed issues](https://img.shields.io/github/issues-closed/PKU-YuanGroup/Open-Sora-Plan?color=success&label=Issues)](https://github.com/PKU-YuanGroup/Video-LLaVA/issues?q=is%3Aissue+is%3Aclosed) 
+[![GitHub Repo stars](https://img.shields.io/github/stars/PKU-YuanGroup/Open-Sora-Plan?style=social)](https://github.com/PKU-YuanGroup/Open-Sora-Plan/stargazers)
 
 ## 💪 Goal
 This project aims to create a simple and scalable repo, to reproduce [Sora](https://openai.com/sora) (OpenAI, but we prefer to call it "CloseAI" ) and build knowledge about Video-VQVAE (VideoGPT) + DiT at scale. However, we have limited resources, we deeply wish all open-source community can contribute to this project. Pull request are welcome!!!
