@@ -42,7 +42,7 @@ Project stages:
 
   
 ## 📰 News
-**[2024.03.08]** We support the training code of text condition with 16 frames of 512x512, but the environment is different from the class condition training code (please use the official command on https://pytorch.org/get-started/locally/ to install torch 2.1 and cuda 11.8 ).
+**[2024.03.08]** We support the training code of text condition with 16 frames of 512x512, but the environment is different from the class condition training code (please use the official command on https://pytorch.org/get-started/locally/ to install torch 2.1 and cuda 11.8 ). The code is written according to the sample code of https://github.com/Vchitect/Latte?tab=readme-ov-file
 
 **[2024.03.07]** We support training with 128 frames (when sample rate = 3, which is about 13 seconds) of 256x256, or 64 frames (which is about 6 seconds) of 512x512.
 
