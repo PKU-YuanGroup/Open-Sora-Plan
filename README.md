@@ -195,7 +195,7 @@ We present four reconstructed videos in this demonstration, arranged from left t
 
 | **3s 596x336** | **10s 256x256** | **18s 196x196**  | **24s 168x96** |
 | --- | --- | --- | --- |
-| <img src="assets/rec_video_2.gif">  | <img src="assets/rec_video_0.gif">  | <img src="assets/rec_video_1.gif">  | <img src="assets/rec_video_3.gif"> |
+| <img src="assets/rec_video_2.gif" width=336>  | <img src="assets/rec_video_0.gif" width=256>  | <img src="assets/rec_video_1.gif" width=196>  | <img src="assets/rec_video_3.gif" width=96> |
 
 #### Others
 
