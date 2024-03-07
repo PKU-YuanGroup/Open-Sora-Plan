@@ -82,14 +82,15 @@ def main(args):
     assert ae_stride_h == ae_stride_w, "Support now."
     assert patch_size_h == patch_size_w, "Support now."
 
-    latent_size = (args.num_frames // ae_stride_t, args.max_image_size // ae_stride_h, args.max_image_size // ae_stride_w)
+    latent_size = (args.max_image_size // ae_stride_h, args.max_image_size // ae_stride_w)
     args.latent_size = latent_size[1]
 
     model = Diffusion_models[args.model](
         input_size=latent_size,
         num_classes=args.num_classes,
         in_channels=ae_channel_config[args.ae],
-        extras=args.extras
+        extras=args.extras,
+        num_frames=args.num_frames // ae_stride_t
     )
     model.gradient_checkpointing = args.gradient_checkpointing
 
