@@ -1,6 +1,6 @@
 # Open-Sora Plan
 
-[[Project Page]](https://pku-yuangroup.github.io/Open-Sora-Plan/) [[中文主页]](https://pku-yuangroup.github.io/Open-Sora-Plan/blog_cn.html) [[Discord]](https://discord.gg/fqpmStRX) [[Wechat Group]](https://github.com/PKU-YuanGroup/Open-Sora-Plan/issues/53#issuecomment-1980312563) [![hf_space](https://img.shields.io/github/contributors/PKU-YuanGroup/Open-Sora-Plan.svg)](https://github.com/PKU-YuanGroup/Open-Sora-Plan/graphs/contributors)
+[[Project Page]](https://pku-yuangroup.github.io/Open-Sora-Plan/) [[中文主页]](https://pku-yuangroup.github.io/Open-Sora-Plan/blog_cn.html) [[Discord]](https://discord.gg/fqpmStRX) [[Wechat Group]](https://github.com/PKU-YuanGroup/Open-Sora-Plan/issues/53#issuecomment-1980312563) 
 
 ## 💪 Goal
 This project aims to create a simple and scalable repo, to reproduce [Sora](https://openai.com/sora) (OpenAI, but we prefer to call it "CloseAI" ) and build knowledge about Video-VQVAE (VideoGPT) + DiT at scale. However, we have limited resources, we deeply wish all open-source community can contribute to this project. Pull request are welcome!!!
@@ -26,7 +26,9 @@ Project stages:
   
 ## 📰 News
 
-**[2024.03.05]**  See our latest [todo](https://github.com/PKU-YuanGroup/Open-Sora-Plan?tab=readme-ov-file#todo), welcome to pull request.
+**[2024.03.07]** We support training with 128 frames (when sample rate = 3, which is about 13 seconds) of 256x256, or 64 frames (which is about 6 seconds) of 512x512.
+
+**[2024.03.05]** See our latest [todo](https://github.com/PKU-YuanGroup/Open-Sora-Plan?tab=readme-ov-file#todo), welcome to pull request.
 
 **[2024.03.04]** We re-organize and modulize our codes and make it easy to [contribute](https://github.com/PKU-YuanGroup/Open-Sora-Plan?tab=readme-ov-file#how-to-contribute-to-the-open-sora-plan-community) to the project, please see the [Repo structure](https://github.com/PKU-YuanGroup/Open-Sora-Plan?tab=readme-ov-file#repo-structure).
 
@@ -38,7 +40,9 @@ Project stages:
 ## ✊ Todo
 
 #### Setup the codebase and train a unconditional model on landscape dataset
+- [x] Fix typo & Update readme. 🤝 Thanks to [@mio2333](https://github.com/mio2333), [@CreamyLong](https://github.com/CreamyLong), [@chg0901](https://github.com/chg0901)
 - [x] Setup repo-structure.
+- [ ] Enable type hints for functions. 🙏 **[Need your contribution]**
 - [x] Add Video-VQGAN model, which is borrowed from [VideoGPT](https://github.com/wilson1yan/VideoGPT).
 - [x] Support variable aspect ratios, resolutions, durations training on [DiT](https://github.com/facebookresearch/DiT).
 - [x] Support Dynamic mask input inspired [FiT](https://github.com/whlzy/FiT).
@@ -46,39 +50,50 @@ Project stages:
 - [x] Incorporating [Latte](https://github.com/Vchitect/Latte) as main codebase.
 - [x] Add VAE model, which is borrowed from [Stable Diffusion](https://github.com/CompVis/latent-diffusion).
 - [x] Joint dynamic mask input with VAE.
-- [ ] Make the codebase ready for the cluster training. Add SLURM scripts.
+- [ ] Add VQVAE from [VQGAN](https://github.com/CompVis/taming-transformers). 🙏 **[Need your contribution]**
+- [ ] Make the codebase ready for the cluster training. Add SLURM scripts. 🙏 **[Need your contribution]**
+- [x] Refactor VideoGPT. 🤝 Thanks to [@qqingzheng](https://github.com/qqingzheng), [@luo3300612](https://github.com/luo3300612)
 - [x] Add sampling script.
-- [ ] Incorporating [SiT](https://github.com/willisma/SiT).
+- [x] Incorporate [SiT](https://github.com/willisma/SiT). 🤝 Thanks to [@khan-yin](https://github.com/khan-yin)
+- [ ] Add eavluation scripts (FVD, CLIP score). 🙏 **[Need your contribution]**
 
 #### Train models that boost resolution and duration
-- [ ] Add [PI](https://arxiv.org/abs/2306.15595) to support out-of-domain size.
+- [ ] Add [PI](https://arxiv.org/abs/2306.15595) to support out-of-domain size. 🙏 **[Need your contribution]**
+- [ ] Add 2D RoPE to improve generalization ability as [FiT](https://github.com/whlzy/FiT). 🙏 **[Need your contribution]**
 - [x] Extract offline feature.
-- [x] Add frame interpolation model.
-- [x] Add super resolution model.
+- [x] Add frame interpolation model. 🤝 Thanks to [@yunyangge](https://github.com/yunyangge)
+- [x] Add super resolution model. 🤝 Thanks to [@Linzy19](https://github.com/Linzy19)
 - [x] Add accelerate to automatically manage training.
-- [ ] Joint training with images.
+- [ ] Joint training with images. 🙏 **[Need your contribution]**
+- [ ] Incorporate [NaViT](https://arxiv.org/abs/2307.06304). 🙏 **[Need your contribution]**
+- [ ] Add [FreeNoise](https://github.com/arthur-qiu/FreeNoise-LaVie) support for training-free longer video generation. 🙏 **[Need your contribution]**
 
 #### Conduct text2video experiments on landscape dataset.
-- [ ] Finish data loading, pre-processing utils.
-- [ ] Add CLIP and T5 support.
-- [ ] Add text2image training script.
-- [ ] Add prompt captioner.
+- [ ] Finish data loading, pre-processing utils. ⌛ [WIP]
+- [ ] Add CLIP and T5 support. ⌛ [WIP]
+- [ ] Add text2image training script. ⌛ [WIP]
+- [ ] Add prompt captioner. 🙏 **[Need your contribution]** 🚀 **[Require more computation]**
 
 #### Train the 1080p model on video2text dataset
-- [ ] Looking for a suitable dataset, welcome to discuss and recommend.
-- [ ] Finish data loading, pre-processing utils.
+- [ ] Looking for a suitable dataset, welcome to discuss and recommend. 🙏 **[Need your contribution]**
+- [ ] Finish data loading, pre-processing utils. ⌛ [WIP]
 - [ ] Support memory friendly training.
   - [x] Add flash-attention2 from pytorch.
   - [x] Add xformers.
   - [x] Support mixed precision training.
   - [x] Add gradient checkpoint.
-  - [ ] Train using the deepspeed engine.
+  - [x] Support for ReBased and Ring attention. 🤝 Thanks to [@kabachuha](https://github.com/kabachuha)
+  - [ ] Train using the deepspeed engine. 🙏 **[Need your contribution]**
+- [ ] Train with text condition. Here we could conduct different experiments:
+  - [ ] Train with T5 conditioning. 🚀 **[Require more computation]**
+  - [ ] Train with CLIP conditioning. 🚀 **[Require more computation]**
+  - [ ] Train with CLIP + T5 conditioning (probably costly during training and experiments). 🚀 **[Require more computation]**
 
 #### Control model with more condition
-- [ ] Load pretrained weight from [PixArt-α](https://github.com/PixArt-alpha/PixArt-alpha).
-- [ ] Incorporating [ControlNet](https://github.com/lllyasviel/ControlNet).
+- [ ] Load pretrained weight from [PixArt-α](https://github.com/PixArt-alpha/PixArt-alpha). ⌛ [WIP]
+- [ ] Incorporating [ControlNet](https://github.com/lllyasviel/ControlNet). 🙏 **[Need your contribution]**
 
-## 📂 Repo structure
+## 📂 Repo structure (WIP)
 ```
 ├── README.md
 ├── docs
@@ -134,25 +149,21 @@ Refer to [Data.md](docs/Data.md)
 
 #### Training
 
+To train VQVAE, run the script:
+
 ```
-cd src/sora/modules/ae/vqvae/videogpt
+scripts/train_vqvae.sh
 ```
 
-Refer to origin [repo](https://github.com/wilson1yan/VideoGPT?tab=readme-ov-file#training-vq-vae). Use the `scripts/train_vqvae.py` script to train a Video-VQVAE. Execute `python scripts/train_vqvae.py -h` for information on all available training settings. A subset of more relevant settings are listed below, along with default values.
+You can modify the training parameters within the script. For training parameters, please refer to [transformers.TrainingArguments](https://huggingface.co/docs/transformers/v4.38.2/en/main_classes/trainer#transformers.TrainingArguments). Other parameters are explained as follows:
 
 ##### VQ-VAE Specific Settings
+
 * `--embedding_dim`: number of dimensions for codebooks embeddings
 * `--n_codes 2048`: number of codes in the codebook
 * `--n_hiddens 240`: number of hidden features in the residual blocks
 * `--n_res_layers 4`: number of residual blocks
-* `--downsample 4 4 4`: T H W downsampling stride of the encoder
-
-##### Training Settings
-* `--gpus 2`: number of gpus for distributed training
-* `--sync_batchnorm`: uses `SyncBatchNorm` instead of `BatchNorm3d` when using > 1 gpu
-* `--gradient_clip_val 1`: gradient clipping threshold for training
-* `--batch_size 16`: batch size per gpu
-* `--num_workers 8`: number of workers for each DataLoader
+* `--downsample "4,4,4"`: T H W downsampling stride of the encoder
 
 ##### Dataset Settings
 * `--data_path <path>`: path to an `hdf5` file or a folder containing `train` and `test` folders with subdirectories of videos
@@ -162,19 +173,21 @@ Refer to origin [repo](https://github.com/wilson1yan/VideoGPT?tab=readme-ov-file
 #### Reconstructing
 
 ```Python
-python rec_video.py --video-path "assets/origin_video_0.mp4" --rec-path "rec_video_0.mp4" --num-frames 500 --sample-rate 1
+python examples/rec_video.py --video-path "assets/origin_video_0.mp4" --rec-path "rec_video_0.mp4" --num-frames 500 --sample-rate 1
 ```
 ```Python
-python rec_video.py --video-path "assets/origin_video_1.mp4" --rec-path "rec_video_1.mp4" --resolution 196 --num-frames 600 --sample-rate 1
+python examples/rec_video.py --video-path "assets/origin_video_1.mp4" --rec-path "rec_video_1.mp4" --resolution 196 --num-frames 600 --sample-rate 1
 ```
 
-
 We present four reconstructed videos in this demonstration, arranged from left to right as follows: 
-
 
 | **3s 596x336** | **10s 256x256** | **18s 196x196**  | **24s 168x96** |
 | --- | --- | --- | --- |
 | <img src="assets/rec_video_2.gif">  | <img src="assets/rec_video_0.gif">  | <img src="assets/rec_video_1.gif">  | <img src="assets/rec_video_3.gif"> |
+
+#### Others
+
+Please refer to the document [VQVAE](docs/VQVAE.md).
 
 ### VideoDiT (DiT)
 
