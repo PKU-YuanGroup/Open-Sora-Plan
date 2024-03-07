@@ -35,7 +35,7 @@ Project stages:
 **[2024.03.01]** Training codes are available now! Learn more in our [project page](https://pku-yuangroup.github.io/Open-Sora-Plan/). Please feel free to watch 👀 this repository for the latest updates.
 
 
-## Todo
+## ✊ Todo
 
 #### Setup the codebase and train a unconditional model on landscape dataset
 - [x] Setup repo-structure.
@@ -78,7 +78,7 @@ Project stages:
 - [ ] Load pretrained weight from [PixArt-α](https://github.com/PixArt-alpha/PixArt-alpha).
 - [ ] Incorporating [ControlNet](https://github.com/lllyasviel/ControlNet).
 
-## Repo structure
+## 📂 Repo structure
 ```
 ├── README.md
 ├── docs
