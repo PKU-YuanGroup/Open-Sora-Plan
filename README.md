@@ -1,6 +1,6 @@
 # Open-Sora Plan
 
-[[Project Page]](https://pku-yuangroup.github.io/Open-Sora-Plan/) [[中文主页]](https://pku-yuangroup.github.io/Open-Sora-Plan/blog_cn.html) [[Discord]](https://discord.gg/fqpmStRX) [[Wechat Group]](https://github.com/PKU-YuanGroup/Open-Sora-Plan/issues/53#issuecomment-1980312563)
+[[Project Page]](https://pku-yuangroup.github.io/Open-Sora-Plan/) [[中文主页]](https://pku-yuangroup.github.io/Open-Sora-Plan/blog_cn.html) [[Discord]](https://discord.gg/fqpmStRX) [[Wechat Group]](https://github.com/PKU-YuanGroup/Open-Sora-Plan/issues/53#issuecomment-1980312563) [![hf_space](https://img.shields.io/github/contributors/PKU-YuanGroup/Open-Sora-Plan.svg)](https://github.com/PKU-YuanGroup/Open-Sora-Plan/graphs/contributors)
 
 ## Goal
 This project aims to create a simple and scalable repo, to reproduce [Sora](https://openai.com/sora) (OpenAI, but we prefer to call it "CloseAI" ) and build knowledge about Video-VQVAE (VideoGPT) + DiT at scale. However, we have limited resources, we deeply wish all open-source community can contribute to this project. Pull request are welcome!!!
@@ -197,6 +197,7 @@ We greatly appreciate your contributions to the Open-Sora Plan open-source commu
 
 For more details, please refer to the [Contribution Guidelines](docs/Contribution_Guidelines.md)
 
+
 ## Acknowledgement
 * [Latte](https://github.com/Vchitect/Latte): The **main codebase** we built upon and it is an wonderful video gererated model.
 * [DiT](https://github.com/facebookresearch/DiT): Scalable Diffusion Models with Transformers.
@@ -207,8 +208,3 @@ For more details, please refer to the [Contribution Guidelines](docs/Contributio
 ## License
 * The service is a research preview intended for non-commercial use only. See [LICENSE](LICENSE) for details.
 
-## Contributors
-
-<a href="https://github.com/PKU-YuanGroup/Open-Sora-Plan/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=PKU-YuanGroup/Open-Sora-Plan" />
-</a>
