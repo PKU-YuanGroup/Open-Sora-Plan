@@ -197,9 +197,6 @@ We greatly appreciate your contributions to the Open-Sora Plan open-source commu
 
 For more details, please refer to the [Contribution Guidelines](docs/Contribution_Guidelines.md)
 
-We love your input! We want to make contributing to YOLOv5 as easy and transparent as possible. Please see our [Contributing Guide](https://docs.ultralytics.com/help/contributing/) to get started, and fill out the [YOLOv5 Survey](https://ultralytics.com/survey?utm_source=github&utm_medium=social&utm_campaign=Survey) to send us feedback on your experiences. Thank you to all our contributors!
-
-
 
 ## Acknowledgement
 * [Latte](https://github.com/Vchitect/Latte): The **main codebase** we built upon and it is an wonderful video gererated model.
