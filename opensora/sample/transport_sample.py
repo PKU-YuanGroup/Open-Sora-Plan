@@ -7,6 +7,7 @@ Sample new images from a pre-trained SiT.
 import os
 import sys
 
+from opensora.dataset import ae_denorm
 from opensora.models.ae import ae_channel_config, getae, ae_stride_config
 from opensora.models.diffusion import Diffusion_models
 from opensora.models.diffusion.transport import create_transport, Sampler
@@ -96,9 +97,9 @@ def main(mode, args):
     
     # Create sampling noise:
     if args.use_fp16:
-        z = torch.randn(1, args.num_frames, model.in_channels, latent_size, latent_size, dtype=torch.float16, device=device) # b c f h w
+        z = torch.randn(1, args.num_frames // ae_stride_config[args.ae][0], model.in_channels, latent_size, latent_size, dtype=torch.float16, device=device) # b c f h w
     else:
-        z = torch.randn(1, args.num_frames, model.in_channels, latent_size, latent_size, device=device)
+        z = torch.randn(1, args.num_frames // ae_stride_config[args.ae][0], model.in_channels, latent_size, latent_size, device=device)
 
     # Setup classifier-free guidance:
     if using_cfg:
@@ -117,17 +118,14 @@ def main(mode, args):
     
     if args.use_fp16:
         samples = samples.to(dtype=torch.float16)
-    b, f, c, h, w = samples.shape
-    samples = rearrange(samples, 'b f c h w -> (b f) c h w')
     samples = ae.decode(samples)
-    samples = rearrange(samples, '(b f) c h w -> b f c h w', b=b)
 
     # Save and display images:
     if not os.path.exists(args.save_video_path):
         os.makedirs(args.save_video_path)
 
 
-    video_ = ((samples[0] * 0.5 + 0.5) * 255).add_(0.5).clamp_(0, 255).to(dtype=torch.uint8).cpu().permute(0, 2, 3, 1).contiguous()
+    video_ = (ae_denorm[args.ae](samples[0]) * 255).add_(0.5).clamp_(0, 255).to(dtype=torch.uint8).cpu().permute(0, 2, 3, 1).contiguous()
     video_save_path = os.path.join(args.save_video_path, 'sample' + '.mp4')
     print(video_save_path)
     imageio.mimwrite(video_save_path, video_, fps=args.fps, quality=9)
