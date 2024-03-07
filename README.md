@@ -54,6 +54,7 @@ Project stages:
 
 #### Train models that boost resolution and duration
 - [ ] Add [PI](https://arxiv.org/abs/2306.15595) to support out-of-domain size. 🙏 **[Need your contribution]**
+- [ ] Add 2D RoPE to improve generalization ability as [FiT](https://github.com/whlzy/FiT). 🙏 **[Need your contribution]**
 - [x] Extract offline feature.
 - [x] Add frame interpolation model. 🤝 Thanks to [@yunyangge](https://github.com/yunyangge)
 - [x] Add super resolution model. 🤝 Thanks to [@Linzy19](https://github.com/Linzy19)
@@ -78,12 +79,16 @@ Project stages:
   - [x] Add gradient checkpoint.
   - [x] Support for ReBased and Ring attention. 🤝 Thanks to [@kabachuha](https://github.com/kabachuha)
   - [ ] Train using the deepspeed engine. 🙏 **[Need your contribution]**
+- [ ] Train with text condition. Here we could conduct different experiments:
+  - [ ] Train with T5 conditioning. 🚀 **[Require more computation]**
+  - [ ] Train with CLIP conditioning. 🚀 **[Require more computation]**
+  - [ ] Train with CLIP + T5 conditioning (probably costly during training and experiments). 🚀 **[Require more computation]**
 
 #### Control model with more condition
 - [ ] Load pretrained weight from [PixArt-α](https://github.com/PixArt-alpha/PixArt-alpha). ⌛ [WIP]
 - [ ] Incorporating [ControlNet](https://github.com/lllyasviel/ControlNet). 🙏 **[Need your contribution]**
 
-## Repo structure
+## Repo structure (WIP)
 ```
 ├── README.md
 ├── docs
