@@ -565,3 +565,21 @@ class LayerNorm(nn.Module):
 
         x = x_float.type_as(x)
         return x
+
+def view_range(x, i, j, shape):
+    shape = tuple(shape)
+
+    n_dims = len(x.shape)
+    if i < 0:
+        i = n_dims + i
+
+    if j is None:
+        j = n_dims
+    elif j < 0:
+        j = n_dims + j
+
+    assert 0 <= i < j <= n_dims
+
+    x_shape = x.shape
+    target_shape = x_shape[:i] + shape + x_shape[j:]
+    return x.view(target_shape)

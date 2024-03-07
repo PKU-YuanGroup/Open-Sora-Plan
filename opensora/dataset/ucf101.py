@@ -13,30 +13,8 @@ from pytorchvideo.transforms import ApplyTransformToKey, ShortSideScale, Uniform
 from torch.nn import functional as F
 import random
 
+from opensora.utils.dataset_utils import DecordInit
 
-class DecordInit(object):
-    """Using Decord(https://github.com/dmlc/decord) to initialize the video_reader."""
-
-    def __init__(self, num_threads=1):
-        self.num_threads = num_threads
-        self.ctx = decord.cpu(0)
-
-    def __call__(self, filename):
-        """Perform the Decord initialization.
-        Args:
-            results (dict): The resulting dict to be modified and passed
-                to the next transform in pipeline.
-        """
-        reader = decord.VideoReader(filename,
-                                    ctx=self.ctx,
-                                    num_threads=self.num_threads)
-        return reader
-
-    def __repr__(self):
-        repr_str = (f'{self.__class__.__name__}('
-                    f'sr={self.sr},'
-                    f'num_threads={self.num_threads})')
-        return repr_str
 
 class UCF101(Dataset):
     def __init__(self, args, transform, temporal_sample):
@@ -84,10 +62,7 @@ class UCF101(Dataset):
         start_frame_ind, end_frame_ind = self.temporal_sample(total_frames)
         assert end_frame_ind - start_frame_ind >= self.num_frames
         frame_indice = np.linspace(start_frame_ind, end_frame_ind - 1, self.num_frames, dtype=int)
-        # frame_indice = np.linspace(0, 30, self.target_video_len, dtype=int)
-        # print(frame_indice)
-        video = vframes[frame_indice]  #
-        # video = video.permute(0, 2, 3, 1)  # (T, C, H, W) -> (T H W C)
+        video = vframes[frame_indice]  # (T, C, H, W)
 
         return video
 
