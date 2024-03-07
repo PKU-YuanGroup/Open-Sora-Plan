@@ -313,7 +313,7 @@ class DiT(nn.Module):
         attention_mask = attention_mask.masked_fill(attention_mask == 0, 1e-8)
         return attention_mask
 
-    def forward(self, x, t, y, attention_mask):
+    def forward(self, x, t, y, attention_mask=None, use_fp16=False):
         """
         Forward pass of DiT.
         x: (B, T, C, H, W) tensor of spatial inputs (images or latent representations of images)
@@ -326,7 +326,8 @@ class DiT(nn.Module):
         self.h = num_patches_height = H // self.patch_size
         self.w = num_patches_width = W // self.patch_size
         self.t = num_tubes_length = T // self.patch_size_t  # 4 // 1
-        attention_mask = self.make_mask(attention_mask, x.dtype)
+        if attention_mask is not None:
+            attention_mask = self.make_mask(attention_mask, x.dtype)
 
 
         pos_embed = get_2d_sincos_pos_embed(self.hidden_size, num_patches_height)
