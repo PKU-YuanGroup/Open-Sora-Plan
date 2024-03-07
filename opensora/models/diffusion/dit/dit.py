@@ -267,7 +267,8 @@ class DiT(nn.Module):
         nn.init.constant_(self.x_embedder.proj.bias, 0)
 
         # Initialize label embedding table:
-        nn.init.normal_(self.y_embedder.embedding_table.weight, std=0.02)
+        if self.extras == 2:
+            nn.init.normal_(self.y_embedder.embedding_table.weight, std=0.02)
 
         # Initialize timestep embedding MLP:
         nn.init.normal_(self.t_embedder.mlp[0].weight, std=0.02)
@@ -308,7 +309,8 @@ class DiT(nn.Module):
         attention_mask = attention_mask.flatten(1).unsqueeze(-1)  # bs t h w -> bs thw 1
         attention_mask = attention_mask @ attention_mask.transpose(1, 2)  # bs thw 1 @ bs 1 thw = bs thw thw
         attention_mask = attention_mask.unsqueeze(1)
-        attention_mask = attention_mask.masked_fill(attention_mask == 0, torch.finfo(dtype).min)
+        # attention_mask = attention_mask.masked_fill(attention_mask == 0, torch.finfo(dtype).min)
+        attention_mask = attention_mask.masked_fill(attention_mask == 0, 1e-8)
         return attention_mask
 
     def forward(self, x, t, y, attention_mask):
