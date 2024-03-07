@@ -47,40 +47,40 @@ Project stages:
 - [x] Incorporating [Latte](https://github.com/Vchitect/Latte) as main codebase.
 - [x] Add VAE model, which is borrowed from [Stable Diffusion](https://github.com/CompVis/latent-diffusion).
 - [x] Joint dynamic mask input with VAE.
-- [ ] Make the codebase ready for the cluster training. Add SLURM scripts.
+- [ ] Make the codebase ready for the cluster training. Add SLURM scripts. [Need your contribution]
 - [x] Refactor VideoGPT. 🤝 Thanks to [@qqingzheng](https://github.com/qqingzheng), [@luo3300612](https://github.com/luo3300612)
 - [x] Add sampling script.
 - [ ] Incorporate [SiT](https://github.com/willisma/SiT). 🤝 Thanks to [@khan-yin](https://github.com/khan-yin)
 
 #### Train models that boost resolution and duration
-- [ ] Add [PI](https://arxiv.org/abs/2306.15595) to support out-of-domain size.
+- [ ] Add [PI](https://arxiv.org/abs/2306.15595) to support out-of-domain size. [Need your contribution]
 - [x] Extract offline feature.
 - [x] Add frame interpolation model. 🤝 Thanks to [@yunyangge](https://github.com/yunyangge)
 - [x] Add super resolution model. 🤝 Thanks to [@Linzy19](https://github.com/Linzy19)
 - [x] Add accelerate to automatically manage training.
-- [ ] Joint training with images.
-- [ ] Incorporate [NaViT](https://arxiv.org/abs/2307.06304).
+- [ ] Joint training with images. [Need your contribution]
+- [ ] Incorporate [NaViT](https://arxiv.org/abs/2307.06304). [Need your contribution]
 
 #### Conduct text2video experiments on landscape dataset.
-- [ ] Finish data loading, pre-processing utils.
-- [ ] Add CLIP and T5 support.
-- [ ] Add text2image training script.
-- [ ] Add prompt captioner.
+- [ ] Finish data loading, pre-processing utils. [WIP]
+- [ ] Add CLIP and T5 support. [WIP]
+- [ ] Add text2image training script. [WIP]
+- [ ] Add prompt captioner. [Need your contribution]
 
 #### Train the 1080p model on video2text dataset
-- [ ] Looking for a suitable dataset, welcome to discuss and recommend.
-- [ ] Finish data loading, pre-processing utils.
+- [ ] Looking for a suitable dataset, welcome to discuss and recommend. [Need your contribution]
+- [ ] Finish data loading, pre-processing utils. [WIP]
 - [ ] Support memory friendly training.
   - [x] Add flash-attention2 from pytorch.
   - [x] Add xformers.
   - [x] Support mixed precision training.
   - [x] Add gradient checkpoint.
-  - [ ] Support for ReBased and Ring attention. 🤝 Thanks to [@kabachuha](https://github.com/kabachuha)
-  - [ ] Train using the deepspeed engine.
+  - [x] Support for ReBased and Ring attention. 🤝 Thanks to [@kabachuha](https://github.com/kabachuha)
+  - [ ] Train using the deepspeed engine. [Need your contribution]
 
 #### Control model with more condition
-- [ ] Load pretrained weight from [PixArt-α](https://github.com/PixArt-alpha/PixArt-alpha).
-- [ ] Incorporating [ControlNet](https://github.com/lllyasviel/ControlNet).
+- [ ] Load pretrained weight from [PixArt-α](https://github.com/PixArt-alpha/PixArt-alpha). [WIP]
+- [ ] Incorporating [ControlNet](https://github.com/lllyasviel/ControlNet). [Need your contribution]
 
 ## Repo structure
 ```
