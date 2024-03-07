@@ -70,7 +70,7 @@ Project stages:
 - [ ] Finish data loading, pre-processing utils. ⌛ [WIP]
 - [ ] Add CLIP and T5 support. ⌛ [WIP]
 - [ ] Add text2image training script. ⌛ [WIP]
-- [ ] Add prompt captioner. 🙏 **[Need your contribution]**
+- [ ] Add prompt captioner. 🙏 **[Need your contribution]** 🚀 **[Require more computation]**
 
 #### Train the 1080p model on video2text dataset
 - [ ] Looking for a suitable dataset, welcome to discuss and recommend. 🙏 **[Need your contribution]**
