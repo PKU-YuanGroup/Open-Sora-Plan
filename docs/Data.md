@@ -26,3 +26,7 @@ UCF-101/
         v1.avi
         ...
 ```
+
+
+## Offline feature extraction
+Coming soon...
