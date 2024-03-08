@@ -6,6 +6,7 @@ import warnings
 import glob
 
 import torch.utils.data as data
+import torch.distributed as dist
 import torch.nn.functional as F
 from torchvision.datasets.video_utils import VideoClips
 
@@ -41,7 +42,8 @@ class VQVAEDataset(data.Dataset):
         cache_file = osp.join(folder, f"metadata_{sequence_length}.pkl")
         if not osp.exists(cache_file):
             clips = VideoClips(files, sequence_length, num_workers=32)
-            pickle.dump(clips.metadata, open(cache_file, 'wb'))
+            if dist.is_initialized() and dist.get_rank() == 0:
+                pickle.dump(clips.metadata, open(cache_file, 'wb'))
         else:
             metadata = pickle.load(open(cache_file, 'rb'))
             clips = VideoClips(files, sequence_length,
