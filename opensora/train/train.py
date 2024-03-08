@@ -50,6 +50,8 @@ def main(args):
     # Setup accelerator:
     accelerator = Accelerator()
     device = accelerator.device
+    args.mixed_precision = accelerator.mixed_precision
+    args.gradient_accumulation_steps = accelerator.gradient_accumulation_steps
 
     # Setup an experiment folder:
     if accelerator.is_main_process:
@@ -314,11 +316,9 @@ if __name__ == "__main__":
     parser.add_argument("--dynamic-frames", action="store_true")
     parser.add_argument("--resume-from-checkpoint", action="store_true")
     parser.add_argument("--gradient-checkpointing", action="store_true")
-    parser.add_argument("--mixed-precision", action="store_true")
     parser.add_argument("--use-compile", action="store_true")
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--lr-warmup-steps", type=int, default=0)
-    parser.add_argument("--gradient-accumulation-steps", type=int, default=0)
 
     parser.add_argument("--clip-grad-norm", default=None, type=float, help="the maximum gradient norm (default None)")
     # --------------------------------------
