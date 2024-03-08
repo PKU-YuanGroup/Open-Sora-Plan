@@ -142,10 +142,8 @@ class TimestepEmbedder(nn.Module):
             embedding = torch.cat([embedding, torch.zeros_like(embedding[:, :1])], dim=-1)
         return embedding
 
-    def forward(self, t, use_fp16=False):
+    def forward(self, t):
         t_freq = self.timestep_embedding(t, self.frequency_embedding_size)
-        if use_fp16:
-            t_freq = t_freq.to(dtype=torch.float16)
         t_emb = self.mlp(t_freq)
         return t_emb
 
@@ -360,8 +358,7 @@ class Latte(nn.Module):
                 x, 
                 t, 
                 y=None, 
-                text_embedding=None, 
-                use_fp16=False,
+                text_embedding=None,
                 attention_mask=None):
         """
         Forward pass of Latte.
@@ -370,8 +367,6 @@ class Latte(nn.Module):
         y: (N,) tensor of class labels
         attention_mask: (N, F, H, W)
         """
-        if use_fp16:
-            x = x.to(dtype=torch.float16)
         attention_mask_temproal, attention_mask_spatial = None, None
         if attention_mask is not None:
             attention_mask_spatial = rearrange(attention_mask, 'b t h w -> (b t) h w')
@@ -385,7 +380,7 @@ class Latte(nn.Module):
         x = rearrange(x, 'b f c h w -> (b f) c h w')
 
         x = self.x_embedder(x) + self.pos_embed
-        t = self.t_embedder(t, use_fp16=use_fp16)
+        t = self.t_embedder(t)
 
 
         timestep_spatial = repeat(t, 'n d -> (n c) d', c=self.temp_embed.shape[1])
@@ -440,16 +435,14 @@ class Latte(nn.Module):
         x = rearrange(x, '(b f) c h w -> b f c h w', b=batches)
         return x
 
-    def forward_with_cfg(self, x, t, y=None, cfg_scale=7.0, use_fp16=False, text_embedding=None, attention_mask=None):
+    def forward_with_cfg(self, x, t, y=None, cfg_scale=7.0, text_embedding=None, attention_mask=None):
         """
         Forward pass of Latte, but also batches the unconditional forward pass for classifier-free guidance.
         """
         # https://github.com/openai/glide-text2im/blob/main/notebooks/text2im.ipynb
         half = x[: len(x) // 2]
         combined = torch.cat([half, half], dim=0)
-        if use_fp16:
-            combined = combined.to(dtype=torch.float16)
-        model_out = self.forward(combined, t, y=y, use_fp16=use_fp16, text_embedding=text_embedding, attention_mask=attention_mask)
+        model_out = self.forward(combined, t, y=y, text_embedding=text_embedding, attention_mask=attention_mask)
         # For exact reproducibility reasons, we apply classifier-free guidance on only
         # three channels by default. The standard approach to cfg applies it to all channels.
         # This can be done by uncommenting the following line and commenting-out the line following that.
