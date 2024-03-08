@@ -86,7 +86,7 @@ def main(args):
 
     train_steps = 0
     for x, path in tqdm(loader):
-        x = x.to(device, non_blocking=True)
+        # x = x
         with torch.no_grad():
             b, _, _, _, _ = x.shape  # b t c h w
             assert b == 1
@@ -99,8 +99,8 @@ def main(args):
             for i in range(n_round+1):
                 if i*n_sample == x.shape[0]:
                     break
-                x_ = ae.encode(x[i*n_sample:(i+1)*n_sample]) # B T C H W
-                x_enc.append(x_)
+                x_ = ae.encode(x[i*n_sample:(i+1)*n_sample].to(device, non_blocking=True)) # B T C H W
+                x_enc.append(x_.cpu())
             x = torch.cat(x_enc, dim=0)
             x = rearrange(x, '(b t) c h w -> b t c h w', b=b).contiguous()
 
@@ -112,19 +112,19 @@ def main(args):
                 for i in range(n_round+1):
                     if i*n_sample == samples.shape[0]:
                         break
-                    samples_ = ae.decode(samples[i*n_sample:(i+1)*n_sample])
-                    samples_dec.append(samples_)
+                    samples_ = ae.decode(samples[i*n_sample:(i+1)*n_sample].to(device, non_blocking=True))
+                    samples_dec.append(samples_.cpu())
                 samples = torch.cat(samples_dec, dim=0)
 
                 samples = rearrange(samples, '(b t) c h w -> b t c h w', b=b)
 
-                video_ = (ae_denorm[args.ae](samples[0]) * 255).add_(0.5).clamp_(0, 255).to(dtype=torch.uint8).cpu().permute(0, 2, 3, 1).contiguous()
+                video_ = (ae_denorm[args.ae](samples[0]) * 255).add_(0.5).clamp_(0, 255).to(dtype=torch.uint8).permute(0, 2, 3, 1).contiguous()
 
                 imageio.mimwrite(f'{args.vis_path}/{args.features_name}/{train_steps}.mp4', video_, fps=30, quality=9)
 
         x = x.detach().cpu().numpy()  # (t, 4, 32, 32)
         p = path[0].split('.')
-        p = ''.join(p[:-1]) + f'_{args.features_name}.npy'
+        p = '.'.join(p[:-1]) + f'_{args.features_name}.npy'
         if not os.path.exists(p):
             np.save(p, x[0])
 
