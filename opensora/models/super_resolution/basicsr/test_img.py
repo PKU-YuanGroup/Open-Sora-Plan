@@ -9,23 +9,31 @@ from basicsr.utils.options import dict2str, parse_options
 
 def image_sr(args):
     # parse options, set distributed setting, set ramdom seed
-    opt, _ = parse_options(args.root_path, args.SR, is_train=False)
+    opt, _ = parse_options(args.root_path, is_train=False)
     torch.backends.cudnn.benchmark = True
     # torch.backends.cudnn.deterministic = True
 
     # create test dataset and dataloader
     test_loaders = []
     for _, dataset_opt in sorted(opt['datasets'].items()):
-        dataset_opt['dataroot_gt'] = osp.join(args.output_dir, f'temp_HR')
+        dataset_opt['dataroot_lq'] = osp.join(args.output_dir, f'temp_LR')
         if args.SR == 'x4': 
-            dataset_opt['dataroot_lq'] = osp.join(args.output_dir, f'temp_LR/X4')
+            opt['upscale'] = opt['network_g']['upscale'] = 4
+            opt['val']['suffix'] = 'x4'
+            opt['path']['pretrain_network_g'] = osp.join(args.root_path, f'experiments/pretrained_models/RGT_x4.pth')
         if args.SR == 'x2': 
-            dataset_opt['dataroot_lq'] = osp.join(args.output_dir, f'temp_LR/X2')
-        
+            opt['upscale'] = opt['network_g']['upscale'] = 2
+            opt['val']['suffix'] = 'x2'
+            
         test_set = build_dataset(dataset_opt)
         test_loader = build_dataloader(
             test_set, dataset_opt, num_gpu=opt['num_gpu'], dist=opt['dist'], sampler=None, seed=opt['manual_seed'])
         test_loaders.append(test_loader)
+
+    opt['path']['pretrain_network_g'] = args.ckpt_path
+    opt['val']['use_chop'] = args.use_chop
+    opt['path']['visualization'] = osp.join(args.output_dir, f'temp_results')
+    opt['path']['results_root'] = osp.join(args.output_dir, f'temp_results')
 
     # create model
     model = build_model(opt)
