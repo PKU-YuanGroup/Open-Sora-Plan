@@ -27,17 +27,27 @@ You can modify this file to custom your settings.
 
 ```bash
 TAG=ml:dev
-NVIDIA_PYTORCH_TAG=23.12-py3
+BASE_TAG=nvcr.io/nvidia/pytorch:23.12-py3
 ```
 
 #### TAG
 
 Your built docker image tag, you can set it as what you what.
 
-#### NVIDIA_PYTORCH_TAG
+#### BASE_TAG
 
 The base docker image tag for your built docker image, here we use nvidia pytorch images.
 You can check it from [https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch/tags](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch/tags)
+
+Also, you can use other docker image as base, such as: [ubuntu](https://hub.docker.com/_/ubuntu/tags)
+
+### USER_NAME
+
+Your user name used in docker container.
+
+### USER_PASSWD
+
+Your user password used in docker container.
 
 ### Config [requriements.txt](./requirements.txt)
 
