@@ -7,10 +7,8 @@ import numpy as np
 
 from PIL import Image
 
-IMG_EXTENSIONS = ['.jpg', '.JPG', '.jpeg', '.JPEG', '.png', '.PNG']
+from opensora.utils.dataset_utils import is_image_file
 
-def is_image_file(filename):
-    return any(filename.endswith(extension) for extension in IMG_EXTENSIONS)
 
 class Sky(data.Dataset):
     def __init__(self, configs, transform, temporal_sample=None, train=True):
@@ -56,9 +54,9 @@ class Sky(data.Dataset):
             try:
                 frames = sorted(meta[2], key=lambda item: int(item.split('.')[0].split('_')[-1]))
             except:
-                # pass
-                print(meta[0]) # root
-                print(meta[2]) # files
+                pass
+                # print(meta[0]) # root
+                # print(meta[2]) # files
             frames = [os.path.join(root, item) for item in frames if is_image_file(item)]
             if len(frames) > max(0, self.target_video_len * self.frame_interval): # need all > (16 * frame-interval) videos
             # if len(frames) >= max(0, self.target_video_len): # need all > 16 frames videos
