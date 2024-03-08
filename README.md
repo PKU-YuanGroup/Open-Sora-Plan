@@ -88,9 +88,10 @@ Project stages:
 - [ ] Add [FreeNoise](https://github.com/arthur-qiu/FreeNoise-LaVie) support for training-free longer video generation. 🙏 **[Need your contribution]**
 
 #### Conduct text2video experiments on landscape dataset.
-- [ ] Finish data loading, pre-processing utils. ⌛ [WIP]
-- [ ] Add CLIP and T5 support. ⌛ [WIP]
-- [ ] Add text2image training script. ⌛ [WIP]
+- [x] Finish data loading, pre-processing utils.
+- [x] Add T5 support. 
+- [ ] Add CLIP support. 🙏 **[Need your contribution]**
+- [x] Add text2image training script.
 - [ ] Add prompt captioner. 🙏 **[Need your contribution]** 🚀 **[Require more computation]**
 
 #### Train the 1080p model on video2text dataset
