@@ -1,0 +1,15 @@
+FROM python:3.8-slim  
+
+
+WORKDIR /src
+
+COPY requirements.txt ./  
+RUN pip install -r requirements.txt
+
+
+
+COPY train.py ./
+COPY train.sh ./
+
+
+ENTRYPOINT ["python", "train.py"]  
