@@ -48,42 +48,17 @@ class ExtractImage2Feature(Dataset):
     def __init__(self, args, transform):
         self.data_path = args.data_path
         self.transform = transform
-        self.data_all = self.load_video_frames(self.data_path)
+        self.data_all = list(glob(f'{self.data_path}'))
 
     def __len__(self):
         return len(self.data_all)
 
     def __getitem__(self, index):
-        vframes = self.data_all[index]
-        total_frames = len(vframes)
+        path = self.data_all[index]
+        video_frame = torch.as_tensor(np.array(Image.open(path), dtype=np.uint8, copy=True)).unsqueeze(0)
+        video_frame = video_frame.permute(0, 3, 1, 2)
+        video_frame = self.transform(video_frame)  # T C H W
+        # video_frame = video_frame.transpose(0, 1)  # T C H W -> C T H W
 
-        # Sampling video frames
-        select_video_frames = vframes
+        return video_frame, path
 
-        video_frames = []
-        for path in select_video_frames:
-            video_frame = torch.as_tensor(np.array(Image.open(path), dtype=np.uint8, copy=True)).unsqueeze(0)
-            video_frames.append(video_frame)
-        video_clip = torch.cat(video_frames, dim=0).permute(0, 3, 1, 2)
-        video_clip = self.transform(video_clip)  # T C H W
-        # video_clip = video_clip.transpose(0, 1)  # T C H W -> C T H W
-
-        return video_clip, select_video_frames
-
-
-    def load_video_frames(self, dataroot):
-        data_all = []
-        frame_list = os.walk(dataroot)
-        for _, meta in enumerate(frame_list):
-            root = meta[0]
-            try:
-                frames = sorted(meta[2], key=lambda item: int(item.split('.')[0].split('_')[-1]))
-            except:
-                pass
-                # print(meta[0]) # root
-                # print(meta[2]) # files
-            frames = [os.path.join(root, item) for item in frames if is_image_file(item)]
-            if len(frames) > 0:
-                data_all.append(frames)
-        self.video_num = len(data_all)
-        return data_all

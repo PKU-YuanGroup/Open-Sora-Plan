@@ -213,7 +213,6 @@ def main(args):
             y = y.to(device)
 
 
-
             if args.extras == 78: # text-to-video
                 raise 'T2V training are Not supported at this moment!'
             elif args.extras == 2:
@@ -248,6 +247,7 @@ def main(args):
                 steps_per_sec = log_steps / (end_time - start_time)
                 # Reduce loss history over all processes:
                 avg_loss = torch.tensor(running_loss / log_steps, device=device)
+                dist.all_reduce(avg_loss, op=dist.ReduceOp.SUM)
                 avg_loss = avg_loss.item() / accelerator.num_processes
                 # logger.info(f"(step={train_steps:07d}) Train Loss: {avg_loss:.4f}, Train Steps/Sec: {steps_per_sec:.2f}")
                 if accelerator.is_main_process:
@@ -310,10 +310,10 @@ if __name__ == "__main__":
     parser.add_argument("--max-image-size", type=int, default=128)
     parser.add_argument("--dynamic-frames", action="store_true")
     parser.add_argument("--resume-from-checkpoint", action="store_true")
+    parser.add_argument("--gradient-checkpointing", action="store_true")
     parser.add_argument("--use-compile", action="store_true")
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--lr-warmup-steps", type=int, default=0)
-    parser.add_argument("--gradient-accumulation-steps", type=int, default=0)
 
     parser.add_argument("--clip-grad-norm", default=None, type=float, help="the maximum gradient norm (default None)")
     # --------------------------------------
