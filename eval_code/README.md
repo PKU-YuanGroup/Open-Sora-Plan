@@ -230,4 +230,4 @@ The result shows: a all-zero matrix and a all-one matrix, their FVD-30 (FVD[:30]
 ```
 
 # Acknowledgement
-    The evaluation codebase refers to [clip-score](https://github.com/Taited/clip-score) and [common_metrics](https://github.com/JunyaoHu/common_metrics_on_video_quality).
+The evaluation codebase refers to [clip-score](https://github.com/Taited/clip-score) and [common_metrics](https://github.com/JunyaoHu/common_metrics_on_video_quality).
