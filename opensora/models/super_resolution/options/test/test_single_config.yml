@@ -1,0 +1,41 @@
+# general settings
+name: test_single
+model_type: RGTModel
+scale: 2
+num_gpu: 1
+manual_seed: 10
+
+datasets:
+  test_1:  # the 1st test dataset
+    name: Single
+    type: SingleImageDataset
+    dataroot_lq: /test
+    io_backend:
+      type: disk
+
+
+# network structures
+network_g:
+  type: RGT
+  upscale: 2
+  in_chans: 3
+  img_size: 64
+  img_range: 1.
+  depth: [6,6,6,6,6,6,6,6]
+  embed_dim: 180
+  num_heads: [6,6,6,6,6,6,6,6]
+  mlp_ratio: 2
+  resi_connection: '1conv'
+  split_size: [8,32]
+  c_ratio: 0.5
+
+# path
+path:
+  pretrain_network_g: /test
+  strict_load_g: True
+
+# validation settings
+val:
+  save_img: True
+  suffix: ~  # add suffix to saved images, if None, use exp name
+  use_chop: False  # True to save memory, if img too large
