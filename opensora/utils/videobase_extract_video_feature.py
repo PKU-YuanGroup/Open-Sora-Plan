@@ -86,47 +86,33 @@ def main(args):
 
     train_steps = 0
     for x, path in tqdm(loader):
-        x = x.to(device, non_blocking=True)
+        # x = x
         with torch.no_grad():
-            b, _, _, _, _ = x.shape  # b t c h w
+            b, t, _, _, _ = x.shape  # b t c h w
             assert b == 1
-            x = x[0]
-            B = x.shape[0]
-            n_sample = args.n_sample
-            n_round = B // n_sample
-            x_enc = []
-            # print(x.shape)
+            n_frame = args.n_frame_per_sample * args.sample_rate
+            n_round = t // n_frame
+            x_enc = []  # n B T C H W
             for i in range(n_round+1):
-                if i*n_sample == x.shape[0]:
+                if i*n_frame == x.shape[1] or x.shape[1] - i*n_frame < n_frame:
                     break
-                x_ = ae.encode(x[i*n_sample:(i+1)*n_sample]) # B T C H W
-                x_enc.append(x_)
-            x = torch.cat(x_enc, dim=0)
-            x = rearrange(x, '(b t) c h w -> b t c h w', b=b).contiguous()
-
+                x_ = x[:, i*n_frame:(i+1)*n_frame][:, ::args.sample_rate].to(device, non_blocking=True)
+                x_ = x_.permute(0, 2, 1, 3, 4).contiguous()  # B T C H W -> B C T H W
+                x_ = ae.encode(x_)  # B C T H W -> B T C H W
+                x_enc.append(x_.cpu())
 
             if train_steps == 0:
-                b, t, c, h, w = x.shape
-                samples = rearrange(x, 'b t c h w -> (b t) c h w')
-                samples_dec = []
-                for i in range(n_round+1):
-                    if i*n_sample == samples.shape[0]:
-                        break
-                    samples_ = ae.decode(samples[i*n_sample:(i+1)*n_sample])
-                    samples_dec.append(samples_)
-                samples = torch.cat(samples_dec, dim=0)
+                for idx, samples in enumerate(x_enc):
+                    samples = ae.decode(samples.to(device, non_blocking=True)).cpu()  # b t c h w
+                    video_ = (ae_denorm[args.ae](samples[0]) * 255).add_(0.5).clamp_(0, 255).to(dtype=torch.uint8).cpu().permute(0, 2, 3, 1).contiguous()
+                    imageio.mimwrite(f'{args.vis_path}/{args.features_name}/{train_steps}-{idx}.mp4', video_, fps=30//args.sample_rate, quality=9)
 
-                samples = rearrange(samples, '(b t) c h w -> b t c h w', b=b)
-
-                video_ = (ae_denorm[args.ae](samples[0]) * 255).add_(0.5).clamp_(0, 255).to(dtype=torch.uint8).cpu().permute(0, 2, 3, 1).contiguous()
-
-                imageio.mimwrite(f'{args.vis_path}/{args.features_name}/{train_steps}.mp4', video_, fps=30, quality=9)
-
-        x = x.detach().cpu().numpy()  # (t, 4, 32, 32)
-        p = path[0].split('.')
-        p = ''.join(p[:-1]) + f'_{args.features_name}.npy'
-        if not os.path.exists(p):
-            np.save(p, x[0])
+        for idx, x in enumerate(x_enc):
+            x = x.detach().numpy()[0]  # (t, 4, 32, 32)
+            p = path[0].split('.')
+            p = '.'.join(p[:-1]) + f'_{args.features_name}_{idx}.npy'
+            if not os.path.exists(p):
+                np.save(p, x)
 
         train_steps += 1
         # print(train_steps)
@@ -135,13 +121,14 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-path", type=str, required=True)
-    parser.add_argument("--ae", type=str, default="stabilityai/sd-vae-ft-mse")
-    parser.add_argument("--features-name", type=str, default="sky")
+    parser.add_argument("--ae", type=str, default="bair_stride4x2x2")
+    parser.add_argument("--features-name", type=str, default="landscope")
     parser.add_argument("--vis-path", type=str, default="extract_vis")
     parser.add_argument("--global-seed", type=int, default=0)
-    parser.add_argument("--image-size", type=int, default=512)
+    parser.add_argument("--image-size", type=int, default=256)
     parser.add_argument("--num-workers", type=int, default=4)
-    parser.add_argument("--n-sample", type=int, default=8)
+    parser.add_argument("--sample-rate", type=int, default=3)
+    parser.add_argument("--n-frame-per-sample", type=int, default=128)
     args = parser.parse_args()
     main(args)
 

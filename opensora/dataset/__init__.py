@@ -2,7 +2,7 @@ from torchvision.transforms import Compose
 
 
 from opensora.models.ae import vae, vqvae, videovae, videovqvae
-from .feature_datasets import LandscopeFeature, SkyFeature
+from .feature_datasets import LandscopeFeature, SkyFeature, LandscopeVideoFeature
 from torchvision import transforms
 from torchvision.transforms import Lambda
 
@@ -39,11 +39,11 @@ def getdataset(args):
     temporal_sample = TemporalRandomCrop(args.num_frames * args.sample_rate)  # 16 x
     norm_fun = ae_norm[args.ae]
     if args.dataset == 'landscope_feature':
-        transform = Compose([CenterCropResizeVideo(size=args.max_image_size)])
-        return LandscopeFeature(args, transform=transform, temporal_sample=temporal_sample)
+        return LandscopeFeature(args, temporal_sample=temporal_sample)
+    elif args.dataset == 'landscope_video_feature':
+        return LandscopeVideoFeature(args)
     elif args.dataset == 'sky_feature':
-        transform = Compose([CenterCropResizeVideo(size=args.max_image_size)])
-        return SkyFeature(args, transform=transform, temporal_sample=temporal_sample)
+        return SkyFeature(args, temporal_sample=temporal_sample)
     elif args.dataset == 'ucf101':
         transform = Compose(
             [

@@ -85,49 +85,36 @@ def main(args):
 
     train_steps = 0
     for x, path in tqdm(loader):
-        x = x.to(device, non_blocking=True)
+        # x = x
+        p = path[0].split('.')
+        p = '.'.join(p[:-1]) + f'_{args.features_name}.npy'
+        if os.path.exists(p):
+            continue
         with torch.no_grad():
             b, _, _, _, _ = x.shape  # b t c h w
             assert b == 1
-            x = x[0]
-            B = x.shape[0]
-            n_sample = args.n_sample
-            n_round = B // n_sample
-            x_enc = []
-            # print(x.shape)
-            for i in range(n_round+1):
-                if i*n_sample == x.shape[0]:
-                    break
-                x_ = ae.encode(x[i*n_sample:(i+1)*n_sample]) # B T C H W
-                x_enc.append(x_)
-            x = torch.cat(x_enc, dim=0)
-            x = rearrange(x, '(b t) c h w -> b t c h w', b=b).contiguous()
-
+            x = x.to(device, non_blocking=True)
+            x = x.transpose(1, 2).contiguous()  # B T C H W ->   # B C T H W
+            x = ae.encode(x).cpu()  # b t c h w
 
             if train_steps == 0:
                 b, t, c, h, w = x.shape
                 samples = rearrange(x, 'b t c h w -> (b t) c h w')
                 samples_dec = []
-                for i in range(n_round+1):
-                    if i*n_sample == samples.shape[0]:
-                        break
-                    samples_ = ae.decode(samples[i*n_sample:(i+1)*n_sample])
-                    samples_dec.append(samples_)
+                samples_ = ae.decode(samples.to(device, non_blocking=True))
+                samples_dec.append(samples_.cpu())
                 samples = torch.cat(samples_dec, dim=0)
 
                 samples = rearrange(samples, '(b t) c h w -> b t c h w', b=b)
 
-                video_ = (ae_denorm[args.ae](samples[0]) * 255).add_(0.5).clamp_(0, 255).to(dtype=torch.uint8).cpu().permute(0, 2, 3, 1).contiguous()
+                video_ = (ae_denorm[args.ae](samples[0]) * 255).add_(0.5).clamp_(0, 255).to(dtype=torch.uint8).permute(0, 2, 3, 1).contiguous()
 
                 imageio.mimwrite(f'{args.vis_path}/{args.features_name}/{train_steps}.mp4', video_, fps=30, quality=9)
 
-        x = x.detach().cpu().numpy()[0]  # (t, 4, 32, 32)
-        # print(path)
-        for i, p in enumerate(path):
-            p = p[0].split('.')
-            p = ''.join(p[:-1]) + f'_{args.features_name}.npy'
-            if not os.path.exists(p):
-                np.save(p, x[i])
+        x = x.detach().cpu().numpy()[0][0]  # (1, 4, 32, 32)
+        print(3333333, x.shape)
+        sys.exit()
+        np.save(p, x)
 
         # y = y.detach().cpu().numpy()  # (1,)
         # np.save(f'{args.features_path}/{args.features_name}/{train_steps}.npy', y)
