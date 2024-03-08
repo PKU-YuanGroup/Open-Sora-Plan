@@ -37,8 +37,7 @@ ae_denorm = {
 
 def getdataset(args):
     temporal_sample = TemporalRandomCrop(args.num_frames * args.sample_rate)  # 16 x
-    #norm_fun = ae_norm[args.ae]
-    norm_fun = None
+    norm_fun = ae_norm[args.ae]
     if args.dataset == 'landscope_feature':
         temporal_sample = TemporalRandomCrop(args.num_frames)  # 16 1
         return LandscopeFeatures(args, temporal_sample=temporal_sample)
