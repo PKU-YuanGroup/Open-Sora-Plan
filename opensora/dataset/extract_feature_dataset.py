@@ -13,7 +13,6 @@ from opensora.utils.dataset_utils import DecordInit, is_image_file
 class ExtractVideo2Feature(Dataset):
     def __init__(self, args, transform):
         self.data_path = args.data_path
-        self.sample_rate = args.sample_rate
         self.transform = transform
         self.v_decoder = DecordInit()
         self.samples = list(glob(f'{self.data_path}'))

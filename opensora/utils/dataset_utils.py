@@ -5,6 +5,11 @@ from torch.nn import functional as F
 import torch
 
 
+IMG_EXTENSIONS = ['.jpg', '.JPG', '.jpeg', '.JPEG', '.png', '.PNG']
+
+def is_image_file(filename):
+    return any(filename.endswith(extension) for extension in IMG_EXTENSIONS)
+
 class DecordInit(object):
     """Using Decord(https://github.com/dmlc/decord) to initialize the video_reader."""
 
