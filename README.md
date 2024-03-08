@@ -160,6 +160,12 @@ conda activate opensora
 pip install -e .
 ```
 
+* Install optional requirements such as static type checking:
+
+```
+pip install -e '.[dev]'
+```
+
 ## 🗝️ Usage
 
 ### Datasets
