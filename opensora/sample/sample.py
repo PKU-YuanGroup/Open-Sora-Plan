@@ -39,7 +39,8 @@ def main(args):
         input_size=latent_size,
         num_classes=args.num_classes,
         in_channels=ae_channel_config[args.ae],
-        extras=args.extras
+        extras=args.extras,
+        num_frames=args.num_frames // ae_stride_config[args.ae][0]
     ).to(device)
 
     if args.use_compile:
@@ -54,18 +55,11 @@ def main(args):
     diffusion = create_diffusion(str(args.num_sampling_steps))
     ae = getae(args).to(device)
 
-    if args.use_fp16:
-        print('WARNING: using half percision for inferencing!')
-        ae.to(dtype=torch.float16)
-        model.to(dtype=torch.float16)
 
     # Labels to condition the model with (feel free to change):
 
     # Create sampling noise:
-    if args.use_fp16:
-        z = torch.randn(1, args.num_frames // ae_stride_config[args.ae][0], model.in_channels, latent_size, latent_size, dtype=torch.float16, device=device) # b c f h w
-    else:
-        z = torch.randn(1, args.num_frames // ae_stride_config[args.ae][0], model.in_channels, latent_size, latent_size, device=device)
+    z = torch.randn(1, args.num_frames // ae_stride_config[args.ae][0], model.in_channels, latent_size, latent_size, device=device)
 
     # Setup classifier-free guidance:
     if using_cfg:
@@ -73,11 +67,11 @@ def main(args):
         y = torch.randint(0, args.num_classes, (1,), device=device)
         y_null = torch.tensor([args.num_classes] * 1, device=device)
         y = torch.cat([y, y_null], dim=0)
-        model_kwargs = dict(y=y, cfg_scale=args.cfg_scale, use_fp16=args.use_fp16)
+        model_kwargs = dict(y=y, cfg_scale=args.cfg_scale)
         sample_fn = model.forward_with_cfg
     else:
         sample_fn = model.forward
-        model_kwargs = dict(y=None, use_fp16=args.use_fp16)
+        model_kwargs = dict(y=None)
 
     # Sample images:
     if args.sample_method == 'ddim':
@@ -89,8 +83,6 @@ def main(args):
             sample_fn, z.shape, z, clip_denoised=False, model_kwargs=model_kwargs, progress=True, device=device
         )
 
-    if args.use_fp16:
-        samples = samples.to(dtype=torch.float16)
     samples = ae.decode(samples)
     # Save and display images:
 
@@ -118,7 +110,6 @@ if __name__ == "__main__":
     parser.add_argument("--extras", type=int, default=1)
     parser.add_argument("--num-sampling-steps", type=int, default=250)
     parser.add_argument("--cfg-scale", type=float, default=1.0)
-    parser.add_argument("--use-fp16", action="store_true")
     parser.add_argument("--use-compile", action="store_true")
     parser.add_argument("--sample-method", type=str, default='ddpm')
     args = parser.parse_args()
