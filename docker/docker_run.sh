@@ -13,9 +13,13 @@ if [ -n "$RUNNING_IDS" ]; then
     ID=${container_ids[0]}
 
     # Print the first container ID
+    echo ' '
     echo "The running container ID is: $ID, enter it!"
 else
+    echo ' '
     echo "Not found running containers, run it!"
+
+    # Run a new docker container instance
     ID=$(docker run \
         --rm \
         --gpus all \
@@ -25,8 +29,8 @@ else
         --ulimit stack=67108864 \
         -e DISPLAY=$DISPLAY \
         -v /tmp/.X11-unix/:/tmp/.X11-unix/ \
-        -v $PWD:/workspace \
-        -w /workspace \
+        -v $PWD:/home/$USER_NAME/workspace \
+        -w /home/$USER_NAME/workspace \
         $(cat $WORK_DIR/ports.txt) \
         $TAG)
 fi

@@ -1,8 +1,13 @@
+setuptools>=61.0
+torch==2.0.1
+torchvision==0.15.2
+transformers==4.32.0
 albumentations==1.4.0
 av==11.0.0
 decord==0.6.0
 einops==0.3.0
 fastapi==0.110.0
+accelerate==0.21.0
 gdown==5.1.0
 h5py==3.10.0
 idna==3.6
@@ -29,7 +34,7 @@ timm==0.9.16
 torchdiffeq==0.2.3
 torchmetrics==0.5.0
 tqdm==4.66.2
-transformers==4.32.0
 urllib3==2.2.1
 uvicorn==0.27.1
-wandb==0.16.3
+diffusers==0.24.0
+scikit-video==1.1.11
