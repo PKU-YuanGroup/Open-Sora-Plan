@@ -75,7 +75,7 @@ Project stages:
 - [x] Add sampling script.
 - [ ] Add DDP sampling script. ⌛ [WIP]
 - [x] Incorporate [SiT](https://github.com/willisma/SiT). 🤝 Thanks to [@khan-yin](https://github.com/khan-yin)
-- [ ] Add eavluation scripts (FVD, CLIP score). 🙏 **[Need your contribution]**
+- [x] Add evaluation scripts (FVD, CLIP score). 🤝 Thanks to [@rain305f](https://github.com/rain305f)
 
 #### Train models that boost resolution and duration
 - [ ] Add [PI](https://arxiv.org/abs/2306.15595) to support out-of-domain size. 🙏 **[Need your contribution]**
