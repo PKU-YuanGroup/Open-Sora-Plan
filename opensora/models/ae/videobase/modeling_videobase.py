@@ -1,3 +1,4 @@
+import torch
 from torch import nn
 
 """
@@ -17,8 +18,8 @@ class VideoBaseAE(nn.Module):
     def download_and_load_model(cls, model_name, cache_dir=None):
         pass
     
-    def encode(self, x, *args, **kwargs):
+    def encode(self, x: torch.Tensor, *args, **kwargs):
         pass
 
-    def decode(self, encoding, *args, **kwargs):
+    def decode(self, encoding: torch.Tensor, *args, **kwargs):
         pass

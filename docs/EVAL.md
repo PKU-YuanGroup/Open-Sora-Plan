@@ -1,4 +1,4 @@
-# Evaluate the Generated Video_Quality
+# Evaluate the generated videos quality
 
 You can easily calculate the following video quality metrics, which supports the batch-wise process.
 - **CLIP-SCORE**: It uses the pretrained CLIP model to measure the cosine similarity between two modalities.
@@ -7,8 +7,8 @@ You can easily calculate the following video quality metrics, which supports the
 - **LPIPS**: learned perceptual image patch similarity
 - **PSNR**: peak-signal-to-noise ratio
 
-# Requrirement
-## Environemnt
+# Requirement 
+## Environment
 - install Pytorch (torch>=1.7.1)
 - install CLIP
     ```
@@ -78,74 +78,32 @@ You can easily calculate the following video quality metrics, which supports the
 
 # Usage
 
-
-
 ```
+# you change the file path and need to set the frame_num, resolution etc...
+
 # clip_score cross modality
-python eval_clip_score.py \
-    --real_path path/to/image \
-    --generated_path path/to/text \
-    --batch-size 50 \
-    --device "cuda"
-
-# clip_score within the same modality
-python eval_clip_score.py \
-    --real_path path/to/textA \
-    --generated_path path/to/textB \
-    --real_flag txt \
-    --generated_flag txt \
-    --batch-size 50 \
-    --device "cuda"
-
-python eval_clip_score.py \
-    --real_path path/to/imageA \
-    --generated_path path/to/imageB \
-    --real_flag img \
-    --generated_flag img \
-    --batch-size 50 \
-    --device "cuda"
+cd opensora/eval
+bash script/cal_clip_score.sh
 
 
-# fvd, psnr, ssim, lpips, you need to set the frame_num, resolution etc...
 
-python eval_common_metric.py \
-    --real_video_dir path/to/imageA\
-    --generated_video_dir path/to/imageB \
-    --batch_size 10 \
-    --crop_size 64 \
-    --num_frames 20 \
-    --device 'cuda' \
-    --metric 'fvd' \
-    --fvd_method 'styleganv'
+# fvd 
+cd opensora/eval
+bash script/cal_fvd.sh
 
-python eval_common_metric.py \
-    --real_video_dir path/to/imageA\
-    --generated_video_dir path/to/imageB \
-    --batch_size 10 \
-    --num_frames 20 \
-    --crop_size 64 \
-    --device 'cuda' \
-    --metric 'psnr'
+# psnr
+cd opensora/eval
+bash eval/script/cal_psnr.sh
 
 
-python eval_common_metric.py \
-    --real_video_dir path/to/imageA\
-    --generated_video_dir path/to/imageB \
-    --batch_size 10 \
-    --num_frames 20 \
-    --crop_size 64 \
-    --device 'cuda' \
-    --metric 'ssim'
+# ssim
+cd opensora/eval
+bash eval/script/cal_ssim.sh
 
-python eval_common_metric.py \
-    --real_video_dir path/to/imageA\
-    --generated_video_dir path/to/imageB \
-    --batch_size 10 \
-    --num_frames 20 \
-    --crop_size 64 \
-    --device 'cuda' \
-    --metric 'lpips'
 
+# lpips
+cd opensora/eval
+bash eval/script/cal_lpips.sh
 ```
 
 # Acknowledgement
