@@ -235,6 +235,11 @@ We greatly appreciate your contributions to the Open-Sora Plan open-source commu
 
 For more details, please refer to the [Contribution Guidelines](docs/Contribution_Guidelines.md)
 
+<!--
+<a href="https://github.com/PKU-YuanGroup/Open-Sora-Plan/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=PKU-YuanGroup/Open-Sora-Plan" />
+</a>
+-->
 
 ## 👍 Acknowledgement
 * [Latte](https://github.com/Vchitect/Latte): The **main codebase** we built upon and it is an wonderful video gererated model.
@@ -251,3 +256,5 @@ For more details, please refer to the [Contribution Guidelines](docs/Contributio
 ## ✨ Star History
 
 [![Star History](https://api.star-history.com/svg?repos=PKU-YuanGroup/Open-Sora-Plan)](https://star-history.com/#PKU-YuanGroup/Open-Sora-Plan&Date)
+
+
