@@ -46,7 +46,7 @@ class Attention(nn.Module):
             proj_drop: float = 0.,
             norm_layer: nn.Module = nn.LayerNorm,
             attention_mode='math',
-            attention_pe_mode='2d_rope',
+            attention_pe_mode=None,
             hw: Union[int, Tuple[int, int]] = 16,  # (h, w)
             pt_hw: Union[int, Tuple[int, int]] = 16,  # (h, w)
             intp_vfreq: bool = False,  # vision position interpolation
@@ -279,7 +279,7 @@ class DiT(nn.Module):
         learn_sigma=True,
         extras=1,
         attention_mode='math',
-        attention_pe_mode='2d_rope',
+        attention_pe_mode=None,
         pt_input_size: Union[int, Tuple[int, int]] = 16,  # (h, w)
         intp_vfreq: bool = False,  # vision position interpolation
     ):
