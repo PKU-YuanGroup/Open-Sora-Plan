@@ -153,7 +153,7 @@ The requirements are as follows.
 
 * Python >= 3.8
 * CUDA Version >= 11.7
-* Install required packages:
+* Install required packages
 
 ```
 git clone https://github.com/PKU-YuanGroup/Open-Sora-Plan
