@@ -78,9 +78,9 @@ Project stages:
 - [x] Add evaluation scripts (FVD, CLIP score). 🤝 Thanks to [@rain305f](https://github.com/rain305f)
 
 #### Train models that boost resolution and duration
-- [ ] Add [PI](https://arxiv.org/abs/2306.15595) to support out-of-domain size. 🙏 **[Need your contribution]**
-- [ ] Add 2D RoPE to improve generalization ability as [FiT](https://github.com/whlzy/FiT). 🙏 **[Need your contribution]**
-- [ ] Train a **low dimension** Video-AE, whether it is VAE or VQVAE. 🚀 **[Require more computation]**
+- [x] Add [PI](https://arxiv.org/abs/2306.15595) to support out-of-domain size. 🤝 Thanks to [@jpthu17](https://github.com/jpthu17)
+- [x] Add 2D RoPE to improve generalization ability as [FiT](https://github.com/whlzy/FiT). 🤝 Thanks to [@jpthu17](https://github.com/jpthu17)
+- [ ] Train a **low dimension** Video-AE, whether it is VAE or VQVAE. ⌛ [WIP] 🚀 **[Require more computation]**
 - [x] Extract offline feature.
 - [x] Train with offline feature.
 - [x] Add frame interpolation model. 🤝 Thanks to [@yunyangge](https://github.com/yunyangge)
