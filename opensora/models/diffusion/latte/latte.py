@@ -71,6 +71,8 @@ class Attention(nn.Module):
         q, k, v = qkv.unbind(0)   # make torchscript happy (cannot use tensor as tuple)
         
         if self.attention_mode == 'xformers': # cause loss nan while using with amp
+            assert q.ndim == 4
+            q, k, v = q.transpose(1,2), k.transpose(1,2), v.transpose(1,2)
             x = xformers.ops.memory_efficient_attention(q, k, v).reshape(B, N, C)
 
         elif self.attention_mode == 'flash':
