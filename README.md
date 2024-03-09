@@ -75,7 +75,7 @@ Project stages:
 - [x] Add sampling script.
 - [ ] Add DDP sampling script. ⌛ [WIP]
 - [x] Incorporate [SiT](https://github.com/willisma/SiT). 🤝 Thanks to [@khan-yin](https://github.com/khan-yin)
-- [ ] Add eavluation scripts (FVD, CLIP score). 🙏 **[Need your contribution]**
+- [x] Add evaluation scripts (FVD, CLIP score). 🤝 Thanks to [@rain305f](https://github.com/rain305f)
 
 #### Train models that boost resolution and duration
 - [ ] Add [PI](https://arxiv.org/abs/2306.15595) to support out-of-domain size. 🙏 **[Need your contribution]**
@@ -169,6 +169,8 @@ pip install -e .
 ### Datasets
 Refer to [Data.md](docs/Data.md)
 
+###  Evaluation
+Refer to the document [EVAL.md](docs/EVAL.md).
 
 ### Video-VQVAE (VideoGPT)
 
@@ -229,6 +231,8 @@ sh scripts/train.sh
 ```
 sh scripts/sample.sh
 ```
+
+
 
 ## 🤝 How to Contribute to the Open-Sora Plan Community
 We greatly appreciate your contributions to the Open-Sora Plan open-source community and helping us make it even better than it is now!
