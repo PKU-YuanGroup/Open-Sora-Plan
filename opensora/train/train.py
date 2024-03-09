@@ -55,7 +55,6 @@ def main(args):
 
     # Setup an experiment folder:
     if accelerator.is_main_process:
-        print(args)
         os.makedirs(args.results_dir, exist_ok=True)  # Make results folder (holds all experiment subfolders)
         experiment_index = len(glob(f"{args.results_dir}/*"))
         model_string_name = args.model.replace("/", "-")  # e.g., Latte-XL/2 --> Latte-XL-2 (for naming folders)
@@ -67,6 +66,7 @@ def main(args):
         logger = create_logger(experiment_dir)
         tb_writer = create_tensorboard(experiment_dir)
         logger.info(f"Experiment directory created at {experiment_dir}")
+        logger.info(f'{args}')
     else:
         logger = create_logger(None)
         tb_writer = None
@@ -91,7 +91,8 @@ def main(args):
         num_classes=args.num_classes,
         in_channels=ae_channel_config[args.ae],
         extras=args.extras,
-        num_frames=args.num_frames // ae_stride_t
+        num_frames=args.num_frames // ae_stride_t,
+        attention_mode=args.attention_mode
     )
     model.gradient_checkpointing = args.gradient_checkpointing
 
@@ -319,6 +320,7 @@ if __name__ == "__main__":
     parser.add_argument("--use-compile", action="store_true")
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--lr-warmup-steps", type=int, default=0)
+    parser.add_argument("--attention_mode", type=str, choices=['xformers', 'math', 'flash'], default="math")
 
     parser.add_argument("--clip-grad-norm", default=None, type=float, help="the maximum gradient norm (default None)")
     # --------------------------------------

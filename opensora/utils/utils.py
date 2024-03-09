@@ -158,7 +158,7 @@ def get_experiment_dir(root_dir, args):
     if args.gradient_checkpointing:
         root_dir += '-Gc'
     if args.mixed_precision:
-        root_dir += '-Amp'
+        root_dir += f'-{args.mixed_precision}'
     if args.max_image_size == 512:
         root_dir += '-512'
     return root_dir
