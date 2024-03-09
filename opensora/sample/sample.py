@@ -9,6 +9,8 @@ Sample new images from a pre-trained Latte.
 import os
 import sys
 
+from accelerate import Accelerator
+
 from opensora.dataset import ae_denorm
 from opensora.models.ae import ae_channel_config, getae, ae_stride_config
 from opensora.models.diffusion import Diffusion_models
@@ -28,7 +30,11 @@ def main(args):
     # Setup PyTorch:
     # torch.manual_seed(args.seed)
     torch.set_grad_enabled(False)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    assert torch.cuda.is_available(), "Training currently requires at least one GPU."
+
+    # Setup accelerator:
+    accelerator = Accelerator()
+    device = accelerator.device
 
     using_cfg = args.cfg_scale > 1.0
 
@@ -40,7 +46,8 @@ def main(args):
         num_classes=args.num_classes,
         in_channels=ae_channel_config[args.ae],
         extras=args.extras,
-        num_frames=args.num_frames // ae_stride_config[args.ae][0]
+        num_frames=args.num_frames // ae_stride_config[args.ae][0],
+        attention_mode=args.attention_mode
     ).to(device)
 
     if args.use_compile:
@@ -52,14 +59,23 @@ def main(args):
     model.load_state_dict(state_dict)
 
     model.eval()  # important!
+
+    model = accelerator.prepare(model)
+
     diffusion = create_diffusion(str(args.num_sampling_steps))
     ae = getae(args).to(device)
 
+    # if args.attention_mode == 'flash':
+    #     ae.to(dtype=torch.bfloat16)
+    #     model.to(dtype=torch.bfloat16)
 
     # Labels to condition the model with (feel free to change):
 
     # Create sampling noise:
-    z = torch.randn(1, args.num_frames // ae_stride_config[args.ae][0], model.in_channels, latent_size, latent_size, device=device)
+    # if args.attention_mode == 'flash':
+    #     z = torch.randn(1, args.num_frames // ae_stride_config[args.ae][0], model.in_channels, latent_size, latent_size, dtype=torch.bfloat16, device=device)
+    # else:
+    z = torch.randn(1, args.num_frames // ae_stride_config[args.ae][0], model.module.in_channels, latent_size, latent_size, device=device)
 
     # Setup classifier-free guidance:
     if using_cfg:
@@ -83,7 +99,11 @@ def main(args):
             sample_fn, z.shape, z, clip_denoised=False, model_kwargs=model_kwargs, progress=True, device=device
         )
 
-    samples = ae.decode(samples)
+    # if args.attention_mode == 'flash':
+    #     samples = samples.to(dtype=torch.bfloat16)
+
+    with torch.no_grad():
+        samples = ae.decode(samples)
     # Save and display images:
 
     if not os.path.exists(args.save_video_path):
@@ -112,5 +132,6 @@ if __name__ == "__main__":
     parser.add_argument("--cfg-scale", type=float, default=1.0)
     parser.add_argument("--use-compile", action="store_true")
     parser.add_argument("--sample-method", type=str, default='ddpm')
+    parser.add_argument("--attention_mode", type=str, choices=['xformers', 'math', 'flash'], default="math")
     args = parser.parse_args()
     main(args)
