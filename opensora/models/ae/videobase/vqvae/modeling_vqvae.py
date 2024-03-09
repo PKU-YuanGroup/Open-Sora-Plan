@@ -1,12 +1,13 @@
 from ..modeling_videobase import VideoBaseAE
 import torch
-from torch import nn
+from torch import nn, Tensor
 import numpy as np
 import torch.distributed as dist
 import torch.nn.functional as F
 import math
 import os
 import json
+from typing import Tuple, Dict, Union
 from .configuration_vqvae import VQVAEConfiguration
 
 
@@ -730,15 +731,15 @@ class VQVAEModel(VideoBaseAE):
         recon_loss = F.mse_loss(x_recon, x) / 0.06
         return recon_loss, x_recon, vq_output
 
-    def encode(self, x, include_embeddings=False):
+    def encode(self, x: Tensor, include_embeddings: bool = False) -> Union[Tuple[Tensor, Tensor], Tensor]:
         h = self.pre_vq_conv(self.encoder(x))
-        vq_output = self.codebook(h)
+        vq_output: Dict[str, Tensor] = self.codebook(h)
         if include_embeddings:
             return vq_output["encodings"], vq_output["embeddings"]
         else:
             return vq_output["encodings"]
 
-    def decode(self, encodings):
+    def decode(self, encodings: Tensor) -> Tensor:
         h = F.embedding(encodings, self.codebook.embeddings)
         h = self.post_vq_conv(shift_dim(h, -1, 1))
         return self.decoder(h)

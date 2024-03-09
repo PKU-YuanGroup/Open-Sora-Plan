@@ -4,19 +4,20 @@ sys.path.append(".")
 import random
 import cv2
 import numpy as np
+import numpy.typing as npt
 import torch
 from decord import VideoReader, cpu
 from pytorchvideo.transforms import ShortSideScale
-from torchvision.io import read_video
 from torchvision.transforms import Lambda, Compose
 from torchvision.transforms._transforms_video import RandomCropVideo
 from torch.nn import functional as F
+from typing import Optional
 from opensora.models.ae import VQVAEModel
 import argparse
 
-def array_to_video(image_array, fps=30.0, output_file='output_video.mp4'):
+def array_to_video(image_array: npt.NDArray, fps: float = 30.0, output_file: str = 'output_video.mp4') -> None:
     height, width, channels = image_array[0].shape
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')    # type: ignore
     video_writer = cv2.VideoWriter(output_file, fourcc, float(fps), (width, height))
 
     for image in image_array:
@@ -25,7 +26,7 @@ def array_to_video(image_array, fps=30.0, output_file='output_video.mp4'):
 
     video_writer.release()
 
-def custom_to_video(x, fps=2.0, output_file='output_video.mp4'):
+def custom_to_video(x: torch.Tensor, fps: float = 2.0, output_file: str = 'output_video.mp4') -> None:
     x = x.detach().cpu()
     x = torch.clamp(x, -0.5, 0.5)
     x = (x + 0.5)
@@ -34,7 +35,7 @@ def custom_to_video(x, fps=2.0, output_file='output_video.mp4'):
     array_to_video(x, fps=fps, output_file=output_file)
     return
 
-def read_video(video_path, num_frames, sample_rate):
+def read_video(video_path: str, num_frames: int, sample_rate: int) -> torch.Tensor:
     decord_vr = VideoReader(video_path, ctx=cpu(0))
     total_frames = len(decord_vr)
     sample_frames_len = sample_rate * num_frames
@@ -57,7 +58,7 @@ def read_video(video_path, num_frames, sample_rate):
     video_data = video_data.permute(3, 0, 1, 2)  # (T, H, W, C) -> (C, T, H, W)
     return video_data
 
-def preprocess(video_data, short_size=128, crop_size=None):
+def preprocess(video_data: torch.Tensor, short_size: int = 128, crop_size: Optional[int] = None) -> torch.Tensor:
 
     transform = Compose(
         [
@@ -76,7 +77,7 @@ def preprocess(video_data, short_size=128, crop_size=None):
     return video_outputs
 
 
-def main(args):
+def main(args: argparse.Namespace):
     video_path = args.video_path
     num_frames = args.num_frames
     resolution = args.resolution
