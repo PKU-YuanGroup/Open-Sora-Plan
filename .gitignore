@@ -9,3 +9,4 @@ vae
 build/
 opensora.egg-info/
 wandb/
+prompt_captioner/caption_models/LLaVA/cache_dir
