@@ -18,6 +18,25 @@ from timm.layers import use_fused_attn, to_2tuple
 from timm.models.vision_transformer import PatchEmbed, Mlp
 from torch.nn import functional as F
 
+# the xformers lib allows less memory, faster training and inference
+try:
+    import xformers
+    import xformers.ops
+except:
+    XFORMERS_IS_AVAILBLE = False
+
+try:
+    # needs to have https://github.com/corl-team/rebased/ installed
+    from fla.ops.triton.rebased_fast import parallel_rebased
+except:
+    REBASED_IS_AVAILABLE = False
+
+try:
+    # needs to have https://github.com/lucidrains/ring-attention-pytorch installed
+    from ring_attention_pytorch.ring_flash_attention_cuda import ring_flash_attn_cuda
+except:
+    RING_ATTENTION_IS_AVAILABLE = False
+
 
 class Attention(nn.Module):
     fused_attn: Final[bool]
@@ -31,13 +50,14 @@ class Attention(nn.Module):
             attn_drop: float = 0.,
             proj_drop: float = 0.,
             norm_layer: nn.Module = nn.LayerNorm,
+            attention_mode='math'
     ) -> None:
         super().__init__()
         assert dim % num_heads == 0, 'dim should be divisible by num_heads'
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
         self.scale = self.head_dim ** -0.5
-        self.fused_attn = use_fused_attn()
+        self.attention_mode = attention_mode
 
         self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
         self.q_norm = norm_layer(self.head_dim) if qk_norm else nn.Identity()
@@ -48,28 +68,43 @@ class Attention(nn.Module):
 
     def forward(self, x: torch.Tensor, attention_mask) -> torch.Tensor:
         B, N, C = x.shape
-        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
-        q, k, v = qkv.unbind(0)
-        q, k = self.q_norm(q), self.k_norm(k)
+        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4).contiguous()
+        q, k, v = qkv.unbind(0)  # make torchscript happy (cannot use tensor as tuple) b h n c
 
-        # if self.fused_attn:
-        #     x = F.scaled_dot_product_attention(
-        #         q, k, v,
-        #         attn_mask=attention_mask,
-        #         dropout_p=self.attn_drop.p if self.training else 0.,
-        #     )
-        # else:
-        attn = (q @ k.transpose(-2, -1)) * self.scale
-        if attention_mask is not None:
-            attn = attn + attention_mask
-        attn = attn.softmax(dim=-1)
-        if torch.any(torch.isnan(attn)):
-            print('torch.any(torch.isnan(attn))')
-            attn = attn.masked_fill(torch.isnan(attn), float(0.))
-        attn = self.attn_drop(attn)
-        x = attn @ v
+        if self.attention_mode == 'xformers':  # cause loss nan while using with amp
+            assert q.ndim == 4 and (attention_mask is None or torch.all(attention_mask.bool()))
+            q, k, v = q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2)
+            x = xformers.ops.memory_efficient_attention(q, k, v, p=self.attn_drop.p, scale=self.scale).reshape(B, N, C)
 
-        x = x.transpose(1, 2).reshape(B, N, C)
+        elif self.attention_mode == 'flash':
+            assert attention_mask is None or torch.all(attention_mask.bool())
+            # cause loss nan while using with amp
+            # Optionally use the context manager to ensure one of the fused kerenels is run
+            with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=True, enable_mem_efficient=False):
+                x = torch.nn.functional.scaled_dot_product_attention(q, k, v, dropout_p=self.attn_drop.p,
+                                                                     scale=self.scale).reshape(B, N,
+                                                                                               C)  # require pytorch 2.0
+
+        elif self.attention_mode == 'math':
+            attn = (q @ k.transpose(-2, -1)) * self.scale
+            if attention_mask is not None:
+                attn = attn + attention_mask
+            attn = attn.softmax(dim=-1)
+            if torch.any(torch.isnan(attn)):
+                print('torch.any(torch.isnan(attn))')
+                attn = attn.masked_fill(torch.isnan(attn), float(0.))
+            attn = self.attn_drop(attn)
+            x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+
+        elif self.attention_mode == 'rebased':
+            x = parallel_rebased(q, k, v, self.eps, True, True).reshape(B, N, C)
+
+        elif self.attention_mode == 'ring':
+            x = ring_flash_attn_cuda(q, k, v, causal=self.causal, bucket_size=self.ring_bucket_size).reshape(B, N, C)
+
+        else:
+            raise NotImplemented
+
         x = self.proj(x)
         x = self.proj_drop(x)
         return x
@@ -245,7 +280,7 @@ class DiT(nn.Module):
         self.temp_embed = nn.Parameter(torch.zeros(1, num_frames, hidden_size), requires_grad=False)
 
         self.blocks = nn.ModuleList([
-            DiTBlock(hidden_size, num_heads, mlp_ratio=mlp_ratio) for _ in range(depth)
+            DiTBlock(hidden_size, num_heads, mlp_ratio=mlp_ratio, attention_mode=attention_mode) for _ in range(depth)
         ])
         self.final_layer = FinalLayer(hidden_size, patch_size_t, patch_size, self.out_channels)
         self.initialize_weights()
