@@ -169,6 +169,8 @@ pip install -e .
 ### Datasets
 Refer to [Data.md](docs/Data.md)
 
+###  Evaluation
+Refer to the document [EVAL.md](docs/EVAL.md).
 
 ### Video-VQVAE (VideoGPT)
 
@@ -229,6 +231,8 @@ sh scripts/train.sh
 ```
 sh scripts/sample.sh
 ```
+
+
 
 ## 🤝 How to Contribute to the Open-Sora Plan Community
 We greatly appreciate your contributions to the Open-Sora Plan open-source community and helping us make it even better than it is now!
