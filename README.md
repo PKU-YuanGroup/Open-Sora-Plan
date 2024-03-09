@@ -58,10 +58,10 @@ Project stages:
 ## ✊ Todo
 
 #### Setup the codebase and train a unconditional model on landscape dataset
-- [x] Fix typos & Update readme. 🤝 Thanks to [@mio2333](https://github.com/mio2333), [@CreamyLong](https://github.com/CreamyLong), [@chg0901](https://github.com/chg0901), [@Nyx-177](https://github.com/Nyx-177), [@HowardLi1984](https://github.com/HowardLi1984), [@sennnnn](https://github.com/sennnnn)
-- [x] Setup repo-structure.
-- [ ] Add docker file. ⌛ [WIP]
-- [ ] Enable type hints for functions. 🙏 **[Need your contribution]**
+- [x] Fix typos & Update readme. 🤝 Thanks to [@mio2333](https://github.com/mio2333), [@CreamyLong](https://github.com/CreamyLong), [@chg0901](https://github.com/chg0901), [@Nyx-177](https://github.com/Nyx-177), [@HowardLi1984](https://github.com/HowardLi1984), [@sennnnn](https://github.com/sennnnn), [@Jason-fan20](https://github.com/Jason-fan20)
+- [x] Setup environment. 🤝 Thanks to [@nameless1117](https://github.com/nameless1117)
+- [ ] Add docker file. ⌛ [WIP] 🤝 Thanks to [@Mon-ius](https://github.com/Mon-ius), [@SimonLeeGit](https://github.com/SimonLeeGit)
+- [ ] Enable type hints for functions. [@RuslanPeresy](https://github.com/RuslanPeresy), 🙏 **[Need your contribution]**
 - [x] Add Video-VQGAN model, which is borrowed from [VideoGPT](https://github.com/wilson1yan/VideoGPT).
 - [x] Support variable aspect ratios, resolutions, durations training on [DiT](https://github.com/facebookresearch/DiT).
 - [x] Support Dynamic mask input inspired by [FiT](https://github.com/whlzy/FiT).
@@ -75,7 +75,7 @@ Project stages:
 - [x] Add sampling script.
 - [ ] Add DDP sampling script. ⌛ [WIP]
 - [x] Incorporate [SiT](https://github.com/willisma/SiT). 🤝 Thanks to [@khan-yin](https://github.com/khan-yin)
-- [ ] Add eavluation scripts (FVD, CLIP score). 🙏 **[Need your contribution]**
+- [x] Add evaluation scripts (FVD, CLIP score). 🤝 Thanks to [@rain305f](https://github.com/rain305f)
 
 #### Train models that boost resolution and duration
 - [ ] Add [PI](https://arxiv.org/abs/2306.15595) to support out-of-domain size. 🙏 **[Need your contribution]**
@@ -95,7 +95,13 @@ Project stages:
 - [x] Add T5 support. 
 - [ ] Add CLIP support. 🙏 **[Need your contribution]**
 - [x] Add text2image training script.
-- [ ] Add prompt captioner. 🙏 **[Need your contribution]** 🚀 **[Require more computation]**
+- [ ] Add prompt captioner. 
+  - [ ] Collect training data.
+    - [ ] Need video-text pairs with poor caption. 🙏 **[Need your contribution]**
+    - [ ] Extract multi-frame descriptions by large image-language models. 🙏 **[Need your contribution]**
+    - [ ] Extract video description by large video-language models. 🙏 **[Need your contribution]**
+    - [ ] Integrate captions to get a dense caption by using a large language model, such as GPT-4. 🙏 **[Need your contribution]**
+  - [ ] Train a captioner to refine captions. 🚀 **[Require more computation]**
 
 #### Train the 1080p model on video2text dataset
 - [ ] Looking for a suitable dataset, welcome to discuss and recommend. 🙏 **[Need your contribution]**
@@ -164,11 +170,19 @@ conda activate opensora
 pip install -e .
 ```
 
+* Install optional requirements such as static type checking:
+
+```
+pip install -e '.[dev]'
+```
+
 ## 🗝️ Usage
 
 ### Datasets
 Refer to [Data.md](docs/Data.md)
 
+###  Evaluation
+Refer to the document [EVAL.md](docs/EVAL.md).
 
 ### Video-VQVAE (VideoGPT)
 
@@ -229,6 +243,8 @@ sh scripts/train.sh
 ```
 sh scripts/sample.sh
 ```
+
+
 
 ## 🤝 How to Contribute to the Open-Sora Plan Community
 We greatly appreciate your contributions to the Open-Sora Plan open-source community and helping us make it even better than it is now!
