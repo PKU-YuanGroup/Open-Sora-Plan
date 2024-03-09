@@ -1,6 +1,6 @@
 
 
-accelerate launch --multi_gpu --num_processes 7  opensora/train/train_with_feature.py \
+accelerate launch --multi_gpu --num_processes 7  --mixed_precision bf16 opensora/train/train_with_feature.py \
   --model Latte-XL/122 --dataset landscope_feature \
   --ae stabilityai/sd-vae-ft-mse \
   --data-path "/remote-home/yeyang/train_movie/*/*256.npy" --extras 1 \
