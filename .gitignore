@@ -9,3 +9,4 @@ vae
 build/
 opensora.egg-info/
 wandb/
+.idea
