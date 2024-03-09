@@ -49,42 +49,30 @@ def caption_qa(caption_list, api_key, api_base):
         print(f"Error processing file : {e}")
 
 
-def caption_summary(caption_list, api_key, api_base):
+def caption_summary(long_caption, api_key, api_base):
     """
     apply GPT3-Turbo as the combination for original caption and the prompted captions for a video
     """
     openai.api_key = api_key
     openai.api_base = api_base
 
-    # all_sentences = ""
-    # for i in range(len(caption_list)):
-    #     all_sentences += "{}. ".format(str(i+1)) + caption_list[i]
-    # print(all_sentences)
-
     try:
         # Compute the correctness score
         completion = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
-            # model="gpt-4",
-            # model="gpt-4-vision-compatible",
             messages=[
                 {
                     "role": "system",
                     "content":
-                        "You are an intelligent chatbot designed for summarizing from a group of similar sentences. "
-                        "Your task is to generate a meaningful sentence that represents the summary of a group of similar sentences. Here's how you can accomplish the task:"
-                        "------"
-                        "##INSTRUCTIONS: "
-                        "- Extract the same semantic contents from the sentence group."
+                        "You are an intelligent chatbot designed for summarizing from a long sentence. "
                 },
                 {
                     "role": "user",
                     "content":
-                        "Please summarize the following sentences:"
-                        f"sentence1: {caption_list[0]}\n"
-                        f"sentence2: {caption_list[1]}\n"
-                        f"sentence3: {caption_list[2]}\n"
-                        "Provide your summarization with less than 40 words. "
+                        "Please summarize the following sentences. Make it shorter than 70 words."
+                        f"the long sentence: {long_caption}\n"
+                        "Provide your summarization with less than 70 words. "
+                        "DO NOT PROVIDE ANY OTHER TEXT OR EXPLANATION. Only provide the summary sentence. "
                 }
             ]
         )

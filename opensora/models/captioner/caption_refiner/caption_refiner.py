@@ -117,4 +117,6 @@ class CaptionRefiner():
             for sentence in total_captions['space_relations']: tmp_sentence += sentence
             detailed_caption += tmp_sentence
         
+        detailed_caption = caption_summary(detailed_caption, self.open_api_key, self.open_api_base)
+        
         return detailed_caption
