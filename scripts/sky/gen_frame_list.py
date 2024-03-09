@@ -15,7 +15,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_frames", type=int, default=16)
     parser.add_argument("--sample_rate", type=int, default=3)
-    parser.add_argument("--data-root", type=str, default="datasets/sky_timelapse/sky_train")
+    parser.add_argument("--data-root", type=str, default="sky_timelapse/sky_train")
     return parser.parse_args()
 
 
