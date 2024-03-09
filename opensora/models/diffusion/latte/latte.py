@@ -17,16 +17,7 @@ from timm.models.vision_transformer import Mlp, PatchEmbed
 from typing import Tuple, Union
 from timm.layers import to_2tuple
 import torch.utils.checkpoint as cp
-
-# for i in sys.path:
-#     print(i)
-
-# the xformers lib allows less memory, faster training and inference
-try:
-    import xformers
-    import xformers.ops
-except:
-    XFORMERS_IS_AVAILBLE = False
+from torch.nn import functional as F
 
 try:
     # needs to have https://github.com/corl-team/rebased/ installed
@@ -62,7 +53,7 @@ class Attention(nn.Module):
                  eps=1e-12,
                  causal=True,
                  ring_bucket_size=1024,
-                 attention_pe_mode='2d_rope',
+                 attention_pe_mode=None,
                  hw: Union[int, Tuple[int, int]] = 16,  # (h, w)
                  pt_hw: Union[int, Tuple[int, int]] = 16,  # (h, w)
                  intp_vfreq: bool = False,  # vision position interpolation
@@ -92,10 +83,12 @@ class Attention(nn.Module):
                 ft_hw=self.hw if intp_vfreq else None,
             )
 
-    def forward(self, x, attention_mask):
+    def forward(self, x, attn_mask):
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4).contiguous()
         q, k, v = qkv.unbind(0)   # make torchscript happy (cannot use tensor as tuple) b h n c
+        if attn_mask is not None:
+            attn_mask = attn_mask.repeat(1, self.num_heads, 1, 1).to(q.dtype)
 
         if self.attention_pe_mode == '2d_rope':
             q_t = q.view(B, self.num_heads, -1, self.hw[0] * self.hw[1], C // self.num_heads)
@@ -107,21 +100,22 @@ class Attention(nn.Module):
             k = ro_k_t.view(B, self.num_heads, N, C // self.num_heads)
 
         if self.attention_mode == 'xformers': # cause loss nan while using with amp
-            assert q.ndim == 4 and (attention_mask is None or torch.all(attention_mask.bool()))
-            q, k, v = q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2)
-            x = xformers.ops.memory_efficient_attention(q, k, v, p=self.attn_drop.p, scale=self.scale).reshape(B, N, C)
+            with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=False, enable_mem_efficient=True):
+                x = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask,
+                                                   dropout_p=self.attn_drop.p, scale=self.scale).reshape(B, N, C) # require pytorch 2.0
 
         elif self.attention_mode == 'flash':
-            assert attention_mask is None or torch.all(attention_mask.bool())
             # cause loss nan while using with amp
             # Optionally use the context manager to ensure one of the fused kerenels is run
             with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=True, enable_mem_efficient=False):
-                x = torch.nn.functional.scaled_dot_product_attention(q, k, v, dropout_p=self.attn_drop.p, scale=self.scale).reshape(B, N, C) # require pytorch 2.0
+                x = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask,
+                                                   dropout_p=self.attn_drop.p, scale=self.scale).reshape(B, N, C) # require pytorch 2.0
                 
         elif self.attention_mode == 'math':
             attn = (q @ k.transpose(-2, -1)) * self.scale
-            if attention_mask is not None:
-                attn = attn + attention_mask
+            if attn_mask is not None:
+                attn_bias = self.make_attn_bias(attn_mask)
+                attn = attn + attn_bias
             attn = attn.softmax(dim=-1)
             if torch.any(torch.isnan(attn)):
                 print('torch.any(torch.isnan(attn))')
@@ -142,6 +136,10 @@ class Attention(nn.Module):
         x = self.proj_drop(x)
         return x
 
+    def make_attn_bias(self, attn_mask):
+        attn_bias = torch.where(attn_mask == 0, -1e8, attn_mask)
+        attn_bias = torch.where(attn_mask == 1, 0., attn_bias)
+        return attn_bias
 
 #################################################################################
 #               Embedding Layers for Timesteps and Class Labels                 #
@@ -238,9 +236,9 @@ class TransformerBlock(nn.Module):
             nn.Linear(hidden_size, 6 * hidden_size, bias=True)
         )
 
-    def forward(self, x, c, attention_mask):
+    def forward(self, x, c, attn_bias):
         shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = self.adaLN_modulation(c).chunk(6, dim=1)
-        x = x + gate_msa.unsqueeze(1) * self.attn(modulate(self.norm1(x), shift_msa, scale_msa), attention_mask)
+        x = x + gate_msa.unsqueeze(1) * self.attn(modulate(self.norm1(x), shift_msa, scale_msa), attn_bias)
         x = x + gate_mlp.unsqueeze(1) * self.mlp(modulate(self.norm2(x), shift_mlp, scale_mlp))
         return x
 
@@ -285,7 +283,7 @@ class Latte(nn.Module):
         learn_sigma=True,
         extras=1,
         attention_mode='math',
-        attention_pe_mode='2d_rope',
+        attention_pe_mode=None,
         pt_input_size: Union[int, Tuple[int, int]] = 16,  # (h, w)
         intp_vfreq: bool = False,  # vision position interpolation
     ):
@@ -389,12 +387,10 @@ class Latte(nn.Module):
             return outputs
         return ckpt_forward
 
-    def make_mask(self, attention_mask, dtype):
+    def make_mask(self, attention_mask):
         attention_mask = attention_mask.flatten(1).unsqueeze(-1)  # bs t h w -> bs thw 1
         attention_mask = attention_mask @ attention_mask.transpose(1, 2)  # bs thw 1 @ bs 1 thw = bs thw thw
         attention_mask = attention_mask.unsqueeze(1)
-        attention_mask = attention_mask.masked_fill(attention_mask == 0, 1e-8)
-        # attention_mask = attention_mask.masked_fill(attention_mask == 0, torch.finfo(dtype).min)
         return attention_mask
 
     # @torch.cuda.amp.autocast()
@@ -415,10 +411,10 @@ class Latte(nn.Module):
         attention_mask_temproal, attention_mask_spatial = None, None
         if attention_mask is not None:
             attention_mask_spatial = rearrange(attention_mask, 'b t h w -> (b t) h w')
-            attention_mask_spatial = self.make_mask(attention_mask_spatial, x.dtype)
+            attention_mask_spatial = self.make_mask(attention_mask_spatial)
 
             attention_mask_temproal = rearrange(attention_mask, 'b t h w -> (b h w) t')
-            attention_mask_temproal = self.make_mask(attention_mask_temproal, x.dtype)
+            attention_mask_temproal = self.make_mask(attention_mask_temproal)
 
         batches, frames, channels, high, weight = x.shape
 
