@@ -13,6 +13,11 @@ sky_timelapse
 └── video_folder.py
 ```
 
+Generate frame path list offline for accelerating dataset preparing:
+```bash
+python scripts/sky/gen_frame_list.py --num_frames 16 --sample_rate 3 --data-root sky_timelapse/sky_train
+```
+
 ## UCF101
 
 We test the code with UCF-101 dataset. In order to download UCF-101 dataset, you can download the necessary files in [here](https://www.crcv.ucf.edu/data/UCF101.php). The code assumes a `ucf101` directory with the following structure
