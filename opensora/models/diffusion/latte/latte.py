@@ -11,10 +11,11 @@ import math
 import torch
 import torch.nn as nn
 import numpy as np
-
+from .VisionRoPE import VisionRotaryEmbeddingFast
 from einops import rearrange, repeat
 from timm.models.vision_transformer import Mlp, PatchEmbed
-
+from typing import Tuple, Union
+from timm.layers import to_2tuple
 import torch.utils.checkpoint as cp
 
 # for i in sys.path:
@@ -50,13 +51,30 @@ def modulate(x, shift, scale):
 #################################################################################
 
 class Attention(nn.Module):
-    def __init__(self, dim, num_heads=8, qkv_bias=False, attn_drop=0., proj_drop=0., use_lora=False, attention_mode='math', eps=1e-12, causal=True, ring_bucket_size=1024):
+    def __init__(self,
+                 dim,
+                 num_heads=8,
+                 qkv_bias=False,
+                 attn_drop=0.,
+                 proj_drop=0.,
+                 use_lora=False,
+                 attention_mode='math',
+                 eps=1e-12,
+                 causal=True,
+                 ring_bucket_size=1024,
+                 attention_pe_mode='2d_rope',
+                 hw: Union[int, Tuple[int, int]] = 16,  # (h, w)
+                 pt_hw: Union[int, Tuple[int, int]] = 16,  # (h, w)
+                 intp_vfreq: bool = False,  # vision position interpolation
+                 ):
         super().__init__()
         assert dim % num_heads == 0, 'dim should be divisible by num_heads'
         self.num_heads = num_heads
         head_dim = dim // num_heads
         self.scale = head_dim ** -0.5
         self.attention_mode = attention_mode
+        self.attention_pe_mode = attention_pe_mode
+
         self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
         self.attn_drop = nn.Dropout(attn_drop)
         self.proj = nn.Linear(dim, dim)
@@ -65,11 +83,29 @@ class Attention(nn.Module):
         self.causal = causal
         self.ring_bucket_size = ring_bucket_size
 
+        if self.attention_pe_mode == '2d_rope':
+            half_head_dim = dim // num_heads // 2
+            self.hw = to_2tuple(hw)
+            self.rope = VisionRotaryEmbeddingFast(
+                dim=half_head_dim,
+                pt_hw=to_2tuple(pt_hw),
+                ft_hw=self.hw if intp_vfreq else None,
+            )
+
     def forward(self, x, attention_mask):
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4).contiguous()
         q, k, v = qkv.unbind(0)   # make torchscript happy (cannot use tensor as tuple) b h n c
-        
+
+        if self.attention_pe_mode == '2d_rope':
+            q_t = q.view(B, self.num_heads, -1, self.hw[0] * self.hw[1], C // self.num_heads)
+            ro_q_t = self.rope(q_t)
+            q = ro_q_t.view(B, self.num_heads, N, C // self.num_heads)
+
+            k_t = k.view(B, self.num_heads, -1, self.hw[0] * self.hw[1], C // self.num_heads)
+            ro_k_t = self.rope(k_t)
+            k = ro_k_t.view(B, self.num_heads, N, C // self.num_heads)
+
         if self.attention_mode == 'xformers': # cause loss nan while using with amp
             assert q.ndim == 4 and (attention_mask is None or torch.all(attention_mask.bool()))
             q, k, v = q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2)
@@ -249,6 +285,9 @@ class Latte(nn.Module):
         learn_sigma=True,
         extras=1,
         attention_mode='math',
+        attention_pe_mode='2d_rope',
+        pt_input_size: Union[int, Tuple[int, int]] = 16,  # (h, w)
+        intp_vfreq: bool = False,  # vision position interpolation
     ):
         super().__init__()
         self.learn_sigma = learn_sigma
@@ -280,7 +319,10 @@ class Latte(nn.Module):
         self.hidden_size = hidden_size
 
         self.blocks = nn.ModuleList([
-            TransformerBlock(hidden_size, num_heads, mlp_ratio=mlp_ratio, attention_mode=attention_mode) for _ in range(depth)
+            TransformerBlock(hidden_size, num_heads, mlp_ratio=mlp_ratio, attention_mode=attention_mode,
+                             attention_pe_mode=attention_pe_mode, hw=input_size, pt_hw=pt_input_size,
+                             intp_vfreq=intp_vfreq
+                             ) for _ in range(depth)
         ])
 
         self.final_layer = FinalLayer(hidden_size, patch_size_t, patch_size, self.out_channels)
