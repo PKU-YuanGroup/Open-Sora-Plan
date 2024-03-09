@@ -1,17 +1,21 @@
+export ACCELERATE_GRADIENT_ACCUMULATION_STEPS=8
+
 accelerate launch \
-  --config_file scripts/accelerate_configs/default_config.yaml \
+  --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
   opensora/train/train_videogpt.py \
   --do_train \
   --seed 1234 \
-  --data_path UCF-101 \
+  --data_path datasets/UCF-101 \
   --per_device_train_batch_size 8 \
-  --gradient_accumulation_steps 8 \
+  --gradient_accumulation_steps $ACCELERATE_GRADIENT_ACCUMULATION_STEPS \
   --learning_rate 1e-5 \
   --weight_decay 0. \
   --num_train_epochs 2 \
   --embedding_dim 512 \
   --lr_scheduler_type cosine \
   --max_grad_norm 1.0 \
+  --bf16 True \
+  --fp16 False \
   --save_strategy steps \
   --save_total_limit 5 \
   --logging_steps 5 \
