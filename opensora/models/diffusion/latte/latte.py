@@ -56,7 +56,7 @@ class Attention(nn.Module):
                  attention_pe_mode=None,
                  hw: Union[int, Tuple[int, int]] = 16,  # (h, w)
                  pt_hw: Union[int, Tuple[int, int]] = 16,  # (h, w)
-                 intp_vfreq: bool = False,  # vision position interpolation
+                 intp_vfreq: bool = True,  # vision position interpolation
                  ):
         super().__init__()
         assert dim % num_heads == 0, 'dim should be divisible by num_heads'
@@ -284,8 +284,8 @@ class Latte(nn.Module):
         extras=1,
         attention_mode='math',
         attention_pe_mode=None,
-        pt_input_size: Union[int, Tuple[int, int]] = 16,  # (h, w)
-        intp_vfreq: bool = False,  # vision position interpolation
+        pt_input_size: Union[int, Tuple[int, int]] = None,  # (h, w)
+        intp_vfreq: bool = True,  # vision position interpolation
     ):
         super().__init__()
         self.learn_sigma = learn_sigma
@@ -316,6 +316,8 @@ class Latte(nn.Module):
         self.temp_embed = nn.Parameter(torch.zeros(1, num_frames, hidden_size), requires_grad=False)
         self.hidden_size = hidden_size
 
+        if pt_input_size is None:
+            pt_input_size = input_size
         self.blocks = nn.ModuleList([
             TransformerBlock(hidden_size, num_heads, mlp_ratio=mlp_ratio, attention_mode=attention_mode,
                              attention_pe_mode=attention_pe_mode, hw=input_size, pt_hw=pt_input_size,
