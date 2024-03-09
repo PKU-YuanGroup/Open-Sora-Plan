@@ -52,7 +52,8 @@ class Sky(data.Dataset):
         for _, meta in enumerate(frame_list):
             root = meta[0]
             try:
-                frames = sorted(meta[2], key=lambda item: int(item.split('.')[0].split('_')[-1]))
+                frames = [i for i in meta[2] if is_image_file(i)]
+                frames = sorted(frames, key=lambda item: int(item.split('.')[0].split('_')[-1]))
             except:
                 pass
                 # print(meta[0]) # root

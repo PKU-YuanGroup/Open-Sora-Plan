@@ -68,14 +68,15 @@ class Attention(nn.Module):
     def forward(self, x, attention_mask):
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4).contiguous()
-        q, k, v = qkv.unbind(0)   # make torchscript happy (cannot use tensor as tuple)
+        q, k, v = qkv.unbind(0)   # make torchscript happy (cannot use tensor as tuple) b h n c
         
         if self.attention_mode == 'xformers': # cause loss nan while using with amp
-            assert q.ndim == 4
-            q, k, v = q.transpose(1,2), k.transpose(1,2), v.transpose(1,2)
-            x = xformers.ops.memory_efficient_attention(q, k, v).reshape(B, N, C)
+            assert q.ndim == 4 and (attention_mask is None or torch.all(attention_mask.bool()))
+            q, k, v = q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2)
+            x = xformers.ops.memory_efficient_attention(q, k, v, p=self.attn_drop.p, scale=self.scale).reshape(B, N, C)
 
         elif self.attention_mode == 'flash':
+            assert attention_mask is None or torch.all(attention_mask.bool())
             # cause loss nan while using with amp
             # Optionally use the context manager to ensure one of the fused kerenels is run
             with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=True, enable_mem_efficient=False):
