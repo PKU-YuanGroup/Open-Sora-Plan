@@ -5,7 +5,7 @@
 # GLIDE: https://github.com/openai/glide-text2im
 # MAE: https://github.com/facebookresearch/mae/blob/main/models_mae.py
 # --------------------------------------------------------
-from typing import Final, Optional
+from typing import Final, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
@@ -17,7 +17,7 @@ from timm.layers import use_fused_attn, to_2tuple
 # from timm.models.vision_transformer import PatchEmbed, Attention, Mlp
 from timm.models.vision_transformer import PatchEmbed, Mlp
 from torch.nn import functional as F
-
+from .VisionRoPE import VisionRotaryEmbeddingFast
 # the xformers lib allows less memory, faster training and inference
 try:
     import xformers
@@ -50,7 +50,11 @@ class Attention(nn.Module):
             attn_drop: float = 0.,
             proj_drop: float = 0.,
             norm_layer: nn.Module = nn.LayerNorm,
-            attention_mode='math'
+            attention_mode='math',
+            attention_pe_mode='2d_rope',
+            hw: Union[int, Tuple[int, int]] = 16,  # (h, w)
+            pt_hw: Union[int, Tuple[int, int]] = 16,  # (h, w)
+            intp_vfreq: bool = False,  # vision position interpolation
     ) -> None:
         super().__init__()
         assert dim % num_heads == 0, 'dim should be divisible by num_heads'
@@ -58,6 +62,7 @@ class Attention(nn.Module):
         self.head_dim = dim // num_heads
         self.scale = self.head_dim ** -0.5
         self.attention_mode = attention_mode
+        self.attention_pe_mode = attention_pe_mode
 
         self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
         self.q_norm = norm_layer(self.head_dim) if qk_norm else nn.Identity()
@@ -66,10 +71,28 @@ class Attention(nn.Module):
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
 
+        if self.attention_pe_mode == '2d_rope':
+            half_head_dim = dim // num_heads // 2
+            self.hw = to_2tuple(hw)
+            self.rope = VisionRotaryEmbeddingFast(
+                dim=half_head_dim,
+                pt_hw=to_2tuple(pt_hw),
+                ft_hw=self.hw if intp_vfreq else None,
+            )
+
     def forward(self, x: torch.Tensor, attention_mask) -> torch.Tensor:
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4).contiguous()
         q, k, v = qkv.unbind(0)  # make torchscript happy (cannot use tensor as tuple) b h n c
+
+        if self.attention_pe_mode == '2d_rope':
+            q_t = q.view(B, self.num_heads, -1, self.hw[0] * self.hw[1], C // self.num_heads)
+            ro_q_t = self.rope(q_t)
+            q = ro_q_t.view(B, self.num_heads, N, C // self.num_heads)
+
+            k_t = k.view(B, self.num_heads, -1, self.hw[0] * self.hw[1], C // self.num_heads)
+            ro_k_t = self.rope(k_t)
+            k = ro_k_t.view(B, self.num_heads, N, C // self.num_heads)
 
         if self.attention_mode == 'xformers':  # cause loss nan while using with amp
             assert q.ndim == 4 and (attention_mask is None or torch.all(attention_mask.bool()))
@@ -256,6 +279,9 @@ class DiT(nn.Module):
         learn_sigma=True,
         extras=1,
         attention_mode='math',
+        attention_pe_mode='2d_rope',
+        pt_input_size: Union[int, Tuple[int, int]] = 16,  # (h, w)
+        intp_vfreq: bool = False,  # vision position interpolation
     ):
         super().__init__()
         self.gradient_checkpointing = False
@@ -280,7 +306,9 @@ class DiT(nn.Module):
         self.temp_embed = nn.Parameter(torch.zeros(1, num_frames, hidden_size), requires_grad=False)
 
         self.blocks = nn.ModuleList([
-            DiTBlock(hidden_size, num_heads, mlp_ratio=mlp_ratio, attention_mode=attention_mode) for _ in range(depth)
+            DiTBlock(hidden_size, num_heads, mlp_ratio=mlp_ratio, attention_mode=attention_mode,
+                     attention_pe_mode=attention_pe_mode, hw=input_size, pt_hw=pt_input_size,
+                     intp_vfreq=intp_vfreq) for _ in range(depth)
         ])
         self.final_layer = FinalLayer(hidden_size, patch_size_t, patch_size, self.out_channels)
         self.initialize_weights()
