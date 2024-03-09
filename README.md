@@ -73,6 +73,7 @@ Project stages:
 - [ ] Make the codebase ready for the cluster training. Add SLURM scripts. 🙏 **[Need your contribution]**
 - [x] Refactor VideoGPT. 🤝 Thanks to [@qqingzheng](https://github.com/qqingzheng), [@luo3300612](https://github.com/luo3300612)
 - [x] Add sampling script.
+- [ ] Add DDP sampling script. ⌛ [WIP]
 - [x] Incorporate [SiT](https://github.com/willisma/SiT). 🤝 Thanks to [@khan-yin](https://github.com/khan-yin)
 - [ ] Add eavluation scripts (FVD, CLIP score). 🙏 **[Need your contribution]**
 
