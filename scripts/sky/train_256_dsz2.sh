@@ -1,11 +1,11 @@
 
 accelerate launch \
-    --config_file scripts/accelerate_configs/ddp_config.yaml \
+    --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
     opensora/train/train.py \
     --model Latte-XL/122 \
     --dataset sky \
     --ae stabilityai/sd-vae-ft-mse \
-    --data-path datasets/sky_timelapse/sky_train \
+    --data-path /remote-home/yeyang/sky_timelapse/sky_train/ \
     --extras 1 \
     --sample-rate 3 \
     --num-frames 16 \
