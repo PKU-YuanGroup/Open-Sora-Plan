@@ -42,7 +42,7 @@ Project stages:
 
   
 ## 📰 News
-**[2024.03.10]** Supports training a latent size of 225×90×90(t×h×w), which means we are able to **train 1 minute of 1080P video with 30FPS** (2× interpolated frames and 2× super resolution).
+**[2024.03.10]** 🚀🚀🚀 This repo supports training a latent size of 225×90×90 (t×h×w), which means we are able to **train 1 minute of 1080P video with 30FPS** (2× interpolated frames and 2× super resolution).
 
 **[2024.03.08]** We support the training code of text condition with 16 frames of 512x512. The code is mainly borrowed from [Latte](https://github.com/Vchitect/Latte).
 
@@ -158,22 +158,23 @@ Project stages:
 
 ## 🛠️ Requirements and Installation
 
-The requirements are as follows.
-
-* Python >= 3.8
-* CUDA Version >= 11.7
-* Install required packages
-
+1. Clone this repository and navigate to Open-Sora-Plan folder
 ```
 git clone https://github.com/PKU-YuanGroup/Open-Sora-Plan
 cd Open-Sora-Plan
+```
+2. Install required packages
+```
 conda create -n opensora python=3.8 -y
 conda activate opensora
 pip install -e .
 ```
-
-* Install optional requirements such as static type checking:
-
+3. Install additional packages for training cases
+```
+pip install -e ".[train]"
+pip install flash-attn --no-build-isolation
+```
+4. Install optional requirements such as static type checking:
 ```
 pip install -e '.[dev]'
 ```
