@@ -143,7 +143,7 @@ class Attention(nn.Module):
     def make_attn_bias(self, attn_mask):
         # The numerical range of bfloat16, float16 can't conver -1e8
         # Refer to https://discuss.pytorch.org/t/runtimeerror-value-cannot-be-converted-to-type-at-half-without-overflow-1e-30/109768
-        attn_bias = torch.where(attn_mask == 0, -1e8 if attn_mask.dtype == torch.float32 else 1e-4, attn_mask)
+        attn_bias = torch.where(attn_mask == 0, -1e8 if attn_mask.dtype == torch.float32 else -1e4, attn_mask)
         attn_bias = torch.where(attn_mask == 1, 0., attn_bias)
         return attn_bias
 
@@ -620,13 +620,6 @@ Latte_models = {
     "Latte-S/122": Latte_S_122, "Latte-S/144": Latte_S_144, "Latte-S/188": Latte_S_188,
 }
 
-
-Latte_models = {
-    'Latte-XL/122': Latte_XL_122,  'Latte-XL/144': Latte_XL_144,  'Latte-XL/188': Latte_XL_188,
-    'Latte-L/122':  Latte_L_122,   'Latte-L/144':  Latte_L_144,   'Latte-L/188':  Latte_L_188,
-    'Latte-B/122':  Latte_B_122,   'Latte-B/144':  Latte_B_144,   'Latte-B/188':  Latte_B_188,
-    'Latte-S/122':  Latte_S_122,   'Latte-S/144':  Latte_S_144,   'Latte-S/188':  Latte_S_188,
-}
 
 if __name__ == '__main__':
 
