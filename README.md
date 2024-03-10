@@ -113,7 +113,7 @@ Project stages:
   - [x] Support mixed precision training.
   - [x] Add gradient checkpoint.
   - [x] Support for ReBased and Ring attention. 🤝 Thanks to [@kabachuha](https://github.com/kabachuha)
-  - [ ] Train using the deepspeed engine. 🙏 **[Need your contribution]**
+  - [x] Train using the deepspeed engine. 🤝 Thanks to [@sennnnn](https://github.com/sennnnn）
   - [ ] Integrate with [Colossal-AI](https://github.com/PKU-YuanGroup/Open-Sora-Plan/issues/59#issue-2170735221) for a cheaper, faster, and more efficient. 🙏 **[Need your contribution]**
 - [ ] Train with a text condition. Here we could conduct different experiments:
   - [ ] Train with T5 conditioning. 🚀 **[Require more computation]**
