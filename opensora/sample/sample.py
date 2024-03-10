@@ -8,7 +8,11 @@ Sample new images from a pre-trained Latte.
 """
 import os
 import sys
+import argparse
 
+import torch
+import imageio
+from einops import rearrange
 from accelerate import Accelerator
 
 from opensora.dataset import ae_denorm
@@ -16,12 +20,6 @@ from opensora.models.ae import ae_channel_config, getae, ae_stride_config
 from opensora.models.diffusion import Diffusion_models
 from opensora.models.diffusion.diffusion import create_diffusion
 from opensora.utils.utils import find_model
-
-import torch
-import argparse
-
-from einops import rearrange
-import imageio
 
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
@@ -75,7 +73,13 @@ def main(args):
     # if args.attention_mode == 'flash':
     #     z = torch.randn(1, args.num_frames // ae_stride_config[args.ae][0], model.in_channels, latent_size, latent_size, dtype=torch.bfloat16, device=device)
     # else:
-    z = torch.randn(1, args.num_frames // ae_stride_config[args.ae][0], model.module.in_channels, latent_size, latent_size, device=device)
+
+    # NOTE: adaption for single-gpu environment.
+    if isinstance(model, torch.nn.parallel.DistributedDataParallel):
+        in_channels = model.module.in_channels
+    else:
+        in_channels = model.in_channels
+    z = torch.randn(1, args.num_frames // ae_stride_config[args.ae][0], in_channels, latent_size, latent_size, device=device)
 
     # Setup classifier-free guidance:
     if using_cfg:
@@ -109,7 +113,6 @@ def main(args):
     if not os.path.exists(args.save_video_path):
         os.makedirs(args.save_video_path)
 
-
     video_ = (ae_denorm[args.ae](samples[0]) * 255).add_(0.5).clamp_(0, 255).to(dtype=torch.uint8).cpu().permute(0, 2, 3, 1).contiguous()
     video_save_path = os.path.join(args.save_video_path, 'sample' + '.mp4')
     print(video_save_path)
@@ -132,6 +135,6 @@ if __name__ == "__main__":
     parser.add_argument("--cfg-scale", type=float, default=1.0)
     parser.add_argument("--use-compile", action="store_true")
     parser.add_argument("--sample-method", type=str, default='ddpm')
-    parser.add_argument("--attention_mode", type=str, choices=['xformers', 'math', 'flash'], default="math")
+    parser.add_argument("--attention-mode", type=str, choices=['xformers', 'math', 'flash'], default="math")
     args = parser.parse_args()
     main(args)
