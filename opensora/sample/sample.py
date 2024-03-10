@@ -75,7 +75,8 @@ def main(args):
     # else:
 
     # NOTE: adaption for single-gpu environment.
-    if isinstance(model, torch.nn.parallel.DistributedDataParallel):
+    from accelerate.utils import DistributedType
+    if accelerator.distributed_type == DistributedType.MULTI_GPU:
         in_channels = model.module.in_channels
     else:
         in_channels = model.in_channels
