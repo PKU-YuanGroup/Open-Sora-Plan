@@ -272,9 +272,9 @@ For more details, please refer to the [Contribution Guidelines](docs/Contributio
 ## 🔒 License
 * The service is a research preview intended for non-commercial use only. See [LICENSE](LICENSE) for details.
 
-
+<!--
 ## ✨ Star History
 
 [![Star History](https://api.star-history.com/svg?repos=PKU-YuanGroup/Open-Sora-Plan)](https://star-history.com/#PKU-YuanGroup/Open-Sora-Plan&Date)
-
+-->
 
