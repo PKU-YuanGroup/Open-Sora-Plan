@@ -137,7 +137,7 @@ class Attention(nn.Module):
         return x
 
     def make_attn_bias(self, attn_mask):
-        attn_bias = torch.where(attn_mask == 0, -1e8 if attn_mask.dtype == torch.float32 else 1e-4, attn_mask)
+        attn_bias = torch.where(attn_mask == 0, -1e8 if attn_mask.dtype == torch.float32 else -1e4, attn_mask)
         attn_bias = torch.where(attn_mask == 1, 0., attn_bias)
         return attn_bias
 
