@@ -41,7 +41,7 @@ from opensora.utils.utils import (create_logger, update_ema,
                    write_tensorboard, setup_distributed,
                    get_experiment_dir)
 import numpy as np
-from transformers import T5EncoderModel, T5Tokenizer
+from transformers import T5EncoderModel, T5Tokenizer, CLIPTextModel, CLIPTokenizer
 
 #################################################################################
 #                                  Training Loop                                #
@@ -139,6 +139,10 @@ def main(args):
     #load T5
     tokenizer = T5Tokenizer.from_pretrained(args.pretrained_model_path, subfolder="tokenizer")
     text_encoder = T5EncoderModel.from_pretrained(args.pretrained_model_path, subfolder="text_encoder").to(device)
+
+    #load clip
+    # tokenizer = CLIPTokenizer.from_pretrained(args.pretrained_model_path, subfolder="tokenizer")
+    # text_encoder = CLIPTextModel.from_pretrained(args.pretrained_model_path, subfolder="text_encoder").to(device)
 
     #logger.info(f"Model Parameters: {sum(p.numel() for p in model.parameters()):,}")
     opt = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=0)
