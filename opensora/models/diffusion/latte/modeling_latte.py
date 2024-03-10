@@ -488,6 +488,7 @@ class Latte(nn.Module):
         x = self.final_layer(x, c)               
         x = self.unpatchify(x)                  
         x = rearrange(x, '(b f) c h w -> b f c h w', b=batches)
+
         return x
 
     def forward_with_cfg(self, x, t, y=None, cfg_scale=7.0, text_embedding=None, attention_mask=None):
