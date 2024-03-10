@@ -103,7 +103,7 @@ class Attention(nn.Module):
                     x = F.scaled_dot_product_attention(q, k, v,
                                                        dropout_p=self.attn_drop.p, scale=self.scale).reshape(B, N, C)
             else:  # turn to xformers
-                with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=True, enable_mem_efficient=False):
+                with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=False, enable_mem_efficient=True):
                     x = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask,
                                                        dropout_p=self.attn_drop.p, scale=self.scale).reshape(B, N, C)
 
