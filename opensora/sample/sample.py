@@ -130,7 +130,7 @@ if __name__ == "__main__":
     parser.add_argument("--fps", type=int, default=10)
     parser.add_argument("--num-classes", type=int, default=101)
     parser.add_argument("--num-frames", type=int, default=16)
-    parser.add_argument("--image-size", type=int, default=256, choices=[256, 512])
+    parser.add_argument("--image-size", type=int, default=256, choices=[256, 512, 1024])
     parser.add_argument("--extras", type=int, default=1)
     parser.add_argument("--num-sampling-steps", type=int, default=250)
     parser.add_argument("--cfg-scale", type=float, default=1.0)
