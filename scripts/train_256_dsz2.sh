@@ -16,5 +16,5 @@ accelerate launch \
     --ckpt-every 500 \
     --log-every 50 \
     --gradient-checkpointing \
-    --attention_mode math \
-    --mixed-precision fp16
+    --attention_mode flash \
+    --mixed-precision bf16

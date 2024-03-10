@@ -133,7 +133,9 @@ class Attention(nn.Module):
         return x
 
     def make_attn_bias(self, attn_mask):
-        attn_bias = torch.where(attn_mask == 0, -1e8, attn_mask)
+        # The numerical range of bfloat16, float16 can't conver -1e8
+        # Refer to https://discuss.pytorch.org/t/runtimeerror-value-cannot-be-converted-to-type-at-half-without-overflow-1e-30/109768
+        attn_bias = torch.where(attn_mask == 0, -1e8 if attn_mask.dtype == torch.float32 else -1e4, attn_mask)
         attn_bias = torch.where(attn_mask == 1, 0., attn_bias)
         return attn_bias
 
