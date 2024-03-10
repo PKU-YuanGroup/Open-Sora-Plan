@@ -1,6 +1,6 @@
 from typing import Union, Tuple
 
-from ..configuration_base import BaseConfiguration
+from .configuration_base import BaseConfiguration
 
 
 class LatteConfiguration(BaseConfiguration):
