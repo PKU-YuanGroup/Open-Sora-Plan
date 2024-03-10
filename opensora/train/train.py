@@ -204,7 +204,7 @@ def main(args):
 
     if accelerator.is_main_process:
         logger.info(f"Training for {num_train_epochs} epochs...")
-    
+
     if args.mixed_precision == "bf16":
         dtype = torch.bfloat16
     elif args.mixed_precision == "fp16":
@@ -224,13 +224,13 @@ def main(args):
                 # Map input images to latent space + normalize latents
                 x = ae.encode(x)  # B C T H W -> B T C H W
 
+
             if args.extras == 78: # text-to-video
                 raise 'T2V training are Not supported at this moment!'
             elif args.extras == 2:
                 model_kwargs = dict(y=y, attention_mask=attn_mask)
             else:
                 model_kwargs = dict(y=None, attention_mask=attn_mask)
-
             with torch.autocast(device_type='cuda', dtype=dtype):
                 t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=device)
                 loss_dict = diffusion.training_losses(model, x, t, model_kwargs)
@@ -327,12 +327,11 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--lr-warmup-steps", type=int, default=0)
     parser.add_argument("--attention_mode", type=str, choices=['xformers', 'math', 'flash'], default="math")
-
     parser.add_argument("--gradient-accumulation-steps", type=int, default=1)
     parser.add_argument("--mixed-precision", type=str, default=None, choices=[None, "fp16", "bf16"])
     parser.add_argument("--clip-grad-norm", default=None, type=float, help="the maximum gradient norm (default None)")
     # --------------------------------------
 
-    args = parser.parse_args()
 
+    args = parser.parse_args()
     main(args)

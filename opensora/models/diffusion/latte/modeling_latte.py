@@ -103,18 +103,22 @@ class Attention(nn.Module):
             ro_k_t = self.rope(k_t)
             k = ro_k_t.view(B, self.num_heads, N, C // self.num_heads)
 
-        if self.attention_mode == 'xformers': # cause loss nan while using with amp
+        if self.attention_mode == 'xformers':  # require pytorch 2.0
             with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=False, enable_mem_efficient=True):
                 x = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask,
-                                                   dropout_p=self.attn_drop.p, scale=self.scale).reshape(B, N, C) # require pytorch 2.0
+                                                   dropout_p=self.attn_drop.p, scale=self.scale).reshape(B, N, C)
 
-        elif self.attention_mode == 'flash':
-            # cause loss nan while using with amp
-            # Optionally use the context manager to ensure one of the fused kerenels is run
-            with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=True, enable_mem_efficient=False):
-                x = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask,
-                                                   dropout_p=self.attn_drop.p, scale=self.scale).reshape(B, N, C) # require pytorch 2.0
-
+        elif self.attention_mode == 'flash':  # require pytorch 2.0
+            # https://github.com/PKU-YuanGroup/Open-Sora-Plan/issues/109
+            if attn_mask is None or torch.all(attn_mask.bool()):
+                with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=True, enable_mem_efficient=False):
+                    x = F.scaled_dot_product_attention(q, k, v,
+                                                       dropout_p=self.attn_drop.p, scale=self.scale).reshape(B, N, C)
+            else:  # turn to xformers
+                with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=False, enable_mem_efficient=True):
+                    x = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask,
+                                                       dropout_p=self.attn_drop.p, scale=self.scale).reshape(B, N, C)
+                                                       
         elif self.attention_mode == 'math':
             attn = (q @ k.transpose(-2, -1)) * self.scale
             if attn_mask is not None:
