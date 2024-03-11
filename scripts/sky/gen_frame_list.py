@@ -15,7 +15,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_frames", type=int, default=16)
     parser.add_argument("--sample_rate", type=int, default=3)
-    parser.add_argument("--data-root", type=str, default="sky_timelapse/sky_train")
+    parser.add_argument("--data-root", type=str, default="datasets/sky_timelapse/sky_train")
     return parser.parse_args()
 
 
@@ -38,7 +38,7 @@ def main():
         sub_vid_folders = [x for x in sub_vid_folders if os.path.isdir(x)]
 
         if len(sub_vid_files) > 0:
-            frames = [os.path.join(vid_folder, x) for x in sub_vid_files if is_image_file(x)]
+            frames = [x for x in sub_vid_files if is_image_file(x)]
             frames = sorted(frames, key=lambda item: int(item.split('.')[0].split('_')[-1]))
             if len(frames) > max(0, target_video_len * frame_interval): # need all > (16 * frame-interval) videos
                 # if len(frames) >= max(0, self.target_video_len): # need all > 16 frames videos
