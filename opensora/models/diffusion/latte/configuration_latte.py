@@ -7,8 +7,8 @@ class LatteConfiguration(BaseConfiguration):
 
     def __init__(
         self,
-        input_size=32,
-        patch_size=2,
+        input_size=(32, 32),
+        patch_size=(2, 2),
         patch_size_t=1,
         in_channels=4,
         hidden_size=1152,
@@ -21,8 +21,10 @@ class LatteConfiguration(BaseConfiguration):
         learn_sigma=True,
         extras=1,
         attention_mode='math',
+        compress_kv=False,
         attention_pe_mode=None,
         pt_input_size: Union[int, Tuple[int, int]] = None,  # (h, w)
+        pt_num_frames: Union[int, Tuple[int, int]] = None,  # (num_frames, 1)
         intp_vfreq: bool = True,  # vision position interpolation
         **kwargs,
     ):
@@ -42,8 +44,10 @@ class LatteConfiguration(BaseConfiguration):
         self.learn_sigma = learn_sigma
         self.extras = learn_sigma
         self.attention_mode = attention_mode
+        self.compress_kv = compress_kv
         self.attention_pe_mode = attention_pe_mode
         self.pt_input_size = pt_input_size
+        self.pt_num_frames = pt_num_frames
         self.intp_vfreq = intp_vfreq
 
 
