@@ -218,16 +218,13 @@ You can modify the training parameters within the script. For training parameter
 
 We use AMT as our frame interpolation model.(Thanks ![AMT](https://github.com/MCG-NKU/AMT)) After sampling, you can use frame interpolation model to interpolate your video smoothly.
 
-step1: 
-Download the pretrained weights from ![AMT](https://github.com/MCG-NKU/AMT), we recommend using the largest model AMT-G to achieve the best performance. 
-
-step2: Run the script of frame interpolation.
+1. Download the pretrained weights from ![AMT](https://github.com/MCG-NKU/AMT), we recommend using the largest model AMT-G to achieve the best performance. 
+2. Run the script of frame interpolation.
 '''
-python opensora/models/frame_interpolation
+python opensora/models/frame_interpolation.py 
 '''
 
-
-##### VQ-VAE Specific Settings
+##### Frame Interpolation Specific Settings
 
 * `--embedding_dim`: number of dimensions for codebooks embeddings
 * `--n_codes 2048`: number of codes in the codebook
