@@ -52,14 +52,17 @@ def main(args):
     device = accelerator.device
 
     # Setup an experiment folder:
-    if accelerator.is_main_process:
-        os.makedirs(args.results_dir, exist_ok=True)  # Make results folder (holds all experiment subfolders)
+    if args.resume_from_checkpoint:
+        experiment_dir = f"{args.results_dir}/{args.resume_from_checkpoint}"
+    else:
         experiment_index = len(glob(f"{args.results_dir}/*"))
         model_string_name = args.model.replace("/", "-")  # e.g., Latte-XL/2 --> Latte-XL-2 (for naming folders)
         num_frame_string = 'F' + str(args.num_frames) + 'S' + str(args.sample_rate)
         experiment_dir = f"{args.results_dir}/{experiment_index:03d}-{model_string_name}-{num_frame_string}-{args.dataset}"  # Create an experiment folder
         experiment_dir = get_experiment_dir(experiment_dir, args)
-        checkpoint_dir = f"{experiment_dir}/checkpoints"  # Stores saved model checkpoints
+    checkpoint_dir = f"{experiment_dir}/checkpoints"  # Stores saved model checkpoints
+    if accelerator.is_main_process:
+        os.makedirs(args.results_dir, exist_ok=True)  # Make results folder (holds all experiment subfolders)
         os.makedirs(checkpoint_dir, exist_ok=True)
         logger = create_logger(experiment_dir)
         tb_writer = create_tensorboard(experiment_dir)
@@ -192,8 +195,11 @@ def main(args):
         dirs = [d for d in dirs if d.endswith("pt")]
         dirs = sorted(dirs, key=lambda x: int(x.split(".")[0]))
         path = dirs[-1]
+        state_dict = torch.load(os.path.join(os.path.join(experiment_dir, 'checkpoints'), path), map_location='cpu')
+        print(state_dict['args'])
+        state_dict = {'module.'+k: v for k, v in state_dict['model'].items()}
         logger.info(f"Resuming from checkpoint {path}")
-        model.load_state(os.path.join(dirs, path))
+        model.load_state_dict(state_dict)
         train_steps = int(path.split(".")[0])
 
         first_epoch = train_steps // num_update_steps_per_epoch
@@ -325,13 +331,13 @@ if __name__ == "__main__":
     parser.add_argument("--num-frames", type=int, default=16)
     parser.add_argument("--max-image-size", type=int, default=128)
     parser.add_argument("--dynamic-frames", action="store_true")
-    parser.add_argument("--resume-from-checkpoint", action="store_true")
+    parser.add_argument("--resume-from-checkpoint", type=str, default=None)
     parser.add_argument("--gradient-checkpointing", action="store_true")
     parser.add_argument("--use-compile", action="store_true")
     parser.add_argument("--use-ema", action="store_true")
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--lr-warmup-steps", type=int, default=0)
-    parser.add_argument("--attention_mode", type=str, choices=['xformers', 'math', 'flash'], default="math")
+    parser.add_argument("--attention-mode", type=str, choices=['xformers', 'math', 'flash'], default="math")
     parser.add_argument("--gradient-accumulation-steps", type=int, default=1)
     parser.add_argument("--mixed-precision", type=str, default=None, choices=[None, "fp16", "bf16"])
     parser.add_argument("--clip-grad-norm", default=None, type=float, help="the maximum gradient norm (default None)")

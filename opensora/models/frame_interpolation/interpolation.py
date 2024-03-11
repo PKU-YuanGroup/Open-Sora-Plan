@@ -167,7 +167,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('-c', '--config', type=str, default='cfgs/AMT-G.yaml') 
     parser.add_argument('-p', '--ckpt', type=str, default='amt-g.pth') 
-    parser.add_argument('-n', '--niters', type=int, default=6) 
+    parser.add_argument('-n', '--niters', type=int, default=1)
     parser.add_argument('-i', '--input', default="test.mp4") 
     parser.add_argument('-o', '--output_path', type=str, default='results') 
     parser.add_argument('-r', '--frame_rate', type=int, default=30)
