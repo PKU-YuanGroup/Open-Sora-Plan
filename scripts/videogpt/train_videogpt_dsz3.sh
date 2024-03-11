@@ -1,7 +1,7 @@
 export ACCELERATE_GRADIENT_ACCUMULATION_STEPS=8
 
 accelerate launch \
-  --config_file scripts/accelerate_configs/ddp_config.yaml \
+  --config_file scripts/accelerate_configs/deepspeed_zero3_config.yaml \
   opensora/train/train_videogpt.py \
   --do_train \
   --seed 1234 \
@@ -24,7 +24,7 @@ accelerate launch \
   --downsample "4,4,4" \
   --resolution 336 \
   --sequence_length 16 \
-  --bf16 False \
-  --fp16 True \
+  --bf16 True \
+  --fp16 False \
   --output_dir results/videogpt \
   --report_to tensorboard
