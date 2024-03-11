@@ -248,7 +248,7 @@ sh scripts/train.sh
 ```
 sh scripts/sample.sh
 ```
-### Frame Interpolation
+### Frame Interpolation(AMT)
 #### Interpolation
 We use AMT as our frame interpolation model. (Thanks [AMT](https://github.com/MCG-NKU/AMT)) After sampling, you can use frame interpolation model to interpolate your video smoothly.
 
