@@ -44,7 +44,7 @@ def modulate(x, shift, scale):
 #################################################################################
 #               Attention Layers from TIMM                                      #
 #################################################################################
-
+#
 class Attention(nn.Module):
     def __init__(self,
                  dim,
@@ -61,6 +61,7 @@ class Attention(nn.Module):
                  hw: Union[int, Tuple[int, int]] = 16,  # (h, w)
                  pt_hw: Union[int, Tuple[int, int]] = 16,  # (h, w)
                  intp_vfreq: bool = True,  # vision position interpolation
+                 compress_kv: bool = False
                  ):
         super().__init__()
         assert dim % num_heads == 0, 'dim should be divisible by num_heads'
@@ -118,7 +119,7 @@ class Attention(nn.Module):
                 with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=False, enable_mem_efficient=True):
                     x = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask,
                                                        dropout_p=self.attn_drop.p, scale=self.scale).reshape(B, N, C)
-                                                       
+
         elif self.attention_mode == 'math':
             attn = (q @ k.transpose(-2, -1)) * self.scale
             if attn_mask is not None:
@@ -150,6 +151,149 @@ class Attention(nn.Module):
         attn_bias = torch.where(attn_mask == 0, -1e8 if attn_mask.dtype == torch.float32 else -1e4, attn_mask)
         attn_bias = torch.where(attn_mask == 1, 0., attn_bias)
         return attn_bias
+
+
+# class Attention(nn.Module):
+#     def __init__(self,
+#                  dim,
+#                  num_heads=8,
+#                  qkv_bias=False,
+#                  attn_drop=0.,
+#                  proj_drop=0.,
+#                  use_lora=False,
+#                  attention_mode='math',
+#                  eps=1e-12,
+#                  causal=True,
+#                  ring_bucket_size=1024,
+#                  attention_pe_mode=None,
+#                  hw: Union[int, Tuple[int, int]] = (16, 16),  # (h, w)
+#                  pt_hw: Union[int, Tuple[int, int]] = (16, 16),  # (h, w)
+#                  intp_vfreq: bool = True,  # vision position interpolation
+#                  compress_kv: bool = False
+#                  ):
+#         super().__init__()
+#         assert dim % num_heads == 0, 'dim should be divisible by num_heads'
+#         self.num_heads = num_heads
+#         head_dim = dim // num_heads
+#         self.scale = head_dim ** -0.5
+#         self.attention_mode = attention_mode
+#         self.attention_pe_mode = attention_pe_mode
+#
+#         # self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
+#         self.q = nn.Linear(dim, dim, bias=qkv_bias)
+#         self.kv = nn.Linear(dim, dim * 2, bias=qkv_bias)
+#         self.attn_drop = nn.Dropout(attn_drop)
+#         self.proj = nn.Linear(dim, dim)
+#         self.proj_drop = nn.Dropout(proj_drop)
+#         self.eps = eps
+#         self.causal = causal
+#         self.ring_bucket_size = ring_bucket_size
+#
+#         self.hw = hw
+#         if self.attention_pe_mode == '2d_rope':
+#             half_head_dim = dim // num_heads // 2
+#             self.rope_q = VisionRotaryEmbeddingFast(
+#                 dim=half_head_dim,
+#                 pt_hw=(pt_hw[0], pt_hw[1]),
+#                 ft_hw=(self.hw[0], self.hw[1]) if intp_vfreq else None,
+#             )
+#             if self.compress_kv:
+#                 self.hw_compress = (math.ceil(self.hw[0] // 2), math.ceil(self.hw[1] // 2))
+#                 self.rope_k = VisionRotaryEmbeddingFast(
+#                     dim=half_head_dim,
+#                     pt_hw=(math.ceil(pt_hw[0] // 2), math.ceil(pt_hw[1] // 2)),
+#                     ft_hw=self.hw_compress if intp_vfreq else None,
+#                 )
+#             else:
+#                 self.hw_compress = self.hw
+#                 self.rope_k = VisionRotaryEmbeddingFast(
+#                     dim=half_head_dim,
+#                     pt_hw=(pt_hw[0], pt_hw[1]),
+#                     ft_hw=(self.hw[0], self.hw[1]) if intp_vfreq else None,
+#                 )
+#
+#
+#         self.compress_kv = compress_kv
+#         if self.compress_kv:
+#             self.sr = nn.Conv2d(dim, dim, kernel_size=(2, 1 if 1 in self.hw else 2), stride=(2, 1 if 1 in self.hw else 2))
+#             self.norm = nn.LayerNorm(dim)
+#
+#     def forward(self, x, attn_mask):
+#         B, N, C = x.shape
+#         # qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4).contiguous()
+#         # q, k, v = qkv.unbind(0)  # make torchscript happy (cannot use tensor as tuple) b h n c
+#         # import ipdb;ipdb.set_trace()
+#         q = self.q(x).reshape(B, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
+#
+#         if self.sr_ratio > 1:
+#             x_ = x.permute(0, 2, 1).reshape(B, C, self.hw[0], self.hw[1])
+#             x_ = self.sr(x_).reshape(B, C, -1).permute(0, 2, 1)
+#             x_ = self.norm(x_)
+#             kv = self.kv(x_).reshape(B, -1, 2, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+#         else:
+#             kv = self.kv(x).reshape(B, -1, 2, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+#         k, v = kv[0], kv[1]
+#
+#
+#         if attn_mask is not None:
+#             attn_mask = attn_mask.repeat(1, self.num_heads, 1, 1).to(q.dtype)
+#
+#         if self.attention_pe_mode == '2d_rope':
+#             q_t = q.view(B, self.num_heads, -1, self.hw[0] * self.hw[1], C // self.num_heads)
+#             ro_q_t = self.rope_q(q_t)
+#             q = ro_q_t.view(B, self.num_heads, N, C // self.num_heads)
+#
+#             k_t = k.view(B, self.num_heads, -1, self.hw_compress[0] * self.hw_compress[1], C // self.num_heads)
+#             ro_k_t = self.rope_k(k_t)
+#             k = ro_k_t.view(B, self.num_heads, N, C // self.num_heads)
+#
+#         if self.attention_mode == 'xformers':  # require pytorch 2.0
+#             with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=False, enable_mem_efficient=True):
+#                 x = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask,
+#                                                    dropout_p=self.attn_drop.p, scale=self.scale).reshape(B, N, C)
+#
+#         elif self.attention_mode == 'flash':  # require pytorch 2.0
+#             # https://github.com/PKU-YuanGroup/Open-Sora-Plan/issues/109
+#             if attn_mask is None or torch.all(attn_mask.bool()):
+#                 with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=True, enable_mem_efficient=False):
+#                     x = F.scaled_dot_product_attention(q, k, v,
+#                                                        dropout_p=self.attn_drop.p, scale=self.scale).reshape(B, N, C)
+#             else:  # turn to xformers
+#                 with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=False, enable_mem_efficient=True):
+#                     x = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask,
+#                                                        dropout_p=self.attn_drop.p, scale=self.scale).reshape(B, N, C)
+#
+#         elif self.attention_mode == 'math':
+#             attn = (q @ k.transpose(-2, -1)) * self.scale
+#             if attn_mask is not None:
+#                 attn_bias = self.make_attn_bias(attn_mask)
+#                 attn = attn + attn_bias
+#             attn = attn.softmax(dim=-1)
+#             if torch.any(torch.isnan(attn)):
+#                 print('torch.any(torch.isnan(attn))')
+#                 attn = attn.masked_fill(torch.isnan(attn), float(0.))
+#             attn = self.attn_drop(attn)
+#             x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+#
+#         elif self.attention_mode == 'rebased':
+#             x = parallel_rebased(q, k, v, self.eps, True, True).reshape(B, N, C)
+#
+#         elif self.attention_mode == 'ring':
+#             x = ring_flash_attn_cuda(q, k, v, causal=self.causal, bucket_size=self.ring_bucket_size).reshape(B, N, C)
+#
+#         else:
+#             raise NotImplemented
+#
+#         x = self.proj(x)
+#         x = self.proj_drop(x)
+#         return x
+#
+#     def make_attn_bias(self, attn_mask):
+#         # The numerical range of bfloat16, float16 can't conver -1e8
+#         # Refer to https://discuss.pytorch.org/t/runtimeerror-value-cannot-be-converted-to-type-at-half-without-overflow-1e-30/109768
+#         attn_bias = torch.where(attn_mask == 0, -1e8 if attn_mask.dtype == torch.float32 else -1e4, attn_mask)
+#         attn_bias = torch.where(attn_mask == 1, 0., attn_bias)
+#         return attn_bias
 
 #################################################################################
 #               Embedding Layers for Timesteps and Class Labels                 #
@@ -294,8 +438,10 @@ class Latte(nn.Module):
         learn_sigma = config.learn_sigma
         extras = config.learn_sigma
         attention_mode = config.attention_mode
+        compress_kv = config.compress_kv
         attention_pe_mode = config.attention_pe_mode
         pt_input_size = config.pt_input_size
+        pt_num_frames = config.pt_num_frames
         intp_vfreq = config.intp_vfreq
 
         self.config = config
@@ -309,6 +455,7 @@ class Latte(nn.Module):
         self.extras = extras
         self.num_frames = num_frames
         self.hidden_size = hidden_size
+        self.compress_kv = compress_kv
         self.gradient_checkpointing = False
 
         self.x_embedder = PatchEmbed(input_size, patch_size, in_channels, hidden_size, bias=True)
@@ -330,12 +477,28 @@ class Latte(nn.Module):
 
         if pt_input_size is None:
             pt_input_size = input_size
-        self.blocks = nn.ModuleList([
-            TransformerBlock(hidden_size, num_heads, mlp_ratio=mlp_ratio, attention_mode=attention_mode,
-                             attention_pe_mode=attention_pe_mode, hw=input_size, pt_hw=pt_input_size,
-                             intp_vfreq=intp_vfreq
-                             ) for _ in range(depth)
-        ])
+        if pt_num_frames is None:
+            pt_num_frames = num_frames
+        self.blocks = []
+        for i in range(depth):
+            if i % 2 == 0:
+                m = TransformerBlock(
+                    hidden_size, num_heads, mlp_ratio=mlp_ratio, attention_mode=attention_mode,
+                    attention_pe_mode=attention_pe_mode,
+                    hw=(input_size[0] // patch_size, input_size[1] // patch_size),
+                    pt_hw=(pt_input_size[0] // patch_size, pt_input_size[1] // patch_size),
+                    intp_vfreq=intp_vfreq, compress_kv=compress_kv
+                )
+            else:
+                m = TransformerBlock(
+                    hidden_size, num_heads, mlp_ratio=mlp_ratio, attention_mode=attention_mode,
+                    attention_pe_mode=attention_pe_mode,
+                    hw=(num_frames, 1),
+                    pt_hw=(pt_num_frames, 1),
+                    intp_vfreq=intp_vfreq, compress_kv=compress_kv
+                )
+            self.blocks.append(m)
+        self.blocks = nn.ModuleList(self.blocks)
 
         self.final_layer = FinalLayer(hidden_size, patch_size_t, patch_size, self.out_channels)
         self.initialize_weights()
