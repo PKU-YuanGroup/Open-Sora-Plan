@@ -101,9 +101,9 @@ Project stages:
 - [ ] Add prompt captioner. 
   - [ ] Collect training data.
     - [ ] Need video-text pairs with poor caption. 🙏 **[Need your contribution]**
-    - [ ] Extract multi-frame descriptions by large image-language models. 🙏 **[Need your contribution]**
+    - [ ] Extract multi-frame descriptions by large image-language models. 🤝 Thanks to [@HowardLi1984](https://github.com/HowardLi1984)
     - [ ] Extract video description by large video-language models. 🙏 **[Need your contribution]**
-    - [ ] Integrate captions to get a dense caption by using a large language model, such as GPT-4. 🙏 **[Need your contribution]**
+    - [ ] Integrate captions to get a dense caption by using a large language model, such as GPT-4. 🤝 Thanks to [@HowardLi1984](https://github.com/HowardLi1984)
   - [ ] Train a captioner to refine captions. 🚀 **[Require more computation]**
 
 #### Train the 1080p model on video2text dataset
