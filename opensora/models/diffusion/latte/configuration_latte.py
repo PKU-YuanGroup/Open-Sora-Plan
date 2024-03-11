@@ -1,9 +1,8 @@
+import json
 from typing import Union, Tuple
 
-from .configuration_base import BaseConfiguration
 
-
-class LatteConfiguration(BaseConfiguration):
+class LatteConfiguration:
 
     def __init__(
         self,
@@ -45,6 +44,19 @@ class LatteConfiguration(BaseConfiguration):
         self.attention_pe_mode = attention_pe_mode
         self.pt_input_size = pt_input_size
         self.intp_vfreq = intp_vfreq
+
+    def to_json_string(self):
+        json_string = json.dumps(vars(self))
+        return json_string
+
+    def to_dict(self):
+        return vars(self)
+
+    @classmethod
+    def load_from_file(cls, config_path):
+        with open(config_path, 'r') as json_file:
+            config_dict = json.load(json_file)
+        return cls(**config_dict)
 
 
 def Latte_XL_122_Config(**kwargs):
