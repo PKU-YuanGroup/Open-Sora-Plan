@@ -24,7 +24,7 @@ accelerate launch \
   --downsample "4,4,4" \
   --resolution 336 \
   --sequence_length 16 \
-  --bf16 True \
-  --fp16 False \
+  --bf16 False \
+  --fp16 True \
   --output_dir results/videogpt \
   --report_to tensorboard
