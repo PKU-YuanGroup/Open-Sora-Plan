@@ -11,21 +11,13 @@ import math
 import torch
 import torch.nn as nn
 import numpy as np
-
+from .VisionRoPE import VisionRotaryEmbeddingFast
 from einops import rearrange, repeat
 from timm.models.vision_transformer import Mlp, PatchEmbed
-
+from typing import Tuple, Union
+from timm.layers import to_2tuple
 import torch.utils.checkpoint as cp
-
-# for i in sys.path:
-#     print(i)
-
-# the xformers lib allows less memory, faster training and inference
-try:
-    import xformers
-    import xformers.ops
-except:
-    XFORMERS_IS_AVAILBLE = False
+from torch.nn import functional as F
 
 try:
     # needs to have https://github.com/corl-team/rebased/ installed
@@ -38,25 +30,44 @@ try:
     from ring_attention_pytorch.ring_flash_attention_cuda import ring_flash_attn_cuda
 except:
     RING_ATTENTION_IS_AVAILABLE = False
-    
+
+
 # from timm.models.layers.helpers import to_2tuple
 # from timm.models.layers.trace_utils import _assert
 
 def modulate(x, shift, scale):
     return x * (1 + scale.unsqueeze(1)) + shift.unsqueeze(1)
 
+
 #################################################################################
 #               Attention Layers from TIMM                                      #
 #################################################################################
 
 class Attention(nn.Module):
-    def __init__(self, dim, num_heads=8, qkv_bias=False, attn_drop=0., proj_drop=0., use_lora=False, attention_mode='math', eps=1e-12, causal=True, ring_bucket_size=1024):
+    def __init__(self,
+                 dim,
+                 num_heads=8,
+                 qkv_bias=False,
+                 attn_drop=0.,
+                 proj_drop=0.,
+                 use_lora=False,
+                 attention_mode='math',
+                 eps=1e-12,
+                 causal=True,
+                 ring_bucket_size=1024,
+                 attention_pe_mode=None,
+                 hw: Union[int, Tuple[int, int]] = 16,  # (h, w)
+                 pt_hw: Union[int, Tuple[int, int]] = 16,  # (h, w)
+                 intp_vfreq: bool = True,  # vision position interpolation
+                 ):
         super().__init__()
         assert dim % num_heads == 0, 'dim should be divisible by num_heads'
         self.num_heads = num_heads
         head_dim = dim // num_heads
         self.scale = head_dim ** -0.5
         self.attention_mode = attention_mode
+        self.attention_pe_mode = attention_pe_mode
+
         self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
         self.attn_drop = nn.Dropout(attn_drop)
         self.proj = nn.Linear(dim, dim)
@@ -65,27 +76,52 @@ class Attention(nn.Module):
         self.causal = causal
         self.ring_bucket_size = ring_bucket_size
 
-    def forward(self, x, attention_mask):
+        if self.attention_pe_mode == '2d_rope':
+            half_head_dim = dim // num_heads // 2
+            self.hw = to_2tuple(hw)
+            self.rope = VisionRotaryEmbeddingFast(
+                dim=half_head_dim,
+                pt_hw=to_2tuple(pt_hw),
+                ft_hw=self.hw if intp_vfreq else None,
+            )
+
+    def forward(self, x, attn_mask):
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4).contiguous()
-        q, k, v = qkv.unbind(0)   # make torchscript happy (cannot use tensor as tuple) b h n c
-        
-        if self.attention_mode == 'xformers': # cause loss nan while using with amp
-            assert q.ndim == 4 and (attention_mask is None or torch.all(attention_mask.bool()))
-            q, k, v = q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2)
-            x = xformers.ops.memory_efficient_attention(q, k, v, p=self.attn_drop.p, scale=self.scale).reshape(B, N, C)
+        q, k, v = qkv.unbind(0)  # make torchscript happy (cannot use tensor as tuple) b h n c
+        if attn_mask is not None:
+            attn_mask = attn_mask.repeat(1, self.num_heads, 1, 1).to(q.dtype)
 
-        elif self.attention_mode == 'flash':
-            assert attention_mask is None or torch.all(attention_mask.bool())
-            # cause loss nan while using with amp
-            # Optionally use the context manager to ensure one of the fused kerenels is run
-            with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=True, enable_mem_efficient=False):
-                x = torch.nn.functional.scaled_dot_product_attention(q, k, v, dropout_p=self.attn_drop.p, scale=self.scale).reshape(B, N, C) # require pytorch 2.0
-                
+        if self.attention_pe_mode == '2d_rope':
+            q_t = q.view(B, self.num_heads, -1, self.hw[0] * self.hw[1], C // self.num_heads)
+            ro_q_t = self.rope(q_t)
+            q = ro_q_t.view(B, self.num_heads, N, C // self.num_heads)
+
+            k_t = k.view(B, self.num_heads, -1, self.hw[0] * self.hw[1], C // self.num_heads)
+            ro_k_t = self.rope(k_t)
+            k = ro_k_t.view(B, self.num_heads, N, C // self.num_heads)
+
+        if self.attention_mode == 'xformers':  # require pytorch 2.0
+            with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=False, enable_mem_efficient=True):
+                x = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask,
+                                                   dropout_p=self.attn_drop.p, scale=self.scale).reshape(B, N, C)
+
+        elif self.attention_mode == 'flash':  # require pytorch 2.0
+            # https://github.com/PKU-YuanGroup/Open-Sora-Plan/issues/109
+            if attn_mask is None or torch.all(attn_mask.bool()):
+                with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=True, enable_mem_efficient=False):
+                    x = F.scaled_dot_product_attention(q, k, v,
+                                                       dropout_p=self.attn_drop.p, scale=self.scale).reshape(B, N, C)
+            else:  # turn to xformers
+                with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=False, enable_mem_efficient=True):
+                    x = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask,
+                                                       dropout_p=self.attn_drop.p, scale=self.scale).reshape(B, N, C)
+
         elif self.attention_mode == 'math':
             attn = (q @ k.transpose(-2, -1)) * self.scale
-            if attention_mask is not None:
-                attn = attn + attention_mask
+            if attn_mask is not None:
+                attn_bias = self.make_attn_bias(attn_mask)
+                attn = attn + attn_bias
             attn = attn.softmax(dim=-1)
             if torch.any(torch.isnan(attn)):
                 print('torch.any(torch.isnan(attn))')
@@ -106,6 +142,13 @@ class Attention(nn.Module):
         x = self.proj_drop(x)
         return x
 
+    def make_attn_bias(self, attn_mask):
+        # The numerical range of bfloat16, float16 can't conver -1e8
+        # Refer to https://discuss.pytorch.org/t/runtimeerror-value-cannot-be-converted-to-type-at-half-without-overflow-1e-30/109768
+        attn_bias = torch.where(attn_mask == 0, -1e8 if attn_mask.dtype == torch.float32 else -1e4, attn_mask)
+        attn_bias = torch.where(attn_mask == 1, 0., attn_bias)
+        return attn_bias
+
 
 #################################################################################
 #               Embedding Layers for Timesteps and Class Labels                 #
@@ -115,6 +158,7 @@ class TimestepEmbedder(nn.Module):
     """
     Embeds scalar timesteps into vector representations.
     """
+
     def __init__(self, hidden_size, frequency_embedding_size=256):
         super().__init__()
         self.mlp = nn.Sequential(
@@ -155,6 +199,7 @@ class LabelEmbedder(nn.Module):
     """
     Embeds class labels into vector representations. Also handles label dropout for classifier-free guidance.
     """
+
     def __init__(self, num_classes, hidden_size, dropout_prob):
         super().__init__()
         use_cfg_embedding = dropout_prob > 0
@@ -189,6 +234,7 @@ class TransformerBlock(nn.Module):
     """
     A Latte tansformer block with adaptive layer norm zero (adaLN-Zero) conditioning.
     """
+
     def __init__(self, hidden_size, num_heads, mlp_ratio=4.0, **block_kwargs):
         super().__init__()
         self.norm1 = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
@@ -202,9 +248,9 @@ class TransformerBlock(nn.Module):
             nn.Linear(hidden_size, 6 * hidden_size, bias=True)
         )
 
-    def forward(self, x, c, attention_mask):
+    def forward(self, x, c, attn_bias):
         shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = self.adaLN_modulation(c).chunk(6, dim=1)
-        x = x + gate_msa.unsqueeze(1) * self.attn(modulate(self.norm1(x), shift_msa, scale_msa), attention_mask)
+        x = x + gate_msa.unsqueeze(1) * self.attn(modulate(self.norm1(x), shift_msa, scale_msa), attn_bias)
         x = x + gate_mlp.unsqueeze(1) * self.mlp(modulate(self.norm2(x), shift_mlp, scale_mlp))
         return x
 
@@ -213,6 +259,7 @@ class FinalLayer(nn.Module):
     """
     The final layer of Latte.
     """
+
     def __init__(self, hidden_size, patch_size_t, patch_size, out_channels):
         super().__init__()
         self.norm_final = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
@@ -233,22 +280,26 @@ class Latte(nn.Module):
     """
     Diffusion model with a Transformer backbone.
     """
+
     def __init__(
-        self,
-        input_size=32,
-        patch_size=2,
-        patch_size_t=1,
-        in_channels=4,
-        hidden_size=1152,
-        depth=28,
-        num_heads=16,
-        mlp_ratio=4.0,
-        num_frames=16,
-        class_dropout_prob=0.1,
-        num_classes=1000,
-        learn_sigma=True,
-        extras=1,
-        attention_mode='math',
+            self,
+            input_size=32,
+            patch_size=2,
+            patch_size_t=1,
+            in_channels=4,
+            hidden_size=1152,
+            depth=28,
+            num_heads=16,
+            mlp_ratio=4.0,
+            num_frames=16,
+            class_dropout_prob=0.1,
+            num_classes=1000,
+            learn_sigma=True,
+            extras=1,
+            attention_mode='math',
+            attention_pe_mode=None,
+            pt_input_size: Union[int, Tuple[int, int]] = None,  # (h, w)
+            intp_vfreq: bool = True,  # vision position interpolation
     ):
         super().__init__()
         self.learn_sigma = learn_sigma
@@ -267,11 +318,11 @@ class Latte(nn.Module):
 
         if self.extras == 2:
             self.y_embedder = LabelEmbedder(num_classes, hidden_size, class_dropout_prob)
-        if self.extras == 78: # timestep + text_embedding
+        if self.extras == 78:  # timestep + text_embedding
             self.text_embedding_projection = nn.Sequential(
-            nn.SiLU(),
-            nn.Linear(77 * 768, hidden_size, bias=True)
-        )
+                nn.SiLU(),
+                nn.Linear(77 * 768, hidden_size, bias=True)
+            )
 
         num_patches = self.x_embedder.num_patches
         # Will use fixed sin-cos embedding:
@@ -279,8 +330,13 @@ class Latte(nn.Module):
         self.temp_embed = nn.Parameter(torch.zeros(1, num_frames, hidden_size), requires_grad=False)
         self.hidden_size = hidden_size
 
+        if pt_input_size is None:
+            pt_input_size = input_size
         self.blocks = nn.ModuleList([
-            TransformerBlock(hidden_size, num_heads, mlp_ratio=mlp_ratio, attention_mode=attention_mode) for _ in range(depth)
+            TransformerBlock(hidden_size, num_heads, mlp_ratio=mlp_ratio, attention_mode=attention_mode,
+                             attention_pe_mode=attention_pe_mode, hw=input_size, pt_hw=pt_input_size,
+                             intp_vfreq=intp_vfreq
+                             ) for _ in range(depth)
         ])
 
         self.final_layer = FinalLayer(hidden_size, patch_size_t, patch_size, self.out_channels)
@@ -293,6 +349,7 @@ class Latte(nn.Module):
                 torch.nn.init.xavier_uniform_(module.weight)
                 if module.bias is not None:
                     nn.init.constant_(module.bias, 0)
+
         self.apply(_basic_init)
 
         # Initialize (and freeze) pos_embed by sin-cos embedding:
@@ -345,22 +402,21 @@ class Latte(nn.Module):
         def ckpt_forward(*inputs):
             outputs = module(*inputs)
             return outputs
+
         return ckpt_forward
 
-    def make_mask(self, attention_mask, dtype):
+    def make_mask(self, attention_mask):
         attention_mask = attention_mask.flatten(1).unsqueeze(-1)  # bs t h w -> bs thw 1
         attention_mask = attention_mask @ attention_mask.transpose(1, 2)  # bs thw 1 @ bs 1 thw = bs thw thw
         attention_mask = attention_mask.unsqueeze(1)
-        attention_mask = attention_mask.masked_fill(attention_mask == 0, 1e-8)
-        # attention_mask = attention_mask.masked_fill(attention_mask == 0, torch.finfo(dtype).min)
         return attention_mask
 
     # @torch.cuda.amp.autocast()
     # @torch.compile
-    def forward(self, 
-                x, 
-                t, 
-                y=None, 
+    def forward(self,
+                x,
+                t,
+                y=None,
                 text_embedding=None,
                 attention_mask=None):
         """
@@ -373,10 +429,10 @@ class Latte(nn.Module):
         attention_mask_temproal, attention_mask_spatial = None, None
         if attention_mask is not None:
             attention_mask_spatial = rearrange(attention_mask, 'b t h w -> (b t) h w')
-            attention_mask_spatial = self.make_mask(attention_mask_spatial, x.dtype)
+            attention_mask_spatial = self.make_mask(attention_mask_spatial)
 
             attention_mask_temproal = rearrange(attention_mask, 'b t h w -> (b h w) t')
-            attention_mask_temproal = self.make_mask(attention_mask_temproal, x.dtype)
+            attention_mask_temproal = self.make_mask(attention_mask_temproal)
 
         batches, frames, channels, high, weight = x.shape
 
@@ -384,7 +440,6 @@ class Latte(nn.Module):
 
         x = self.x_embedder(x) + self.pos_embed
         t = self.t_embedder(t)
-
 
         timestep_spatial = repeat(t, 'n d -> (n c) d', c=self.temp_embed.shape[1])
         timestep_temp = repeat(t, 'n d -> (n c) d', c=self.pos_embed.shape[1])
@@ -399,7 +454,7 @@ class Latte(nn.Module):
             text_embedding_temp = repeat(text_embedding, 'n d -> (n c) d', c=self.pos_embed.shape[1])
 
         for i in range(0, len(self.blocks), 2):
-            spatial_block, temp_block = self.blocks[i:i+2]
+            spatial_block, temp_block = self.blocks[i:i + 2]
             if self.extras == 2:
                 c = timestep_spatial + y_spatial
             elif self.extras == 78:
@@ -433,8 +488,8 @@ class Latte(nn.Module):
             c = timestep_spatial + y_spatial
         else:
             c = timestep_spatial
-        x = self.final_layer(x, c)               
-        x = self.unpatchify(x)                  
+        x = self.final_layer(x, c)
+        x = self.unpatchify(x)
         x = rearrange(x, '(b f) c h w -> b f c h w', b=batches)
         return x
 
@@ -454,7 +509,7 @@ class Latte(nn.Module):
         # eps, rest = model_out[:, :, :4, ...], model_out[:, :, 4:, ...]
         cond_eps, uncond_eps = torch.split(eps, len(eps) // 2, dim=0)
         half_eps = uncond_eps + cfg_scale * (cond_eps - uncond_eps)
-        eps = torch.cat([half_eps, half_eps], dim=0) 
+        eps = torch.cat([half_eps, half_eps], dim=0)
         return torch.cat([eps, rest], dim=2)
 
 
@@ -466,6 +521,7 @@ class Latte(nn.Module):
 def get_1d_sincos_temp_embed(embed_dim, length):
     pos = torch.arange(0, length).unsqueeze(1)
     return get_1d_sincos_pos_embed_from_grid(embed_dim, pos)
+
 
 def get_2d_sincos_pos_embed(embed_dim, grid_size, cls_token=False, extra_tokens=0):
     """
@@ -489,8 +545,8 @@ def get_2d_sincos_pos_embed_from_grid(embed_dim, grid):
     assert embed_dim % 2 == 0
 
     # use half of dimensions to encode grid_h
-    emb_h = get_1d_sincos_pos_embed_from_grid(embed_dim // 2, grid[0]) 
-    emb_w = get_1d_sincos_pos_embed_from_grid(embed_dim // 2, grid[1]) 
+    emb_h = get_1d_sincos_pos_embed_from_grid(embed_dim // 2, grid[0])
+    emb_w = get_1d_sincos_pos_embed_from_grid(embed_dim // 2, grid[1])
 
     emb = np.concatenate([emb_h, emb_w], axis=1)
     return emb
@@ -505,15 +561,15 @@ def get_1d_sincos_pos_embed_from_grid(embed_dim, pos):
     assert embed_dim % 2 == 0
     omega = np.arange(embed_dim // 2, dtype=np.float64)
     omega /= embed_dim / 2.
-    omega = 1. / 10000**omega 
+    omega = 1. / 10000 ** omega
 
-    pos = pos.reshape(-1)  
-    out = np.einsum('m,d->md', pos, omega) 
+    pos = pos.reshape(-1)
+    out = np.einsum('m,d->md', pos, omega)
 
-    emb_sin = np.sin(out) 
-    emb_cos = np.cos(out) 
+    emb_sin = np.sin(out)
+    emb_cos = np.cos(out)
 
-    emb = np.concatenate([emb_sin, emb_cos], axis=1) 
+    emb = np.concatenate([emb_sin, emb_cos], axis=1)
     return emb
 
 
@@ -524,49 +580,59 @@ def get_1d_sincos_pos_embed_from_grid(embed_dim, pos):
 def Latte_XL_122(**kwargs):
     return Latte(depth=28, hidden_size=1152, patch_size_t=1, patch_size=2, num_heads=16, **kwargs)
 
+
 def Latte_XL_144(**kwargs):
     return Latte(depth=28, hidden_size=1152, patch_size_t=1, patch_size=4, num_heads=16, **kwargs)
+
 
 def Latte_XL_188(**kwargs):
     return Latte(depth=28, hidden_size=1152, patch_size_t=1, patch_size=8, num_heads=16, **kwargs)
 
+
 def Latte_L_122(**kwargs):
     return Latte(depth=24, hidden_size=1024, patch_size_t=1, patch_size=2, num_heads=16, **kwargs)
+
 
 def Latte_L_144(**kwargs):
     return Latte(depth=24, hidden_size=1024, patch_size_t=1, patch_size=4, num_heads=16, **kwargs)
 
+
 def Latte_L_188(**kwargs):
     return Latte(depth=24, hidden_size=1024, patch_size_t=1, patch_size=8, num_heads=16, **kwargs)
+
 
 def Latte_B_122(**kwargs):
     return Latte(depth=12, hidden_size=768, patch_size=2, num_heads=12, **kwargs)
 
+
 def Latte_B_144(**kwargs):
     return Latte(depth=12, hidden_size=768, patch_size_t=1, patch_size=4, num_heads=12, **kwargs)
+
 
 def Latte_B_188(**kwargs):
     return Latte(depth=12, hidden_size=768, patch_size_t=1, patch_size=8, num_heads=12, **kwargs)
 
+
 def Latte_S_122(**kwargs):
     return Latte(depth=12, hidden_size=384, patch_size_t=1, patch_size=2, num_heads=6, **kwargs)
 
+
 def Latte_S_144(**kwargs):
     return Latte(depth=12, hidden_size=384, patch_size_t=1, patch_size=4, num_heads=6, **kwargs)
+
 
 def Latte_S_188(**kwargs):
     return Latte(depth=12, hidden_size=384, patch_size_t=1, patch_size=8, num_heads=6, **kwargs)
 
 
 Latte_models = {
-    'Latte-XL/122': Latte_XL_122,  'Latte-XL/144': Latte_XL_144,  'Latte-XL/188': Latte_XL_188,
-    'Latte-L/122':  Latte_L_122,   'Latte-L/144':  Latte_L_144,   'Latte-L/188':  Latte_L_188,
-    'Latte-B/122':  Latte_B_122,   'Latte-B/144':  Latte_B_144,   'Latte-B/188':  Latte_B_188,
-    'Latte-S/122':  Latte_S_122,   'Latte-S/144':  Latte_S_144,   'Latte-S/188':  Latte_S_188,
+    'Latte-XL/122': Latte_XL_122, 'Latte-XL/144': Latte_XL_144, 'Latte-XL/188': Latte_XL_188,
+    'Latte-L/122': Latte_L_122, 'Latte-L/144': Latte_L_144, 'Latte-L/188': Latte_L_188,
+    'Latte-B/122': Latte_B_122, 'Latte-B/144': Latte_B_144, 'Latte-B/188': Latte_B_188,
+    'Latte-S/122': Latte_S_122, 'Latte-S/144': Latte_S_144, 'Latte-S/188': Latte_S_188,
 }
 
 if __name__ == '__main__':
-
     import torch
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -575,10 +641,11 @@ if __name__ == '__main__':
     t = torch.tensor([1, 2, 3]).to(device)
     y = torch.tensor([1, 2, 3]).to(device)
     network = Latte_XL_122().to(device)
-    from thop import profile 
+    from thop import profile
+
     flops, params = profile(network, inputs=(img, t))
-    print('FLOPs = ' + str(flops/1000**3) + 'G')
-    print('Params = ' + str(params/1000**2) + 'M')
+    print('FLOPs = ' + str(flops / 1000 ** 3) + 'G')
+    print('Params = ' + str(params / 1000 ** 2) + 'M')
     # y_embeder = LabelEmbedder(num_classes=101, hidden_size=768, dropout_prob=0.5).to(device)
     # lora.mark_only_lora_as_trainable(network)
     # out = y_embeder(y, True)

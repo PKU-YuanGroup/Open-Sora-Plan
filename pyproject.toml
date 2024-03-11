@@ -14,7 +14,7 @@ classifiers = [
 ]
 dependencies = [
     "torch==2.1.2", "torchvision==0.16.2",
-    "transformers==4.32.0", "albumentations==1.4.0", "av==11.0.0", "decord==0.6.0", "einops==0.3.0", "fastapi==0.110.0",
+    "transformers==4.32.0", "albumentations==1.4.0", "av==11.0.0", "decord==0.6.0", "einops==0.7.0", "fastapi==0.110.0",
     "accelerate==0.21.0", "gdown==5.1.0", "h5py==3.10.0", "idna==3.6", 'imageio==2.34.0', "matplotlib==3.7.5", "numpy==1.24.4",
     "omegaconf==2.1.1", "opencv-python==4.9.0.80", "opencv-python-headless==4.9.0.80", "pandas==2.0.3", "pillow==10.2.0",
     "pydub==0.25.1", "pytorch-lightning==1.4.2", "pytorchvideo==0.1.5", "PyYAML==6.0.1", "regex==2023.12.25",
@@ -24,9 +24,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = [
-    "mypy==1.8.0"
-]
+train = ["deepspeed==0.9.5", "pydantic==1.10.13"]
+dev = ["mypy==1.8.0"]
 
 
 [project.urls]
