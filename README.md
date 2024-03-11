@@ -64,6 +64,7 @@ Project stages:
 - [x] Setup environment. 🤝 Thanks to [@nameless1117](https://github.com/nameless1117)
 - [ ] Add docker file. ⌛ [WIP] 🤝 Thanks to [@Mon-ius](https://github.com/Mon-ius), [@SimonLeeGit](https://github.com/SimonLeeGit)
 - [ ] Enable type hints for functions. [@RuslanPeresy](https://github.com/RuslanPeresy), 🙏 **[Need your contribution]**
+- [x] Resume from checkpoint.
 - [x] Add Video-VQGAN model, which is borrowed from [VideoGPT](https://github.com/wilson1yan/VideoGPT).
 - [x] Support variable aspect ratios, resolutions, durations training on [DiT](https://github.com/facebookresearch/DiT).
 - [x] Support Dynamic mask input inspired by [FiT](https://github.com/whlzy/FiT).
