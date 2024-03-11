@@ -213,6 +213,29 @@ You can modify the training parameters within the script. For training parameter
 * `--resolution 128`: spatial resolution to train on 
 * `--sequence_length 16`: temporal resolution, or video clip length
 
+
+#### Frame Interpolation
+
+We use AMT as our frame interpolation model.(Thanks ![AMT](https://github.com/MCG-NKU/AMT)) After sampling, you can use frame interpolation model to interpolate your video smoothly.
+
+step1: 
+Download the pretrained weights from ![AMT](https://github.com/MCG-NKU/AMT), we recommend using the largest model AMT-G to achieve the best performance. 
+
+step2: Run the script of frame interpolation.
+'''
+python opensora/models/frame_interpolation
+'''
+
+
+##### VQ-VAE Specific Settings
+
+* `--embedding_dim`: number of dimensions for codebooks embeddings
+* `--n_codes 2048`: number of codes in the codebook
+* `--n_hiddens 240`: number of hidden features in the residual blocks
+* `--n_res_layers 4`: number of residual blocks
+* `--downsample "4,4,4"`: T H W downsampling stride of the encoder
+
+
 #### Reconstructing
 
 ```Python
