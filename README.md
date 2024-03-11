@@ -3,7 +3,7 @@
 [[Project Page]](https://pku-yuangroup.github.io/Open-Sora-Plan/) [[中文主页]](https://pku-yuangroup.github.io/Open-Sora-Plan/blog_cn.html)
 
 [![slack badge](https://img.shields.io/badge/Discord-join-blueviolet?logo=discord&amp)](https://discord.gg/fqpmStRX)
-[![WeChat badge](https://img.shields.io/badge/微信-加入-green?logo=wechat&amp)](https://github.com/PKU-YuanGroup/Open-Sora-Plan/issues/53#issuecomment-1980312563)
+[![WeChat badge](https://img.shields.io/badge/微信-加入-green?logo=wechat&amp)](https://github.com/PKU-YuanGroup/Open-Sora-Plan/issues/53#issuecomment-1987226516)
 [![Twitter](https://img.shields.io/badge/-Twitter@LinBin46984-black?logo=twitter&logoColor=1D9BF0)](https://x.com/LinBin46984/status/1763476690385424554?s=20) <br>
 [![License](https://img.shields.io/badge/License-MIT-yellow)](https://github.com/PKU-YuanGroup/Open-Sora-Plan/blob/main/LICENSE) 
 [![GitHub repo contributors](https://img.shields.io/github/contributors-anon/PKU-YuanGroup/Open-Sora-Plan?style=flat&label=Contributors)](https://github.com/PKU-YuanGroup/Open-Sora-Plan/graphs/contributors) 
@@ -42,6 +42,8 @@ Project stages:
 
   
 ## 📰 News
+**[2024.03.10]** 🚀🚀🚀 This repo supports training a latent size of 225×90×90 (t×h×w), which means we are able to **train 1 minute of 1080P video with 30FPS** (2× interpolated frames and 2× super resolution) under class-condition.
+
 **[2024.03.08]** We support the training code of text condition with 16 frames of 512x512. The code is mainly borrowed from [Latte](https://github.com/Vchitect/Latte).
 
 **[2024.03.07]** We support training with 128 frames (when sample rate = 3, which is about 13 seconds) of 256x256, or 64 frames (which is about 6 seconds) of 512x512.
@@ -80,6 +82,7 @@ Project stages:
 #### Train models that boost resolution and duration
 - [x] Add [PI](https://arxiv.org/abs/2306.15595) to support out-of-domain size. 🤝 Thanks to [@jpthu17](https://github.com/jpthu17)
 - [x] Add 2D RoPE to improve generalization ability as [FiT](https://github.com/whlzy/FiT). 🤝 Thanks to [@jpthu17](https://github.com/jpthu17)
+- [ ] Compress KV according to [PixArt-sigma](https://pixart-alpha.github.io/PixArt-sigma-project). ⌛ [WIP]
 - [ ] Train a **low dimension** Video-AE, whether it is VAE or VQVAE. ⌛ [WIP] 🚀 **[Require more computation]**
 - [x] Extract offline feature.
 - [x] Train with offline feature.
@@ -113,7 +116,7 @@ Project stages:
   - [x] Support mixed precision training.
   - [x] Add gradient checkpoint.
   - [x] Support for ReBased and Ring attention. 🤝 Thanks to [@kabachuha](https://github.com/kabachuha)
-  - [ ] Train using the deepspeed engine. 🙏 **[Need your contribution]**
+  - [x] Train using the deepspeed engine. 🤝 Thanks to [@sennnnn](https://github.com/sennnnn)
   - [ ] Integrate with [Colossal-AI](https://github.com/PKU-YuanGroup/Open-Sora-Plan/issues/59#issue-2170735221) for a cheaper, faster, and more efficient. 🙏 **[Need your contribution]**
 - [ ] Train with a text condition. Here we could conduct different experiments:
   - [ ] Train with T5 conditioning. 🚀 **[Require more computation]**
@@ -156,22 +159,23 @@ Project stages:
 
 ## 🛠️ Requirements and Installation
 
-The requirements are as follows.
-
-* Python >= 3.8
-* CUDA Version >= 11.7
-* Install required packages
-
+1. Clone this repository and navigate to Open-Sora-Plan folder
 ```
 git clone https://github.com/PKU-YuanGroup/Open-Sora-Plan
 cd Open-Sora-Plan
+```
+2. Install required packages
+```
 conda create -n opensora python=3.8 -y
 conda activate opensora
 pip install -e .
 ```
-
-* Install optional requirements such as static type checking:
-
+3. Install additional packages for training cases
+```
+pip install -e ".[train]"
+pip install flash-attn --no-build-isolation
+```
+4. Install optional requirements such as static type checking:
 ```
 pip install -e '.[dev]'
 ```
@@ -268,9 +272,9 @@ For more details, please refer to the [Contribution Guidelines](docs/Contributio
 ## 🔒 License
 * The service is a research preview intended for non-commercial use only. See [LICENSE](LICENSE) for details.
 
-
+<!--
 ## ✨ Star History
 
 [![Star History](https://api.star-history.com/svg?repos=PKU-YuanGroup/Open-Sora-Plan)](https://star-history.com/#PKU-YuanGroup/Open-Sora-Plan&Date)
-
+-->
 
