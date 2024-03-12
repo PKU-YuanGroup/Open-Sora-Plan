@@ -83,13 +83,13 @@ You can easily calculate the following video quality metrics, which supports the
 
 # clip_score cross modality
 cd opensora/eval
-bash script/cal_clip_score.sh
+bash eval/script/cal_clip_score.sh
 
 
 
 # fvd 
 cd opensora/eval
-bash script/cal_fvd.sh
+bash eval/script/cal_fvd.sh
 
 # psnr
 cd opensora/eval
