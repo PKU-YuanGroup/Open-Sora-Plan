@@ -1,19 +1,22 @@
-import sys
-sys.path.append(".")
-
 import random
+import argparse
+from typing import Optional
+
 import cv2
+import imageio
 import numpy as np
 import numpy.typing as npt
 import torch
 from decord import VideoReader, cpu
+from torch.nn import functional as F
 from pytorchvideo.transforms import ShortSideScale
 from torchvision.transforms import Lambda, Compose
 from torchvision.transforms._transforms_video import RandomCropVideo
-from torch.nn import functional as F
-from typing import Optional
+
+import sys
+sys.path.append(".")
 from opensora.models.ae import VQVAEModel
-import argparse
+
 
 def array_to_video(image_array: npt.NDArray, fps: float = 30.0, output_file: str = 'output_video.mp4') -> None:
     height, width, channels = image_array[0].shape
@@ -32,7 +35,8 @@ def custom_to_video(x: torch.Tensor, fps: float = 2.0, output_file: str = 'outpu
     x = (x + 0.5)
     x = x.permute(1, 2, 3, 0).numpy()  # (C, T, H, W) -> (T, H, W, C)
     x = (255*x).astype(np.uint8)
-    array_to_video(x, fps=fps, output_file=output_file)
+    # array_to_video(x, fps=fps, output_file=output_file)
+    imageio.mimwrite(output_file, x, fps=fps, quality=9)
     return
 
 def read_video(video_path: str, num_frames: int, sample_rate: int) -> torch.Tensor:
@@ -100,6 +104,7 @@ def main(args: argparse.Namespace):
 
     # custom_to_video(x_vae[0], fps=sample_fps/sample_rate, output_file='origin_input.mp4')
     custom_to_video(video_recon[0], fps=sample_fps/sample_rate, output_file=args.rec_path)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
