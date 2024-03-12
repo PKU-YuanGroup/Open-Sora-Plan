@@ -5,20 +5,18 @@
 # GLIDE: https://github.com/openai/glide-text2im
 # MAE: https://github.com/facebookresearch/mae/blob/main/models_mae.py
 # --------------------------------------------------------
+import math
 from typing import Final, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
 import numpy as np
-import math
 import torch.utils.checkpoint as cp
+from torch.nn import functional as F
 from einops import rearrange, repeat
 from timm.layers import use_fused_attn, to_2tuple
 # from timm.models.vision_transformer import PatchEmbed, Attention, Mlp
 from timm.models.vision_transformer import PatchEmbed, Mlp
-from torch.nn import functional as F
-from .VisionRoPE import VisionRotaryEmbeddingFast
-from torch.nn import functional as F
 
 try:
     # needs to have https://github.com/corl-team/rebased/ installed
@@ -32,6 +30,7 @@ try:
 except:
     RING_ATTENTION_IS_AVAILABLE = False
 
+from .VisionRoPE import VisionRotaryEmbeddingFast
 from .configuration_dit import DiTConfiguration
 
 
