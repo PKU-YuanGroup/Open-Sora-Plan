@@ -233,7 +233,7 @@ We present four reconstructed videos in this demonstration, arranged from left t
 
 Please refer to the document [VQVAE](docs/VQVAE.md).
 
-### VideoDiT (DiT)
+### Video Diffusion Transformer
 
 #### Training
 ```
