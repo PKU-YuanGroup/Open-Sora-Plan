@@ -21,6 +21,17 @@ from utils.build_utils import build_from_cfg
 from utils.utils import InputPadder
 
 
+AMT_G = {
+    'name': 'networks.AMT-G.Model',
+    'params':{
+        'corr_radius': 3,
+        'corr_lvls': 4,
+        'num_flows': 5,
+    }
+}
+
+
+
 def init(device="cuda"):
 
     '''
@@ -89,14 +100,13 @@ def get_input_video_from_path(input_path, device="cuda"):
     return inputs, scale, padder
 
 
-def load_model(cfg_path, ckpt_path, device="cuda"):
+def load_model(ckpt_path, device="cuda"):
 
     '''
         load the frame interpolation model.
     '''
- 
-    network_cfg = OmegaConf.load(cfg_path).network
-    network_name = network_cfg.name
+    network_cfg = AMT_G
+    network_name = network_cfg['name']
     print(f'Loading [{network_name}] from [{ckpt_path}]...')
     model = build_from_cfg(network_cfg)
     ckpt = torch.load(ckpt_path)
@@ -137,7 +147,7 @@ def interpolater(model, inputs, scale, padder, iters=1):
 
     return outputs
 
-def write(outputs, output_path, frame_rate=30):
+def write(outputs, input_path, output_path, frame_rate=30):
     '''
         write results to the output_path.
     '''
@@ -148,9 +158,10 @@ def write(outputs, output_path, frame_rate=30):
     
     size = outputs[0].shape[2:][::-1]
 
-    video_count = len(glob.glob(os.path.join(output_path, "*.mp4")))
+    _, file_name_with_extension = os.path.split(input_path)
+    file_name, _ = os.path.splitext(file_name_with_extension)
 
-    save_video_path = f'{output_path}/demo_{video_count:04d}.mp4'
+    save_video_path = f'{output_path}/output_{file_name}.mp4'
     writer = cv2.VideoWriter(save_video_path, cv2.VideoWriter_fourcc(*"mp4v"), 
                         frame_rate, size)
 
@@ -165,17 +176,15 @@ def write(outputs, output_path, frame_rate=30):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('-c', '--config', type=str, default='cfgs/AMT-G.yaml') 
-    parser.add_argument('-p', '--ckpt', type=str, default='amt-g.pth') 
-    parser.add_argument('-n', '--niters', type=int, default=6) 
-    parser.add_argument('-i', '--input', default="test.mp4") 
-    parser.add_argument('-o', '--output_path', type=str, default='results') 
-    parser.add_argument('-r', '--frame_rate', type=int, default=30)
+    parser.add_argument('--ckpt', type=str, default='amt-g.pth', help="The pretrained model.") 
+    parser.add_argument('--niters', type=int, default=1, help="Iter of Interpolation. The number of frames will be double after per iter.") 
+    parser.add_argument('--input', default="test.mp4", help="Input video.") 
+    parser.add_argument('--output_path', type=str, default='results', help="Output path.") 
+    parser.add_argument('--frame_rate', type=int, default=30, help="Frames rate of the output video.")
 
     args = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    cfg_path = args.config
     ckpt_path = args.ckpt
     input_path = args.input
     output_path = args.output_path
@@ -183,6 +192,6 @@ if __name__ == "__main__":
     frame_rate = int(args.frame_rate)
 
     inputs, scale, padder = get_input_video_from_path(input_path, device)
-    model = load_model(cfg_path, ckpt_path, device)
+    model = load_model(ckpt_path, device)
     outputs = interpolater(model, inputs, scale, padder, iters)
-    write(outputs, output_path, frame_rate)
+    write(outputs, input_path, output_path, frame_rate)
