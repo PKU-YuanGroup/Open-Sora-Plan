@@ -81,29 +81,26 @@ You can easily calculate the following video quality metrics, which supports the
 ```
 # you change the file path and need to set the frame_num, resolution etc...
 
+cd opensora/eval/script
+
 # clip_score cross modality
-cd opensora/eval
-bash eval/script/cal_clip_score.sh
+bash cal_clip_score.sh
 
 
 
 # fvd 
-cd opensora/eval
-bash eval/script/cal_fvd.sh
+bash cal_fvd.sh
 
 # psnr
-cd opensora/eval
-bash eval/script/cal_psnr.sh
+bash cal_psnr.sh
 
 
 # ssim
-cd opensora/eval
-bash eval/script/cal_ssim.sh
+bash cal_ssim.sh
 
 
 # lpips
-cd opensora/eval
-bash eval/script/cal_lpips.sh
+bash cal_lpips.sh
 ```
 
 # Acknowledgement
