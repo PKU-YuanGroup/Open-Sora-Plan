@@ -69,7 +69,7 @@ def main(args):
     bar = tqdm(range(args.num_sample))
     for i in bar:
         # Create sampling noise:
-        z = torch.randn(1, args.num_frames // ae_stride_config[args.ae][0], model.in_channels, latent_size[0], latent_size[1], device=device)
+        z = torch.randn(1, args.num_frames // ae_stride_config[args.ae][0], model.module.in_channels, latent_size[0], latent_size[1], device=device)
 
         # Setup classifier-free guidance:
         if using_cfg:
