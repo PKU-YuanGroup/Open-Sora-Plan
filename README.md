@@ -64,6 +64,7 @@ Project stages:
 - [x] Setup environment. 🤝 Thanks to [@nameless1117](https://github.com/nameless1117)
 - [ ] Add docker file. ⌛ [WIP] 🤝 Thanks to [@Mon-ius](https://github.com/Mon-ius), [@SimonLeeGit](https://github.com/SimonLeeGit)
 - [ ] Enable type hints for functions. [@RuslanPeresy](https://github.com/RuslanPeresy), 🙏 **[Need your contribution]**
+- [x] Resume from checkpoint.
 - [x] Add Video-VQGAN model, which is borrowed from [VideoGPT](https://github.com/wilson1yan/VideoGPT).
 - [x] Support variable aspect ratios, resolutions, durations training on [DiT](https://github.com/facebookresearch/DiT).
 - [x] Support Dynamic mask input inspired by [FiT](https://github.com/whlzy/FiT).
@@ -76,6 +77,7 @@ Project stages:
 - [x] Refactor VideoGPT. 🤝 Thanks to [@qqingzheng](https://github.com/qqingzheng), [@luo3300612](https://github.com/luo3300612), [@sennnnn](https://github.com/sennnnn)
 - [x] Add sampling script.
 - [ ] Add DDP sampling script. ⌛ [WIP]
+- [x] Use accelerate on multi-node. 🤝 Thanks to [@sysuyy](https://github.com/sysuyy)
 - [x] Incorporate [SiT](https://github.com/willisma/SiT). 🤝 Thanks to [@khan-yin](https://github.com/khan-yin)
 - [x] Add evaluation scripts (FVD, CLIP score). 🤝 Thanks to [@rain305f](https://github.com/rain305f)
 
@@ -83,6 +85,7 @@ Project stages:
 - [x] Add [PI](https://arxiv.org/abs/2306.15595) to support out-of-domain size. 🤝 Thanks to [@jpthu17](https://github.com/jpthu17)
 - [x] Add 2D RoPE to improve generalization ability as [FiT](https://github.com/whlzy/FiT). 🤝 Thanks to [@jpthu17](https://github.com/jpthu17)
 - [ ] Compress KV according to [PixArt-sigma](https://pixart-alpha.github.io/PixArt-sigma-project). ⌛ [WIP]
+- [x] Support deepspeed for videogpt training. 🤝 Thanks to [@sennnnn](https://github.com/sennnnn)
 - [ ] Train a **low dimension** Video-AE, whether it is VAE or VQVAE. ⌛ [WIP] 🚀 **[Require more computation]**
 - [x] Extract offline feature.
 - [x] Train with offline feature.
@@ -101,9 +104,9 @@ Project stages:
 - [ ] Add prompt captioner. 
   - [ ] Collect training data.
     - [ ] Need video-text pairs with poor caption. 🙏 **[Need your contribution]**
-    - [ ] Extract multi-frame descriptions by large image-language models. 🙏 **[Need your contribution]**
+    - [ ] Extract multi-frame descriptions by large image-language models. 🤝 Thanks to [@HowardLi1984](https://github.com/HowardLi1984)
     - [ ] Extract video description by large video-language models. 🙏 **[Need your contribution]**
-    - [ ] Integrate captions to get a dense caption by using a large language model, such as GPT-4. 🙏 **[Need your contribution]**
+    - [ ] Integrate captions to get a dense caption by using a large language model, such as GPT-4. 🤝 Thanks to [@HowardLi1984](https://github.com/HowardLi1984)
   - [ ] Train a captioner to refine captions. 🚀 **[Require more computation]**
 
 #### Train the 1080p model on video2text dataset
@@ -232,15 +235,17 @@ We present four reconstructed videos in this demonstration, arranged from left t
 
 Please refer to the document [VQVAE](docs/VQVAE.md).
 
-### VideoDiT (DiT)
+### Video Diffusion Transformer
 
 #### Training
 ```
 sh scripts/train.sh
 ```
 
+The current resources are only enough for us to do primary experiments on the Sky dataset. 
+
 <p align="center">
-<img src="assets/loss.jpg" width=60%>
+<img src="assets/loss.png" width=90%>
 </p>
 
 #### Sampling
@@ -248,6 +253,11 @@ sh scripts/train.sh
 sh scripts/sample.sh
 ```
 
+Below is a visualization of the sampling results.
+
+| **12s 256x256** | **25s 256x256** |
+| --- | --- |
+| <img src="assets/demo_0006.gif">  | <img src="assets/demo_0011.gif">  |
 
 
 ## 🤝 How to Contribute to the Open-Sora Plan Community
@@ -263,8 +273,8 @@ For more details, please refer to the [Contribution Guidelines](docs/Contributio
 
 ## 👍 Acknowledgement
 * [Latte](https://github.com/Vchitect/Latte): The **main codebase** we built upon and it is an wonderful video gererated model.
-* [DiT](https://github.com/facebookresearch/DiT): Scalable Diffusion Models with Transformers.
 * [VideoGPT](https://github.com/wilson1yan/VideoGPT): Video Generation using VQ-VAE and Transformers.
+* [DiT](https://github.com/facebookresearch/DiT): Scalable Diffusion Models with Transformers.
 * [FiT](https://github.com/whlzy/FiT): Flexible Vision Transformer for Diffusion Model.
 * [Positional Interpolation](https://arxiv.org/abs/2306.15595): Extending Context Window of Large Language Models via Positional Interpolation.
 
