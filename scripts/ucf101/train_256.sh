@@ -3,12 +3,13 @@ accelerate launch \
     --config_file scripts/accelerate_configs/ddp_config.yaml \
     opensora/train/train.py \
     --model Latte-XL/122 \
-    --dataset sky \
+    --dataset ucf101 \
+    --num-classes 101 \
     --ae stabilityai/sd-vae-ft-mse \
-    --data-path /remote-home/yeyang/sky_timelapse/sky_train/ \
-    --extras 1 \
+    --data-path /remote-home/yeyang/UCF-101 \
+    --extras 2 \
     --sample-rate 3 \
-    --num-frames 128 \
+    --num-frames 16 \
     --max-image-size 256 \
     --max-train-steps 1000000 \
     --local-batch-size 5 \
@@ -16,6 +17,7 @@ accelerate launch \
     --ckpt-every 500 \
     --log-every 50 \
     --gradient-checkpointing \
-    --attention_mode flash \
-    --mixed-precision bf16 \
+    --attention-mode flash \
+    --mixed-precision bf16
+
 

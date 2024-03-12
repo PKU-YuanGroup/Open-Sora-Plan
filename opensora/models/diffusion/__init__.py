@@ -6,7 +6,6 @@ from .latte.modeling_latte import Latte_models
 from .latte_t2v.latte_t2v import LatteT2V
 
 Diffusion_models = {}
-Diffusion_models.update(DiT_models)
 Diffusion_models.update(Latte_models)
 
 def get_t2v_models(args):
