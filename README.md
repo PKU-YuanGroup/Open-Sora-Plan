@@ -249,6 +249,9 @@ sh scripts/train.sh
 sh scripts/sample.sh
 ```
 
+| **12s 256x256** | **25s 256x256** |
+| --- | --- | --- | --- |
+| <img src="assets/demo_0006.gif">  | <img src="assets/demo_0011.gif">  |
 
 
 ## 🤝 How to Contribute to the Open-Sora Plan Community
