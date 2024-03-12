@@ -240,6 +240,8 @@ Please refer to the document [VQVAE](docs/VQVAE.md).
 sh scripts/train.sh
 ```
 
+The current resources are only enough for us to do primary experiments on the Sky dataset. 
+
 <p align="center">
 <img src="assets/loss.jpg" width=60%>
 </p>
@@ -249,8 +251,10 @@ sh scripts/train.sh
 sh scripts/sample.sh
 ```
 
+Below is a visualization of the sampling results.
+
 | **12s 256x256** | **25s 256x256** |
-| --- | --- | --- | --- |
+| --- | --- |
 | <img src="assets/demo_0006.gif">  | <img src="assets/demo_0011.gif">  |
 
 
