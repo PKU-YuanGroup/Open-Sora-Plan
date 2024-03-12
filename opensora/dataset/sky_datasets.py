@@ -1,16 +1,17 @@
 import os
-import torch
 import random
+import pickle
+
+import torch
 import torch.utils.data as data
-
 import numpy as np
-
 from PIL import Image
 
 from opensora.utils.dataset_utils import is_image_file
 
 
 class Sky(data.Dataset):
+
     def __init__(self, configs, transform, temporal_sample=None, train=True):
 
         self.configs = configs
@@ -19,7 +20,13 @@ class Sky(data.Dataset):
         self.temporal_sample = temporal_sample
         self.target_video_len = self.configs.num_frames
         self.frame_interval = self.configs.sample_rate
-        self.data_all = self.load_video_frames(self.data_path)
+
+        cached_file = os.path.join(self.data_path, f'metadata_{self.target_video_len}_{self.frame_interval}.pkl')
+        if os.path.exists(cached_file):
+            self.data_all = pickle.load(open(cached_file, 'rb'))
+            self.video_num = len(self.data_all)
+        else:
+            self.data_all = self.load_video_frames(self.data_path)
 
     def __getitem__(self, index):
 
@@ -64,7 +71,7 @@ class Sky(data.Dataset):
                 data_all.append(frames)
         self.video_num = len(data_all)
         return data_all
-    
+
 
 if __name__ == '__main__':
 
