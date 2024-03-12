@@ -8,7 +8,7 @@ accelerate launch \
     --data-path /remote-home/yeyang/sky_timelapse/sky_train/ \
     --extras 1 \
     --sample-rate 3 \
-    --num-frames 16 \
+    --num-frames 128 \
     --max-image-size 256 \
     --max-train-steps 1000000 \
     --local-batch-size 5 \
