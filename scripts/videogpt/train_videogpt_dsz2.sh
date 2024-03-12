@@ -1,7 +1,7 @@
 export ACCELERATE_GRADIENT_ACCUMULATION_STEPS=1
 
 accelerate launch \
-  --config_file scripts/accelerate_configs/ddp_config.yaml \
+  --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
   opensora/train/train_videogpt.py \
   --do_train \
   --seed 1234 \
@@ -16,7 +16,7 @@ accelerate launch \
   --save_strategy steps \
   --save_total_limit 5 \
   --logging_steps 5 \
-  --save_steps 1000 \
+  --save_steps 10000 \
   --n_codes 1024 \
   --n_hiddens 240 \
   --embedding_dim 4 \
