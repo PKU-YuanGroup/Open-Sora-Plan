@@ -243,7 +243,7 @@ sh scripts/train.sh
 The current resources are only enough for us to do primary experiments on the Sky dataset. 
 
 <p align="center">
-<img src="assets/loss.jpg" width=60%>
+<img src="assets/loss.png" width=90%>
 </p>
 
 #### Sampling
