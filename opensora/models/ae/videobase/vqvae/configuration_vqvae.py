@@ -29,3 +29,5 @@ class VQVAEConfiguration(VideoBaseConfiguration):
             self.downsample = downsample
 
         self.no_pos_embd = no_pos_embd
+
+        self.hidden_size = n_hiddens
