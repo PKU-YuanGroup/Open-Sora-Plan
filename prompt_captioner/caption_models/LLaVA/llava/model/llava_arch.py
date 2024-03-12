@@ -169,6 +169,8 @@ class LlavaMetaForCausalLM(ABC):
                         image_feature = image_feature[1:]
                         height = width = self.get_vision_tower().num_patches_per_side
                         assert height * width == base_image_feature.shape[0]
+                        
+                        import ipdb; ipdb.set_trace()
                         if image_aspect_ratio == 'anyres':
                             num_patch_width, num_patch_height = get_anyres_image_grid_shape(image_sizes[image_idx], self.config.image_grid_pinpoints, self.get_vision_tower().config.image_size)
                             image_feature = image_feature.view(num_patch_height, num_patch_width, height, width, -1)
