@@ -13,6 +13,8 @@ class VideoGPTVQVAEWrapper(nn.Module):
         x = rearrange(x, 'b c t h w -> b t c h w').contiguous()
         return x
     def decode(self, x):
+        x = rearrange(x, 'b t c h w -> b c t h w').contiguous()
         vq_output = self.vqvae.codebook(x)
         x = self.vqvae.decoder(self.vqvae.post_vq_conv(vq_output['embeddings']))
+        x = rearrange(x, 'b c t h w -> b t c h w').contiguous()
         return x
