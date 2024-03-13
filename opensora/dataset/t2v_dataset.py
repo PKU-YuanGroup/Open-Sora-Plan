@@ -2,6 +2,8 @@ import os, io, csv, math, random
 import numpy as np
 from einops import rearrange
 from decord import VideoReader
+from urllib.parse import urlparse
+from urllib import request
 
 import torch
 import torchvision.transforms as transforms
@@ -15,6 +17,10 @@ class T2V_dataset(Dataset):
             sample_size=512, sample_stride=4, sample_n_frames=16,
             is_image=False,
             is_uniform=False,
+            field_filename = 'Filename',
+            field_description = 'Video Description',
+            is_remote=False,
+            id_field=None
         ):
         
         with open(csv_path, 'r') as csvfile:
@@ -37,6 +43,10 @@ class T2V_dataset(Dataset):
         ])
 
         self.cached_indices = {}
+        self.field_filename = field_filename
+        self.field_description = field_description
+        self.is_remote = is_remote
+        self.id_field = id_field
 
     def _generate_frame_indices(self, video_length, n_frames):
         if self.is_uniform:
@@ -65,7 +75,20 @@ class T2V_dataset(Dataset):
         
     def get_batch(self, idx):
         video_dict = self.dataset[idx]
-        video_path, text = video_dict['Filename'], video_dict['Video Description']
+        video_path, text = video_dict[self.field_filename], video_dict[self.field_description]
+        video_id = video_dict[self.id_field] if self.id_field is not None else None
+
+        if self.is_remote:
+            video_url = video_path
+            video_path = os.path.basename(urlparse(video_url).path)
+            if video_id is not None:
+                ext = os.path.splitext(video_path)[-1]
+                video_path = f'{video_id}{ext}'
+            outpath = os.path.join(self.video_folder, video_path)
+
+            if not os.path.exists(outpath):
+                response = request.urlretrieve(video_url, outpath)
+
         video_dir    = os.path.join(self.video_folder, video_path)
         video_reader = VideoReader(video_dir)
         video_length = len(video_reader)
