@@ -1,0 +1,5 @@
+ARG TAG
+FROM ${TAG}
+ARG USER_NAME=myuser
+COPY . /home/${USER_NAME}/workspace
+ENTRYPOINT [ "bash", "entrypoint.sh" ]

@@ -5,10 +5,10 @@ ARG USER_PASSWD=111111
 ARG DEBIAN_FRONTEND=noninteractive
 
 # Pre-install packages, pip install requirements and run post install script.
-COPY packages.txt .
-COPY requirements.txt .
-COPY postinstallscript.sh .
+COPY *.txt .
+COPY *.sh .
 RUN apt-get update && apt-get install -y sudo $(cat packages.txt)
+RUN bash preinstallscript.sh
 RUN pip install --no-cache-dir -r requirements.txt
 RUN bash postinstallscript.sh
 

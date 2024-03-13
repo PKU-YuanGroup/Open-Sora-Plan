@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 WORK_DIR=$(dirname "$(readlink -f "$0")")
-source $WORK_DIR/setup_env.sh
+source $WORK_DIR/conf/setup_env.sh
 
 RUNNING_IDS="$(docker ps --filter ancestor=$TAG --format "{{.ID}}")"
 
@@ -31,7 +31,7 @@ else
         -v /tmp/.X11-unix/:/tmp/.X11-unix/ \
         -v $PWD:/home/$USER_NAME/workspace \
         -w /home/$USER_NAME/workspace \
-        $(cat $WORK_DIR/ports.txt) \
+        $(cat $WORK_DIR/conf/ports.txt) \
         $TAG)
 fi
 

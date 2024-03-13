@@ -5,71 +5,129 @@ Useful docker scripts for ML developement.
 
 ## Build Docker Image
 
+You can build your development docker image as below.
+
 ```bash
-bash docker_build.sh
+bash build.sh
 ```
 
-![build_docker](build_docker.png)
+![build_docker](./doc/build_docker.png)
 
 ## Run Docker Container as Development Envirnoment
 
+You can run built development docker container as your development environment as below.
+
 ```bash
-bash docker_run.sh
+bash run.sh
 ```
 
-![run_docker](run_docker.png)
+![run_docker](./doc/run_docker.png)
+
+## Build CI Docker Image
+
+You can also build a CI docker image for your app to be runned at cloud environment.
+
+```bash
+bash build_ci.sh
+```
+
+![build_docker_ci](./doc/build_docker_ci.png)
+
+## Run CI Docker Container at cloud envirnoment
+
+```bash
+bash run_ci.sh <cmd>
+
+# <cmd> is your custom command to be runned in CI docker container, such as:
+#
+# bash run_ci.sh echo "hello world"
+# bash run_ci.sh python test.py, the work dir is your git repo root
+```
+
+![run_docker_ci](./doc/run_docker_ci.png)
 
 ## Custom Docker Config
 
-### Config [setup_env.sh](./setup_env.sh)
+### Config [setup_env.sh](./conf/setup_env.sh)
 
 You can modify this file to custom your settings.
 
 ```bash
-TAG=ml:dev
-BASE_TAG=nvcr.io/nvidia/pytorch:23.12-py3
+# Docker tag for new build image
+TAG=opensora:dev
+CI_TAG=opensora:ci
+
+# Base docker image tag used by docker build
+BASE_TAG=nvcr.io/nvidia/cuda:12.3.2-runtime-ubuntu22.04
+
+# User name used in docker container
+USER_NAME=developer
+
+# User password used in docker container
+USER_PASSWD=666666
+
+# Git repo for CI docker image
+GIT_REPO=https://github.com/PKU-YuanGroup/Open-Sora-Plan.git
+
+# Git branch for CI docker image
+GIT_BRANCH=main
 ```
 
 #### TAG
 
 Your built docker image tag, you can set it as what you what.
 
+#### CI_TAG
+
+Your bult docker image tag for ci usage, you can set it as what you what.
+
 #### BASE_TAG
 
 The base docker image tag for your built docker image, here we use nvidia pytorch images.
-You can check it from [https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch/tags](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch/tags)
+You can check it from [hhttps://catalog.ngc.nvidia.com/orgs/nvidia/containers/cuda/tags](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/cuda/tags)
 
-Also, you can use other docker image as base, such as: [ubuntu](https://hub.docker.com/_/ubuntu/tags)
-
-### USER_NAME
+#### USER_NAME
 
 Your user name used in docker container.
 
-### USER_PASSWD
+#### USER_PASSWD
 
 Your user password used in docker container.
 
-### Config [requriements.txt](./requirements.txt)
+#### GIT_REPO
+
+For ci docker image, you need to set a valid git repo, in order to copy your runnable packages into the ci docker image.
+
+#### GIT_BRANCH
+
+For ci docker image, you need to set a valid git branch to clone your runnable package from your git repo.
+
+### Config [requriements.txt](./conf/requirements.txt)
 
 You can add your default installed python libraries here.
 
 ```txt
-transformers==4.27.1
+torch==2.0.1
+transformers==4.32.0
+matplotlib==3.7.5
+numpy==1.24.4
+pandas==2.0.3
+tensorboard==2.14.0
 ```
 
 By default, it has some libs installed, you can check it from [https://docs.nvidia.com/deeplearning/frameworks/pytorch-release-notes/rel-24-01.html](https://docs.nvidia.com/deeplearning/frameworks/pytorch-release-notes/rel-24-01.html)
 
-### Config [packages.txt](./packages.txt)
+### Config [packages.txt](./conf/packages.txt)
 
 You can add your default apt-get installed packages here.
 
 ```txt
+python3
+python3-pip
 wget
-curl
-git
 ```
 
-### Config [ports.txt](./ports.txt)
+### Config [ports.txt](./conf/ports.txt)
 
 You can add some ports enabled for docker container here.
 
@@ -78,7 +136,10 @@ You can add some ports enabled for docker container here.
 -p 8080:8080
 ```
 
-### Config [postinstallscript.sh](./postinstallscript.sh)
+### Config [*installscript.sh]
+
+- [preinstallscript.sh](./conf/preinstallscript.sh): executed before pip installation
+- [postinstallscript.sh](./conf/postinstallscript.sh): executed after pip installation
 
 You can add your custom script to run when build docker image.
 
