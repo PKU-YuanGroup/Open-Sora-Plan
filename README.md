@@ -93,6 +93,7 @@ Project stages:
 - [x] Add super resolution model. 🤝 Thanks to [@Linzy19](https://github.com/Linzy19)
 - [x] Add accelerate to automatically manage training.
 - [ ] Joint training with images. 🙏 **[Need your contribution]**
+- [ ] Implement [MaskDiT](https://github.com/Anima-Lab/MaskDiT) technique for fast training. 🙏 **[Need your contribution]**
 - [ ] Incorporate [NaViT](https://arxiv.org/abs/2307.06304). 🙏 **[Need your contribution]**
 - [ ] Add [FreeNoise](https://github.com/arthur-qiu/FreeNoise-LaVie) support for training-free longer video generation. 🙏 **[Need your contribution]**
 
