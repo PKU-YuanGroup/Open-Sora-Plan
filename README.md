@@ -262,16 +262,13 @@ Below is a visualization of the sampling results.
 | <img src="assets/demo_0006.gif">  | <img src="assets/demo_0011.gif">  |
 
 
-## 🤝 How to Contribute to the Open-Sora Plan Community
+## 💡 How to Contribute to the Open-Sora Plan Community
 We greatly appreciate your contributions to the Open-Sora Plan open-source community and helping us make it even better than it is now!
 
 For more details, please refer to the [Contribution Guidelines](docs/Contribution_Guidelines.md)
 
-<!--
-<a href="https://github.com/PKU-YuanGroup/Open-Sora-Plan/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=PKU-YuanGroup/Open-Sora-Plan" />
-</a>
--->
+
+
 
 ## 👍 Acknowledgement
 * [Latte](https://github.com/Vchitect/Latte): The **main codebase** we built upon and it is an wonderful video gererated model.
@@ -290,3 +287,8 @@ For more details, please refer to the [Contribution Guidelines](docs/Contributio
 [![Star History](https://api.star-history.com/svg?repos=PKU-YuanGroup/Open-Sora-Plan)](https://star-history.com/#PKU-YuanGroup/Open-Sora-Plan&Date)
 -->
 
+## 🤝 Community contributors
+
+<a href="https://github.com/PKU-YuanGroup/Open-Sora-Plan/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=PKU-YuanGroup/Open-Sora-Plan" />
+</a>
