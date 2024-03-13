@@ -15,8 +15,9 @@ class VQVAETrainer(Trainer):
         vq_output = model.codebook(z)
         x_recon = model.decoder(model.post_vq_conv(vq_output["embeddings"]))
         recon_loss = F.mse_loss(x_recon, x) / 0.06
-
-        return recon_loss
+        commitment_loss = vq_output['commitment_loss']
+        loss = recon_loss + commitment_loss
+        return loss
 
     def _save(self, output_dir: Optional[str] = None, state_dict=None):
         output_dir = output_dir if output_dir is not None else self.args.output_dir
