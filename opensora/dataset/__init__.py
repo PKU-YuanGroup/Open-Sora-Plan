@@ -64,5 +64,7 @@ def getdataset(args):
         return Sky(args, transform=transform_sky, temporal_sample=temporal_sample)
     elif args.dataset == 't2v':
         return T2V_dataset(csv_path=args.csv_path, video_folder=args.video_folder, sample_size=args.image_size, sample_stride=args.sample_rate)
+    elif args.dataset == 't2v_webvid':
+        return T2V_dataset(csv_path=args.csv_path, video_folder=args.video_folder, sample_size=args.image_size, sample_stride=args.sample_rate, is_remote=True, field_filename='contentUrl', field_description='name', id_field='videoid')
     else:
         raise NotImplementedError(args.dataset)
