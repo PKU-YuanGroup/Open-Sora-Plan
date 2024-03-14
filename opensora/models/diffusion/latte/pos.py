@@ -1,16 +1,66 @@
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
-# --------------------------------------------------------
-# References:
-# EVA: https://github.com/baaivision/EVA
-# Transformer升级之路：2、博采众长的旋转式位置编码: https://spaces.ac.cn/archives/8265
-# Transformer升级之路：4、二维位置的旋转式位置编码: https://spaces.ac.cn/archives/8397
-# --------------------------------------------------------
+import numpy as np
 import torch
 import torch.nn as nn
 from math import pi
 from einops import rearrange, repeat
 
+#################################################################################
+#                   Sine/Cosine Positional Embedding Functions                  #
+#################################################################################
+# https://github.com/facebookresearch/mae/blob/main/util/pos_embed.py
+
+def get_1d_sincos_temp_embed(embed_dim, length):
+    pos = torch.arange(0, length).unsqueeze(1)
+    return get_1d_sincos_pos_embed_from_grid(embed_dim, pos)
+
+def get_2d_sincos_pos_embed(embed_dim, grid_size, cls_token=False, extra_tokens=0):
+    """
+    grid_size: int of the grid height and width
+    return:
+    pos_embed: [grid_size*grid_size, embed_dim] or [1+grid_size*grid_size, embed_dim] (w/ or w/o cls_token)
+    """
+    grid_h = np.arange(grid_size, dtype=np.float32)
+    grid_w = np.arange(grid_size, dtype=np.float32)
+    grid = np.meshgrid(grid_w, grid_h)  # here w goes first
+    grid = np.stack(grid, axis=0)
+
+    grid = grid.reshape([2, 1, grid_size, grid_size])
+    pos_embed = get_2d_sincos_pos_embed_from_grid(embed_dim, grid)
+    if cls_token and extra_tokens > 0:
+        pos_embed = np.concatenate([np.zeros([extra_tokens, embed_dim]), pos_embed], axis=0)
+    return pos_embed
+
+
+def get_2d_sincos_pos_embed_from_grid(embed_dim, grid):
+    assert embed_dim % 2 == 0
+
+    # use half of dimensions to encode grid_h
+    emb_h = get_1d_sincos_pos_embed_from_grid(embed_dim // 2, grid[0])
+    emb_w = get_1d_sincos_pos_embed_from_grid(embed_dim // 2, grid[1])
+
+    emb = np.concatenate([emb_h, emb_w], axis=1)
+    return emb
+
+
+def get_1d_sincos_pos_embed_from_grid(embed_dim, pos):
+    """
+    embed_dim: output dimension for each position
+    pos: a list of positions to be encoded: size (M,)
+    out: (M, D)
+    """
+    assert embed_dim % 2 == 0
+    omega = np.arange(embed_dim // 2, dtype=np.float64)
+    omega /= embed_dim / 2.
+    omega = 1. / 10000**omega
+
+    pos = pos.reshape(-1)
+    out = np.einsum('m,d->md', pos, omega)
+
+    emb_sin = np.sin(out)
+    emb_cos = np.cos(out)
+
+    emb = np.concatenate([emb_sin, emb_cos], axis=1)
+    return emb
 
 def broadcat(tensors, dim=-1):
     num_tensors = len(tensors)
@@ -35,6 +85,13 @@ def rotate_half(x):
     x = torch.stack((-x2, x1), dim=-1)
     return rearrange(x, '... d r -> ... (d r)')
 
+#################################################################################
+#                                  VisionRotary                                 #
+#################################################################################
+# References:
+# EVA: https://github.com/baaivision/EVA
+# Transformer升级之路：2、博采众长的旋转式位置编码: https://spaces.ac.cn/archives/8265
+# Transformer升级之路：4、二维位置的旋转式位置编码: https://spaces.ac.cn/archives/8397
 
 class VisionRotaryEmbeddingFast(nn.Module):
     def __init__(
