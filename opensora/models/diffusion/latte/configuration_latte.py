@@ -1,9 +1,8 @@
+import json
 from typing import Union, Tuple
 
-from .configuration_base import BaseConfiguration
 
-
-class LatteConfiguration(BaseConfiguration):
+class LatteConfiguration:
 
     def __init__(
         self,
@@ -50,42 +49,55 @@ class LatteConfiguration(BaseConfiguration):
         self.pt_num_frames = pt_num_frames
         self.intp_vfreq = intp_vfreq
 
+    def to_json_string(self):
+        json_string = json.dumps(vars(self))
+        return json_string
+
+    def to_dict(self):
+        return vars(self)
+
+    @classmethod
+    def load_from_file(cls, config_path):
+        with open(config_path, 'r') as json_file:
+            config_dict = json.load(json_file)
+        return cls(**config_dict)
+
 
 def Latte_XL_122_Config(**kwargs):
-    return LatteConfiguration(depth=28, hidden_size=1152, patch_size_t=1, patch_size=2, num_heads=16, **kwargs)
+    return LatteConfiguration(depth=56, hidden_size=1152, patch_size_t=1, patch_size=2, num_heads=16, **kwargs)
 
 def Latte_XL_144_Config(**kwargs):
-    return LatteConfiguration(depth=28, hidden_size=1152, patch_size_t=1, patch_size=4, num_heads=16, **kwargs)
+    return LatteConfiguration(depth=56, hidden_size=1152, patch_size_t=1, patch_size=4, num_heads=16, **kwargs)
 
 def Latte_XL_188_Config(**kwargs):
-    return LatteConfiguration(depth=28, hidden_size=1152, patch_size_t=1, patch_size=8, num_heads=16, **kwargs)
+    return LatteConfiguration(depth=56, hidden_size=1152, patch_size_t=1, patch_size=8, num_heads=16, **kwargs)
 
 def Latte_L_122_Config(**kwargs):
-    return LatteConfiguration(depth=24, hidden_size=1024, patch_size_t=1, patch_size=2, num_heads=16, **kwargs)
+    return LatteConfiguration(depth=48, hidden_size=1024, patch_size_t=1, patch_size=2, num_heads=16, **kwargs)
 
 def Latte_L_144_Config(**kwargs):
-    return LatteConfiguration(depth=24, hidden_size=1024, patch_size_t=1, patch_size=4, num_heads=16, **kwargs)
+    return LatteConfiguration(depth=48, hidden_size=1024, patch_size_t=1, patch_size=4, num_heads=16, **kwargs)
 
 def Latte_L_188_Config(**kwargs):
-    return LatteConfiguration(depth=24, hidden_size=1024, patch_size_t=1, patch_size=8, num_heads=16, **kwargs)
+    return LatteConfiguration(depth=48, hidden_size=1024, patch_size_t=1, patch_size=8, num_heads=16, **kwargs)
 
 def Latte_B_122_Config(**kwargs):
-    return LatteConfiguration(depth=12, hidden_size=768, patch_size_t=1, patch_size=2, num_heads=12, **kwargs)
+    return LatteConfiguration(depth=24, hidden_size=768, patch_size_t=1, patch_size=2, num_heads=12, **kwargs)
 
 def Latte_B_144_Config(**kwargs):
-    return LatteConfiguration(depth=12, hidden_size=768, patch_size_t=1, patch_size=4, num_heads=12, **kwargs)
+    return LatteConfiguration(depth=24, hidden_size=768, patch_size_t=1, patch_size=4, num_heads=12, **kwargs)
 
 def Latte_B_188_Config(**kwargs):
-    return LatteConfiguration(depth=12, hidden_size=768, patch_size_t=1, patch_size=8, num_heads=12, **kwargs)
+    return LatteConfiguration(depth=24, hidden_size=768, patch_size_t=1, patch_size=8, num_heads=12, **kwargs)
 
 def Latte_S_122_Config(**kwargs):
-    return LatteConfiguration(depth=12, hidden_size=384, patch_size_t=1, patch_size=2, num_heads=6, **kwargs)
+    return LatteConfiguration(depth=24, hidden_size=384, patch_size_t=1, patch_size=2, num_heads=6, **kwargs)
 
 def Latte_S_144_Config(**kwargs):
-    return LatteConfiguration(depth=12, hidden_size=384, patch_size_t=1, patch_size=4, num_heads=6, **kwargs)
+    return LatteConfiguration(depth=24, hidden_size=384, patch_size_t=1, patch_size=4, num_heads=6, **kwargs)
 
 def Latte_S_188_Config(**kwargs):
-    return LatteConfiguration(depth=12, hidden_size=384, patch_size_t=1, patch_size=8, num_heads=6, **kwargs)
+    return LatteConfiguration(depth=24, hidden_size=384, patch_size_t=1, patch_size=8, num_heads=6, **kwargs)
 
 
 Latte_configs = {

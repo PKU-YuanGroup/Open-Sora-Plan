@@ -1,2 +1,0 @@
-export CUDA_VISIBLE_DEVICES=4,5,6,7
-torchrun --nnodes=1 --nproc_per_node=4 --master_port=29409 opensora/train/train_t2v.py --dataset t2v --csv_path /root/autodl-tmp/sea.csv --video_folder /root/autodl-tmp/sea  --data_path T2V --pretrained_model_path /root/Latte/models--maxin-cn--Latte/snapshots/8f0591220fa329f9d917086810b3c0f6544a87c7/t2v_required_models --results_dir ./results --attention_bias --learn_sigma --save_ceph --mixed_precision
