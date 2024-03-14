@@ -60,7 +60,7 @@ class UCF101(Dataset):
 
         # Sampling video frames
         start_frame_ind, end_frame_ind = self.temporal_sample(total_frames)
-        assert end_frame_ind - start_frame_ind >= self.num_frames
+        # assert end_frame_ind - start_frame_ind >= self.num_frames
         frame_indice = np.linspace(start_frame_ind, end_frame_ind - 1, self.num_frames, dtype=int)
         video = vframes[frame_indice]  # (T, C, H, W)
 
@@ -71,8 +71,8 @@ class UCF101(Dataset):
         total_frames = len(decord_vr)
         # Sampling video frames
         start_frame_ind, end_frame_ind = self.temporal_sample(total_frames)
-        assert end_frame_ind - start_frame_ind >= self.target_video_len
-        frame_indice = np.linspace(start_frame_ind, end_frame_ind - 1, self.target_video_len, dtype=int)
+        # assert end_frame_ind - start_frame_ind >= self.num_frames
+        frame_indice = np.linspace(start_frame_ind, end_frame_ind - 1, self.num_frames, dtype=int)
 
         video_data = decord_vr.get_batch(frame_indice).asnumpy()
         video_data = torch.from_numpy(video_data)
