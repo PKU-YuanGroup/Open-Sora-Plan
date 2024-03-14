@@ -34,7 +34,7 @@ def main(args):
     assert torch.cuda.is_available(), "Training currently requires at least one GPU."
 
     # Setup accelerator:
-    accelerator = Accelerator()
+    accelerator = Accelerator(mixed_precision=args.mixed_precision)
     device = accelerator.device
 
     using_cfg = args.cfg_scale > 1.0
@@ -123,6 +123,7 @@ if __name__ == "__main__":
     parser.add_argument("--cfg-scale", type=float, default=1.0)
     parser.add_argument("--use-compile", action="store_true")
     parser.add_argument("--sample-method", type=str, default='ddpm')
+    parser.add_argument("--mixed-precision", type=str, default=None, choices=[None, "fp16", "bf16"])
     parser.add_argument("--attention-mode", type=str, choices=['xformers', 'math', 'flash'], default="math")
     args = parser.parse_args()
     main(args)
