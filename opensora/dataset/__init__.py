@@ -9,9 +9,9 @@ from torchvision.transforms import Lambda
 from .transform import ToTensorVideo, TemporalRandomCrop, RandomHorizontalFlipVideo, CenterCropResizeVideo
 from .ucf101 import UCF101
 from .sky_datasets import Sky
-from .t2v_dataset import T2V_dataset
 
 ae_norm = {
+    "checkpoint-14000": Lambda(lambda x: x - 0.5),
     "bair_stride4x2x2": Lambda(lambda x: x - 0.5),
     "ucf101_stride4x4x4": Lambda(lambda x: x - 0.5),
     "kinetics_stride4x4x4": Lambda(lambda x: x - 0.5),
@@ -24,6 +24,7 @@ ae_norm = {
 
 }
 ae_denorm = {
+    "checkpoint-14000": lambda x: x + 0.5,
     "bair_stride4x2x2": lambda x: x + 0.5,
     "ucf101_stride4x4x4": lambda x: x + 0.5,
     "kinetics_stride4x4x4": lambda x: x + 0.5,
@@ -38,13 +39,7 @@ ae_denorm = {
 def getdataset(args):
     temporal_sample = TemporalRandomCrop(args.num_frames * args.sample_rate)  # 16 x
     norm_fun = ae_norm[args.ae]
-    if args.dataset == 'landscope_feature':
-        return LandscopeFeature(args, temporal_sample=temporal_sample)
-    elif args.dataset == 'landscope_video_feature':
-        return LandscopeVideoFeature(args)
-    elif args.dataset == 'sky_feature':
-        return SkyFeature(args, temporal_sample=temporal_sample)
-    elif args.dataset == 'ucf101':
+    if args.dataset == 'ucf101':
         transform = Compose(
             [
                 ToTensorVideo(),  # TCHW
@@ -58,11 +53,9 @@ def getdataset(args):
         transform_sky = transforms.Compose([
             ToTensorVideo(),
             CenterCropResizeVideo(args.max_image_size),
-            # video_transforms.RandomHorizontalFlipVideo(),
+            RandomHorizontalFlipVideo(p=0.5),
             norm_fun
         ])
         return Sky(args, transform=transform_sky, temporal_sample=temporal_sample)
-    elif args.dataset == 't2v':
-        return T2V_dataset(csv_path=args.csv_path, video_folder=args.video_folder, sample_size=args.image_size, sample_stride=args.sample_rate)
     else:
         raise NotImplementedError(args.dataset)
