@@ -34,12 +34,6 @@ You can also build a CI docker image for your app to be runned at cloud environm
 bash build_ci.sh
 ```
 
-Or, you can build with a valid DOCKER_USERNAME
-
-```bash
-bash build_ci.sh -u <DOCKER_USERNAME>
-```
-
 ![build_docker_ci](./doc/build_docker_ci.png)
 
 ## Run CI Docker Container at cloud envirnoment
@@ -53,45 +47,7 @@ bash run_ci.sh <cmd>
 # bash run_ci.sh python test.py, the work dir is your git repo root
 ```
 
-Or, you can build with a valid DOCKER_USERNAME
-
-```bash
-bash run_ci.sh -u <DOCKER_USERNAME> <cmd>
-```
-
 ![run_docker_ci](./doc/run_docker_ci.png)
-
-## Push CI Docker Image to docker hub
-
-Sometimes, you need to push your built docker image to docker hub.
-But, you need docker login first. There two ways about this.
-
-### Way1: Docker Login from terminal
-
-```bash
-docker login --username <DOCKER_USERNAME>
-# here, you need to input with your password!
-```
-
-### Way2: Auto Login by Github workflow for CI
-
-You need to set the secrete by GitHub settings for DOCKER_USERNAME and DOCKER_ACCESS_TOKEN
-
-```yaml
-      - name: Log in to Docker Hub
-        uses: docker/login-action@f4ef78c080cd8ba55a85445d5b36e214a81df20a
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_ACCESS_TOKEN }}
-```
-
-![github_secrets](./doc/github_secrets.png)
-
-Then, you can push docker image to docker hub as below.
-
-```bash
-bash push_ci.sh -u <DOCKER_USERNAME>
-```
 
 ## Custom Docker Config
 
@@ -112,12 +68,6 @@ USER_NAME=developer
 
 # User password used in docker container
 USER_PASSWD=666666
-
-# Git repo for CI docker image
-GIT_REPO=https://github.com/SimonLeeGit/Docker4ML.git
-
-# Git branch for CI docker image
-GIT_BRANCH=main
 ```
 
 #### TAG
@@ -140,14 +90,6 @@ Your user name used in docker container.
 #### USER_PASSWD
 
 Your user password used in docker container.
-
-#### GIT_REPO
-
-For ci docker image, you need to set a valid git repo, in order to copy your runnable packages into the ci docker image.
-
-#### GIT_BRANCH
-
-For ci docker image, you need to set a valid git branch to clone your runnable package from your git repo.
 
 ### Config [requriements.txt](./conf/requirements.txt)
 
@@ -193,6 +135,12 @@ You can add your custom script to run when build docker image.
 ## GitHub WorkFlow Support
 
 You can add github workflow by copy [docker_build_ci.yaml](./docker_build_ci.yml) to the path **.github/workflows/** in your github repo.
+
+Then, you should set DOCKER_USERNAME and DOCKER_ACCESS_TOKEN in GitHub settings.
+
+![github_secrets](./doc/github_secrets.png)
+
+Finally, you can check the actions for the workflow result.
 
 ## Q&A
 

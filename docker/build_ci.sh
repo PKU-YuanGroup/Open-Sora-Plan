@@ -50,9 +50,9 @@ pushd $WORK_DIR/conf
 docker build --no-cache -t $DOCKER_USER$TAG --build-arg BASE_IMG=$BASE_IMG --build-arg USER_NAME=$USER_NAME --build-arg USER_PASSWD=$USER_PASSWD . -f $WORK_DIR/dockerfile/dockerfile.base
 popd
 
-# download context files from git repo
-rm -rf $CONTEXT_DIR
-git clone -b $GIT_BRANCH $GIT_REPO $CONTEXT_DIR
+# cp git repo files to context
+rm -rf $CONTEXT_DIR && mkdir -p $CONTEXT_DIR
+find "$WORK_DIR" -mindepth 1 -maxdepth 1 ! -name "$CONTEXT_DIR" -exec cp -r {} "$CONTEXT_DIR" \;
 
 # generate entrypoint
 cat > $CONTEXT_DIR/entrypoint.sh <<EOF

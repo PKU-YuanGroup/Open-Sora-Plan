@@ -3,6 +3,7 @@
 WORK_DIR=$(dirname "$(readlink -f "$0")")
 source $WORK_DIR/conf/setup_env.sh
 DOCKER_USER=
+DOCKER_GPU=
 
 # help info
 usage() {
@@ -38,6 +39,13 @@ while getopts ${OPTSTRING} opt; do
 done
 shift $((OPTIND - 1))
 
+# Run nvidia-smi to check for NVIDIA GPUs and their CUDA capabilities
+nvidia-smi
+if [ $? -eq 0 ]; then
+    echo "This device supports CUDA."
+    DOCKER_GPU="--gpus all"
+fi
+
 RUNNING_IDS="$(docker ps --filter ancestor=$DOCKER_USER$TAG --format "{{.ID}}")"
 
 if [ -n "$RUNNING_IDS" ]; then
@@ -57,7 +65,7 @@ else
     # Run a new docker container instance
     ID=$(docker run \
         --rm \
-        --gpus all \
+        $DOCKER_GPU \
         -itd \
         --ipc=host \
         --ulimit memlock=-1 \
