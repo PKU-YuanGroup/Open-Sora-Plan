@@ -2,9 +2,10 @@
 
 WORK_DIR=$(dirname "$(readlink -f "$0")")
 DOCKER_USER=
-
-# include config
 source $WORK_DIR/conf/setup_env.sh
+
+# Note:
+#   Need to docker login first with your dockerhub username & password
 
 # help info
 usage() {
@@ -40,7 +41,5 @@ while getopts ${OPTSTRING} opt; do
 done
 shift $((OPTIND - 1))
 
-# build developement docker image
-pushd $WORK_DIR/conf
-docker build -t $DOCKER_USER$TAG --build-arg BASE_IMG=$BASE_IMG --build-arg USER_NAME=$USER_NAME --build-arg USER_PASSWD=$USER_PASSWD . -f $WORK_DIR/dockerfile/dockerfile.base
-popd
+# Push to docker hub
+docker push $DOCKER_USER$CI_TAG

@@ -1,5 +1,8 @@
 # Docker4ML
 
+[![License](https://img.shields.io/badge/License-MIT-yellow)](https://github.com/SimonLeeGit/Docker4ML/blob/main/LICENSE)
+![Docker](https://img.shields.io/badge/docker-gray?logo=docker)
+
 Useful docker scripts for ML developement.
 [https://github.com/SimonLeeGit/Docker4ML](https://github.com/SimonLeeGit/Docker4ML)
 
@@ -31,6 +34,12 @@ You can also build a CI docker image for your app to be runned at cloud environm
 bash build_ci.sh
 ```
 
+Or, you can build with a valid DOCKER_USERNAME
+
+```bash
+bash build_ci.sh -u <DOCKER_USERNAME>
+```
+
 ![build_docker_ci](./doc/build_docker_ci.png)
 
 ## Run CI Docker Container at cloud envirnoment
@@ -44,7 +53,43 @@ bash run_ci.sh <cmd>
 # bash run_ci.sh python test.py, the work dir is your git repo root
 ```
 
+Or, you can build with a valid DOCKER_USERNAME
+
+```bash
+bash run_ci.sh -u <DOCKER_USERNAME> <cmd>
+```
+
 ![run_docker_ci](./doc/run_docker_ci.png)
+
+## Push CI Docker Image to docker hub
+
+Sometimes, you need to push your built docker image to docker hub.
+But, you need docker login first. There two ways about this.
+
+### Way1: Docker Login from terminal
+
+```bash
+docker login --username <DOCKER_USERNAME>
+# here, you need to input with your password!
+```
+
+### Way2: Auto Login by Github workflow for CI
+
+You need to set the secrete by GitHub settings for DOCKER_USERNAME and DOCKER_ACCESS_TOKEN
+
+```yaml
+      - name: Log in to Docker Hub
+        uses: docker/login-action@f4ef78c080cd8ba55a85445d5b36e214a81df20a
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_ACCESS_TOKEN }}
+```
+
+Then, you can push docker image to docker hub as below.
+
+```bash
+bash push_ci.sh -u <DOCKER_USERNAME>
+```
 
 ## Custom Docker Config
 
@@ -54,11 +99,11 @@ You can modify this file to custom your settings.
 
 ```bash
 # Docker tag for new build image
-TAG=opensora:dev
-CI_TAG=opensora:ci
+TAG=cuda:dev
+CI_TAG=cuda:ci
 
 # Base docker image tag used by docker build
-BASE_TAG=nvcr.io/nvidia/cuda:12.3.2-runtime-ubuntu22.04
+BASE_IMG=nvcr.io/nvidia/cuda:12.3.2-runtime-ubuntu22.04
 
 # User name used in docker container
 USER_NAME=developer
@@ -67,7 +112,7 @@ USER_NAME=developer
 USER_PASSWD=666666
 
 # Git repo for CI docker image
-GIT_REPO=https://github.com/PKU-YuanGroup/Open-Sora-Plan.git
+GIT_REPO=https://github.com/SimonLeeGit/Docker4ML.git
 
 # Git branch for CI docker image
 GIT_BRANCH=main
@@ -81,7 +126,7 @@ Your built docker image tag, you can set it as what you what.
 
 Your bult docker image tag for ci usage, you can set it as what you what.
 
-#### BASE_TAG
+#### BASE_IMG
 
 The base docker image tag for your built docker image, here we use nvidia pytorch images.
 You can check it from [hhttps://catalog.ngc.nvidia.com/orgs/nvidia/containers/cuda/tags](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/cuda/tags)
@@ -142,6 +187,10 @@ You can add some ports enabled for docker container here.
 - [postinstallscript.sh](./conf/postinstallscript.sh): executed after pip installation
 
 You can add your custom script to run when build docker image.
+
+## GitHub WorkFlow Support
+
+You can add github workflow by copy [docker_build_ci.yaml](./docker_build_ci.yml) to the path **.github/workflows/** in your github repo.
 
 ## Q&A
 

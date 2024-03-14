@@ -2,8 +2,43 @@
 
 WORK_DIR=$(dirname "$(readlink -f "$0")")
 source $WORK_DIR/conf/setup_env.sh
+DOCKER_USER=
 
-RUNNING_IDS="$(docker ps --filter ancestor=$CI_TAG --format "{{.ID}}")"
+# help info
+usage() {
+    echo ""
+    echo "Usage: $0 [-h] [-u <docker_username>] <positional-arg>"
+    echo ""
+    echo " -h: show help about usage"
+    echo " -u: docker username"
+    echo ""
+    exit 1
+}
+
+# Use getopt to parse command-line options
+OPTSTRING=":u:h"
+while getopts ${OPTSTRING} opt; do
+  case ${opt} in
+    u)
+      echo "use docker user: ${OPTARG}"
+      DOCKER_USER=${OPTARG}/
+      ;;
+    h)
+      usage
+      ;;
+    :)
+      echo "Option -${OPTARG} requires an argument."
+      usage
+      ;;
+    ?)
+      echo "Invalid option: -${OPTARG}."
+      usage
+      ;;
+  esac
+done
+shift $((OPTIND - 1))
+
+RUNNING_IDS="$(docker ps --filter ancestor=$DOCKER_USER$CI_TAG --format "{{.ID}}")"
 
 if [ -n "$RUNNING_IDS" ]; then
     echo ' '
@@ -18,4 +53,4 @@ docker run \
     --ipc=host \
     --ulimit memlock=-1 \
     --ulimit stack=67108864 \
-    $CI_TAG $@
+    $DOCKER_USER$CI_TAG $@

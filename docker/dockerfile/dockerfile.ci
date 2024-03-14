@@ -1,5 +1,5 @@
-ARG TAG
-FROM ${TAG}
+ARG BASE_IMG
+FROM ${BASE_IMG}
 ARG USER_NAME=myuser
 COPY . /home/${USER_NAME}/workspace
 ENTRYPOINT [ "bash", "entrypoint.sh" ]
