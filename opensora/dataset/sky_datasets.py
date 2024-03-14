@@ -17,8 +17,8 @@ class Sky(data.Dataset):
         self.data_path = configs.data_path
         self.transform = transform
         self.temporal_sample = temporal_sample
-        self.target_video_len = self.configs.num_frames
-        self.frame_interval = self.configs.sample_rate
+        self.num_frames = self.configs.num_frames
+        self.sample_rate = self.configs.sample_rate
         self.data_all = self.load_video_frames(self.data_path)
 
     def __getitem__(self, index):
@@ -28,10 +28,10 @@ class Sky(data.Dataset):
 
         # Sampling video frames
         start_frame_ind, end_frame_ind = self.temporal_sample(total_frames)
-        assert end_frame_ind - start_frame_ind >= self.target_video_len
-        frame_indice = np.linspace(start_frame_ind, end_frame_ind-1, num=self.target_video_len, dtype=int) # start, stop, num=50
+        assert end_frame_ind - start_frame_ind >= self.num_frames
+        frame_indice = np.linspace(start_frame_ind, end_frame_ind-1, num=self.num_frames, dtype=int) # start, stop, num=50
 
-        select_video_frames = vframes[frame_indice[0]: frame_indice[-1]+1: self.frame_interval] 
+        select_video_frames = vframes[frame_indice[0]: frame_indice[-1]+1: self.sample_rate]
 
         video_frames = []
         for path in select_video_frames:
@@ -59,7 +59,7 @@ class Sky(data.Dataset):
                 # print(meta[0]) # root
                 # print(meta[2]) # files
             frames = [os.path.join(root, item) for item in frames if is_image_file(item)]
-            if len(frames) > max(0, self.target_video_len * self.frame_interval): # need all > (16 * frame-interval) videos
+            if len(frames) > max(0, self.num_frames * self.sample_rate): # need all > (16 * frame-interval) videos
             # if len(frames) >= max(0, self.target_video_len): # need all > 16 frames videos
                 data_all.append(frames)
         self.video_num = len(data_all)
