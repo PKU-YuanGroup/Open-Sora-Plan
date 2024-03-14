@@ -85,6 +85,8 @@ You need to set the secrete by GitHub settings for DOCKER_USERNAME and DOCKER_AC
           password: ${{ secrets.DOCKER_ACCESS_TOKEN }}
 ```
 
+![github_secrets](./doc/github_secrets.png)
+
 Then, you can push docker image to docker hub as below.
 
 ```bash
