@@ -8,7 +8,7 @@ DOCKER_GPU=
 # help info
 usage() {
     echo ""
-    echo "Usage: $0 [-h] [-u <docker_username>] <positional-arg>"
+    echo "Usage: $0 [-h] [-u <docker_username>]"
     echo ""
     echo " -h: show help about usage"
     echo " -u: docker username"
@@ -72,8 +72,8 @@ else
         --ulimit stack=67108864 \
         -e DISPLAY=$DISPLAY \
         -v /tmp/.X11-unix/:/tmp/.X11-unix/ \
-        -v $PWD:/home/$USER_NAME/workspace \
-        -w /home/$USER_NAME/workspace \
+        -v $PWD:/home/$USER/workspace \
+        -w /home/$USER/workspace \
         $(cat $WORK_DIR/conf/ports.txt) \
         $DOCKER_USER$TAG)
 fi

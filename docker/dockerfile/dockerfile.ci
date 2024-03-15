@@ -1,5 +1,5 @@
 ARG BASE_IMG
 FROM ${BASE_IMG}
-ARG USER_NAME=myuser
-COPY . /home/${USER_NAME}/workspace
+COPY . /home/workspace
+WORKDIR /home/workspace
 ENTRYPOINT [ "bash", "entrypoint.sh" ]

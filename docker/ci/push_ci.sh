@@ -10,7 +10,7 @@ source $WORK_DIR/../conf/setup_env.sh
 # help info
 usage() {
     echo ""
-    echo "Usage: $0 [-h] [-u <docker_username>] <positional-arg>"
+    echo "Usage: $0 [-h] [-u <docker_username>]"
     echo ""
     echo " -h: show help about usage"
     echo " -u: docker username"

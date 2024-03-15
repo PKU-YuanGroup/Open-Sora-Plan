@@ -1,7 +1,9 @@
 ARG BASE_IMG
 FROM ${BASE_IMG}
-ARG USER_NAME=myuser
-ARG USER_PASSWD=111111
+ARG USER_NAME
+ARG USER_PASSWD
+ARG USER_ID
+ARG GROUP_ID
 ARG DEBIAN_FRONTEND=noninteractive
 
 # Pre-install packages, pip install requirements and run post install script.
@@ -13,7 +15,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN bash postinstallscript.sh
 
 # Create a new user and group using the username argument
-RUN groupadd -r ${USER_NAME} && useradd -r -m -g${USER_NAME} ${USER_NAME}
+RUN groupadd -g ${GROUP_ID} ${USER_NAME} && useradd -u ${USER_ID} -g ${USER_NAME} ${USER_NAME}
 RUN echo "${USER_NAME}:${USER_PASSWD}" | chpasswd
 RUN usermod -aG sudo ${USER_NAME}
 USER ${USER_NAME}
