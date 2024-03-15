@@ -29,11 +29,11 @@ class Latte(nn.Module):
         learn_sigma = config.learn_sigma
         extras = config.extras
         attention_mode = config.attention_mode
-        compress_kv = config.compress_kv
         attention_pe_mode = config.attention_pe_mode
         pt_input_size = config.pt_input_size
         pt_num_frames = config.pt_num_frames
         intp_vfreq = config.intp_vfreq
+        compress_kv = config.compress_kv
 
         self.config = config
 
@@ -264,11 +264,11 @@ class LatteT2V(Latte):
         learn_sigma = config.learn_sigma
         extras = config.extras
         attention_mode = config.attention_mode
-        compress_kv = config.compress_kv
         attention_pe_mode = config.attention_pe_mode
         pt_input_size = config.pt_input_size
         pt_num_frames = config.pt_num_frames
         intp_vfreq = config.intp_vfreq
+        compress_kv = config.compress_kv
         caption_channels = config.caption_channels
         model_max_length = config.model_max_length
 

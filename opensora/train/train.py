@@ -95,7 +95,8 @@ def main(args):
         in_channels=ae_channel_config[args.ae],
         extras=args.extras,
         num_frames=args.num_frames // ae_stride_t,
-        attention_mode=args.attention_mode
+        attention_mode=args.attention_mode,
+        compress_kv=args.compress_kv
     )
     model.gradient_checkpointing = args.gradient_checkpointing
 
@@ -130,9 +131,9 @@ def main(args):
     if accelerator.is_main_process:
         logger.info(f"{model}")
         logger.info(f"Model Parameters: {sum(p.numel() for p in model.parameters()):,}")
-        for n, p in model.named_parameters():
-            if p.requires_grad:
-                logger.info(f"Training Parameters: {n}")
+        # for n, p in model.named_parameters():
+        #     if p.requires_grad:
+        #         logger.info(f"Training Parameters: {n}")
 
     # Setup optimizer (we used default Adam betas=(0.9, 0.999) and a constant learning rate of 1e-4 in our paper):
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0)
@@ -186,14 +187,21 @@ def main(args):
         dirs = sorted(dirs, key=lambda x: int(x.split(".")[0]))
         path = dirs[-1]
         state_dict = torch.load(os.path.join(os.path.join(experiment_dir, 'checkpoints'), path), map_location='cpu')
-        print(state_dict['args'])
         state_dict = {'module.'+k: v for k, v in state_dict['model'].items()}
-        logger.info(f"Resuming from checkpoint {path}")
         model.load_state_dict(state_dict)
-        train_steps = int(path.split(".")[0])
 
+        if lr_scheduler is not None:
+            lr_scheduler.load_state_dict(state_dict['scheduler'])
+        if opt is not None:
+            opt.load_state_dict(state_dict['opt'])
+        if args.use_ema:
+            ema.load_state_dict(state_dict['ema'])
+
+        train_steps = int(path.split(".")[0])
         first_epoch = train_steps // num_update_steps_per_epoch
         resume_step = train_steps % num_update_steps_per_epoch
+
+        logger.info(f"Resuming from checkpoint {path}")
 
     if args.pretrained:
         try:
@@ -268,7 +276,8 @@ def main(args):
                 if accelerator.is_main_process:
                     checkpoint = {
                         "model": model.module.state_dict(),
-                        "opt": opt.state_dict(),
+                        "opt": opt,
+                        "lr_scheduler": lr_scheduler,
                         "args": args
                     }
                     if args.use_ema:
@@ -313,6 +322,7 @@ if __name__ == "__main__":
     parser.add_argument("--gradient-checkpointing", action="store_true")
     parser.add_argument("--use-compile", action="store_true")
     parser.add_argument("--use-ema", action="store_true")
+    parser.add_argument("--compress-kv", action="store_true")
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--lr-warmup-steps", type=int, default=0)
     parser.add_argument("--attention-mode", type=str, choices=['xformers', 'math', 'flash'], default="math")
