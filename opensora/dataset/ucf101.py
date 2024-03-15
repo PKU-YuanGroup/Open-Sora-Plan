@@ -44,7 +44,6 @@ class UCF101(Dataset):
 
     def __getitem__(self, idx):
         video_path, label = self.samples[idx]
-
         try:
             video = self.tv_read(video_path)
             video = self.transform(video)  # T C H W -> T C H W

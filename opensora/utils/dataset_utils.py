@@ -52,8 +52,16 @@ class Collate:
         self.num_frames = args.num_frames
 
     def __call__(self, batch):
-        batch_tubes, labels = tuple(zip(*batch))
-        labels = torch.as_tensor(labels).to(torch.long)
+        unzip = tuple(zip(*batch))
+        if len(unzip) == 2:
+            batch_tubes, labels = unzip
+            labels = torch.as_tensor(labels).to(torch.long)
+        elif len(unzip) == 3:
+            batch_tubes, input_ids, cond_mask = unzip
+            input_ids = torch.stack(input_ids).squeeze(1)
+            cond_mask = torch.stack(cond_mask).squeeze(1)
+        else:
+            raise NotImplementedError
         ds_stride = self.ae_stride * self.patch_size
         t_ds_stride = self.ae_stride_t * self.patch_size_t
 
@@ -91,5 +99,8 @@ class Collate:
                                  0, max_patchify_latent_size[0] - i[0]), value=0) for i in valid_patchify_latent_size]
         attention_mask = torch.stack(attention_mask)
 
-        return pad_batch_tubes, labels, attention_mask
+        if len(unzip) == 2:
+            return pad_batch_tubes, labels, attention_mask
+        elif len(unzip) == 3:
+            return pad_batch_tubes, attention_mask, input_ids, cond_mask
 

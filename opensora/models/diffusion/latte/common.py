@@ -98,14 +98,14 @@ class Attention(nn.Module):
         if self.attention_mode == 'xformers':  # require pytorch 2.0
             if attn_mask is not None:
                 attn_mask = self.make_attn_mask(attn_mask)
-                attn_mask = attn_mask.repeat(1, self.num_heads, 1, 1).to(q.dtype)
+                attn_mask = attn_mask.repeat(1, self.num_heads, 1, 1).bool()
             with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=False, enable_mem_efficient=True):
                 x = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask,
                                                    dropout_p=self.attn_drop.p, scale=self.scale).reshape(B, N, C)
 
         elif self.attention_mode == 'flash':  # require pytorch 2.0
             # https://github.com/PKU-YuanGroup/Open-Sora-Plan/issues/109
-            assert attn_mask is None or torch.all(attn_mask.bool()), 'flash-attention do not support attention_mask'
+            assert attn_mask is None, 'flash-attention do not support attention_mask'
             with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=True, enable_mem_efficient=False):
                 x = F.scaled_dot_product_attention(q, k, v, dropout_p=self.attn_drop.p, scale=self.scale).reshape(B, N, C)
 
@@ -117,8 +117,8 @@ class Attention(nn.Module):
                 attn = attn + attn_bias
             attn = attn.softmax(dim=-1)
             if torch.any(torch.isnan(attn)):
-                print('torch.any(torch.isnan(attn))')
-                attn = attn.masked_fill(torch.isnan(attn), float(0.))
+                raise ValueError('Found NAN in attn')
+                # attn = attn.masked_fill(torch.isnan(attn), float(0.))
             attn = self.attn_drop(attn)
             x = (attn @ v).transpose(1, 2).reshape(B, N, C)
 
@@ -169,28 +169,29 @@ class CrossAttention(nn.Module):
 
     def forward(self, x, cond, attn_mask=None, cond_mask=None):
         B, N, C = x.shape
+        _, N_, _ = cond.shape
         q = self.q_linear(x).reshape(B, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3).contiguous()
-        kv = self.kv_linear(cond).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4).contiguous()
+        kv = self.kv_linear(cond).reshape(B, N_, 2, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4).contiguous()
         k, v = kv.unbind(0)  # make torchscript happy (cannot use tensor as tuple) b h n c
 
         if self.attention_mode == 'xformers' or self.attention_mode == 'flash':  # require pytorch 2.0
-            attn_mask = self.make_attn_mask(attn_mask, cond_mask)
+            attn_mask = self.make_attn_mask(N, attn_mask, cond_mask)
             if attn_mask is not None:
-                attn_mask = attn_mask.repeat(1, self.num_heads, 1, 1).to(q.dtype)
+                attn_mask = attn_mask.repeat(1, self.num_heads, 1, 1).bool()
             with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=False, enable_mem_efficient=True):
                 x = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask,
                                                    dropout_p=self.attn_drop.p, scale=self.scale).reshape(B, N, C)
 
         elif self.attention_mode == 'math':
             attn = (q @ k.transpose(-2, -1)) * self.scale
-            attn_bias = self.make_attn_bias(attn_mask, cond_mask)
+            attn_bias = self.make_attn_bias(N, attn_mask, cond_mask)
             if attn_bias is not None:
                 attn_bias = attn_bias.repeat(1, self.num_heads, 1, 1).to(q.dtype)
                 attn = attn + attn_bias
             attn = attn.softmax(dim=-1)
             if torch.any(torch.isnan(attn)):
-                print('torch.any(torch.isnan(attn))')
-                attn = attn.masked_fill(torch.isnan(attn), float(0.))
+                raise ValueError('Found NAN in attn')
+                # attn = attn.masked_fill(torch.isnan(attn), float(0.))
             attn = self.attn_drop(attn)
             x = (attn @ v).transpose(1, 2).reshape(B, N, C)
 
@@ -202,11 +203,11 @@ class CrossAttention(nn.Module):
 
         return x
 
-    def make_attn_mask(self, attn_mask, cond_mask):
+    def make_attn_mask(self, N, attn_mask, cond_mask):
         if attn_mask is None and cond_mask is None:
             return None
         if attn_mask is None and cond_mask is not None:
-            attn_mask = cond_mask
+            attn_mask = torch.ones(cond_mask.shape[0], N).to(device=cond_mask.device, dtype=cond_mask.dtype)
         if attn_mask is not None and cond_mask is None:
             raise NotImplementedError
         attn_mask = attn_mask.flatten(1).unsqueeze(-1)  # b n -> b n 1
@@ -215,10 +216,10 @@ class CrossAttention(nn.Module):
         attn_mask = attn_mask.unsqueeze(1)  # b n n -> b 1 n n
         return attn_mask
 
-    def make_attn_bias(self, attn_mask, cond_mask):
+    def make_attn_bias(self, N, attn_mask, cond_mask):
         # The numerical range of bfloat16, float16 can't conver -1e8
         # Refer to https://discuss.pytorch.org/t/runtimeerror-value-cannot-be-converted-to-type-at-half-without-overflow-1e-30/109768
-        attn_mask = self.make_attn_mask(attn_mask, cond_mask)
+        attn_mask = self.make_attn_mask(N, attn_mask, cond_mask)
         if attn_mask is None:
             return None
         attn_bias = torch.where(attn_mask == 0, -1e8 if attn_mask.dtype == torch.float32 else -1e4, attn_mask)
@@ -294,6 +295,36 @@ class LabelEmbedder(nn.Module):
         embeddings = self.embedding_table(labels)
         return embeddings
 
+class CaptionEmbedder(nn.Module):
+    """
+    Embeds class labels into vector representations. Also handles label dropout for classifier-free guidance.
+    """
+
+    def __init__(self, in_channels, hidden_size, uncond_prob, act_layer=nn.GELU(approximate='tanh'), token_num=120):
+        super().__init__()
+        self.y_proj = Mlp(in_features=in_channels, hidden_features=hidden_size, out_features=hidden_size, act_layer=act_layer, drop=0)
+        self.register_buffer("y_embedding", nn.Parameter(torch.randn(token_num, in_channels) / in_channels ** 0.5))
+        self.uncond_prob = uncond_prob
+
+    def token_drop(self, caption, force_drop_ids=None):
+        """
+        Drops labels to enable classifier-free guidance.
+        """
+        if force_drop_ids is None:
+            drop_ids = torch.rand(caption.shape[0]).cuda() < self.uncond_prob
+        else:
+            drop_ids = force_drop_ids == 1
+        caption = torch.where(drop_ids[:, None, None, None], self.y_embedding, caption)
+        return caption
+
+    def forward(self, caption, train, force_drop_ids=None):
+        if train:
+            assert caption.shape[2:] == self.y_embedding.shape
+        use_dropout = self.uncond_prob > 0
+        if (train and use_dropout) or (force_drop_ids is not None):
+            caption = self.token_drop(caption, force_drop_ids)
+        caption = self.y_proj(caption)
+        return caption
 
 #################################################################################
 #                                 Core Latte Model                                #
@@ -319,6 +350,31 @@ class TransformerBlock(nn.Module):
     def forward(self, x, c, attn_mask=None):
         shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = self.adaLN_modulation(c).chunk(6, dim=1)
         x = x + gate_msa.unsqueeze(1) * self.attn(modulate(self.norm1(x), shift_msa, scale_msa), attn_mask)
+        x = x + gate_mlp.unsqueeze(1) * self.mlp(modulate(self.norm2(x), shift_mlp, scale_mlp))
+        return x
+
+class TransformerCrossConditonBlock(nn.Module):
+    """
+    A Latte tansformer block with adaptive layer norm zero (adaLN-Zero) conditioning.
+    """
+    def __init__(self, hidden_size, num_heads, mlp_ratio=4.0, **block_kwargs):
+        super().__init__()
+        self.norm1 = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
+        self.attn = Attention(hidden_size, num_heads=num_heads, qkv_bias=True, **block_kwargs)
+        self.cross_attn = CrossAttention(hidden_size, num_heads, **block_kwargs)
+        self.norm2 = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
+        mlp_hidden_dim = int(hidden_size * mlp_ratio)
+        approx_gelu = lambda: nn.GELU(approximate="tanh")
+        self.mlp = Mlp(in_features=hidden_size, hidden_features=mlp_hidden_dim, act_layer=approx_gelu, drop=0)
+        self.adaLN_modulation = nn.Sequential(
+            nn.SiLU(),
+            nn.Linear(hidden_size, 6 * hidden_size, bias=True)
+        )
+
+    def forward(self, x, cond, t, attn_mask=None, cond_mask=None):
+        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = self.adaLN_modulation(t).chunk(6, dim=1)
+        x = x + gate_msa.unsqueeze(1) * self.attn(modulate(self.norm1(x), shift_msa, scale_msa), attn_mask)
+        x = x + self.cross_attn(x, cond, attn_mask, cond_mask)
         x = x + gate_mlp.unsqueeze(1) * self.mlp(modulate(self.norm2(x), shift_mlp, scale_mlp))
         return x
 
