@@ -110,7 +110,7 @@ class T2V_dataset(Dataset):
             # video = self.tv_read(video_path)
             # video = self.transform(video)  # T C H W -> T C H W
             # video = video.transpose(0, 1)  # T C H W -> C T H W
-            video = torch.rand(3, 16, 256, 256)
+            video = torch.rand(3, 64, 256, 256)
             text = 'ni hao'
             text = text_preprocessing(text)
             text_tokens_and_mask = self.tokenizer(

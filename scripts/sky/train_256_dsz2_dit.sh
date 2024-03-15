@@ -16,5 +16,5 @@ accelerate launch \
     --ckpt-every 500 \
     --log-every 50 \
     --gradient-checkpointing \
-    --attention_mode xformers \
+    --attention-mode xformers \
     --mixed-precision fp16
