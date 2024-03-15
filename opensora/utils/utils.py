@@ -151,16 +151,15 @@ def get_experiment_dir(root_dir, args):
     #     root_dir += '-WOPRE'
     if args.use_compile:
         root_dir += '-Compile'  # speedup by torch compile
-    # if args.fixed_spatial:
-    #     root_dir += '-FixedSpa'
+    if args.attention_mode:
+        root_dir += f'-{args.attention_mode.upper()}'
     # if args.enable_xformers_memory_efficient_attention:
     #     root_dir += '-Xfor'
     if args.gradient_checkpointing:
         root_dir += '-Gc'
     if args.mixed_precision:
-        root_dir += f'-{args.mixed_precision}'
-    if args.max_image_size == 512:
-        root_dir += '-512'
+        root_dir += f'-{args.mixed_precision.upper()}'
+    root_dir += f'-{args.max_image_size}'
     return root_dir
 
 

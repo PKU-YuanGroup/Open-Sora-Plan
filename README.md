@@ -93,10 +93,12 @@ Project stages:
 - [x] Add super resolution model. 🤝 Thanks to [@Linzy19](https://github.com/Linzy19)
 - [x] Add accelerate to automatically manage training.
 - [ ] Joint training with images. 🙏 **[Need your contribution]**
+- [ ] Implement [MaskDiT](https://github.com/Anima-Lab/MaskDiT) technique for fast training. 🙏 **[Need your contribution]**
 - [ ] Incorporate [NaViT](https://arxiv.org/abs/2307.06304). 🙏 **[Need your contribution]**
 - [ ] Add [FreeNoise](https://github.com/arthur-qiu/FreeNoise-LaVie) support for training-free longer video generation. 🙏 **[Need your contribution]**
 
 #### Conduct text2video experiments on landscape dataset.
+- [ ] Implement [PeRFlow](https://github.com/magic-research/piecewise-rectified-flow) for improving the sampling process. 🙏 **[Need your contribution]**
 - [x] Finish data loading, pre-processing utils.
 - [x] Add T5 support. 
 - [ ] Add CLIP support. 🙏 **[Need your contribution]**
@@ -260,16 +262,13 @@ Below is a visualization of the sampling results.
 | <img src="assets/demo_0006.gif">  | <img src="assets/demo_0011.gif">  |
 
 
-## 🤝 How to Contribute to the Open-Sora Plan Community
+## 💡 How to Contribute to the Open-Sora Plan Community
 We greatly appreciate your contributions to the Open-Sora Plan open-source community and helping us make it even better than it is now!
 
 For more details, please refer to the [Contribution Guidelines](docs/Contribution_Guidelines.md)
 
-<!--
-<a href="https://github.com/PKU-YuanGroup/Open-Sora-Plan/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=PKU-YuanGroup/Open-Sora-Plan" />
-</a>
--->
+
+
 
 ## 👍 Acknowledgement
 * [Latte](https://github.com/Vchitect/Latte): The **main codebase** we built upon and it is an wonderful video gererated model.
@@ -288,3 +287,8 @@ For more details, please refer to the [Contribution Guidelines](docs/Contributio
 [![Star History](https://api.star-history.com/svg?repos=PKU-YuanGroup/Open-Sora-Plan)](https://star-history.com/#PKU-YuanGroup/Open-Sora-Plan&Date)
 -->
 
+## 🤝 Community contributors
+
+<a href="https://github.com/PKU-YuanGroup/Open-Sora-Plan/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=PKU-YuanGroup/Open-Sora-Plan" />
+</a>
