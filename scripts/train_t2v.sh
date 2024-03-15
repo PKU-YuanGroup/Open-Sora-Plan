@@ -1,5 +1,5 @@
 
-HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 accelerate launch \
+accelerate launch \
     --config_file scripts/accelerate_configs/ddp_config.yaml --main_process_port 29502 \
     opensora/train/train_t2v.py \
     --model LatteT2V-XL/122 \
@@ -11,13 +11,13 @@ HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 accelerate launch \
     --dataset t2v \
     --extras 3 \
     --sample-rate 1 \
-    --num-frames 16 \
+    --num-frames 64 \
     --max-image-size 256 \
     --max-train-steps 1000000 \
-    --local-batch-size 2 \
+    --local-batch-size 1 \
     --lr 1e-4 \
     --ckpt-every 500 \
-    --log-every 2 \
+    --log-every 50 \
     --gradient-checkpointing \
     --attention-mode xformers \
     --mixed-precision bf16
@@ -37,7 +37,7 @@ HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 accelerate launch \
     --dataset t2v \
     --extras 3 \
     --sample-rate 1 \
-    --num-frames 16 \
+    --num-frames 64 \
     --max-image-size 256 \
     --max-train-steps 1000000 \
     --local-batch-size 2 \
@@ -45,7 +45,8 @@ HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 accelerate launch \
     --ckpt-every 500 \
     --log-every 50 \
     --gradient-checkpointing \
-    --attention-mode flash \
+    --attention-mode xformers \
     --mixed-precision bf16 \
     --num-workers 0 \
-    --pretrained PixArt-XL-2-256x256.pth
+    --pretrained PixArt-XL-2-256x256.pth \
+    --compress-kv

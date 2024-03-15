@@ -80,8 +80,13 @@ def main(args):
             model_kwargs = dict(y=y, cfg_scale=args.cfg_scale)
             sample_fn = model.module.forward_with_cfg
         else:
-            sample_fn = model.forward
-            model_kwargs = dict(y=None)
+            if args.extras == 1:
+                sample_fn = model.forward
+                model_kwargs = dict(y=None)
+            elif args.extras == 2:
+                sample_fn = model.forward
+                y = torch.randint(0, args.num_classes, (1,), device=device)
+                model_kwargs = dict(y=y)
 
         # Sample images:
         if args.sample_method == 'ddim':
