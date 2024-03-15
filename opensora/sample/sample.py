@@ -78,7 +78,7 @@ def main(args):
             y_null = torch.tensor([args.num_classes] * 1, device=device)
             y = torch.cat([y, y_null], dim=0)
             model_kwargs = dict(y=y, cfg_scale=args.cfg_scale)
-            sample_fn = model.forward_with_cfg
+            sample_fn = model.module.forward_with_cfg
         else:
             sample_fn = model.forward
             model_kwargs = dict(y=None)
