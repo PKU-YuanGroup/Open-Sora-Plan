@@ -46,11 +46,11 @@ jobs:
 
       - name: Build docker image
         run: |
-          bash ${{env.DOCKER_WORKDIR}}/build_ci.sh -u ${{ secrets.DOCKER_USERNAME }}
+          bash ${{env.DOCKER_WORKDIR}}/ci/build_ci.sh -u ${{ secrets.DOCKER_USERNAME }} -d ${{ github.workspace }}
 
       - name: Push docker image
         run: |
-          bash ${{env.DOCKER_WORKDIR}}/push_ci.sh -u ${{ secrets.DOCKER_USERNAME }}
+          bash ${{env.DOCKER_WORKDIR}}/ci/push_ci.sh -u ${{ secrets.DOCKER_USERNAME }}
 
   run_autotest:
     needs: build_ci_docker_image
@@ -89,8 +89,8 @@ jobs:
 
       - name: Pull docker image
         run: |
-          bash ${{env.DOCKER_WORKDIR}}/pull_ci.sh -u ${{ secrets.DOCKER_USERNAME }}
+          bash ${{env.DOCKER_WORKDIR}}/ci/pull_ci.sh -u ${{ secrets.DOCKER_USERNAME }}
 
       - name: Run autottest
         run: |
-          bash ${{env.DOCKER_WORKDIR}}/run_ci.sh -u ${{ secrets.DOCKER_USERNAME }} echo "hello world"
+          bash ${{env.DOCKER_WORKDIR}}/ci/run_ci.sh -u ${{ secrets.DOCKER_USERNAME }} echo "hello world"

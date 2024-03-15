@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 
 WORK_DIR=$(dirname "$(readlink -f "$0")")
-source $WORK_DIR/conf/setup_env.sh
 DOCKER_USER=
-DOCKER_GPU=
+source $WORK_DIR/../conf/setup_env.sh
+
+# Note:
+#   Need to docker login first with your dockerhub username & password
 
 # help info
 usage() {
@@ -39,26 +41,6 @@ while getopts ${OPTSTRING} opt; do
 done
 shift $((OPTIND - 1))
 
-# Run nvidia-smi to check for NVIDIA GPUs and their CUDA capabilities
-nvidia-smi
-if [ $? -eq 0 ]; then
-    echo "This device supports CUDA."
-    DOCKER_GPU="--gpus all"
-fi
-
-# Check running docker containers, and kill them
-RUNNING_IDS="$(docker ps --filter ancestor=$DOCKER_USER$CI_TAG --format "{{.ID}}")"
-if [ -n "$RUNNING_IDS" ]; then
-    echo ' '
-    echo "The running container ID is: $RUNNING_IDS, kill them!"
-    docker kill $RUNNING_IDS
-fi
-
-# Run a new docker container instance
-docker run \
-    --rm \
-    $DOCKER_GPU \
-    --ipc=host \
-    --ulimit memlock=-1 \
-    --ulimit stack=67108864 \
-    $DOCKER_USER$CI_TAG $@
+# Push to docker hub
+docker push $DOCKER_USER$TAG
+docker push $DOCKER_USER$CI_TAG

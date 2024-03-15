@@ -2,7 +2,7 @@
 
 WORK_DIR=$(dirname "$(readlink -f "$0")")
 DOCKER_USER=
-source $WORK_DIR/conf/setup_env.sh
+source $WORK_DIR/../conf/setup_env.sh
 
 # Note:
 #   Need to docker login first with your dockerhub username & password
@@ -41,5 +41,5 @@ while getopts ${OPTSTRING} opt; do
 done
 shift $((OPTIND - 1))
 
-# Push to docker hub
-docker push $DOCKER_USER$CI_TAG
+# Pull from docker hub
+docker pull $DOCKER_USER$CI_TAG

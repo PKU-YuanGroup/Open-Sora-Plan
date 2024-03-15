@@ -3,15 +3,18 @@
 [![License](https://img.shields.io/badge/License-MIT-yellow)](https://github.com/SimonLeeGit/Docker4ML/blob/main/LICENSE)
 ![Docker](https://img.shields.io/badge/docker-gray?logo=docker)
 
-Useful docker scripts for ML developement.
-[https://github.com/SimonLeeGit/Docker4ML](https://github.com/SimonLeeGit/Docker4ML)
+Project Repository: [https://github.com/SimonLeeGit/Docker4ML](https://github.com/SimonLeeGit/Docker4ML)
+
+Useful docker scripts for ML developement. You can integrated to your project in the **docker** folder.
+
+![integrate](./doc/integrate.png)
 
 ## Build Docker Image
 
 You can build your development docker image as below.
 
 ```bash
-bash build.sh
+bash docker/build.sh
 ```
 
 ![build_docker](./doc/build_docker.png)
@@ -21,33 +24,10 @@ bash build.sh
 You can run built development docker container as your development environment as below.
 
 ```bash
-bash run.sh
+bash docker/run.sh
 ```
 
 ![run_docker](./doc/run_docker.png)
-
-## Build CI Docker Image
-
-You can also build a CI docker image for your app to be runned at cloud environment.
-
-```bash
-bash build_ci.sh
-```
-
-![build_docker_ci](./doc/build_docker_ci.png)
-
-## Run CI Docker Container at cloud envirnoment
-
-```bash
-bash run_ci.sh <cmd>
-
-# <cmd> is your custom command to be runned in CI docker container, such as:
-#
-# bash run_ci.sh echo "hello world"
-# bash run_ci.sh python test.py, the work dir is your git repo root
-```
-
-![run_docker_ci](./doc/run_docker_ci.png)
 
 ## Custom Docker Config
 
@@ -141,6 +121,34 @@ Then, you should set DOCKER_USERNAME and DOCKER_ACCESS_TOKEN in GitHub settings.
 ![github_secrets](./doc/github_secrets.png)
 
 Finally, you can check the actions for the workflow result.
+
+![github_action](./doc/github_action.png)
+
+Alos, you can build your CI docker image in local machine.
+
+### Build CI Docker Image
+
+You can also build a CI docker image for your app to be runned at cloud environment.
+
+```bash
+bash docker/ci/build_ci.sh -d <project_dir>
+```
+
+![build_docker_ci](./doc/build_docker_ci.png)
+
+### Run CI Docker Container at cloud envirnoment
+
+```bash
+bash docker/ci/run_ci.sh <cmd>
+
+# <cmd> is your custom command to be runned in CI docker container, such as:
+#
+# bash docker/ci/run_ci.sh echo "hello world"
+# bash docker/ci/run_ci.sh bash main.sh
+# bash docker/ci/run_ci.sh python main.py
+```
+
+![run_docker_ci](./doc/run_docker_ci.png)
 
 ## Q&A
 
