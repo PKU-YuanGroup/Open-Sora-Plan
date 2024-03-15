@@ -3,9 +3,10 @@ from einops import rearrange, repeat
 from timm.layers import PatchEmbed
 from torch import nn
 import torch
-from .pos import get_1d_sincos_temp_embed, get_2d_sincos_pos_embed
-from .common import TimestepEmbedder, LabelEmbedder, TransformerBlock, FinalLayer
-from .configuration_latte import LatteConfiguration
+from opensora.models.diffusion.latte.pos import get_1d_sincos_temp_embed, get_2d_sincos_pos_embed
+from opensora.models.diffusion.latte.common import TimestepEmbedder, LabelEmbedder, TransformerBlock, FinalLayer, \
+    TransformerCrossConditonBlock, CaptionEmbedder
+from opensora.models.diffusion.latte.configuration_latte import LatteConfiguration, LatteT2VConfiguration
 
 class Latte(nn.Module):
     """
@@ -26,7 +27,7 @@ class Latte(nn.Module):
         class_dropout_prob = config.class_dropout_prob
         num_classes = config.num_classes
         learn_sigma = config.learn_sigma
-        extras = config.learn_sigma
+        extras = config.extras
         attention_mode = config.attention_mode
         compress_kv = config.compress_kv
         attention_pe_mode = config.attention_pe_mode
@@ -51,7 +52,6 @@ class Latte(nn.Module):
         self.x_embedder = PatchEmbed(input_size, patch_size, in_channels, hidden_size, bias=True)
         self.t_embedder = TimestepEmbedder(hidden_size)
 
-        assert self.extras == 1 or self.extras == 2
         if self.extras == 2:
             self.y_embedder = LabelEmbedder(num_classes, hidden_size, class_dropout_prob)
 
@@ -246,16 +246,135 @@ class Latte(nn.Module):
         eps = torch.cat([half_eps, half_eps], dim=0) 
         return torch.cat([eps, rest], dim=2)
 
+class LatteT2V(Latte):
+    def __init__(self, config: LatteT2VConfiguration):
+        super(LatteT2V, self).__init__(config)
+
+        input_size = config.input_size
+        patch_size = config.patch_size
+        patch_size_t = config.patch_size_t
+        in_channels = config.in_channels
+        hidden_size = config.hidden_size
+        depth = config.depth
+        num_heads = config.num_heads
+        mlp_ratio = config.mlp_ratio
+        num_frames = config.num_frames
+        class_dropout_prob = config.class_dropout_prob
+        num_classes = config.num_classes
+        learn_sigma = config.learn_sigma
+        extras = config.extras
+        attention_mode = config.attention_mode
+        compress_kv = config.compress_kv
+        attention_pe_mode = config.attention_pe_mode
+        pt_input_size = config.pt_input_size
+        pt_num_frames = config.pt_num_frames
+        intp_vfreq = config.intp_vfreq
+        caption_channels = config.caption_channels
+        model_max_length = config.model_max_length
+
+        self.config = config
+
+        if pt_input_size is None:
+            pt_input_size = input_size
+        if pt_num_frames is None:
+            pt_num_frames = num_frames
+        blocks = []
+        for i in range(depth):
+            if i % 2 == 0:
+                m = TransformerCrossConditonBlock(
+                    hidden_size, num_heads, mlp_ratio=mlp_ratio, attention_mode=attention_mode,
+                    attention_pe_mode=attention_pe_mode,
+                    hw=(input_size[0] // patch_size, input_size[1] // patch_size),
+                    pt_hw=(pt_input_size[0] // patch_size, pt_input_size[1] // patch_size),
+                    intp_vfreq=intp_vfreq, compress_kv=compress_kv
+                )
+            else:
+                m = TransformerBlock(
+                    hidden_size, num_heads, mlp_ratio=mlp_ratio, attention_mode=attention_mode,
+                    attention_pe_mode=attention_pe_mode,
+                    hw=(num_frames, 1),
+                    pt_hw=(pt_num_frames, 1),
+                    intp_vfreq=intp_vfreq, compress_kv=compress_kv
+                )
+            blocks.append(m)
+        self.blocks = nn.ModuleList(blocks)
+
+        approx_gelu = lambda: nn.GELU(approximate="tanh")
+        self.y_embedder = CaptionEmbedder(in_channels=caption_channels, hidden_size=hidden_size,
+                                          uncond_prob=class_dropout_prob, act_layer=approx_gelu,
+                                          token_num=model_max_length)
+
+    def forward(self,
+                x,
+                t,
+                cond,
+                attn_mask=None,
+                cond_mask=None):
+        """
+        Forward pass of Latte.
+        x: (N, F, C, H, W) tensor of video inputs
+        t: (N,) tensor of diffusion timesteps
+        cond: (N, 1, L, C_) tensor of text conditions
+        attn_mask: (N, F, H, W)
+        cond_mask: (N, L)
+        """
+        attn_mask_temproal, attn_mask_spatial = None, None
+        if attn_mask is not None:
+            attn_mask_spatial = rearrange(attn_mask, 'b t h w -> (b t) (h w)')
+            attn_mask_temproal = rearrange(attn_mask, 'b t h w -> (b h w) t')
+
+        batches, frames, channels, high, weight = x.shape
+
+        x = rearrange(x, 'b f c h w -> (b f) c h w')
+
+        x = self.x_embedder(x) + self.pos_embed
+        t = self.t_embedder(t)
+        cond = self.y_embedder(cond, self.training)  # (N, 1, L, D)
+
+        # timestep condition
+        timestep_spatial = repeat(t, 'n d -> (n c) d', c=self.temp_embed.shape[1])
+        timestep_temp = repeat(t, 'n d -> (n c) d', c=self.pos_embed.shape[1])
+        cond_spatial = repeat(cond, 'b 1 l d -> (b f) l d', f=self.temp_embed.shape[1]).contiguous()
+        cond_mask_spatial = repeat(cond_mask, 'b l -> (b f) l', f=self.temp_embed.shape[1]).contiguous()
+
+        for i in range(0, len(self.blocks), 2):
+            spatial_block, temp_block = self.blocks[i:i + 2]
+
+            # cond only apply to spatial attention
+            if self.gradient_checkpointing and self.training:
+                x = torch.utils.checkpoint.checkpoint(self.ckpt_wrapper(spatial_block), x, cond_spatial, timestep_spatial, attn_mask_spatial, cond_mask_spatial)
+            else:
+                x = spatial_block(x, cond_spatial, timestep_spatial, attn_mask_spatial, cond_mask_spatial)
+
+            x = rearrange(x, '(b f) t d -> (b t) f d', b=batches)
+            # Add Time Embedding
+            if i == 0:
+                x = x + self.temp_embed
+
+            if self.gradient_checkpointing and self.training:
+                x = torch.utils.checkpoint.checkpoint(self.ckpt_wrapper(temp_block), x, timestep_temp, attn_mask_temproal)
+            else:
+                x = temp_block(x, timestep_temp, attn_mask_temproal)
+            x = rearrange(x, '(b t) f d -> (b f) t d', b=batches)
+
+        x = self.final_layer(x, timestep_spatial)
+        x = self.unpatchify(x)
+        x = rearrange(x, '(b f) c h w -> b f c h w', b=batches)
+        return x
 
 #################################################################################
 #                                   Latte Configs                                  #
 #################################################################################
 
-from .configuration_latte import (
+from opensora.models.diffusion.latte.configuration_latte import (
     Latte_XL_122_Config, Latte_XL_144_Config, Latte_XL_188_Config,
     Latte_L_122_Config, Latte_L_144_Config, Latte_L_188_Config,
     Latte_B_122_Config, Latte_B_144_Config, Latte_B_188_Config,
-    Latte_S_122_Config, Latte_S_144_Config, Latte_S_188_Config, LatteConfiguration,
+    Latte_S_122_Config, Latte_S_144_Config, Latte_S_188_Config,
+    LatteT2V_XL_122_Config, LatteT2V_XL_144_Config, LatteT2V_XL_188_Config,
+    LatteT2V_L_122_Config, LatteT2V_L_144_Config, LatteT2V_L_188_Config,
+    LatteT2V_B_122_Config, LatteT2V_B_144_Config, LatteT2V_B_188_Config,
+    LatteT2V_S_122_Config, LatteT2V_S_144_Config, LatteT2V_S_188_Config,
 )
 
 def Latte_XL_122(**kwargs):
@@ -295,6 +414,42 @@ def Latte_S_188(**kwargs):
     return Latte(Latte_S_188_Config(**kwargs))
 
 
+def LatteT2V_XL_122(**kwargs):
+    return LatteT2V(LatteT2V_XL_122_Config(**kwargs))
+
+def LatteT2V_XL_144(**kwargs):
+    return LatteT2V(LatteT2V_XL_144_Config(**kwargs))
+
+def LatteT2V_XL_188(**kwargs):
+    return LatteT2V(LatteT2V_XL_188_Config(**kwargs))
+
+def LatteT2V_L_122(**kwargs):
+    return LatteT2V(LatteT2V_L_122_Config(**kwargs))
+
+def LatteT2V_L_144(**kwargs):
+    return LatteT2V(LatteT2V_L_144_Config(**kwargs))
+
+def LatteT2V_L_188(**kwargs):
+    return LatteT2V(LatteT2V_L_188_Config(**kwargs))
+
+def LatteT2V_B_122(**kwargs):
+    return LatteT2V(LatteT2V_B_122_Config(**kwargs))
+
+def LatteT2V_B_144(**kwargs):
+    return LatteT2V(LatteT2V_B_144_Config(**kwargs))
+
+def LatteT2V_B_188(**kwargs):
+    return LatteT2V(LatteT2V_B_188_Config(**kwargs))
+
+def LatteT2V_S_122(**kwargs):
+    return LatteT2V(LatteT2V_S_122_Config(**kwargs))
+
+def LatteT2V_S_144(**kwargs):
+    return LatteT2V(LatteT2V_S_144_Config(**kwargs))
+
+def LatteT2V_S_188(**kwargs):
+    return LatteT2V(LatteT2V_S_188_Config(**kwargs))
+
 Latte_models = {
     "Latte-XL/122": Latte_XL_122, "Latte-XL/144": Latte_XL_144, "Latte-XL/188": Latte_XL_188,
     "Latte-L/122": Latte_L_122, "Latte-L/144": Latte_L_144, "Latte-L/188": Latte_L_188,
@@ -303,22 +458,34 @@ Latte_models = {
 }
 
 
+LatteT2V_models = {
+    "LatteT2V-XL/122": LatteT2V_XL_122, "LatteT2V-XL/144": LatteT2V_XL_144, "LatteT2V-XL/188": LatteT2V_XL_188,
+    "LatteT2V-L/122": LatteT2V_L_122, "LatteT2V-L/144": LatteT2V_L_144, "LatteT2V-L/188": LatteT2V_L_188,
+    "LatteT2V-B/122": LatteT2V_B_122, "LatteT2V-B/144": LatteT2V_B_144, "LatteT2V-B/188": LatteT2V_B_188,
+    "LatteT2V-S/122": LatteT2V_S_122, "LatteT2V-S/144": LatteT2V_S_144, "LatteT2V-S/188": LatteT2V_S_188,
+}
+
 if __name__ == '__main__':
 
     import torch
-
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    """        
+    x: (N, F, C, H, W) tensor of video inputs
+    t: (N,) tensor of diffusion timesteps
+    cond: (N, L, C_) tensor of text conditions
+    attn_mask: (N, F, H, W)
+    cond_mask: (N, L)
+    """
+    x = torch.randn(2, 16, 4, 32, 32).to(device)
+    t = torch.tensor([1, 2]).to(device)
+    cond = torch.randn(2, 1, 120, 4096).to(device)
+    attn_mask = torch.ones(2, 16, 32//2, 32//2).to(device)
+    cond_mask = torch.ones(2, 120).to(device)
+    model = LatteT2V_XL_122().to(device)
 
-    img = torch.randn(3, 16, 4, 32, 32).to(device)
-    t = torch.tensor([1, 2, 3]).to(device)
-    y = torch.tensor([1, 2, 3]).to(device)
-    network = Latte_XL_122().to(device)
-    from thop import profile 
-    flops, params = profile(network, inputs=(img, t))
-    print('FLOPs = ' + str(flops/1000**3) + 'G')
-    print('Params = ' + str(params/1000**2) + 'M')
-    # y_embeder = LabelEmbedder(num_classes=101, hidden_size=768, dropout_prob=0.5).to(device)
-    # lora.mark_only_lora_as_trainable(network)
-    # out = y_embeder(y, True)
-    # out = network(img, t, y)
-    # print(out.shape)
+    print(f"Model Parameters: {sum(p.numel() for p in model.parameters()):,}")
+    for n, p in model.named_parameters():
+        print(f"Training Parameters: {n}, {p.shape}")
+    with torch.no_grad():
+        out = model(x, t, cond, attn_mask, cond_mask)
+        print(out.shape)  # torch.Size([2, 16, 8, 32, 32])
