@@ -129,7 +129,7 @@ Project stages:
   - [ ] Train with CLIP + T5 conditioning (probably costly during training and experiments). 🚀 **[Require more computation]**
 
 #### Control model with more condition
-- [ ] Load pretrained weights from [PixArt-α](https://github.com/PixArt-alpha/PixArt-alpha). ⌛ [WIP]
+- [x] Load pretrained weights from [PixArt-α](https://github.com/PixArt-alpha/PixArt-alpha).
 - [ ] Incorporating [ControlNet](https://github.com/lllyasviel/ControlNet). 🙏 **[Need your contribution]**
 
 ## 📂 Repo structure (WIP)
