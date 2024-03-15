@@ -261,6 +261,25 @@ Below is a visualization of the sampling results.
 | --- | --- |
 | <img src="assets/demo_0006.gif">  | <img src="assets/demo_0011.gif">  |
 
+## 🚀 Improved Training Performance
+
+In comparison to the original implementation, we implement a selection of training speed acceleration and memory saving features including gradient checkpointing, mixed precision training, and pre-extracted features, xformers, deepspeed. Some data points using **a batch size of 1 with a A100**:
+ 
+### 64×32×32 (origin size: 256×256×256)
+
+| gradient checkpointing | mixed precision | xformers | feature pre-extraction | deepspeed config | training speed | memory       |
+|:----------------------:|:---------------:|:--------:|:----------------------:|:----------------:|:--------------:|:------------:|
+| ✔                     | ✔               | ✔        | ✔                     | ❌               |0.64 steps/sec  |   43G        |
+| ✔                     | ✔               | ✔        | ✔                     | Zero2             |0.66 steps/sec  |   14G        |
+| ✔                     | ✔               | ✔        | ✔                     | Zero2 offload     |0.33 steps/sec  |   11G        |
+
+### 128×64×64 (origin size: 512×512×512)
+
+| gradient checkpointing | mixed precision | xformers | feature pre-extraction | deepspeed config | training speed | memory       |
+|:----------------------:|:---------------:|:--------:|:----------------------:|:----------------:|:--------------:|:------------:|
+| ✔                     | ✔               | ✔        | ✔                     | ❌               |0.08 steps/sec  |   77G        |
+| ✔                     | ✔               | ✔        | ✔                     | Zero2             |0.08 steps/sec  |   41G        |
+| ✔                     | ✔               | ✔        | ✔                     | Zero2 offload     |0.07 steps/sec  |   39G        |
 
 ## 💡 How to Contribute to the Open-Sora Plan Community
 We greatly appreciate your contributions to the Open-Sora Plan open-source community and helping us make it even better than it is now!
