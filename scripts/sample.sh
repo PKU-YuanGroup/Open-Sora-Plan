@@ -11,5 +11,5 @@ accelerate launch \
   --image-size 256 \
   --num-sampling-steps 250 \
   --attention-mode flash \
-  -mixed_precision bf16
+  --mixed-precision bf16
 
