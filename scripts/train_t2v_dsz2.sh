@@ -1,5 +1,5 @@
 
-HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 accelerate launch \
+accelerate launch \
     --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
     opensora/train/train_t2v.py \
     --model LatteT2V-XL/122 \
@@ -17,7 +17,7 @@ HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 accelerate launch \
     --local-batch-size 4 \
     --lr 1e-4 \
     --ckpt-every 500 \
-    --log-every 2 \
+    --log-every 50 \
     --gradient-checkpointing \
     --attention-mode xformers \
     --mixed-precision bf16

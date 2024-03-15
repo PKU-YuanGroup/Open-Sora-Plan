@@ -20,11 +20,11 @@ class LatteConfiguration:
         learn_sigma=True,
         extras=1,
         attention_mode='math',
-        compress_kv=False,
         attention_pe_mode=None,
         pt_input_size: Union[int, Tuple[int, int]] = None,  # (h, w)
         pt_num_frames: Union[int, Tuple[int, int]] = None,  # (num_frames, 1)
         intp_vfreq: bool = True,  # vision position interpolation
+        compress_kv: bool = False,
         **kwargs,
     ):
         super().__init__(**kwargs)

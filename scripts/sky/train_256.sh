@@ -40,4 +40,5 @@ HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 accelerate launch \
     --attention-mode flash \
     --mixed-precision bf16 \
     --num-workers 0 \
-    --pretrained PixArt-XL-2-256x256.pth
+    --pretrained PixArt-XL-2-256x256.pth \
+    --compress-kv
