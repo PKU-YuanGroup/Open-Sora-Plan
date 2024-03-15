@@ -14,6 +14,7 @@ import torch
 from accelerate import Accelerator
 from torch import nn
 
+from opensora.models.text_encoder import get_text_enc
 from opensora.utils.utils import get_experiment_dir, create_logger, requires_grad, update_ema, write_tensorboard, \
     cleanup, create_tensorboard, get_precision
 
@@ -127,6 +128,7 @@ def main(args):
         model = torch.compile(model)
 
     ae = getae(args).to(device)
+    text_enc = get_text_enc(args).to(device)
     if accelerator.is_main_process:
         logger.info(f"{model}")
         logger.info(f"Model Parameters: {sum(p.numel() for p in model.parameters()):,}")
@@ -204,26 +206,34 @@ def main(args):
     if accelerator.is_main_process:
         logger.info(f"Training for {num_train_epochs} epochs...")
 
+
     for epoch in range(first_epoch, num_train_epochs):
         logger.info(f"Beginning epoch {epoch}...")
-        for step, (x, y, attn_mask) in enumerate(loader):
+        for step, (x, attn_mask, input_ids, cond_mask) in enumerate(loader):
             if args.resume_from_checkpoint and epoch == first_epoch and step < resume_step:
                 continue
             x = x.to(device)  # B C T H W
-            y = y.to(device)
             # attn_mask = attn_mask.to(device)  # B T H W
             assert torch.all(attn_mask.bool()), 'do not enable dynamic input'
             attn_mask = None
-            if args.extras == 2:
-                model_kwargs = dict(y=y, attn_mask=attn_mask)
-            elif args.extras == 1:
-                model_kwargs = dict(y=None, attn_mask=attn_mask)
-            else:
-                raise NotImplementedError
+            input_ids = input_ids.to(device)  # B L
+            cond_mask = cond_mask.to(device)  # B L
+
             with torch.autocast(device_type='cuda', dtype=dtype):
                 with torch.no_grad():
                     # Map input images to latent space + normalize latents
                     x = ae.encode(x)  # B C T H W -> B T C H W
+                    cond = text_enc(input_ids, cond_mask)  # B L D
+                    cond = cond[:, None]  # B L D -> B 1 L D
+                    cond_mask = cond_mask.to(dtype)
+
+                # b, t, c, h, w = 1, 64, 4, 32, 32
+                # x = torch.rand(b, t, c, h, w).to(device)
+                # cond = torch.rand(b, 1, 120, 4096).to(device)
+                # cond_mask = torch.ones(b, 120).to(device)
+                # model_kwargs = dict(cond=cond, attn_mask=None, cond_mask=cond_mask)
+
+                model_kwargs = dict(cond=cond, attn_mask=attn_mask, cond_mask=cond_mask)
                 t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=device)
                 loss_dict = diffusion.training_losses(model, x, t, model_kwargs)
                 loss = loss_dict["loss"].mean()
@@ -302,8 +312,8 @@ if __name__ == "__main__":
 
 
     # --------------------------------------
-    parser.add_argument("--ae", type=str, default="stabilityai/sd-vae-ft-mse")
-    parser.add_argument("--extras", type=int, default=2, choices=[1, 2, 78])
+    parser.add_argument("--ae", type=str, default="ucf101_stride4x4x4")
+    parser.add_argument("--extras", type=int, default=3, choices=[3])
     parser.add_argument("--pretrained", type=str, default=None)
     parser.add_argument("--sample-rate", type=int, default=4)
     parser.add_argument("--num-frames", type=int, default=16)
@@ -321,6 +331,11 @@ if __name__ == "__main__":
     parser.add_argument("--clip-grad-norm", default=1.0, type=float, help="the maximum gradient norm (default None)")
     # --------------------------------------
 
+    # --------------------------------------
+    parser.add_argument("--video-folder", type=str, default='')
+    parser.add_argument("--text-encoder-name", type=str, default='DeepFloyd/t5-v1_1-xxl')
+    parser.add_argument("--model-max-length", type=int, default=120)
+    # --------------------------------------
 
     args = parser.parse_args()
     main(args)

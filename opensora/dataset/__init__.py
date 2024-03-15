@@ -1,11 +1,12 @@
 from torchvision.transforms import Compose
-
+from transformers import AutoTokenizer
 
 from opensora.models.ae import vae, vqvae, videovae, videovqvae
 from .feature_datasets import LandscopeFeature, SkyFeature, LandscopeVideoFeature
 from torchvision import transforms
 from torchvision.transforms import Lambda
 
+from .t2v_datasets import T2V_dataset
 from .transform import ToTensorVideo, TemporalRandomCrop, RandomHorizontalFlipVideo, CenterCropResizeVideo
 from .ucf101 import UCF101
 from .sky_datasets import Sky
@@ -50,12 +51,21 @@ def getdataset(args):
         )
         return UCF101(args, transform=transform, temporal_sample=temporal_sample)
     elif args.dataset == 'sky':
-        transform_sky = transforms.Compose([
+        transform = transforms.Compose([
             ToTensorVideo(),
             CenterCropResizeVideo(args.max_image_size),
             RandomHorizontalFlipVideo(p=0.5),
             norm_fun
         ])
-        return Sky(args, transform=transform_sky, temporal_sample=temporal_sample)
+        return Sky(args, transform=transform, temporal_sample=temporal_sample)
+    elif args.dataset == 't2v':
+        transform = transforms.Compose([
+            ToTensorVideo(),
+            CenterCropResizeVideo(args.max_image_size),
+            RandomHorizontalFlipVideo(p=0.5),
+            norm_fun
+        ])
+        tokenizer = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir='./cache_dir')
+        return T2V_dataset(args, transform=transform, temporal_sample=temporal_sample, tokenizer=tokenizer)
     else:
         raise NotImplementedError(args.dataset)
