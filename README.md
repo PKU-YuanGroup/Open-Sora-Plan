@@ -63,7 +63,7 @@ Project stages:
 - [x] Fix typos & Update readme. 🤝 Thanks to [@mio2333](https://github.com/mio2333), [@CreamyLong](https://github.com/CreamyLong), [@chg0901](https://github.com/chg0901), [@Nyx-177](https://github.com/Nyx-177), [@HowardLi1984](https://github.com/HowardLi1984), [@sennnnn](https://github.com/sennnnn), [@Jason-fan20](https://github.com/Jason-fan20)
 - [x] Setup environment. 🤝 Thanks to [@nameless1117](https://github.com/nameless1117)
 - [ ] Add docker file. ⌛ [WIP] 🤝 Thanks to [@Mon-ius](https://github.com/Mon-ius), [@SimonLeeGit](https://github.com/SimonLeeGit)
-- [ ] Enable type hints for functions. [@RuslanPeresy](https://github.com/RuslanPeresy), 🙏 **[Need your contribution]**
+- [ ] Enable type hints for functions. 🤝 Thanks to [@RuslanPeresy](https://github.com/RuslanPeresy), 🙏 **[Need your contribution]**
 - [x] Resume from checkpoint.
 - [x] Add Video-VQGAN model, which is borrowed from [VideoGPT](https://github.com/wilson1yan/VideoGPT).
 - [x] Support variable aspect ratios, resolutions, durations training on [DiT](https://github.com/facebookresearch/DiT).
@@ -84,7 +84,7 @@ Project stages:
 #### Train models that boost resolution and duration
 - [x] Add [PI](https://arxiv.org/abs/2306.15595) to support out-of-domain size. 🤝 Thanks to [@jpthu17](https://github.com/jpthu17)
 - [x] Add 2D RoPE to improve generalization ability as [FiT](https://github.com/whlzy/FiT). 🤝 Thanks to [@jpthu17](https://github.com/jpthu17)
-- [ ] Compress KV according to [PixArt-sigma](https://pixart-alpha.github.io/PixArt-sigma-project). ⌛ [WIP]
+- [x] Compress KV according to [PixArt-sigma](https://pixart-alpha.github.io/PixArt-sigma-project). 
 - [x] Support deepspeed for videogpt training. 🤝 Thanks to [@sennnnn](https://github.com/sennnnn)
 - [ ] Train a **low dimension** Video-AE, whether it is VAE or VQVAE. ⌛ [WIP] 🚀 **[Require more computation]**
 - [x] Extract offline feature.
@@ -156,7 +156,8 @@ Project stages:
 │   │   │   ├── latte
 │   │   │   └── unet
 │   │   ├── frame_interpolation
-│   │   └── super_resolution
+│   │   ├── super_resolution
+│   │   └── text_encoder
 │   ├── sample
 │   ├── train                      -> Training code
 │   └── utils
@@ -267,19 +268,23 @@ In comparison to the original implementation, we implement a selection of traini
  
 ### 64×32×32 (origin size: 256×256×256)
 
-| gradient checkpointing | mixed precision | xformers | feature pre-extraction | deepspeed config | training speed | memory       |
-|:----------------------:|:---------------:|:--------:|:----------------------:|:----------------:|:--------------:|:------------:|
-| ✔                     | ✔               | ✔        | ✔                     | ❌               |0.64 steps/sec  |   43G        |
-| ✔                     | ✔               | ✔        | ✔                     | Zero2             |0.66 steps/sec  |   14G        |
-| ✔                     | ✔               | ✔        | ✔                     | Zero2 offload     |0.33 steps/sec  |   11G        |
+| gradient checkpointing | mixed precision | xformers | feature pre-extraction | deepspeed config | compress kv | training speed | memory       |
+|:----------------------:|:---------------:|:--------:|:----------------------:|:----------------:|:--------------:|:------------:|:------------:|
+| ✔                     | ✔               | ✔        | ✔                     | ❌               | ❌            |0.64 steps/sec  |   43G        |
+| ✔                     | ✔               | ✔        | ✔                     | Zero2             | ❌            |0.66 steps/sec  |   14G        |
+| ✔                     | ✔               | ✔        | ✔                     | Zero2             | ✔             |0.66 steps/sec  |   15G        |
+| ✔                     | ✔               | ✔        | ✔                     | Zero2 offload     | ❌            |0.33 steps/sec  |   11G        |
+| ✔                     | ✔               | ✔        | ✔                     | Zero2 offload     | ✔             |0.31 steps/sec  |   12G        |
 
 ### 128×64×64 (origin size: 512×512×512)
 
-| gradient checkpointing | mixed precision | xformers | feature pre-extraction | deepspeed config | training speed | memory       |
-|:----------------------:|:---------------:|:--------:|:----------------------:|:----------------:|:--------------:|:------------:|
-| ✔                     | ✔               | ✔        | ✔                     | ❌               |0.08 steps/sec  |   77G        |
-| ✔                     | ✔               | ✔        | ✔                     | Zero2             |0.08 steps/sec  |   41G        |
-| ✔                     | ✔               | ✔        | ✔                     | Zero2 offload     |0.07 steps/sec  |   39G        |
+| gradient checkpointing | mixed precision | xformers | feature pre-extraction | deepspeed config | compress kv | training speed | memory       |
+|:----------------------:|:---------------:|:--------:|:----------------------:|:----------------:|:--------------:|:------------:|:------------:|
+| ✔                     | ✔               | ✔        | ✔                     | ❌               | ❌            |0.08 steps/sec  |   77G        |
+| ✔                     | ✔               | ✔        | ✔                     | Zero2             | ❌            |0.08 steps/sec  |   41G        |
+| ✔                     | ✔               | ✔        | ✔                     | Zero2             | ✔             |0.09 steps/sec  |   36G        |
+| ✔                     | ✔               | ✔        | ✔                     | Zero2 offload     | ❌            |0.07 steps/sec  |   39G        |
+| ✔                     | ✔               | ✔        | ✔                     | Zero2 offload     | ✔             |0.07 steps/sec  |   33G        |
 
 ## 💡 How to Contribute to the Open-Sora Plan Community
 We greatly appreciate your contributions to the Open-Sora Plan open-source community and helping us make it even better than it is now!
