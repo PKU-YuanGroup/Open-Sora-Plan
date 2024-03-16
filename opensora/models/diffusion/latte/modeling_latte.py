@@ -1,92 +1,103 @@
+from typing import Union, Tuple
+
 import numpy as np
+from diffusers import ModelMixin, ConfigMixin
+from diffusers.configuration_utils import register_to_config
 from einops import rearrange, repeat
-from timm.layers import PatchEmbed
+from timm.layers import PatchEmbed, to_2tuple
 from torch import nn
 import torch
 from opensora.models.diffusion.latte.pos import get_1d_sincos_temp_embed, get_2d_sincos_pos_embed
 from opensora.models.diffusion.latte.common import TimestepEmbedder, LabelEmbedder, TransformerBlock, FinalLayer, \
     TransformerCrossConditonBlock, CaptionEmbedder
-from opensora.models.diffusion.latte.configuration_latte import LatteConfiguration, LatteT2VConfiguration
 
-class Latte(nn.Module):
-    """
-    Diffusion model with a Transformer backbone.
-    """
-    def __init__(self, config: LatteConfiguration):
+class Latte(ModelMixin, ConfigMixin):
+    @register_to_config
+    def __init__(
+            self,
+            input_size=(32, 32),
+            patch_size=(2, 2),
+            patch_size_t=1,
+            in_channels=4,
+            hidden_size=1152,
+            depth=28,
+            num_heads=16,
+            mlp_ratio=4.0,
+            num_frames=16,
+            class_dropout_prob=0.1,
+            num_classes=1000,
+            learn_sigma=True,
+            extras=1,
+            attention_mode='math',
+            attention_pe_mode=None,
+            pt_input_size: Union[int, Tuple[int, int]] = None,  # (h, w)
+            pt_num_frames: Union[int, Tuple[int, int]] = None,  # (num_frames, 1)
+            intp_vfreq: bool = True,  # vision position interpolation
+            compress_kv: bool = False,
+    ):
         super().__init__()
-
-        input_size = config.input_size
-        patch_size = config.patch_size
-        patch_size_t = config.patch_size_t
-        in_channels = config.in_channels
-        hidden_size = config.hidden_size
-        depth = config.depth
-        num_heads = config.num_heads
-        mlp_ratio = config.mlp_ratio
-        num_frames = config.num_frames
-        class_dropout_prob = config.class_dropout_prob
-        num_classes = config.num_classes
-        learn_sigma = config.learn_sigma
-        extras = config.extras
-        attention_mode = config.attention_mode
-        attention_pe_mode = config.attention_pe_mode
-        pt_input_size = config.pt_input_size
-        pt_num_frames = config.pt_num_frames
-        intp_vfreq = config.intp_vfreq
-        compress_kv = config.compress_kv
-
-        self.config = config
-
-        self.learn_sigma = learn_sigma
-        self.in_channels = in_channels
-        self.out_channels = in_channels * 2 if learn_sigma else in_channels
-        self.patch_size = patch_size
+        self.input_size = input_size
+        self.patch_size = to_2tuple(patch_size)
         self.patch_size_t = patch_size_t
-        self.num_heads = num_heads
-        self.extras = extras
-        self.num_frames = num_frames
+        self.in_channels = in_channels
         self.hidden_size = hidden_size
+        self.depth = depth
+        self.num_heads = num_heads
+        self.mlp_ratio = mlp_ratio
+        self.num_frames = num_frames
+        self.class_dropout_prob = class_dropout_prob
+        self.num_classes = num_classes
+        self.learn_sigma = learn_sigma
+        self.extras = extras
+        self.attention_mode = attention_mode
+        self.attention_pe_mode = attention_pe_mode
+        self.pt_input_size = pt_input_size
+        self.pt_num_frames = pt_num_frames
+        self.intp_vfreq = intp_vfreq
         self.compress_kv = compress_kv
+
+
+
+        self.out_channels = self.in_channels * 2 if self.learn_sigma else self.in_channels
         self.gradient_checkpointing = False
 
-        self.x_embedder = PatchEmbed(input_size, patch_size, in_channels, hidden_size, bias=True)
-        self.t_embedder = TimestepEmbedder(hidden_size)
+        self.x_embedder = PatchEmbed(self.input_size, self.patch_size, self.in_channels, self.hidden_size, bias=True)
+        self.t_embedder = TimestepEmbedder(self.hidden_size)
 
         if self.extras == 2:
-            self.y_embedder = LabelEmbedder(num_classes, hidden_size, class_dropout_prob)
+            self.y_embedder = LabelEmbedder(self.num_classes, self.hidden_size, self.class_dropout_prob)
 
         num_patches = self.x_embedder.num_patches
         # Will use fixed sin-cos embedding:
-        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches, hidden_size), requires_grad=False)
-        self.temp_embed = nn.Parameter(torch.zeros(1, num_frames, hidden_size), requires_grad=False)
-        self.hidden_size = hidden_size
+        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches, self.hidden_size), requires_grad=False)
+        self.temp_embed = nn.Parameter(torch.zeros(1, num_frames, self.hidden_size), requires_grad=False)
 
-        if pt_input_size is None:
-            pt_input_size = input_size
-        if pt_num_frames is None:
-            pt_num_frames = num_frames
+        if self.pt_input_size is None:
+            self.pt_input_size = self.input_size
+        if self.pt_num_frames is None:
+            self.pt_num_frames = self.num_frames
         self.blocks = []
         for i in range(depth):
             if i % 2 == 0:
                 m = TransformerBlock(
-                    hidden_size, num_heads, mlp_ratio=mlp_ratio, attention_mode=attention_mode,
-                    attention_pe_mode=attention_pe_mode,
-                    hw=(input_size[0] // patch_size, input_size[1] // patch_size),
-                    pt_hw=(pt_input_size[0] // patch_size, pt_input_size[1] // patch_size),
-                    intp_vfreq=intp_vfreq, compress_kv=compress_kv
+                    self.hidden_size, self.num_heads, mlp_ratio=self.mlp_ratio, attention_mode=self.attention_mode,
+                    attention_pe_mode=self.attention_pe_mode,
+                    hw=(self.input_size[0] // self.patch_size[0], self.input_size[1] // self.patch_size[1]),
+                    pt_hw=(self.pt_input_size[0] // self.patch_size[0], self.pt_input_size[1] // self.patch_size[1]),
+                    intp_vfreq=self.intp_vfreq, compress_kv=self.compress_kv
                 )
             else:
                 m = TransformerBlock(
-                    hidden_size, num_heads, mlp_ratio=mlp_ratio, attention_mode=attention_mode,
-                    attention_pe_mode=attention_pe_mode,
-                    hw=(num_frames, 1),
-                    pt_hw=(pt_num_frames, 1),
-                    intp_vfreq=intp_vfreq, compress_kv=compress_kv
+                    self.hidden_size, self.num_heads, mlp_ratio=self.mlp_ratio, attention_mode=self.attention_mode,
+                    attention_pe_mode=self.attention_pe_mode,
+                    hw=(self.num_frames, 1),
+                    pt_hw=(self.pt_num_frames, 1),
+                    intp_vfreq=self.intp_vfreq, compress_kv=self.compress_kv
                 )
             self.blocks.append(m)
         self.blocks = nn.ModuleList(self.blocks)
 
-        self.final_layer = FinalLayer(hidden_size, patch_size_t, patch_size, self.out_channels)
+        self.final_layer = FinalLayer(self.hidden_size, self.patch_size_t, self.patch_size, self.out_channels)
         self.initialize_weights()
 
     def initialize_weights(self):
@@ -171,10 +182,10 @@ class Latte(nn.Module):
 
         batches, frames, channels, high, weight = x.shape
 
-        x = rearrange(x, 'b f c h w -> (b f) c h w')
+        x = rearrange(x, 'b f c h w -> (b f) c h w').to(self.pos_embed.dtype)
 
         x = self.x_embedder(x) + self.pos_embed
-        t = self.t_embedder(t)
+        t = self.t_embedder(t, self.pos_embed.dtype)
 
         # timestep condition
         timestep_spatial = repeat(t, 'n d -> (n c) d', c=self.temp_embed.shape[1])
@@ -243,66 +254,169 @@ class Latte(nn.Module):
         eps, rest = model_out[:, :, :self.in_channels], model_out[:, :, self.in_channels:]
         cond_eps, uncond_eps = torch.split(eps, len(eps) // 2, dim=0)
         half_eps = uncond_eps + cfg_scale * (cond_eps - uncond_eps)
-        eps = torch.cat([half_eps, half_eps], dim=0) 
+        eps = torch.cat([half_eps, half_eps], dim=0)
         return torch.cat([eps, rest], dim=2)
 
-class LatteT2V(Latte):
-    def __init__(self, config: LatteT2VConfiguration):
-        super(LatteT2V, self).__init__(config)
+class LatteT2V(ModelMixin, ConfigMixin):
 
-        input_size = config.input_size
-        patch_size = config.patch_size
-        patch_size_t = config.patch_size_t
-        in_channels = config.in_channels
-        hidden_size = config.hidden_size
-        depth = config.depth
-        num_heads = config.num_heads
-        mlp_ratio = config.mlp_ratio
-        num_frames = config.num_frames
-        class_dropout_prob = config.class_dropout_prob
-        num_classes = config.num_classes
-        learn_sigma = config.learn_sigma
-        extras = config.extras
-        attention_mode = config.attention_mode
-        attention_pe_mode = config.attention_pe_mode
-        pt_input_size = config.pt_input_size
-        pt_num_frames = config.pt_num_frames
-        intp_vfreq = config.intp_vfreq
-        compress_kv = config.compress_kv
-        caption_channels = config.caption_channels
-        model_max_length = config.model_max_length
+    @register_to_config
+    def __init__(
+            self,
+            input_size=(32, 32),
+            patch_size=(2, 2),
+            patch_size_t=1,
+            in_channels=4,
+            hidden_size=1152,
+            depth=28,
+            num_heads=16,
+            mlp_ratio=4.0,
+            num_frames=16,
+            class_dropout_prob=0.1,
+            num_classes=1000,
+            learn_sigma=True,
+            extras=1,
+            attention_mode='math',
+            attention_pe_mode=None,
+            pt_input_size: Union[int, Tuple[int, int]] = None,  # (h, w)
+            pt_num_frames: Union[int, Tuple[int, int]] = None,  # (num_frames, 1)
+            intp_vfreq: bool = True,  # vision position interpolation
+            compress_kv: bool = False,
+            caption_channels=4096,
+            model_max_length=1024,
+    ):
+        super(LatteT2V, self).__init__()
+        self.input_size = input_size
+        self.patch_size = to_2tuple(patch_size)
+        self.patch_size_t = patch_size_t
+        self.in_channels = in_channels
+        self.hidden_size = hidden_size
+        self.depth = depth
+        self.num_heads = num_heads
+        self.mlp_ratio = mlp_ratio
+        self.num_frames = num_frames
+        self.class_dropout_prob = class_dropout_prob
+        self.num_classes = num_classes
+        self.learn_sigma = learn_sigma
+        self.extras = extras
+        self.attention_mode = attention_mode
+        self.attention_pe_mode = attention_pe_mode
+        self.pt_input_size = pt_input_size
+        self.pt_num_frames = pt_num_frames
+        self.intp_vfreq = intp_vfreq
+        self.compress_kv = compress_kv
 
-        self.config = config
+        self.caption_channels = caption_channels
+        self.model_max_length = model_max_length
 
-        if pt_input_size is None:
-            pt_input_size = input_size
-        if pt_num_frames is None:
-            pt_num_frames = num_frames
-        blocks = []
-        for i in range(depth):
+
+
+        self.out_channels = self.in_channels * 2 if self.learn_sigma else self.in_channels
+        self.gradient_checkpointing = False
+
+        self.x_embedder = PatchEmbed(self.input_size, self.patch_size, self.in_channels, self.hidden_size, bias=True)
+        self.t_embedder = TimestepEmbedder(self.hidden_size)
+
+        # if self.extras == 2:
+        #     self.y_embedder = LabelEmbedder(self.num_classes, self.hidden_size, self.class_dropout_prob)
+
+        num_patches = self.x_embedder.num_patches
+        # Will use fixed sin-cos embedding:
+        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches, self.hidden_size), requires_grad=False)
+        self.temp_embed = nn.Parameter(torch.zeros(1, num_frames, self.hidden_size), requires_grad=False)
+
+        if self.pt_input_size is None:
+            self.pt_input_size = self.input_size
+        if self.pt_num_frames is None:
+            self.pt_num_frames = self.num_frames
+        self.blocks = []
+        for i in range(self.depth):
             if i % 2 == 0:
                 m = TransformerCrossConditonBlock(
-                    hidden_size, num_heads, mlp_ratio=mlp_ratio, attention_mode=attention_mode,
-                    attention_pe_mode=attention_pe_mode,
-                    hw=(input_size[0] // patch_size, input_size[1] // patch_size),
-                    pt_hw=(pt_input_size[0] // patch_size, pt_input_size[1] // patch_size),
-                    intp_vfreq=intp_vfreq, compress_kv=compress_kv
+                    self.hidden_size, self.num_heads, mlp_ratio=self.mlp_ratio, attention_mode=self.attention_mode,
+                    attention_pe_mode=self.attention_pe_mode,
+                    hw=(self.input_size[0] // self.patch_size[0], self.input_size[1] // self.patch_size[1]),
+                    pt_hw=(self.pt_input_size[0] // self.patch_size[0], self.pt_input_size[1] // self.patch_size[1]),
+                    intp_vfreq=self.intp_vfreq, compress_kv=self.compress_kv
                 )
             else:
                 m = TransformerBlock(
-                    hidden_size, num_heads, mlp_ratio=mlp_ratio, attention_mode=attention_mode,
-                    attention_pe_mode=attention_pe_mode,
-                    hw=(num_frames, 1),
-                    pt_hw=(pt_num_frames, 1),
-                    intp_vfreq=intp_vfreq, compress_kv=compress_kv
+                    self.hidden_size, self.num_heads, mlp_ratio=self.mlp_ratio, attention_mode=self.attention_mode,
+                    attention_pe_mode=self.attention_pe_mode,
+                    hw=(self.num_frames, 1),
+                    pt_hw=(self.pt_num_frames, 1),
+                    intp_vfreq=self.intp_vfreq, compress_kv=self.compress_kv
                 )
-            blocks.append(m)
-        self.blocks = nn.ModuleList(blocks)
+            self.blocks.append(m)
+        self.blocks = nn.ModuleList(self.blocks)
 
         approx_gelu = lambda: nn.GELU(approximate="tanh")
-        self.y_embedder = CaptionEmbedder(in_channels=caption_channels, hidden_size=hidden_size,
-                                          uncond_prob=class_dropout_prob, act_layer=approx_gelu,
-                                          token_num=model_max_length)
+        self.y_embedder = CaptionEmbedder(in_channels=self.caption_channels, hidden_size=self.hidden_size,
+                                          uncond_prob=self.class_dropout_prob, act_layer=approx_gelu,
+                                          token_num=self.model_max_length)
+
+        self.final_layer = FinalLayer(self.hidden_size, self.patch_size_t, self.patch_size, self.out_channels)
+        self.initialize_weights()
+
+    def initialize_weights(self):
+        # Initialize transformer layers:
+        def _basic_init(module):
+            if isinstance(module, nn.Linear):
+                torch.nn.init.xavier_uniform_(module.weight)
+                if module.bias is not None:
+                    nn.init.constant_(module.bias, 0)
+        self.apply(_basic_init)
+
+        # Initialize (and freeze) pos_embed by sin-cos embedding:
+        pos_embed = get_2d_sincos_pos_embed(self.pos_embed.shape[-1], int(self.x_embedder.num_patches ** 0.5))
+        self.pos_embed.data.copy_(torch.from_numpy(pos_embed).float().unsqueeze(0))
+
+        temp_embed = get_1d_sincos_temp_embed(self.temp_embed.shape[-1], self.temp_embed.shape[-2])
+        self.temp_embed.data.copy_(torch.from_numpy(temp_embed).float().unsqueeze(0))
+
+        # Initialize patch_embed like nn.Linear (instead of nn.Conv2d):
+        w = self.x_embedder.proj.weight.data
+        nn.init.xavier_uniform_(w.view([w.shape[0], -1]))
+        nn.init.constant_(self.x_embedder.proj.bias, 0)
+
+        if self.extras == 2:
+            # Initialize label embedding table:
+            nn.init.normal_(self.y_embedder.embedding_table.weight, std=0.02)
+
+        # Initialize timestep embedding MLP:
+        nn.init.normal_(self.t_embedder.mlp[0].weight, std=0.02)
+        nn.init.normal_(self.t_embedder.mlp[2].weight, std=0.02)
+
+        # Zero-out adaLN modulation layers in Latte blocks:
+        for block in self.blocks:
+            nn.init.constant_(block.adaLN_modulation[-1].weight, 0)
+            nn.init.constant_(block.adaLN_modulation[-1].bias, 0)
+
+        # Zero-out output layers:
+        nn.init.constant_(self.final_layer.adaLN_modulation[-1].weight, 0)
+        nn.init.constant_(self.final_layer.adaLN_modulation[-1].bias, 0)
+        nn.init.constant_(self.final_layer.linear.weight, 0)
+        nn.init.constant_(self.final_layer.linear.bias, 0)
+
+    def unpatchify(self, x):
+        """
+        x: (N, T, patch_size**2 * C)
+        imgs: (N, H, W, C)
+        """
+        c = self.out_channels
+        p = self.x_embedder.patch_size[0]
+        h = w = int(x.shape[1] ** 0.5)
+        assert h * w == x.shape[1]
+
+        x = x.reshape(shape=(x.shape[0], h, w, p, p, c))
+        x = torch.einsum('nhwpqc->nchpwq', x)
+        imgs = x.reshape(shape=(x.shape[0], c, h * p, h * p))
+        return imgs
+
+    def ckpt_wrapper(self, module):
+        def ckpt_forward(*inputs):
+            outputs = module(*inputs)
+            return outputs
+        return ckpt_forward
 
     def forward(self,
                 x,
@@ -325,10 +439,10 @@ class LatteT2V(Latte):
 
         batches, frames, channels, high, weight = x.shape
 
-        x = rearrange(x, 'b f c h w -> (b f) c h w')
+        x = rearrange(x, 'b f c h w -> (b f) c h w').to(self.pos_embed.dtype)
 
         x = self.x_embedder(x) + self.pos_embed
-        t = self.t_embedder(t)
+        t = self.t_embedder(t, self.pos_embed.dtype)
         cond = self.y_embedder(cond, self.training)  # (N, 1, L, D)
 
         # timestep condition
@@ -366,89 +480,84 @@ class LatteT2V(Latte):
 #                                   Latte Configs                                  #
 #################################################################################
 
-from opensora.models.diffusion.latte.configuration_latte import (
-    Latte_XL_122_Config, Latte_XL_144_Config, Latte_XL_188_Config,
-    Latte_L_122_Config, Latte_L_144_Config, Latte_L_188_Config,
-    Latte_B_122_Config, Latte_B_144_Config, Latte_B_188_Config,
-    Latte_S_122_Config, Latte_S_144_Config, Latte_S_188_Config,
-    LatteT2V_XL_122_Config, LatteT2V_XL_144_Config, LatteT2V_XL_188_Config,
-    LatteT2V_L_122_Config, LatteT2V_L_144_Config, LatteT2V_L_188_Config,
-    LatteT2V_B_122_Config, LatteT2V_B_144_Config, LatteT2V_B_188_Config,
-    LatteT2V_S_122_Config, LatteT2V_S_144_Config, LatteT2V_S_188_Config,
-)
 
 def Latte_XL_122(**kwargs):
-    return Latte(Latte_XL_122_Config(**kwargs))
+    return Latte(depth=56, hidden_size=1152, patch_size_t=1, patch_size=2, num_heads=16, **kwargs)
 
 def Latte_XL_144(**kwargs):
-    return Latte(Latte_XL_144_Config(**kwargs))
+    return Latte(depth=56, hidden_size=1152, patch_size_t=1, patch_size=4, num_heads=16, **kwargs)
 
 def Latte_XL_188(**kwargs):
-    return Latte(Latte_XL_188_Config(**kwargs))
+    return Latte(depth=56, hidden_size=1152, patch_size_t=1, patch_size=8, num_heads=16, **kwargs)
 
 def Latte_L_122(**kwargs):
-    return Latte(Latte_L_122_Config(**kwargs))
+    return Latte(depth=48, hidden_size=1024, patch_size_t=1, patch_size=2, num_heads=16, **kwargs)
 
 def Latte_L_144(**kwargs):
-    return Latte(Latte_L_144_Config(**kwargs))
+    return Latte(depth=48, hidden_size=1024, patch_size_t=1, patch_size=4, num_heads=16, **kwargs)
 
 def Latte_L_188(**kwargs):
-    return Latte(Latte_L_188_Config(**kwargs))
+    return Latte(depth=48, hidden_size=1024, patch_size_t=1, patch_size=8, num_heads=16, **kwargs)
 
 def Latte_B_122(**kwargs):
-    return Latte(Latte_B_122_Config(**kwargs))
+    return Latte(depth=24, hidden_size=768, patch_size_t=1, patch_size=2, num_heads=12, **kwargs)
 
 def Latte_B_144(**kwargs):
-    return Latte(Latte_B_144_Config(**kwargs))
+    return Latte(depth=24, hidden_size=768, patch_size_t=1, patch_size=4, num_heads=12, **kwargs)
 
 def Latte_B_188(**kwargs):
-    return Latte(Latte_B_188_Config(**kwargs))
+    return Latte(depth=24, hidden_size=768, patch_size_t=1, patch_size=8, num_heads=12, **kwargs)
 
 def Latte_S_122(**kwargs):
-    return Latte(Latte_S_122_Config(**kwargs))
+    return Latte(depth=24, hidden_size=384, patch_size_t=1, patch_size=2, num_heads=6, **kwargs)
 
 def Latte_S_144(**kwargs):
-    return Latte(Latte_S_144_Config(**kwargs))
+    return Latte(depth=24, hidden_size=384, patch_size_t=1, patch_size=4, num_heads=6, **kwargs)
 
 def Latte_S_188(**kwargs):
-    return Latte(Latte_S_188_Config(**kwargs))
+    return Latte(depth=24, hidden_size=384, patch_size_t=1, patch_size=8, num_heads=6, **kwargs)
+
+
+
+
 
 
 def LatteT2V_XL_122(**kwargs):
-    return LatteT2V(LatteT2V_XL_122_Config(**kwargs))
+    return LatteT2V(depth=56, hidden_size=1152, patch_size_t=1, patch_size=2, num_heads=16, **kwargs)
 
 def LatteT2V_XL_144(**kwargs):
-    return LatteT2V(LatteT2V_XL_144_Config(**kwargs))
+    return LatteT2V(depth=56, hidden_size=1152, patch_size_t=1, patch_size=4, num_heads=16, **kwargs)
 
 def LatteT2V_XL_188(**kwargs):
-    return LatteT2V(LatteT2V_XL_188_Config(**kwargs))
+    return LatteT2V(depth=56, hidden_size=1152, patch_size_t=1, patch_size=8, num_heads=16, **kwargs)
 
 def LatteT2V_L_122(**kwargs):
-    return LatteT2V(LatteT2V_L_122_Config(**kwargs))
+    return LatteT2V(depth=48, hidden_size=1024, patch_size_t=1, patch_size=2, num_heads=16, **kwargs)
 
 def LatteT2V_L_144(**kwargs):
-    return LatteT2V(LatteT2V_L_144_Config(**kwargs))
+    return LatteT2V(depth=48, hidden_size=1024, patch_size_t=1, patch_size=4, num_heads=16, **kwargs)
 
 def LatteT2V_L_188(**kwargs):
-    return LatteT2V(LatteT2V_L_188_Config(**kwargs))
+    return LatteT2V(depth=48, hidden_size=1024, patch_size_t=1, patch_size=8, num_heads=16, **kwargs)
 
 def LatteT2V_B_122(**kwargs):
-    return LatteT2V(LatteT2V_B_122_Config(**kwargs))
+    return LatteT2V(depth=24, hidden_size=768, patch_size_t=1, patch_size=2, num_heads=12, **kwargs)
 
 def LatteT2V_B_144(**kwargs):
-    return LatteT2V(LatteT2V_B_144_Config(**kwargs))
+    return LatteT2V(depth=24, hidden_size=768, patch_size_t=1, patch_size=4, num_heads=12, **kwargs)
 
 def LatteT2V_B_188(**kwargs):
-    return LatteT2V(LatteT2V_B_188_Config(**kwargs))
+    return LatteT2V(depth=24, hidden_size=768, patch_size_t=1, patch_size=8, num_heads=12, **kwargs)
 
 def LatteT2V_S_122(**kwargs):
-    return LatteT2V(LatteT2V_S_122_Config(**kwargs))
+    return LatteT2V(depth=24, hidden_size=384, patch_size_t=1, patch_size=2, num_heads=6, **kwargs)
 
 def LatteT2V_S_144(**kwargs):
-    return LatteT2V(LatteT2V_S_144_Config(**kwargs))
+    return LatteT2V(depth=24, hidden_size=384, patch_size_t=1, patch_size=4, num_heads=6, **kwargs)
 
 def LatteT2V_S_188(**kwargs):
-    return LatteT2V(LatteT2V_S_188_Config(**kwargs))
+    return LatteT2V(depth=24, hidden_size=384, patch_size_t=1, patch_size=8, num_heads=6, **kwargs)
+
 
 Latte_models = {
     "Latte-XL/122": Latte_XL_122, "Latte-XL/144": Latte_XL_144, "Latte-XL/188": Latte_XL_188,
