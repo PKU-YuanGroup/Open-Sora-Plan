@@ -1,0 +1,28 @@
+accelerate launch \
+  --config_file scripts/accelerate_configs/default_config.yaml \
+  opensora/train/train_causalvqvae.py \
+  --do_train \
+  --seed 1234 \
+  --video_data_path ../Open-Sora-Plan/UCF-101 \
+  --per_device_train_batch_size 16 \
+  --gradient_accumulation_steps 2 \
+  --learning_rate 7e-4 \
+  --weight_decay 0. \
+  --max_steps 100000 \
+  --embedding_dim 4 \
+  --lr_scheduler_type cosine \
+  --max_grad_norm 1.0 \
+  --save_strategy steps \
+  --save_total_limit 5 \
+  --logging_steps 5 \
+  --save_steps 1000 \
+  --n_codes 1024 \
+  --n_hiddens 240 \
+  --n_res_layers 3 \
+  --time_downsample 4 \
+  --spatial_downsample 8 \
+  --bf16 \
+  --resolution 64 \
+  --sequence_length 13 \
+  --output_dir results/vqvae_causal \
+  --report_to tensorboard
