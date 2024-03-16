@@ -7,75 +7,148 @@
 """
 A minimal training script for DiT using PyTorch DDP.
 """
-import math
-
-import torch
-# the first flag below was False when we tested this script but True makes A100 training a lot faster:
-from accelerate import Accelerator
-from torch import nn
-
-from opensora.models.text_encoder import get_text_enc
-from opensora.utils.utils import get_experiment_dir, create_logger, requires_grad, update_ema, write_tensorboard, \
-    cleanup, create_tensorboard, get_precision
-
-torch.backends.cuda.matmul.allow_tf32 = True
-torch.backends.cudnn.allow_tf32 = True
-import torch.distributed as dist
-from diffusers.optimization import get_scheduler
-from torch.utils.data import DataLoader
-from torch.utils.data.distributed import DistributedSampler
-from collections import OrderedDict
-from copy import deepcopy
-from glob import glob
-from time import time
 import argparse
 import logging
+import math
 import os
-from opensora.dataset import getdataset
+import shutil
+from pathlib import Path
+from typing import Optional
+
+import numpy as np
+from tqdm import tqdm
+from dataclasses import field, dataclass
+from torch.utils.data import DataLoader
+from copy import deepcopy
+
+import accelerate
+import torch
+from torch.nn import functional as F
+import transformers
+from accelerate import Accelerator
+from accelerate.logging import get_logger
+from accelerate.utils import ProjectConfiguration, set_seed
+from huggingface_hub import create_repo
+from packaging import version
+from tqdm.auto import tqdm
+from transformers import HfArgumentParser, TrainingArguments, AutoTokenizer
+
+import diffusers
+from diffusers import DDPMScheduler, PNDMScheduler
+from diffusers.optimization import get_scheduler
+from diffusers.training_utils import EMAModel, compute_snr
+from diffusers.utils import check_min_version, is_wandb_available
+
+from opensora.dataset import getdataset, ae_denorm
 from opensora.models.ae import getae
+from opensora.models.diffusion.diffusion import create_diffusion
+from opensora.models.diffusion.latte.modeling_latte import LatteT2V
+from opensora.models.text_encoder import get_text_enc
 from opensora.utils.dataset_utils import Collate
 from opensora.models.ae import ae_stride_config, ae_channel_config
 from opensora.models.diffusion import Diffusion_models
-from opensora.models.diffusion.diffusion import create_diffusion
+
+# Will error if the minimal version of diffusers is not installed. Remove at your own risks.
+check_min_version("0.24.0")
+logger = get_logger(__name__)
+
+
+def generate_timestep_weights(args, num_timesteps):
+    weights = torch.ones(num_timesteps)
+
+    # Determine the indices to bias
+    num_to_bias = int(args.timestep_bias_portion * num_timesteps)
+
+    if args.timestep_bias_strategy == "later":
+        bias_indices = slice(-num_to_bias, None)
+    elif args.timestep_bias_strategy == "earlier":
+        bias_indices = slice(0, num_to_bias)
+    elif args.timestep_bias_strategy == "range":
+        # Out of the possible 1000 timesteps, we might want to focus on eg. 200-500.
+        range_begin = args.timestep_bias_begin
+        range_end = args.timestep_bias_end
+        if range_begin < 0:
+            raise ValueError(
+                "When using the range strategy for timestep bias, you must provide a beginning timestep greater or equal to zero."
+            )
+        if range_end > num_timesteps:
+            raise ValueError(
+                "When using the range strategy for timestep bias, you must provide an ending timestep smaller than the number of timesteps."
+            )
+        bias_indices = slice(range_begin, range_end)
+    else:  # 'none' or any other string
+        return weights
+    if args.timestep_bias_multiplier <= 0:
+        return ValueError(
+            "The parameter --timestep_bias_multiplier is not intended to be used to disable the training of specific timesteps."
+            " If it was intended to disable timestep bias, use `--timestep_bias_strategy none` instead."
+            " A timestep bias multiplier less than or equal to 0 is not allowed."
+        )
+
+    # Apply the bias
+    weights[bias_indices] *= args.timestep_bias_multiplier
+
+    # Normalize
+    weights /= weights.sum()
+
+    return weights
+
 
 #################################################################################
 #                                  Training Loop                                #
 #################################################################################
 
 def main(args):
-    """
-    Trains a new DiT model.
-    """
-    assert torch.cuda.is_available(), "Training currently requires at least one GPU."
+    logging_dir = Path(args.output_dir, args.logging_dir)
 
-    # Setup accelerator:
-    accelerator = Accelerator(mixed_precision=args.mixed_precision, gradient_accumulation_steps=args.gradient_accumulation_steps)
-    device = accelerator.device
-    dtype = get_precision(args)
+    accelerator_project_config = ProjectConfiguration(project_dir=args.output_dir, logging_dir=logging_dir)
 
-    # Setup an experiment folder:
-    if args.resume_from_checkpoint:
-        experiment_dir = f"{args.results_dir}/{args.resume_from_checkpoint}"
+    accelerator = Accelerator(
+        gradient_accumulation_steps=args.gradient_accumulation_steps,
+        mixed_precision=args.mixed_precision,
+        log_with=args.report_to,
+        project_config=accelerator_project_config,
+    )
+
+    if args.report_to == "wandb":
+        if not is_wandb_available():
+            raise ImportError("Make sure to install wandb if you want to use it for logging during training.")
+        import wandb
+
+    # Make one log on every process with the configuration for debugging.
+    logging.basicConfig(
+        format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+        datefmt="%m/%d/%Y %H:%M:%S",
+        level=logging.INFO,
+    )
+    logger.info(accelerator.state, main_process_only=False)
+    if accelerator.is_local_main_process:
+        transformers.utils.logging.set_verbosity_warning()
+        diffusers.utils.logging.set_verbosity_info()
     else:
-        experiment_index = len(glob(f"{args.results_dir}/*"))
-        model_string_name = args.model.replace("/", "-")  # e.g., Latte-XL/122 --> Latte-XL-122 (for naming folders)
-        ae_string_name = args.ae.split("/")[-1]  # e.g., stabilityai/sd-vae-ft-mse --> sd-vae-ft-mse (for naming folders)
-        num_frame_string = 'F' + str(args.num_frames) + 'S' + str(args.sample_rate)
-        experiment_dir = f"{args.results_dir}/{experiment_index:03d}-{model_string_name}-{ae_string_name}-{num_frame_string}-{args.dataset}"  # Create an experiment folder
-        experiment_dir = get_experiment_dir(experiment_dir, args)
-    checkpoint_dir = f"{experiment_dir}/checkpoints"  # Stores saved model checkpoints
+        transformers.utils.logging.set_verbosity_error()
+        diffusers.utils.logging.set_verbosity_error()
+
+    # If passed along, set the training seed now.
+    if args.seed is not None:
+        set_seed(args.seed)
+
+    # Handle the repository creation
     if accelerator.is_main_process:
-        os.makedirs(args.results_dir, exist_ok=True)  # Make results folder (holds all experiment subfolders)
-        os.makedirs(checkpoint_dir, exist_ok=True)
-        logger = create_logger(experiment_dir)
-        tb_writer = create_tensorboard(experiment_dir)
-        logger.info(f"Experiment directory created at {experiment_dir}")
-        logger.info(f'{args}')
-    else:
-        logger = create_logger(None)
-        tb_writer = None
+        if args.output_dir is not None:
+            os.makedirs(args.output_dir, exist_ok=True)
+
+        # if args.push_to_hub:
+        #     repo_id = create_repo(
+        #         repo_id=args.hub_model_id or Path(args.output_dir).name, exist_ok=True, token=args.hub_token
+        #     ).repo_id
 
     # Create model:
+
+    diffusion = create_diffusion(timestep_respacing="")  # default: 1000 steps, linear noise schedule
+    ae = getae(args).eval()
+    text_enc = get_text_enc(args).eval()
+
     ae_stride_t, ae_stride_h, ae_stride_w = ae_stride_config[args.ae]
     args.ae_stride_t, args.ae_stride_h, args.ae_stride_w = ae_stride_t, ae_stride_h, ae_stride_w
     args.ae_stride = args.ae_stride_h
@@ -97,7 +170,8 @@ def main(args):
         extras=args.extras,
         num_frames=args.num_frames // ae_stride_t,
         attention_mode=args.attention_mode,
-        compress_kv=args.compress_kv
+        compress_kv=args.compress_kv,
+        model_max_length=args.model_max_length
     )
     model.gradient_checkpointing = args.gradient_checkpointing
 
@@ -118,233 +192,568 @@ def main(args):
         missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=False)
         logger.info(f'Successfully load {len(model.state_dict()) - len(missing_keys)} keys from {args.pretrained}!')
 
-    model = model.to(device)
-    # Note that parameter initialization is done within the DiT constructor
+    # Freeze vae and text encoders.
+    ae.requires_grad_(False)
+    text_enc.requires_grad_(False)
+    # Set model as trainable.
+    model.train()
+
+    # For mixed precision training we cast all non-trainable weigths to half-precision
+    # as these weights are only used for inference, keeping weights in full precision is not required.
+    weight_dtype = torch.float32
+    if accelerator.mixed_precision == "fp16":
+        weight_dtype = torch.float16
+    elif accelerator.mixed_precision == "bf16":
+        weight_dtype = torch.bfloat16
+
+    # Move unet, vae and text_encoder to device and cast to weight_dtype
+    # The VAE is in float32 to avoid NaN losses.
+    ae.to(accelerator.device, dtype=torch.float32)
+    text_enc.to(accelerator.device, dtype=weight_dtype)
+
+    # Create EMA for the unet.
     if args.use_ema:
-        ema = deepcopy(model).to(device)  # Create an EMA of the model for use after training
-        requires_grad(ema, False)
-    diffusion = create_diffusion(timestep_respacing="")  # default: 1000 steps, linear noise schedule
+        ema_model = deepcopy(model)
+        ema_model = EMAModel(ema_model.parameters(), model_cls=LatteT2V, model_config=ema_model.config)
 
-    if args.use_compile:
-        model = torch.compile(model)
+    # `accelerate` 0.16.0 will have better support for customized saving
+    if version.parse(accelerate.__version__) >= version.parse("0.16.0"):
+        # create custom saving & loading hooks so that `accelerator.save_state(...)` serializes in a nice format
+        def save_model_hook(models, weights, output_dir):
+            if accelerator.is_main_process:
+                if args.use_ema:
+                    ema_model.save_pretrained(os.path.join(output_dir, "model_ema"))
 
-    ae = getae(args).to(device)
-    text_enc = get_text_enc(args).to(device)
-    if accelerator.is_main_process:
-        logger.info(f"{model}")
-        logger.info(f"Model Parameters: {sum(p.numel() for p in model.parameters()):,}")
-        # for n, p in model.named_parameters():
-        #     if p.requires_grad:
-        #         logger.info(f"Training Parameters: {n}")
+                for i, model in enumerate(models):
+                    model.save_pretrained(os.path.join(output_dir, "model"))
+                    if weights:  # Don't pop if empty
+                        # make sure to pop weight so that corresponding model is not saved again
+                        weights.pop()
 
-    # Setup optimizer (we used default Adam betas=(0.9, 0.999) and a constant learning rate of 1e-4 in our paper):
-    opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0)
+        def load_model_hook(models, input_dir):
+            if args.use_ema:
+                load_model = EMAModel.from_pretrained(os.path.join(input_dir, "model_ema"), LatteT2V)
+                ema_model.load_state_dict(load_model.state_dict())
+                ema_model.to(accelerator.device)
+                del load_model
+
+            for i in range(len(models)):
+                # pop models so that they are not loaded again
+                model = models.pop()
+
+                # load diffusers style into model
+                load_model = LatteT2V.from_pretrained(input_dir, subfolder="model")
+                model.register_to_config(**load_model.config)
+
+                model.load_state_dict(load_model.state_dict())
+                del load_model
+
+        accelerator.register_save_state_pre_hook(save_model_hook)
+        accelerator.register_load_state_pre_hook(load_model_hook)
+
+    # Enable TF32 for faster training on Ampere GPUs,
+    # cf https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices
+    if args.allow_tf32:
+        torch.backends.cuda.matmul.allow_tf32 = True
+
+    if args.scale_lr:
+        args.learning_rate = (
+                args.learning_rate * args.gradient_accumulation_steps * args.train_batch_size * accelerator.num_processes
+        )
+
+    # Use 8-bit Adam for lower memory usage or to fine-tune the model in 16GB GPUs
+    if args.use_8bit_adam:
+        try:
+            import bitsandbytes as bnb
+        except ImportError:
+            raise ImportError(
+                "To use 8-bit Adam, please install the bitsandbytes library: `pip install bitsandbytes`."
+            )
+
+        optimizer_class = bnb.optim.AdamW8bit
+    else:
+        optimizer_class = torch.optim.AdamW
+
+    # Optimizer creation
+    params_to_optimize = model.parameters()
+    optimizer = optimizer_class(
+        params_to_optimize,
+        lr=args.learning_rate,
+        betas=(args.adam_beta1, args.adam_beta2),
+        weight_decay=args.adam_weight_decay,
+        eps=args.adam_epsilon,
+    )
 
     # Setup data:
-    dataset = getdataset(args)
-    loader = DataLoader(
-        dataset,
-        batch_size=int(args.local_batch_size),
-        shuffle=False,
-        # sampler=sampler,
-        num_workers=args.num_workers,
-        pin_memory=True,
-        drop_last=True,
-        collate_fn=Collate(args)
+    train_dataset = getdataset(args)
+    train_dataloader = torch.utils.data.DataLoader(
+        train_dataset,
+        shuffle=True,
+        collate_fn=Collate(args),
+        batch_size=args.train_batch_size,
+        num_workers=args.dataloader_num_workers,
     )
-    logger.info(f"Dataset contains {len(dataset):,} videos ({args.data_path})")
 
-    # Scheduler
+    # Scheduler and math around the number of training steps.
+    overrode_max_train_steps = False
+    num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
+    if args.max_train_steps is None:
+        args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
+        overrode_max_train_steps = True
+
     lr_scheduler = get_scheduler(
-        name="constant",
-        optimizer=opt,
+        args.lr_scheduler,
+        optimizer=optimizer,
         num_warmup_steps=args.lr_warmup_steps * args.gradient_accumulation_steps,
         num_training_steps=args.max_train_steps * args.gradient_accumulation_steps,
     )
 
-    # Prepare models for training:
-    if args.use_ema:
-        update_ema(ema, model, decay=0)  # Ensure EMA is initialized with synced weights
-        ema.eval()  # EMA model should always be in eval mode
-    model.train()  # important! This enables embedding dropout for classifier-free guidance
-    model, opt, loader, lr_scheduler = accelerator.prepare(model, opt, loader, lr_scheduler)
-
-    # Variables for monitoring/logging purposes:
-    train_steps = 0
-    log_steps = 0
-    running_loss = 0
-    first_epoch = 0
-    start_time = time()
+    # Prepare everything with our `accelerator`.
+    model, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
+        model, optimizer, train_dataloader, lr_scheduler
+    )
 
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
-    num_update_steps_per_epoch = math.ceil(len(loader))
+    num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
+    if overrode_max_train_steps:
+        args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
     # Afterwards we recalculate our number of training epochs
-    num_train_epochs = math.ceil(args.max_train_steps / num_update_steps_per_epoch)
+    args.num_train_epochs = math.ceil(args.max_train_steps / num_update_steps_per_epoch)
+
+    # We need to initialize the trackers we use, and also store our configuration.
+    # The trackers initializes automatically on the main process.
+    if accelerator.is_main_process:
+        accelerator.init_trackers(args.output_dir, config=vars(args))
+
+    # Train!
+    total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
+
+    logger.info("***** Running training *****")
+    logger.info(f"  Num examples = {len(train_dataset)}")
+    logger.info(f"  Num Epochs = {args.num_train_epochs}")
+    logger.info(f"  Instantaneous batch size per device = {args.train_batch_size}")
+    logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
+    logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
+    logger.info(f"  Total optimization steps = {args.max_train_steps}")
+    global_step = 0
+    first_epoch = 0
 
     # Potentially load in the weights and states from a previous save
     if args.resume_from_checkpoint:
-        # Get the most recent checkpoint
-        dirs = os.listdir(os.path.join(experiment_dir, 'checkpoints'))
-        dirs = [d for d in dirs if d.endswith("pt")]
-        dirs = sorted(dirs, key=lambda x: int(x.split(".")[0]))
-        path = dirs[-1]
-        state_dict = torch.load(os.path.join(os.path.join(experiment_dir, 'checkpoints'), path), map_location='cpu')
-        state_dict = {'module.' + k: v for k, v in state_dict['model'].items()}
-        model.load_state_dict(state_dict)
+        if args.resume_from_checkpoint != "latest":
+            path = os.path.basename(args.resume_from_checkpoint)
+        else:
+            # Get the most recent checkpoint
+            dirs = os.listdir(args.output_dir)
+            dirs = [d for d in dirs if d.startswith("checkpoint")]
+            dirs = sorted(dirs, key=lambda x: int(x.split("-")[1]))
+            path = dirs[-1] if len(dirs) > 0 else None
 
-        if lr_scheduler is not None:
-            lr_scheduler.load_state_dict(state_dict['scheduler'])
-        if opt is not None:
-            opt.load_state_dict(state_dict['opt'])
-        if args.use_ema:
-            ema.load_state_dict(state_dict['ema'])
+        if path is None:
+            accelerator.print(
+                f"Checkpoint '{args.resume_from_checkpoint}' does not exist. Starting a new training run."
+            )
+            args.resume_from_checkpoint = None
+            initial_global_step = 0
+        else:
+            accelerator.print(f"Resuming from checkpoint {path}")
+            accelerator.load_state(os.path.join(args.output_dir, path))
+            global_step = int(path.split("-")[1])
 
-        train_steps = int(path.split(".")[0])
-        first_epoch = train_steps // num_update_steps_per_epoch
-        resume_step = train_steps % num_update_steps_per_epoch
+            initial_global_step = global_step
+            first_epoch = global_step // num_update_steps_per_epoch
 
-        logger.info(f"Resuming from checkpoint {path}")
+    else:
+        initial_global_step = 0
 
-    if args.pretrained:
-        try:
-            train_steps = int(args.pretrained.split("/")[-1].split('.')[0])
-        except:
-            train_steps = 0
+    progress_bar = tqdm(
+        range(0, args.max_train_steps),
+        initial=initial_global_step,
+        desc="Steps",
+        # Only show the progress bar once on each machine.
+        disable=not accelerator.is_local_main_process,
+    )
 
-    if accelerator.is_main_process:
-        logger.info(f"Training for {num_train_epochs} epochs...")
+    for epoch in range(first_epoch, args.num_train_epochs):
+        train_loss = 0.0
+        for step, (x, attn_mask, input_ids, cond_mask) in enumerate(train_dataloader):
+            with accelerator.accumulate(model):
+                # Sample noise that we'll add to the latents
+                x = x.to(accelerator.device)  # B C T H W
+                # attn_mask = attn_mask.to(device)  # B T H W
+                assert torch.all(attn_mask.bool()), 'do not enable dynamic input'
+                attn_mask = None
+                input_ids = input_ids.to(accelerator.device)  # B L
+                cond_mask = cond_mask.to(accelerator.device)  # B L
 
-    for epoch in range(first_epoch, num_train_epochs):
-        logger.info(f"Beginning epoch {epoch}...")
-        for step, (x, attn_mask, input_ids, cond_mask) in enumerate(loader):
-            if args.resume_from_checkpoint and epoch == first_epoch and step < resume_step:
-                continue
-            x = x.to(device)  # B C T H W
-            # attn_mask = attn_mask.to(device)  # B T H W
-            assert torch.all(attn_mask.bool()), 'do not enable dynamic input'
-            attn_mask = None
-            input_ids = input_ids.to(device)  # B L
-            cond_mask = cond_mask.to(device)  # B L
-
-            with torch.autocast(device_type='cuda', dtype=dtype):
                 with torch.no_grad():
                     # Map input images to latent space + normalize latents
-                    x = ae.encode(x)  # B C T H W -> B T C H W
+                    x = ae.encode(x)  # B C T H W
                     cond = text_enc(input_ids, cond_mask)  # B L D
                     cond = cond[:, None]  # B L D -> B 1 L D
-                    cond_mask = cond_mask.to(dtype)
-
-                # b, t, c, h, w = 1, 64, 4, 32, 32
-                # x = torch.rand(b, t, c, h, w).to(device)
-                # cond = torch.rand(b, 1, 120, 4096).to(device)
-                # cond_mask = torch.ones(b, 120).to(device)
-                # cond_mask[:, 60:] = 0
-
+                    cond_mask = cond_mask.to(weight_dtype)
                 model_kwargs = dict(cond=cond, attn_mask=attn_mask, cond_mask=cond_mask)
-                t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=device)
+                t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=accelerator.device)
                 loss_dict = diffusion.training_losses(model, x, t, model_kwargs)
                 loss = loss_dict["loss"].mean()
-                opt.zero_grad()
 
-            accelerator.backward(loss)
+                # Gather the losses across all processes for logging (if we use distributed training).
+                avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
+                train_loss += avg_loss.item() / args.gradient_accumulation_steps
+
+                # Backpropagate
+                accelerator.backward(loss)
+                if accelerator.sync_gradients:
+                    params_to_clip = model.parameters()
+                    accelerator.clip_grad_norm_(params_to_clip, args.max_grad_norm)
+                optimizer.step()
+                lr_scheduler.step()
+                optimizer.zero_grad()
+
+            # Checks if the accelerator has performed an optimization step behind the scenes
             if accelerator.sync_gradients:
-                accelerator.clip_grad_norm_(model.parameters(), args.clip_grad_norm)
-            opt.step()
-            lr_scheduler.step()
+                progress_bar.update(1)
+                global_step += 1
+                accelerator.log({"train_loss": train_loss}, step=global_step)
+                train_loss = 0.0
 
-            if args.use_ema:
-                update_ema(ema, model.module)
+                if args.use_deepspeed or accelerator.is_main_process:
+                    if global_step % args.checkpointing_steps == 0:
+                        # _before_ saving state, check if this save would set us over the `checkpoints_total_limit`
+                        if args.checkpoints_total_limit is not None:
+                            checkpoints = os.listdir(args.output_dir)
+                            checkpoints = [d for d in checkpoints if d.startswith("checkpoint")]
+                            checkpoints = sorted(checkpoints, key=lambda x: int(x.split("-")[1]))
 
-            # Log loss values:
-            running_loss += loss.item()
-            log_steps += 1
-            train_steps += 1
-            if train_steps % args.log_every == 0:
-                # Measure training speed:
-                torch.cuda.synchronize()
-                end_time = time()
-                steps_per_sec = log_steps / (end_time - start_time)
-                # Reduce loss history over all processes:
-                avg_loss = torch.tensor(running_loss / log_steps, device=device)
-                dist.all_reduce(avg_loss, op=dist.ReduceOp.SUM)
-                avg_loss = avg_loss.item() / accelerator.num_processes
-                # logger.info(f"(step={train_steps:07d}) Train Loss: {avg_loss:.4f}, Train Steps/Sec: {steps_per_sec:.2f}")
-                if accelerator.is_main_process:
-                    # logger.info(f"(step={train_steps:07d}/epoch={epoch:04d}) Train Loss: {avg_loss:.4f}, Gradient Norm: {gradient_norm:.4f}, Train Steps/Sec: {steps_per_sec:.2f}")
-                    logger.info(
-                        f"(step={train_steps:07d}/epoch={epoch:04d}) Train Loss: {avg_loss:.4f}, Train Steps/Sec: {steps_per_sec:.2f}")
+                            # before we save the new checkpoint, we need to have at _most_ `checkpoints_total_limit - 1` checkpoints
+                            if len(checkpoints) >= args.checkpoints_total_limit:
+                                num_to_remove = len(checkpoints) - args.checkpoints_total_limit + 1
+                                removing_checkpoints = checkpoints[0:num_to_remove]
 
-                write_tensorboard(tb_writer, 'Train Loss', avg_loss, train_steps)
-                # Reset monitoring variables:
-                running_loss = 0
-                log_steps = 0
-                start_time = time()
+                                logger.info(
+                                    f"{len(checkpoints)} checkpoints already exist, removing {len(removing_checkpoints)} checkpoints"
+                                )
+                                logger.info(f"removing checkpoints: {', '.join(removing_checkpoints)}")
 
-            # Save Model checkpoint:
-            if train_steps % args.ckpt_every == 0 and train_steps > 0:
-                if accelerator.is_main_process:
-                    checkpoint = {
-                        "model": model.module.state_dict(),
-                        "opt": opt,
-                        "lr_scheduler": lr_scheduler,
-                        "args": args
-                    }
+                                for removing_checkpoint in removing_checkpoints:
+                                    removing_checkpoint = os.path.join(args.output_dir, removing_checkpoint)
+                                    shutil.rmtree(removing_checkpoint)
+
+                        save_path = os.path.join(args.output_dir, f"checkpoint-{global_step}")
+                        accelerator.save_state(save_path)
+                        logger.info(f"Saved state to {save_path}")
+
+                logs = {"step_loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
+                progress_bar.set_postfix(**logs)
+
+            if global_step >= args.max_train_steps:
+                break
+
+            if accelerator.is_main_process:
+                validation_prompt = 'A woman'
+                if global_step % args.checkpointing_steps == 0:
+                    logger.info(f"Running validation... \n"
+                                f"Generating {args.num_validation_videos} videos with prompt: {validation_prompt}")
                     if args.use_ema:
-                        checkpoint.update({"ema": ema.state_dict()})
-                    checkpoint_path = f"{checkpoint_dir}/{train_steps:07d}.pt"
-                    torch.save(checkpoint, checkpoint_path)
-                    logger.info(f"Saved checkpoint to {checkpoint_path}")
+                        # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
+                        ema_model.store(model.parameters())
+                        ema_model.copy_to(model.parameters())
 
-    model.eval()  # important! This disables randomized embedding dropout
-    # do any sampling/FID calculation/etc. with ema (or model) in eval mode ...
+                    with torch.no_grad():
+                        # create pipeline
+                        ae_ = getae(args).to(accelerator.device).eval()
+                        # text_enc_ = get_text_enc(args).to(accelerator.device).eval()
+                        model_ = LatteT2V.from_pretrained(save_path, subfolder="model").to(accelerator.device).eval()
+                        diffusion_ = create_diffusion(str(100))
+                        tokenizer_ = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir='./cache_dir')
+                        videos = []
+                        for _ in range(args.num_validation_videos):
+                            with torch.cuda.amp.autocast():
+                                z = torch.randn(1, args.num_frames // ae_stride_config[args.ae][0], model_.in_channels,
+                                                latent_size[0], latent_size[1], device=accelerator.device)
+                                text_tokens_and_mask = tokenizer_(
+                                    validation_prompt,
+                                    max_length=args.model_max_length,
+                                    padding='max_length',
+                                    truncation=True,
+                                    return_attention_mask=True,
+                                    add_special_tokens=True,
+                                    return_tensors='pt'
+                                )
+                                input_ids = text_tokens_and_mask['input_ids'].to(accelerator.device)
+                                cond_mask = text_tokens_and_mask['attention_mask'].to(accelerator.device)
+                                # cond = text_enc_(input_ids, cond_mask)  # B L D
+                                cond = text_enc(input_ids, cond_mask)  # B L D
+                                cond = cond[:, None]  # B L D -> B 1 L D
+                                cond_mask = cond_mask.to(weight_dtype)
 
-    if accelerator.is_main_process:
-        logger.info("Done!")
-    cleanup()
+                                model_kwargs = dict(cond=cond, attn_mask=attn_mask, cond_mask=cond_mask)
+                                sample_fn = model_.forward
+                                # Sample images:
+                                samples = diffusion_.ddim_sample_loop(
+                                    sample_fn, z.shape, z, clip_denoised=False, model_kwargs=model_kwargs, progress=True,
+                                    device=accelerator.device
+                                )
+                                with torch.no_grad():
+                                    samples = ae_.decode(samples)
+                                # Save and display images:
+                                video = (ae_denorm[args.ae](samples[0]) * 255).add_(0.5).clamp_(0, 255).to(
+                                    dtype=torch.uint8).cpu().contiguous()  # t c h w
+                                videos.append(video)
+
+                    videos = torch.stack(videos).numpy()
+                    for tracker in accelerator.trackers:
+                        if tracker.name == "tensorboard":
+                            np_videos = np.stack([np.asarray(vid) for vid in videos])
+                            tracker.writer.add_video("validation", np_videos, global_step, fps=2)
+                        if tracker.name == "wandb":
+                            tracker.log(
+                                {
+                                    "validation": [
+                                        wandb.Video(video, caption=f"{i}: {validation_prompt}", fps=2)
+                                        for i, video in enumerate(videos)
+                                    ]
+                                }
+                            )
+
+                    # del ae_, text_enc_, model_, diffusion_, tokenizer_
+                    del ae_, model_, diffusion_, tokenizer_
+                    torch.cuda.empty_cache()
+
+    accelerator.wait_for_everyone()
+    accelerator.end_training()
 
 
 if __name__ == "__main__":
-    # Default args here will train DiT-XL/2 with the hyperparameters we used in our paper (except training iters).
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=str, required=True)
-    parser.add_argument("--data-path", type=str, required=True)
-    parser.add_argument("--results-dir", type=str, default="results")
+    parser.add_argument("--data_path", type=str, required=True)
     parser.add_argument("--model", type=str, choices=list(Diffusion_models.keys()), default="DiT-XL/122")
-    parser.add_argument("--num-classes", type=int, default=1000)
-    parser.add_argument("--max-train-steps", type=int, default=1000000)
-    parser.add_argument("--local-batch-size", type=int, default=256)
-    parser.add_argument("--global-seed", type=int, default=0)
-    parser.add_argument("--num-workers", type=int, default=8)
-    parser.add_argument("--log-every", type=int, default=100)
-    parser.add_argument("--ckpt-every", type=int, default=50_000)
-
-
-    # --------------------------------------
-    parser.add_argument("--ae", type=str, default="ucf101_stride4x4x4")
+    parser.add_argument("--num_classes", type=int, default=1000)
+    parser.add_argument("--ae", type=str, default="stabilityai/sd-vae-ft-mse")
     parser.add_argument("--extras", type=int, default=3, choices=[3])
+    parser.add_argument("--sample_rate", type=int, default=4)
+    parser.add_argument("--num_frames", type=int, default=16)
+    parser.add_argument("--max_image_size", type=int, default=128)
+    parser.add_argument("--dynamic_frames", action="store_true")
+    parser.add_argument("--compress_kv", action="store_true")
+    parser.add_argument("--attention_mode", type=str, choices=['xformers', 'math', 'flash'], default="math")
     parser.add_argument("--pretrained", type=str, default=None)
-    parser.add_argument("--sample-rate", type=int, default=4)
-    parser.add_argument("--num-frames", type=int, default=16)
-    parser.add_argument("--max-image-size", type=int, default=128)
-    parser.add_argument("--dynamic-frames", action="store_true")
-    parser.add_argument("--resume-from-checkpoint", type=str, default=None)
-    parser.add_argument("--gradient-checkpointing", action="store_true")
-    parser.add_argument("--use-compile", action="store_true")
-    parser.add_argument("--use-ema", action="store_true")
-    parser.add_argument("--compress-kv", action="store_true")
-    parser.add_argument("--lr", type=float, default=1e-4)
-    parser.add_argument("--lr-warmup-steps", type=int, default=0)
-    parser.add_argument("--attention-mode", type=str, choices=['xformers', 'math', 'flash'], default="math")
-    parser.add_argument("--gradient-accumulation-steps", type=int, default=1)
-    parser.add_argument("--mixed-precision", type=str, default=None, choices=[None, "fp16", "bf16"])
-    parser.add_argument("--clip-grad-norm", default=1.0, type=float, help="the maximum gradient norm (default None)")
-    # --------------------------------------
 
-    # --------------------------------------
-    parser.add_argument("--video-folder", type=str, default='')
-    parser.add_argument("--text-encoder-name", type=str, default='DeepFloyd/t5-v1_1-xxl')
-    parser.add_argument("--model-max-length", type=int, default=120)
-    # --------------------------------------
+    parser.add_argument("--video_folder", type=str, default='')
+    parser.add_argument("--text_encoder_name", type=str, default='DeepFloyd/t5-v1_1-xxl')
+    parser.add_argument("--model_max_length", type=int, default=120)
+
+    parser.add_argument("--use_deepspeed", action="store_true")
+    parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
+    parser.add_argument(
+        "--num_validation_videos",
+        type=int,
+        default=2,
+        help="Number of images that should be generated during validation with `validation_prompt`.",
+    )
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default=None,
+        help="The output directory where the model predictions and checkpoints will be written.",
+    )
+    parser.add_argument(
+        "--train_batch_size", type=int, default=16, help="Batch size (per device) for the training dataloader."
+    )
+    parser.add_argument("--num_train_epochs", type=int, default=100)
+    parser.add_argument(
+        "--max_train_steps",
+        type=int,
+        default=None,
+        help="Total number of training steps to perform.  If provided, overrides num_train_epochs.",
+    )
+    parser.add_argument(
+        "--checkpointing_steps",
+        type=int,
+        default=500,
+        help=(
+            "Save a checkpoint of the training state every X updates. These checkpoints can be used both as final"
+            " checkpoints in case they are better than the last checkpoint, and are also suitable for resuming"
+            " training using `--resume_from_checkpoint`."
+        ),
+    )
+    parser.add_argument(
+        "--checkpoints_total_limit",
+        type=int,
+        default=None,
+        help=("Max number of checkpoints to store."),
+    )
+    parser.add_argument(
+        "--resume_from_checkpoint",
+        type=str,
+        default=None,
+        help=(
+            "Whether training should be resumed from a previous checkpoint. Use a path saved by"
+            ' `--checkpointing_steps`, or `"latest"` to automatically select the last available checkpoint.'
+        ),
+    )
+    parser.add_argument(
+        "--gradient_accumulation_steps",
+        type=int,
+        default=1,
+        help="Number of updates steps to accumulate before performing a backward/update pass.",
+    )
+    parser.add_argument(
+        "--gradient_checkpointing",
+        action="store_true",
+        help="Whether or not to use gradient checkpointing to save memory at the expense of slower backward pass.",
+    )
+    parser.add_argument(
+        "--learning_rate",
+        type=float,
+        default=1e-4,
+        help="Initial learning rate (after the potential warmup period) to use.",
+    )
+    parser.add_argument(
+        "--scale_lr",
+        action="store_true",
+        default=False,
+        help="Scale the learning rate by the number of GPUs, gradient accumulation steps, and batch size.",
+    )
+    parser.add_argument(
+        "--lr_scheduler",
+        type=str,
+        default="constant",
+        help=(
+            'The scheduler type to use. Choose between ["linear", "cosine", "cosine_with_restarts", "polynomial",'
+            ' "constant", "constant_with_warmup"]'
+        ),
+    )
+    parser.add_argument(
+        "--lr_warmup_steps", type=int, default=500, help="Number of steps for the warmup in the lr scheduler."
+    )
+    parser.add_argument(
+        "--timestep_bias_strategy",
+        type=str,
+        default="none",
+        choices=["earlier", "later", "range", "none"],
+        help=(
+            "The timestep bias strategy, which may help direct the model toward learning low or high frequency details."
+            " Choices: ['earlier', 'later', 'range', 'none']."
+            " The default is 'none', which means no bias is applied, and training proceeds normally."
+            " The value of 'later' will increase the frequency of the model's final training timesteps."
+        ),
+    )
+    parser.add_argument(
+        "--timestep_bias_multiplier",
+        type=float,
+        default=1.0,
+        help=(
+            "The multiplier for the bias. Defaults to 1.0, which means no bias is applied."
+            " A value of 2.0 will double the weight of the bias, and a value of 0.5 will halve it."
+        ),
+    )
+    parser.add_argument(
+        "--timestep_bias_begin",
+        type=int,
+        default=0,
+        help=(
+            "When using `--timestep_bias_strategy=range`, the beginning (inclusive) timestep to bias."
+            " Defaults to zero, which equates to having no specific bias."
+        ),
+    )
+    parser.add_argument(
+        "--timestep_bias_end",
+        type=int,
+        default=1000,
+        help=(
+            "When using `--timestep_bias_strategy=range`, the final timestep (inclusive) to bias."
+            " Defaults to 1000, which is the number of timesteps that Stable Diffusion is trained on."
+        ),
+    )
+    parser.add_argument(
+        "--timestep_bias_portion",
+        type=float,
+        default=0.25,
+        help=(
+            "The portion of timesteps to bias. Defaults to 0.25, which 25% of timesteps will be biased."
+            " A value of 0.5 will bias one half of the timesteps. The value provided for `--timestep_bias_strategy` determines"
+            " whether the biased portions are in the earlier or later timesteps."
+        ),
+    )
+    parser.add_argument(
+        "--snr_gamma",
+        type=float,
+        default=None,
+        help="SNR weighting gamma to be used if rebalancing the loss. Recommended value is 5.0. "
+             "More details here: https://arxiv.org/abs/2303.09556.",
+    )
+    parser.add_argument("--use_ema", action="store_true", help="Whether to use EMA model.")
+    parser.add_argument(
+        "--allow_tf32",
+        action="store_true",
+        help=(
+            "Whether or not to allow TF32 on Ampere GPUs. Can be used to speed up training. For more information, see"
+            " https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices"
+        ),
+    )
+    parser.add_argument(
+        "--dataloader_num_workers",
+        type=int,
+        default=10,
+        help=(
+            "Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process."
+        ),
+    )
+    parser.add_argument(
+        "--use_8bit_adam", action="store_true", help="Whether or not to use 8-bit Adam from bitsandbytes."
+    )
+    parser.add_argument("--adam_beta1", type=float, default=0.9, help="The beta1 parameter for the Adam optimizer.")
+    parser.add_argument("--adam_beta2", type=float, default=0.999, help="The beta2 parameter for the Adam optimizer.")
+    parser.add_argument("--adam_weight_decay", type=float, default=1e-2, help="Weight decay to use.")
+    parser.add_argument("--adam_epsilon", type=float, default=1e-08, help="Epsilon value for the Adam optimizer")
+    parser.add_argument("--max_grad_norm", default=1.0, type=float, help="Max gradient norm.")
+    parser.add_argument("--push_to_hub", action="store_true", help="Whether or not to push the model to the Hub.")
+    parser.add_argument("--hub_token", type=str, default=None, help="The token to use to push to the Model Hub.")
+    parser.add_argument(
+        "--prediction_type",
+        type=str,
+        default=None,
+        help="The prediction_type that shall be used for training. Choose between 'epsilon' or 'v_prediction' or leave `None`. If left to `None` the default prediction type of the scheduler: `noise_scheduler.config.prediciton_type` is chosen.",
+    )
+    parser.add_argument(
+        "--hub_model_id",
+        type=str,
+        default=None,
+        help="The name of the repository to keep in sync with the local `output_dir`.",
+    )
+    parser.add_argument(
+        "--logging_dir",
+        type=str,
+        default="logs",
+        help=(
+            "[TensorBoard](https://www.tensorflow.org/tensorboard) log directory. Will default to"
+            " *output_dir/runs/**CURRENT_DATETIME_HOSTNAME***."
+        ),
+    )
+    parser.add_argument(
+        "--report_to",
+        type=str,
+        default="tensorboard",
+        help=(
+            'The integration to report the results and logs to. Supported platforms are `"tensorboard"`'
+            ' (default), `"wandb"` and `"comet_ml"`. Use `"all"` to report to all integrations.'
+        ),
+    )
+    parser.add_argument(
+        "--mixed_precision",
+        type=str,
+        default=None,
+        choices=["no", "fp16", "bf16"],
+        help=(
+            "Whether to use mixed precision. Choose between fp16 and bf16 (bfloat16). Bf16 requires PyTorch >="
+            " 1.10.and an Nvidia Ampere GPU.  Default to the value of accelerate config of the current system or the"
+            " flag passed with the `accelerate.launch` command. Use this argument to override the accelerate config."
+        ),
+    )
+    parser.add_argument("--local_rank", type=int, default=-1, help="For distributed training: local_rank")
+    parser.add_argument("--noise_offset", type=float, default=0, help="The scale of noise offset.")
 
     args = parser.parse_args()
     main(args)

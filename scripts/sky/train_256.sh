@@ -5,40 +5,18 @@ accelerate launch \
     --model Latte-XL/122 \
     --dataset sky \
     --ae stabilityai/sd-vae-ft-mse \
-    --data-path /remote-home/yeyang/sky_timelapse/sky_train/ \
+    --data_path /remote-home/yeyang/sky_timelapse/sky_train/ \
     --extras 1 \
-    --sample-rate 1 \
-    --num-frames 128 \
-    --max-image-size 256 \
-    --max-train-steps 1000000 \
-    --local-batch-size 2 \
-    --lr 1e-4 \
-    --ckpt-every 500 \
-    --log-every 50 \
-    --gradient-checkpointing \
-    --attention-mode flash \
-    --mixed-precision bf16
-
-for debug
-HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 accelerate launch \
-    --num_processes 1 \
-    opensora/train/train.py \
-    --model Latte-XL/122 \
-    --dataset sky \
-    --ae checkpoint-14000 \
-    --data-path /remote-home/yeyang/sky_timelapse/sky_train/ \
-    --extras 1 \
-    --sample-rate 2 \
-    --num-frames 8 \
-    --max-image-size 128 \
-    --max-train-steps 1000000 \
-    --local-batch-size 2 \
-    --lr 1e-4 \
-    --ckpt-every 500 \
-    --log-every 50 \
-    --gradient-checkpointing \
-    --attention-mode flash \
-    --mixed-precision bf16 \
-    --num-workers 0 \
-    --pretrained PixArt-XL-2-256x256.pth \
-    --compress-kv
+    --sample_rate 1 \
+    --num_frames 128 \
+    --max_image_size 256 \
+    --gradient_checkpointing \
+    --attention_mode flash \
+    --train_batch_size=5 --dataloader_num_workers 10 \
+    --gradient_accumulation_steps=1 \
+    --max_train_steps=1000000 \
+    --learning_rate=1e-04 --lr_scheduler="constant" --lr_warmup_steps=0 \
+    --mixed_precision="bf16" \
+    --report_to="tensorboard" \
+    --checkpointing_steps=500 \
+    --output_dir="sky-f128s1-256-imgvae188-bf16-ckpt-flash"
