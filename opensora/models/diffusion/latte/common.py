@@ -396,8 +396,8 @@ class TimestepEmbedder(nn.Module):
             embedding = torch.cat([embedding, torch.zeros_like(embedding[:, :1])], dim=-1)
         return embedding
 
-    def forward(self, t):
-        t_freq = self.timestep_embedding(t, self.frequency_embedding_size)
+    def forward(self, t, dtype):
+        t_freq = self.timestep_embedding(t, self.frequency_embedding_size).to(dtype)
         t_emb = self.mlp(t_freq)
         return t_emb
 
@@ -455,7 +455,8 @@ class CaptionEmbedder(nn.Module):
 
     def forward(self, caption, train, force_drop_ids=None):
         if train:
-            assert caption.shape[2:] == self.y_embedding.shape
+            assert caption.shape[2:] == self.y_embedding.shape, \
+                f'caption.shape[2:] ({caption.shape[2:]}) != self.y_embedding.shape ({self.y_embedding.shape})'
         use_dropout = self.uncond_prob > 0
         if (train and use_dropout) or (force_drop_ids is not None):
             caption = self.token_drop(caption, force_drop_ids)
@@ -504,6 +505,7 @@ class TransformerCrossConditonBlock(nn.Module):
         else:
             self.attn = Attention(hidden_size, num_heads=num_heads, qkv_bias=True, **block_kwargs)
         self.cross_attn = CrossAttention(hidden_size, num_heads, **block_kwargs)
+        self.cross_norm = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
         self.norm2 = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
         mlp_hidden_dim = int(hidden_size * mlp_ratio)
         approx_gelu = lambda: nn.GELU(approximate="tanh")
@@ -516,7 +518,7 @@ class TransformerCrossConditonBlock(nn.Module):
     def forward(self, x, cond, t, attn_mask=None, cond_mask=None):
         shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = self.adaLN_modulation(t).chunk(6, dim=1)
         x = x + gate_msa.unsqueeze(1) * self.attn(modulate(self.norm1(x), shift_msa, scale_msa), attn_mask)
-        x = x + self.cross_attn(x, cond, attn_mask, cond_mask)
+        x = x + self.cross_attn(self.cross_norm(x), cond, attn_mask, cond_mask)
         x = x + gate_mlp.unsqueeze(1) * self.mlp(modulate(self.norm2(x), shift_mlp, scale_mlp))
         return x
 
@@ -527,7 +529,7 @@ class FinalLayer(nn.Module):
     def __init__(self, hidden_size, patch_size_t, patch_size, out_channels):
         super().__init__()
         self.norm_final = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
-        self.linear = nn.Linear(hidden_size, patch_size_t * patch_size * patch_size * out_channels, bias=True)
+        self.linear = nn.Linear(hidden_size, patch_size_t * patch_size[0] * patch_size[1] * out_channels, bias=True)
         self.adaLN_modulation = nn.Sequential(
             nn.SiLU(),
             nn.Linear(hidden_size, 2 * hidden_size, bias=True)
