@@ -201,7 +201,7 @@ Refer to the document [EVAL.md](docs/EVAL.md).
 To train VQVAE, run the script:
 
 ```
-scripts/train_vqvae.sh
+scripts/videogpt/train_videogpt.sh
 ```
 
 You can modify the training parameters within the script. For training parameters, please refer to [transformers.TrainingArguments](https://huggingface.co/docs/transformers/v4.38.2/en/main_classes/trainer#transformers.TrainingArguments). Other parameters are explained as follows:
