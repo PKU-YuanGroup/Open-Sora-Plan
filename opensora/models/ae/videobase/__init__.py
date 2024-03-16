@@ -5,7 +5,13 @@ from .vqvae import (
     VQVAEConfiguration,
     VQVAEModel,
     VQVAETrainer,
-    VQVAEDataset, VideoGPTVQVAEWrapper
+    VQVAEDataset, VideoGPTVQVAEWrapper,
+)
+from .causal_vqvae import (
+    CausalVQVAEConfiguration,
+    CausalVQVAEDataset,
+    CausalVQVAETrainer,
+    CausalVQVAEModel
 )
 
 
