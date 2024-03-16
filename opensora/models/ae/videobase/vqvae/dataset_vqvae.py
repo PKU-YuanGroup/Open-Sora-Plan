@@ -16,21 +16,18 @@ class VQVAEDataset(data.Dataset):
     Returns BCTHW videos in the range [-0.5, 0.5] """
     exts = ['avi', 'mp4', 'webm']
 
-    def __init__(self, data_folder, sequence_length, train=True, resolution=64):
+    def __init__(self, data_folder, sequence_length, resolution=64):
         """
         Args:
-            data_folder: path to the folder with videos. The folder
-                should contain a 'train' and a 'test' directory,
-                each with corresponding videos stored
+            data_folder: path to the folder with videos. 
             sequence_length: length of extracted video sequences
+            resolution: spatial resolution
         """
         super().__init__()
-        self.train = train
         self.sequence_length = sequence_length
         self.resolution = resolution
 
-        folder = osp.join(data_folder, 'train' if train else 'test')
-        files = sum([glob.glob(osp.join(folder, '**', f'*.{ext}'), recursive=True)
+        files = sum([glob.glob(osp.join(data_folder, '**', f'*.{ext}'), recursive=True)
                      for ext in self.exts], [])
 
         # hacky way to compute # of classes (count # of unique parent directories)
@@ -39,7 +36,7 @@ class VQVAEDataset(data.Dataset):
         self.class_to_label = {c: i for i, c in enumerate(self.classes)}
 
         warnings.filterwarnings('ignore')
-        cache_file = osp.join(folder, f"metadata_{sequence_length}.pkl")
+        cache_file = osp.join(data_folder, f"metadata_{sequence_length}.pkl")
         if not osp.exists(cache_file):
             clips = VideoClips(files, sequence_length, num_workers=32)
             if dist.is_initialized() and dist.get_rank() == 0:

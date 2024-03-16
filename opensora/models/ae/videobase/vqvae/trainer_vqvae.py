@@ -9,7 +9,6 @@ import json
 class VQVAETrainer(Trainer):
 
     def compute_loss(self, model, inputs, return_outputs=False):
-        model = model.module
         x = inputs.get("video")
         z = model.pre_vq_conv(model.encoder(x))
         vq_output = model.codebook(z)
