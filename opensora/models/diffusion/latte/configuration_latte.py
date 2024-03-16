@@ -20,11 +20,11 @@ class LatteConfiguration:
         learn_sigma=True,
         extras=1,
         attention_mode='math',
-        compress_kv=False,
         attention_pe_mode=None,
         pt_input_size: Union[int, Tuple[int, int]] = None,  # (h, w)
         pt_num_frames: Union[int, Tuple[int, int]] = None,  # (num_frames, 1)
         intp_vfreq: bool = True,  # vision position interpolation
+        compress_kv: bool = False,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -41,7 +41,7 @@ class LatteConfiguration:
         self.class_dropout_prob = class_dropout_prob
         self.num_classes = num_classes
         self.learn_sigma = learn_sigma
-        self.extras = learn_sigma
+        self.extras = extras
         self.attention_mode = attention_mode
         self.compress_kv = compress_kv
         self.attention_pe_mode = attention_pe_mode
@@ -62,6 +62,14 @@ class LatteConfiguration:
             config_dict = json.load(json_file)
         return cls(**config_dict)
 
+class LatteT2VConfiguration(LatteConfiguration):
+    def __init__(self,
+                 caption_channels=4096,
+                 model_max_length=120,
+                 **kwargs):
+        super(LatteT2VConfiguration, self).__init__(**kwargs)
+        self.caption_channels = caption_channels
+        self.model_max_length = model_max_length
 
 def Latte_XL_122_Config(**kwargs):
     return LatteConfiguration(depth=56, hidden_size=1152, patch_size_t=1, patch_size=2, num_heads=16, **kwargs)
@@ -100,9 +108,52 @@ def Latte_S_188_Config(**kwargs):
     return LatteConfiguration(depth=24, hidden_size=384, patch_size_t=1, patch_size=8, num_heads=6, **kwargs)
 
 
+def LatteT2V_XL_122_Config(**kwargs):
+    return LatteT2VConfiguration(depth=56, hidden_size=1152, patch_size_t=1, patch_size=2, num_heads=16, **kwargs)
+
+def LatteT2V_XL_144_Config(**kwargs):
+    return LatteT2VConfiguration(depth=56, hidden_size=1152, patch_size_t=1, patch_size=4, num_heads=16, **kwargs)
+
+def LatteT2V_XL_188_Config(**kwargs):
+    return LatteT2VConfiguration(depth=56, hidden_size=1152, patch_size_t=1, patch_size=8, num_heads=16, **kwargs)
+
+def LatteT2V_L_122_Config(**kwargs):
+    return LatteT2VConfiguration(depth=48, hidden_size=1024, patch_size_t=1, patch_size=2, num_heads=16, **kwargs)
+
+def LatteT2V_L_144_Config(**kwargs):
+    return LatteT2VConfiguration(depth=48, hidden_size=1024, patch_size_t=1, patch_size=4, num_heads=16, **kwargs)
+
+def LatteT2V_L_188_Config(**kwargs):
+    return LatteT2VConfiguration(depth=48, hidden_size=1024, patch_size_t=1, patch_size=8, num_heads=16, **kwargs)
+
+def LatteT2V_B_122_Config(**kwargs):
+    return LatteT2VConfiguration(depth=24, hidden_size=768, patch_size_t=1, patch_size=2, num_heads=12, **kwargs)
+
+def LatteT2V_B_144_Config(**kwargs):
+    return LatteT2VConfiguration(depth=24, hidden_size=768, patch_size_t=1, patch_size=4, num_heads=12, **kwargs)
+
+def LatteT2V_B_188_Config(**kwargs):
+    return LatteT2VConfiguration(depth=24, hidden_size=768, patch_size_t=1, patch_size=8, num_heads=12, **kwargs)
+
+def LatteT2V_S_122_Config(**kwargs):
+    return LatteT2VConfiguration(depth=24, hidden_size=384, patch_size_t=1, patch_size=2, num_heads=6, **kwargs)
+
+def LatteT2V_S_144_Config(**kwargs):
+    return LatteT2VConfiguration(depth=24, hidden_size=384, patch_size_t=1, patch_size=4, num_heads=6, **kwargs)
+
+def LatteT2V_S_188_Config(**kwargs):
+    return LatteT2VConfiguration(depth=24, hidden_size=384, patch_size_t=1, patch_size=8, num_heads=6, **kwargs)
+
 Latte_configs = {
     "Latte-XL/122": Latte_XL_122_Config, "Latte-XL/144": Latte_XL_144_Config, "Latte-XL/188": Latte_XL_188_Config,
     "Latte-L/122": Latte_L_122_Config, "Latte-L/144": Latte_L_144_Config, "Latte-L/188": Latte_L_188_Config,
     "Latte-B/122": Latte_B_122_Config, "Latte-B/144": Latte_B_144_Config, "Latte-B/188": Latte_B_188_Config,
     "Latte-S/122": Latte_S_122_Config, "Latte-S/144": Latte_S_144_Config, "Latte-S/188": Latte_S_188_Config,
+}
+
+LatteT2V_configs = {
+    "LatteT2V-XL/122": LatteT2V_XL_122_Config, "LatteT2V-XL/144": LatteT2V_XL_144_Config, "LatteT2V-XL/188": LatteT2V_XL_188_Config,
+    "LatteT2V-L/122": LatteT2V_L_122_Config, "LatteT2V-L/144": LatteT2V_L_144_Config, "LatteT2V-L/188": LatteT2V_L_188_Config,
+    "LatteT2V-B/122": LatteT2V_B_122_Config, "LatteT2V-B/144": LatteT2V_B_144_Config, "LatteT2V-B/188": LatteT2V_B_188_Config,
+    "LatteT2V-S/122": LatteT2V_S_122_Config, "LatteT2V-S/144": LatteT2V_S_144_Config, "LatteT2V-S/188": LatteT2V_S_188_Config,
 }
