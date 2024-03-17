@@ -4,13 +4,11 @@ accelerate launch \
   opensora/sample/sample.py \
   --model Latte-XL/122 \
   --ae stabilityai/sd-vae-ft-mse \
-  --ckpt results/015-Latte-XL-122-sd-vae-ft-mse-F16S3-ucf101-FLASH-Gc-BF16-256/checkpoints/0009000.pt \
-  --extras 2 \
+  --ckpt sky-f128s1-256-imgvae188-bf16-ckpt-flash/checkpoint-100000 \
+  --extras 1 \
   --fps 10 \
-  --num-frames 16 \
+  --num-frames 128 \
   --image-size 256 \
   --num-sampling-steps 250 \
   --attention-mode flash \
-  --mixed-precision bf16 \
-  --cfg-scale 4.0
-
+  --mixed-precision bf16
