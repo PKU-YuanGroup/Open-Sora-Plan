@@ -25,7 +25,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-train = ["deepspeed==0.9.5", "pydantic==1.10.13"]
+train = ["deepspeed==0.9.5", "pydantic==1.10.13", "moviepy==1.0.3", "wandb==0.16.3", "tensorboard==2.14.0"]
 dev = ["mypy==1.8.0"]
 
 
