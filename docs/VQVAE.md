@@ -21,7 +21,7 @@ vqvae = VideoGPTVQVAE()
 To train the VQVAE model, you can use the `train_videogpt.sh` script. This script will train the model using the parameters specified in the script.
 
 ```bash
-bash scripts/train_videogpt.sh
+bash scripts/videogpt/train_videogpt.sh
 ```
 
 ### Loading Pretrained Models
