@@ -7,7 +7,6 @@ from opensora.models.ae.videobase import (
     VQVAEDataset,
     VQVAETrainer,
 )
-from opensora.models.ae.videobase.vqvae.dataset_vqvae import InternVIDDataset
 import argparse
 from typing import Optional
 from accelerate.utils import set_seed
@@ -41,7 +40,7 @@ def train(args, vqvae_args, training_args):
     # Load Model
     model = VQVAEModel(config)
     # Load Dataset
-    dataset = InternVIDDataset(args.data_path, sequence_length=args.sequence_length, resolution=config.resolution)
+    dataset = VQVAEDataset(args.data_path, sequence_length=args.sequence_length, resolution=config.resolution)
     # Load Trainer
     trainer = VQVAETrainer(model, training_args, train_dataset=dataset)
     trainer.train()
