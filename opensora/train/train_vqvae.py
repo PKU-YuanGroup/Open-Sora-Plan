@@ -7,6 +7,7 @@ from opensora.models.ae.videobase import (
     VQVAEDataset,
     VQVAETrainer,
 )
+from opensora.models.ae.videobase.vqvae.dataset_vqvae import InternVIDDataset
 import argparse
 from typing import Optional
 from accelerate.utils import set_seed
@@ -26,11 +27,13 @@ class VQVAEArgument:
     no_pos_embd: bool = True,
     data_path: str = field(default=None, metadata={"help": "data path"})
 
+
 @dataclass
 class VQVAETrainingArgument(TrainingArguments):
     remove_unused_columns: Optional[bool] = field(
         default=False, metadata={"help": "Remove columns not required by the model when using an nlp.Dataset."}
     )
+
 
 def train(args, vqvae_args, training_args):
     # Load Config
@@ -38,7 +41,7 @@ def train(args, vqvae_args, training_args):
     # Load Model
     model = VQVAEModel(config)
     # Load Dataset
-    dataset = VQVAEDataset(args.data_path, sequence_length=args.sequence_length, resolution=config.resolution)
+    dataset = InternVIDDataset(args.data_path, sequence_length=args.sequence_length, resolution=config.resolution)
     # Load Trainer
     trainer = VQVAETrainer(model, training_args, train_dataset=dataset)
     trainer.train()
