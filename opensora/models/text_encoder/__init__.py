@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from transformers import T5EncoderModel
+from transformers import T5EncoderModel, CLIPModel, CLIPProcessor
 
 from opensora.utils.utils import get_precision
 
@@ -18,12 +18,26 @@ class T5Wrapper(nn.Module):
         return text_encoder_embs.detach()
 
 class CLIPWrapper(nn.Module):
-    def __init__(self, args, device, cache_dir='./cache_dir', **kwargs):
+    def __init__(self, args, device='cuda', cache_dir='./cache_dir', **kwargs):
         super(CLIPWrapper, self).__init__()
-        raise NotImplementedError
+        self.device = torch.device(device)
+        self.model_name = args.clip_model_name
+        self.cache_dir = cache_dir
+        
+        # Load the CLIP model and processor
+        self.clip_model = CLIPModel.from_pretrained(self.model_name, cache_dir=self.cache_dir).to(self.device).eval()
+        self.clip_processor = CLIPProcessor.from_pretrained(self.model_name, cache_dir=self.cache_dir)
 
-    def forward(self, prompts):  # prompts = ['I am a test caption', 'Test twice']
-        raise NotImplementedError
+    def forward(self, prompts): # prompts = ['I am a test caption', 'Test twice']
+        # Process the prompts and move to the correct device
+        inputs = self.clip_processor(text=prompts, return_tensors="pt", padding=True, truncation=True).to(self.device)
+        
+        # Generate text features
+        with torch.no_grad():
+            text_features = self.clip_model.get_text_features(**inputs)
+        
+        return text_features.detach()
+
 
 
 text_encoder = {
