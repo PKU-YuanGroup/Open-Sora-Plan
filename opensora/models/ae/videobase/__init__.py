@@ -13,6 +13,8 @@ from .causal_vqvae import (
     CausalVQVAETrainer,
     CausalVQVAEModel
 )
+from .trainer_videobase import VideoAETrainer
+from .dataset_videobase import build_videoae_dataset
 
 
 """
