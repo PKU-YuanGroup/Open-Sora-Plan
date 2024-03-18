@@ -12,13 +12,14 @@ import torch.nn.functional as F
 from torchvision.datasets.video_utils import VideoClips
 import torchvision.transforms as transforms
 
+
 # Copied from https://github.com/wilson1yan/VideoGPT
 class CausalVQVAEDataset(data.Dataset):
     """ Generic dataset for videos files stored in folders
     Returns BCTHW videos in the range [-0.5, 0.5] """
     video_exts = ['avi', 'mp4', 'webm']
     image_exts = ['png', 'jpg', 'jpeg']
-    def __init__(self, video_folder, sequence_length, image_folder=None, train=True, resolution=64):
+    def __init__(self, video_folder, sequence_length, image_folder=None, resolution=64, train=True):
         """
         Args:
             data_folder: path to the folder with videos. The folder
@@ -90,9 +91,11 @@ class CausalVQVAEDataset(data.Dataset):
         # label = self.class_to_label[class_name]
         return dict(video=video, label="")
 
+
 # Copied from https://github.com/wilson1yan/VideoGPT
 def get_parent_dir(path):
     return osp.basename(osp.dirname(path))
+
 
 # Copied from https://github.com/wilson1yan/VideoGPT
 def preprocess(video, resolution, sequence_length=None):

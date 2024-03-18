@@ -16,7 +16,7 @@ class VQVAEDataset(data.Dataset):
     Returns BCTHW videos in the range [-0.5, 0.5] """
     exts = ['avi', 'mp4', 'webm']
 
-    def __init__(self, data_folder, sequence_length, train=True, resolution=64):
+    def __init__(self, data_folder, sequence_length, resolution=64, train=True):
         """
         Args:
             data_folder: path to the folder with videos. The folder
@@ -65,9 +65,11 @@ class VQVAEDataset(data.Dataset):
         label = self.class_to_label[class_name]
         return dict(video=preprocess(video, resolution), label=label)
 
+
 # Copied from https://github.com/wilson1yan/VideoGPT
 def get_parent_dir(path):
     return osp.basename(osp.dirname(path))
+
 
 # Copied from https://github.com/wilson1yan/VideoGPT
 def preprocess(video, resolution, sequence_length=None):
