@@ -728,8 +728,13 @@ class VQVAEModel(VideoBaseAE):
         z = self.pre_vq_conv(self.encoder(x))
         vq_output = self.codebook(z)
         x_recon = self.decoder(self.post_vq_conv(vq_output["embeddings"]))
-        recon_loss = F.mse_loss(x_recon, x) / 0.06
-        return recon_loss, x_recon, vq_output
+        if self.training:
+            recon_loss = F.mse_loss(x_recon, x) / 0.06
+            commitment_loss = vq_output['commitment_loss']
+            loss = recon_loss + commitment_loss
+            return loss
+        else:
+            return x_recon
 
     def encode(self, x: Tensor, include_embeddings: bool = False) -> Union[Tuple[Tensor, Tensor], Tensor]:
         h = self.pre_vq_conv(self.encoder(x))

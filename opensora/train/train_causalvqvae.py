@@ -29,11 +29,13 @@ class CausalVQVAEArgument:
     video_data_path: str = field(default=None, metadata={"help": "data path"})
     image_data_path: str = field(default=None, metadata={"help": "not implemented"})
 
+
 @dataclass
 class CausalVQVAETrainingArgument(TrainingArguments):
     remove_unused_columns: Optional[bool] = field(
         default=False, metadata={"help": "Remove columns not required by the model when using an nlp.Dataset."}
     )
+
 
 def train(args, vqvae_args: CausalVQVAEArgument, training_args: CausalVQVAETrainingArgument):
     # Load Config
@@ -59,6 +61,7 @@ def train(args, vqvae_args: CausalVQVAEArgument, training_args: CausalVQVAETrain
     trainer = CausalVQVAETrainer(model, training_args, train_dataset=dataset)
     trainer.train(resume_from_checkpoint=args.resume_from_checkpoint)
     trainer.save_model()
+
 
 if __name__ == "__main__":
     parser = HfArgumentParser((CausalVQVAEArgument, CausalVQVAETrainingArgument))
