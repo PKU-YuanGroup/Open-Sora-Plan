@@ -278,6 +278,11 @@ class GaussianDiffusion_T:
         B, C, F = x.shape[:3]
         assert t.shape == (B,)
         model_output = model(x, t, **model_kwargs)
+
+        try:
+            model_output.shape
+        except:
+            model_output = model_output[0]
         # try:
         #     model_output = model_output.sample # for tav unet
         # except:
@@ -292,7 +297,7 @@ class GaussianDiffusion_T:
             #model_output, model_var_values = th.split(model_output, C, dim=2)
             #the output shape of uncondition or class condition latte is not the same as the latte_t2v
             #BFCHW vs BCFHW 
-            assert model_output.shape == (B, C * 2, F, *x.shape[3:])
+            assert model_output.shape == (B, C * 2, F, *x.shape[3:]), f'model_output.shape ({model_output.shape}), != {(B, C * 2, F, *x.shape[3:])}'
             model_output, model_var_values = th.split(model_output, C, dim=1)
             min_log = _extract_into_tensor(self.posterior_log_variance_clipped, t, x.shape)
             max_log = _extract_into_tensor(np.log(self.betas), t, x.shape)
