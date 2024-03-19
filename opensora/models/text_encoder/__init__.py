@@ -18,7 +18,7 @@ class T5Wrapper(nn.Module):
         return text_encoder_embs.detach()
 
 class CLIPWrapper(nn.Module):
-    def __init__(self, args, device, cache_dir='./cache_dir', **kwargs):
+    def __init__(self, args):
         super(CLIPWrapper, self).__init__()
         raise NotImplementedError
 

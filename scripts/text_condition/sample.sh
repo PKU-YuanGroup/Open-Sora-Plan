@@ -6,11 +6,10 @@ accelerate launch \
     --text_encoder_name DeepFloyd/t5-v1_1-xxl \
     --prompt "A woman" \
     --ae stabilityai/sd-vae-ft-mse \
-    --ckpt t2v-f16s3-256-imgvae188-bf16-ckpt-xformers/checkpoint-100000 \
-    --extras 3 \
+    --ckpt t2v-f16s3-128-imgvae188-bf16-ckpt-xformers/checkpoint-5 \
     --fps 10 \
-    --num-frames 16 \
-    --image-size 256 \
-    --num-sampling-steps 250 \
-    --attention-mode xformers \
-    --mixed-precision bf16
+    --num_frames 16 \
+    --image_size 128 \
+    --num_sampling_steps 250 \
+    --attention_mode xformers \
+    --mixed_precision bf16
