@@ -5,13 +5,13 @@ from .vqvae import (
     VQVAEConfiguration,
     VQVAEModel,
     VQVAETrainer,
-    VQVAEDataset, VideoGPTVQVAEWrapper,
+    VQVAEDataset, VQVAEModelWrapper
 )
 from .causal_vqvae import (
     CausalVQVAEConfiguration,
     CausalVQVAEDataset,
     CausalVQVAETrainer,
-    CausalVQVAEModel
+    CausalVQVAEModel, CausalVQVAEModelWrapper
 )
 
 
@@ -19,15 +19,8 @@ from .causal_vqvae import (
 old code
 """
 
-videovqvae = [
-    "bair_stride4x2x2",
-    "ucf101_stride4x4x4",
-    "kinetics_stride4x4x4",
-    "kinetics_stride2x4x4",
-]
-videovae = []
-
 videobase_ae_stride = {
+    'CausalVQVAEModel': [4, 8, 8],
     'checkpoint-14000': [4, 4, 4],
     'bair_stride4x2x2': [4, 2, 2],
     'ucf101_stride4x4x4': [4, 4, 4],
@@ -36,6 +29,7 @@ videobase_ae_stride = {
 }
 
 videobase_ae_channel = {
+    'CausalVQVAEModel': 4,
     'checkpoint-14000': 4,
     'bair_stride4x2x2': 256,
     'ucf101_stride4x4x4': 256,
@@ -44,9 +38,10 @@ videobase_ae_channel = {
 }
 
 videobase_ae = {
-    "checkpoint-14000": VideoGPTVQVAEWrapper,
-    "bair_stride4x2x2": VideoGPTVQVAEWrapper,
-    "ucf101_stride4x4x4": VideoGPTVQVAEWrapper,
-    "kinetics_stride4x4x4": VideoGPTVQVAEWrapper,
-    "kinetics_stride2x4x4": VideoGPTVQVAEWrapper,
+    "CausalVQVAEModel": CausalVQVAEModelWrapper,
+    "checkpoint-14000": VQVAEModelWrapper,
+    "bair_stride4x2x2": VQVAEModelWrapper,
+    "ucf101_stride4x4x4": VQVAEModelWrapper,
+    "kinetics_stride4x4x4": VQVAEModelWrapper,
+    "kinetics_stride2x4x4": VQVAEModelWrapper,
 }

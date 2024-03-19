@@ -15,8 +15,9 @@ from transformers import AutoTokenizer
 
 from opensora.dataset import ae_denorm
 from opensora.models.ae import ae_channel_config, getae, ae_stride_config
+from opensora.models.ae.videobase import CausalVQVAEModelWrapper
 from opensora.models.diffusion import Diffusion_models
-from opensora.models.diffusion.diffusion import create_diffusion
+from opensora.models.diffusion.diffusion import create_diffusion_T as create_diffusion
 from opensora.models.diffusion.latte.modeling_latte import LatteT2V
 from opensora.models.text_encoder import get_text_enc
 from opensora.utils.utils import find_model
@@ -52,6 +53,10 @@ def main(args):
     tokenizer = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir='./cache_dir')
     text_enc = get_text_enc(args).to(device).eval()
     ae = getae(args).to(device).eval()
+    if isinstance(ae, CausalVQVAEModelWrapper):
+        video_length = args.num_frames // ae_stride_config[args.ae][0] + 1
+    else:
+        video_length = args.num_frames // ae_stride_config[args.ae][0]
     model.eval()  # important!
 
     model = accelerator.prepare(model)
@@ -61,7 +66,7 @@ def main(args):
     bar = tqdm(range(args.num_sample))
     for i in bar:
         # Create sampling noise:
-        z = torch.randn(1, args.num_frames // ae_stride_config[args.ae][0], model.module.in_channels, latent_size[0], latent_size[1], device=device)
+        z = torch.randn(1, model.module.in_channels, video_length, latent_size[0], latent_size[1], device=device)
 
         text_tokens_and_mask = tokenizer(
             args.prompt,
@@ -75,10 +80,8 @@ def main(args):
         input_ids = text_tokens_and_mask['input_ids'].to(device)
         cond_mask = text_tokens_and_mask['attention_mask'].to(device)
         cond = text_enc(input_ids, cond_mask)  # B L D
-        cond = cond[:, None]  # B L D -> B 1 L D
-        cond_mask = cond_mask.to(weight_dtype)
         attn_mask = None
-        model_kwargs = dict(cond=cond, attn_mask=attn_mask, cond_mask=cond_mask)
+        model_kwargs = dict(encoder_hidden_states=cond, attention_mask=attn_mask, encoder_attention_mask=cond_mask)
         sample_fn = model.forward
 
         # Sample images:
@@ -111,19 +114,16 @@ if __name__ == "__main__":
     parser.add_argument("--model", type=str, default='Latte-XL/122')
     parser.add_argument("--prompt", type=str, default='A woman')
     parser.add_argument("--ae", type=str, default='stabilityai/sd-vae-ft-mse')
-    parser.add_argument("--save-video-path", type=str, default="./sample_videos/")
+    parser.add_argument("--save_video_path", type=str, default="./sample_videos/")
     parser.add_argument("--fps", type=int, default=10)
-    parser.add_argument("--num-classes", type=int, default=101)
-    parser.add_argument("--num-frames", type=int, default=16)
-    parser.add_argument("--image-size", type=int, default=256)
-    parser.add_argument("--extras", type=int, default=1)
-    parser.add_argument("--num-sampling-steps", type=int, default=250)
-    parser.add_argument("--num-sample", type=int, default=1)
-    parser.add_argument("--cfg-scale", type=float, default=1.0)
-    parser.add_argument("--use-compile", action="store_true")
-    parser.add_argument("--sample-method", type=str, default='ddpm')
-    parser.add_argument("--mixed-precision", type=str, default=None, choices=[None, "fp16", "bf16"])
-    parser.add_argument("--attention-mode", type=str, choices=['xformers', 'math', 'flash'], default="math")
+    parser.add_argument("--num_frames", type=int, default=16)
+    parser.add_argument("--image_size", type=int, default=256)
+    parser.add_argument("--num_sampling_steps", type=int, default=250)
+    parser.add_argument("--num_sample", type=int, default=1)
+    parser.add_argument("--cfg_scale", type=float, default=1.0)
+    parser.add_argument("--sample_method", type=str, default='ddpm')
+    parser.add_argument("--mixed_precision", type=str, default=None, choices=[None, "fp16", "bf16"])
+    parser.add_argument("--attention_mode", type=str, choices=['xformers', 'math', 'flash'], default="math")
     parser.add_argument("--text_encoder_name", type=str, default='DeepFloyd/t5-v1_1-xxl')
     parser.add_argument("--model_max_length", type=int, default=120)
     args = parser.parse_args()

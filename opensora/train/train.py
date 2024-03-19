@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
+from einops import rearrange
 from tqdm import tqdm
 from dataclasses import field, dataclass
 from torch.utils.data import DataLoader
@@ -41,7 +42,8 @@ from diffusers.utils import check_min_version, is_wandb_available
 
 from opensora.dataset import getdataset, ae_denorm
 from opensora.models.ae import getae
-from opensora.models.diffusion.diffusion import create_diffusion
+from opensora.models.ae.videobase import CausalVQVAEModelWrapper
+from opensora.models.diffusion.diffusion import create_diffusion_T as create_diffusion
 from opensora.models.diffusion.latte.modeling_latte import Latte
 from opensora.utils.dataset_utils import Collate
 from opensora.models.ae import ae_stride_config, ae_channel_config
@@ -56,6 +58,45 @@ logger = get_logger(__name__)
 
 
 
+def generate_timestep_weights(args, num_timesteps):
+    weights = torch.ones(num_timesteps)
+
+    # Determine the indices to bias
+    num_to_bias = int(args.timestep_bias_portion * num_timesteps)
+
+    if args.timestep_bias_strategy == "later":
+        bias_indices = slice(-num_to_bias, None)
+    elif args.timestep_bias_strategy == "earlier":
+        bias_indices = slice(0, num_to_bias)
+    elif args.timestep_bias_strategy == "range":
+        # Out of the possible 1000 timesteps, we might want to focus on eg. 200-500.
+        range_begin = args.timestep_bias_begin
+        range_end = args.timestep_bias_end
+        if range_begin < 0:
+            raise ValueError(
+                "When using the range strategy for timestep bias, you must provide a beginning timestep greater or equal to zero."
+            )
+        if range_end > num_timesteps:
+            raise ValueError(
+                "When using the range strategy for timestep bias, you must provide an ending timestep smaller than the number of timesteps."
+            )
+        bias_indices = slice(range_begin, range_end)
+    else:  # 'none' or any other string
+        return weights
+    if args.timestep_bias_multiplier <= 0:
+        return ValueError(
+            "The parameter --timestep_bias_multiplier is not intended to be used to disable the training of specific timesteps."
+            " If it was intended to disable timestep bias, use `--timestep_bias_strategy none` instead."
+            " A timestep bias multiplier less than or equal to 0 is not allowed."
+        )
+
+    # Apply the bias
+    weights[bias_indices] *= args.timestep_bias_multiplier
+
+    # Normalize
+    weights /= weights.sum()
+
+    return weights
 
 #################################################################################
 #                                  Training Loop                                #
@@ -121,38 +162,60 @@ def main(args):
     args.patch_size_t, args.patch_size_h, args.patch_size_w = patch_size_t, patch_size_h, patch_size_w
     assert ae_stride_h == ae_stride_w, f"Support only ae_stride_h == ae_stride_w now, but found ae_stride_h ({ae_stride_h}), ae_stride_w ({ae_stride_w})"
     assert patch_size_h == patch_size_w, f"Support only patch_size_h == patch_size_w now, but found patch_size_h ({patch_size_h}), patch_size_w ({patch_size_w})"
-    assert args.num_frames % ae_stride_t == 0, f"Num_frames must be divisible by ae_stride_t, but found num_frames ({args.num_frames}), ae_stride_t ({ae_stride_t})."
+    # assert args.num_frames % ae_stride_t == 0, f"Num_frames must be divisible by ae_stride_t, but found num_frames ({args.num_frames}), ae_stride_t ({ae_stride_t})."
     assert args.max_image_size % ae_stride_h == 0, f"Image size must be divisible by ae_stride_h, but found max_image_size ({args.max_image_size}),  ae_stride_h ({ae_stride_h})."
 
     latent_size = (args.max_image_size // ae_stride_h, args.max_image_size // ae_stride_w)
 
+    if isinstance(ae, CausalVQVAEModelWrapper):
+        video_length = args.num_frames // ae_stride_t + 1
+    else:
+        video_length = args.num_frames // ae_stride_t
     model = Diffusion_models[args.model](
-        input_size=latent_size,
-        num_classes=args.num_classes,
         in_channels=ae_channel_config[args.ae],
-        extras=args.extras,
-        num_frames=args.num_frames // ae_stride_t,
-        attention_mode=args.attention_mode,
-        compress_kv=args.compress_kv
+        out_channels=ae_channel_config[args.ae] * 2,
+        caption_channels=None,   # unconditon
+        cross_attention_dim=None,  # unconditon
+        attention_bias=True,
+        sample_size=latent_size,
+        num_vector_embeds=None,
+        activation_fn="gelu-approximate",
+        num_embeds_ada_norm=args.num_classes if args.train_classcondition else 1000,
+        use_linear_projection=False,
+        only_cross_attention=False,
+        double_self_attention=False,
+        upcast_attention=False,
+        # norm_type="ada_norm_single",
+        norm_elementwise_affine=False,
+        norm_eps=1e-6,
+        attention_type='default',
+        video_length=video_length,
+        # attention_mode=args.attention_mode,
+        # compress_kv=args.compress_kv
     )
     model.gradient_checkpointing = args.gradient_checkpointing
 
     # # use pretrained model?
     if args.pretrained:
-        # load from pixart-alpha
-        pixelart_alpha = torch.load(args.pretrained, map_location='cpu')['state_dict']
-        checkpoint = {}
-        for k, v in pixelart_alpha.items():
-            if 'x_embedder' in k or 't_embedder' in k or 'y_embedder' in k:
-                checkpoint[k] = v
-            if k.startswith('blocks'):
-                k_spilt = k.split('.')
-                blk_id = str(int(k_spilt[1]) * 2)
-                k_spilt[1] = blk_id
-                new_k = '.'.join(k_spilt)
-                checkpoint[new_k] = v
+        checkpoint = torch.load(args.pretrained, map_location='cpu')['model']
         missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=False)
+        logger.info(f'missing_keys {len(missing_keys)}, unexpected_keys {len(unexpected_keys)}')
         logger.info(f'Successfully load {len(model.state_dict()) - len(missing_keys)} keys from {args.pretrained}!')
+        # load from pixart-alpha
+        # pixelart_alpha = torch.load(args.pretrained, map_location='cpu')['state_dict']
+        # checkpoint = {}
+        # for k, v in pixelart_alpha.items():
+        #     if 'x_embedder' in k or 't_embedder' in k or 'y_embedder' in k:
+        #         checkpoint[k] = v
+        #     if k.startswith('blocks'):
+        #         k_spilt = k.split('.')
+        #         blk_id = str(int(k_spilt[1]) * 2)
+        #         k_spilt[1] = blk_id
+        #         new_k = '.'.join(k_spilt)
+        #         checkpoint[new_k] = v
+        # missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=False)
+        # logger.info(f'Successfully load {len(model.state_dict()) - len(missing_keys)} keys from {args.pretrained}!')
+
 
     # Freeze vae and text encoders.
     ae.requires_grad_(False)
@@ -250,7 +313,7 @@ def main(args):
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
         shuffle=True,
-        collate_fn=Collate(args),
+        # collate_fn=Collate(args),  # TODO: do not enable dynamic mask in this point
         batch_size=args.train_batch_size,
         num_workers=args.dataloader_num_workers,
     )
@@ -338,24 +401,30 @@ def main(args):
 
     for epoch in range(first_epoch, args.num_train_epochs):
         train_loss = 0.0
-        for step, (x, y, attn_mask) in enumerate(train_dataloader):
+        for step, (x, y) in enumerate(train_dataloader):
             with accelerator.accumulate(model):
                 # Sample noise that we'll add to the latents
                 x = x.to(accelerator.device)  # B C T H W
-                y = y.to(accelerator.device)
+                if args.train_classcondition:
+                    y = y.to(accelerator.device)
                 # attn_mask = attn_mask.to(device)  # B T H W
-                assert torch.all(attn_mask.bool()), 'do not enable dynamic input'
+                # assert torch.all(attn_mask.bool()), 'do not enable dynamic input'
                 attn_mask = None
 
-                if args.extras == 2:
-                    model_kwargs = dict(y=y, attn_mask=attn_mask)
-                elif args.extras == 1:
-                    model_kwargs = dict(y=None, attn_mask=attn_mask)
-                else:
-                    raise NotImplementedError
+                model_kwargs = dict(class_labels=y if args.train_classcondition else None,
+                                    attention_mask=attn_mask,
+                                    use_image_num=args.use_image_num)
                 with torch.no_grad():
                     # Map input images to latent space + normalize latents
-                    x = ae.encode(x)  # B C T H W
+                    if args.use_image_num == 0:
+                        x = ae.encode(x)  # B C T H W
+                    else:
+                        videos, images = x[:, :, :-args.use_image_num], x[:, :, -args.use_image_num:]
+                        videos = ae.encode(videos)  # B C T H W
+                        images = rearrange(images, 'b c t h w -> (b t) c 1 h w')
+                        images = ae.encode(images)
+                        images = rearrange(images, '(b t) c 1 h w -> b c t h w', t=args.use_image_num)
+                        x = torch.cat([videos, images], dim=2)
 
                 t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=accelerator.device)
                 loss_dict = diffusion.training_losses(model, x, t, model_kwargs)
@@ -426,38 +495,39 @@ def main(args):
                         # create pipeline
                         ae_ = getae(args).to(accelerator.device).eval()
                         model_ = Latte.from_pretrained(save_path, subfolder="model").to(accelerator.device).eval()
-                        diffusion_ = create_diffusion(str(100))
+                        diffusion_ = create_diffusion(str(500))
                         videos = []
+                        ys = []
                         for _ in range(args.num_validation_videos):
-                            with torch.cuda.amp.autocast():
-                                z = torch.randn(1, args.num_frames // ae_stride_config[args.ae][0], model_.in_channels,
+                            with torch.autocast(device_type='cuda', dtype=weight_dtype):
+                                z = torch.randn(1, model_.in_channels, video_length,
                                                 latent_size[0], latent_size[1], device=accelerator.device)
-                                y = None
-                                sample_fn = model_.forward
-                                if args.extras == 2:
+                                if args.train_classcondition:
                                     y = torch.randint(0, args.num_classes, (1,), device=accelerator.device)
-                                model_kwargs = dict(y=y, attn_mask=None)
+                                    ys.append(y.detach().cpu.items())
+                                sample_fn = model_.forward
+                                model_kwargs = dict(class_labels=y if args.train_classcondition else None, attention_mask=None)
                                 # Sample images:
-                                samples = diffusion_.ddim_sample_loop(
+                                samples = diffusion_.p_sample_loop(
                                     sample_fn, z.shape, z, clip_denoised=False, model_kwargs=model_kwargs, progress=True,
                                     device=accelerator.device
                                 )
-                                with torch.no_grad():
-                                    samples = ae_.decode(samples)
+                                samples = ae_.decode(samples)
                                 # Save and display images:
-                                video = (ae_denorm[args.ae](samples[0]) * 255).add_(0.5).clamp_(0, 255).to(dtype=torch.uint8).cpu().contiguous()  # t c h w
+                                video = (ae_denorm[args.ae](samples[0]) * 255).add_(0.5).clamp_(0, 255).to(
+                                    dtype=torch.uint8).cpu().contiguous()  # t c h w
                                 videos.append(video)
 
                     videos = torch.stack(videos).numpy()
                     for tracker in accelerator.trackers:
                         if tracker.name == "tensorboard":
                             np_videos = np.stack([np.asarray(vid) for vid in videos])
-                            tracker.writer.add_video("validation", np_videos, global_step, fps=2)
+                            tracker.writer.add_video("validation", np_videos, global_step, fps=10)
                         if tracker.name == "wandb":
                             tracker.log(
                                 {
                                     "validation": [
-                                        wandb.Video(video, caption=f"{i}: {str(y)}", fps=2)
+                                        wandb.Video(video, caption=f"{i}: {str(ys[i])}" if args.train_classcondition else f"{i}", fps=10)
                                         for i, video in enumerate(videos)
                                     ]
                                 }
@@ -477,7 +547,6 @@ if __name__ == "__main__":
     parser.add_argument("--model", type=str, choices=list(Diffusion_models.keys()), default="DiT-XL/122")
     parser.add_argument("--num_classes", type=int, default=1000)
     parser.add_argument("--ae", type=str, default="stabilityai/sd-vae-ft-mse")
-    parser.add_argument("--extras", type=int, default=2, choices=[1, 2])
     parser.add_argument("--sample_rate", type=int, default=4)
     parser.add_argument("--num_frames", type=int, default=16)
     parser.add_argument("--max_image_size", type=int, default=128)
@@ -485,7 +554,10 @@ if __name__ == "__main__":
     parser.add_argument("--compress_kv", action="store_true")
     parser.add_argument("--attention_mode", type=str, choices=['xformers', 'math', 'flash'], default="math")
     parser.add_argument("--pretrained", type=str, default=None)
+    parser.add_argument("--train_classcondition", action="store_true")
 
+    parser.add_argument("--use_image_num", type=int, default=0)
+    parser.add_argument("--use_img_from_vid", action="store_true")
     parser.add_argument("--use_deepspeed", action="store_true")
     parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
     parser.add_argument(
