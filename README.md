@@ -303,7 +303,7 @@ For more details, please refer to the [Contribution Guidelines](docs/Contributio
 
 
 ## 🔒 License
-* The service is a research preview intended for non-commercial use only. See [LICENSE](LICENSE) for details.
+* See [LICENSE](LICENSE) for details.
 
 <!--
 ## ✨ Star History
