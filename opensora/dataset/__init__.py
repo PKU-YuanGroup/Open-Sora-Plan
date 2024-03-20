@@ -5,6 +5,7 @@ from .feature_datasets import LandscopeFeature, SkyFeature, LandscopeVideoFeatur
 from torchvision import transforms
 from torchvision.transforms import Lambda
 
+from .landscope import Landscope
 from .t2v_datasets import T2V_dataset
 from .transform import ToTensorVideo, TemporalRandomCrop, RandomHorizontalFlipVideo, CenterCropResizeVideo
 from .ucf101 import UCF101
@@ -51,6 +52,16 @@ def getdataset(args):
             ]
         )
         return UCF101(args, transform=transform, temporal_sample=temporal_sample)
+    if args.dataset == 'landscope':
+        transform = Compose(
+            [
+                ToTensorVideo(),  # TCHW
+                CenterCropResizeVideo(size=args.max_image_size),
+                RandomHorizontalFlipVideo(p=0.5),
+                norm_fun,
+            ]
+        )
+        return Landscope(args, transform=transform, temporal_sample=temporal_sample)
     elif args.dataset == 'sky':
         transform = transforms.Compose([
             ToTensorVideo(),
