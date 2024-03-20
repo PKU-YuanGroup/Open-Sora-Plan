@@ -649,6 +649,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
             attention_type: str = "default",
             caption_channels: int = None,
             video_length: int = 16,
+            attention_mode: str = 'flash'
     ):
         super().__init__()
         self.use_linear_projection = use_linear_projection
@@ -751,6 +752,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
                     norm_elementwise_affine=norm_elementwise_affine,
                     norm_eps=norm_eps,
                     attention_type=attention_type,
+                    attention_mode=attention_mode
                 )
                 for d in range(num_layers)
             ]
@@ -775,6 +777,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
                     norm_elementwise_affine=norm_elementwise_affine,
                     norm_eps=norm_eps,
                     attention_type=attention_type,
+                    attention_mode=attention_mode
                 )
                 for d in range(num_layers)
             ]
