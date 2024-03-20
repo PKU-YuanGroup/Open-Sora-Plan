@@ -12,14 +12,13 @@ from diffusers.models.embeddings import get_1d_sincos_pos_embed_from_grid, Image
     PatchEmbed, CombinedTimestepSizeEmbeddings
 from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.models.modeling_utils import ModelMixin
-from diffusers.models.attention import BasicTransformerBlock
 from diffusers.models.lora import LoRACompatibleConv, LoRACompatibleLinear
 
 import torch
 import torch.nn.functional as F
 from torch import nn
 
-from .common_diffusers import BasicTransformerBlock_, AdaLayerNormSingle, Transformer3DModelOutput
+from .common_diffusers import BasicTransformerBlock, BasicTransformerBlock_, AdaLayerNormSingle, Transformer3DModelOutput
 
 
 class Latte(ModelMixin, ConfigMixin):
@@ -80,6 +79,7 @@ class Latte(ModelMixin, ConfigMixin):
             attention_type: str = "default",
             caption_channels: int = None,
             video_length: int = 16,
+            attention_mode: str = 'flash'
     ):
         super().__init__()
         self.use_linear_projection = use_linear_projection
@@ -182,6 +182,7 @@ class Latte(ModelMixin, ConfigMixin):
                     norm_elementwise_affine=norm_elementwise_affine,
                     norm_eps=norm_eps,
                     attention_type=attention_type,
+                    attention_mode=attention_mode,
                 )
                 for d in range(num_layers)
             ]
@@ -206,6 +207,7 @@ class Latte(ModelMixin, ConfigMixin):
                     norm_elementwise_affine=norm_elementwise_affine,
                     norm_eps=norm_eps,
                     attention_type=attention_type,
+                    attention_mode=attention_mode,
                 )
                 for d in range(num_layers)
             ]
@@ -349,7 +351,7 @@ class Latte(ModelMixin, ConfigMixin):
             height, width = hidden_states.shape[-2] // self.patch_size, hidden_states.shape[-1] // self.patch_size
             num_patches = height * width
 
-            hidden_states = self.pos_embed(hidden_states)  # alrady add positional embeddings
+            hidden_states = self.pos_embed(hidden_states.to(self.dtype))  # alrady add positional embeddings
 
             if self.adaln_single is not None:
                 if self.use_additional_conditions and added_cond_kwargs is None:
@@ -916,7 +918,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
             height, width = hidden_states.shape[-2] // self.patch_size, hidden_states.shape[-1] // self.patch_size
             num_patches = height * width
 
-            hidden_states = self.pos_embed(hidden_states)  # alrady add positional embeddings
+            hidden_states = self.pos_embed(hidden_states.to(self.dtype))  # alrady add positional embeddings
 
             if self.adaln_single is not None:
                 if self.use_additional_conditions and added_cond_kwargs is None:
