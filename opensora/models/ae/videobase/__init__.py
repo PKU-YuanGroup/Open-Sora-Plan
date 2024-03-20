@@ -21,7 +21,7 @@ old code
 
 videobase_ae_stride = {
     'CausalVQVAEModel': [4, 8, 8],
-    'checkpoint-14000': [4, 4, 4],
+    'VQVAEModel': [4, 8, 8],
     'bair_stride4x2x2': [4, 2, 2],
     'ucf101_stride4x4x4': [4, 4, 4],
     'kinetics_stride4x4x4': [4, 4, 4],
@@ -30,7 +30,7 @@ videobase_ae_stride = {
 
 videobase_ae_channel = {
     'CausalVQVAEModel': 4,
-    'checkpoint-14000': 4,
+    'VQVAEModel': 4,
     'bair_stride4x2x2': 256,
     'ucf101_stride4x4x4': 256,
     'kinetics_stride4x4x4': 256,
@@ -39,7 +39,7 @@ videobase_ae_channel = {
 
 videobase_ae = {
     "CausalVQVAEModel": CausalVQVAEModelWrapper,
-    "checkpoint-14000": VQVAEModelWrapper,
+    "VQVAEModel": VQVAEModelWrapper,
     "bair_stride4x2x2": VQVAEModelWrapper,
     "ucf101_stride4x4x4": VQVAEModelWrapper,
     "kinetics_stride4x4x4": VQVAEModelWrapper,
