@@ -188,7 +188,7 @@ def main(args):
         norm_eps=1e-6,
         attention_type='default',
         video_length=video_length,
-        # attention_mode=args.attention_mode,
+        attention_mode=args.attention_mode,
         # compress_kv=args.compress_kv
     )
     model.gradient_checkpointing = args.gradient_checkpointing
