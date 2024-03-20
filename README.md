@@ -26,7 +26,7 @@ This project aims to create a simple and scalable repo, to reproduce [Sora](http
 
 Project stages:
 - Primary
-1. Setup the codebase and train a un-conditional model on a landscape dataset.
+1. Setup the codebase and train an un-conditional model on a landscape dataset.
 2. Train models that boost resolution and duration.
 
 - Extensions
