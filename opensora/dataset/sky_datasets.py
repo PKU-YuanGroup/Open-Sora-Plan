@@ -11,15 +11,19 @@ from opensora.utils.dataset_utils import is_image_file
 
 
 class Sky(data.Dataset):
-    def __init__(self, configs, transform, temporal_sample=None, train=True):
+    def __init__(self, args, transform, temporal_sample=None, train=True):
 
-        self.configs = configs
-        self.data_path = configs.data_path
+        self.args = args
+        self.data_path = args.data_path
         self.transform = transform
         self.temporal_sample = temporal_sample
-        self.num_frames = self.configs.num_frames
-        self.sample_rate = self.configs.sample_rate
+        self.num_frames = self.args.num_frames
+        self.sample_rate = self.args.sample_rate
         self.data_all = self.load_video_frames(self.data_path)
+        self.use_image_num = args.use_image_num
+        self.use_img_from_vid = args.use_img_from_vid
+        if self.use_image_num != 0 and not self.use_img_from_vid:
+            self.img_cap_list = self.get_img_cap_list()
 
     def __getitem__(self, index):
 
@@ -40,6 +44,17 @@ class Sky(data.Dataset):
         video_clip = torch.cat(video_frames, dim=0).permute(0, 3, 1, 2)
         video_clip = self.transform(video_clip)
         video_clip = video_clip.transpose(0, 1)  # T C H W -> C T H W
+
+        if self.use_image_num != 0 and self.use_img_from_vid:
+            select_image_idx = np.linspace(0, self.num_frames - 1, self.use_image_num, dtype=int)
+            assert self.num_frames >= self.use_image_num
+            images = video_clip[:, select_image_idx]  # c, num_img, h, w
+            video_clip = torch.cat([video_clip, images], dim=1)  # c, num_frame+num_img, h, w
+        elif self.use_image_num != 0 and not self.use_img_from_vid:
+            images, captions = self.img_cap_list[index]
+            raise NotImplementedError
+        else:
+            pass
 
         return video_clip, 1
 
@@ -64,7 +79,9 @@ class Sky(data.Dataset):
                 data_all.append(frames)
         self.video_num = len(data_all)
         return data_all
-    
+
+    def get_img_cap_list(self):
+        raise NotImplementedError
 
 if __name__ == '__main__':
 
