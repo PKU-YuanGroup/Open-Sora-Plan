@@ -101,11 +101,11 @@ Project stages:
 - [ ] Implement [PeRFlow](https://github.com/magic-research/piecewise-rectified-flow) for improving the sampling process. 🙏 **[Need your contribution]**
 - [x] Finish data loading, pre-processing utils.
 - [x] Add T5 support. 
-- [ ] Add CLIP support. 🙏 **[Need your contribution]**
+- [x] Add CLIP support. 🤝 Thanks to [@Ytimed2020](https://github.com/Ytimed2020)
 - [x] Add text2image training script.
 - [ ] Add prompt captioner. 
   - [ ] Collect training data.
-    - [ ] Need video-text pairs with poor caption. 🙏 **[Need your contribution]**
+    - [ ] Need video-text pairs with caption. 🙏 **[Need your contribution]**
     - [ ] Extract multi-frame descriptions by large image-language models. 🤝 Thanks to [@HowardLi1984](https://github.com/HowardLi1984)
     - [ ] Extract video description by large video-language models. 🙏 **[Need your contribution]**
     - [ ] Integrate captions to get a dense caption by using a large language model, such as GPT-4. 🤝 Thanks to [@HowardLi1984](https://github.com/HowardLi1984)
@@ -114,7 +114,7 @@ Project stages:
 #### Train the 1080p model on video2text dataset
 - [ ] Looking for a suitable dataset, welcome to discuss and recommend. 🙏 **[Need your contribution]**
 - [ ] Add synthetic video created by game engines or 3D representations. 🙏 **[Need your contribution]**
-- [ ] Finish data loading, and pre-processing utils. ⌛ [WIP]
+- [x] Finish data loading, and pre-processing utils. ⌛ [WIP]
 - [ ] Support memory friendly training.
   - [x] Add flash-attention2 from pytorch.
   - [x] Add xformers.  🤝 Thanks to [@jialin-zhao](https://github.com/jialin-zhao)
@@ -123,10 +123,10 @@ Project stages:
   - [x] Support for ReBased and Ring attention. 🤝 Thanks to [@kabachuha](https://github.com/kabachuha)
   - [x] Train using the deepspeed engine. 🤝 Thanks to [@sennnnn](https://github.com/sennnnn)
   - [ ] Integrate with [Colossal-AI](https://github.com/PKU-YuanGroup/Open-Sora-Plan/issues/59#issue-2170735221) for a cheaper, faster, and more efficient. 🙏 **[Need your contribution]**
-- [ ] Train with a text condition. Here we could conduct different experiments:
-  - [ ] Train with T5 conditioning. 🚀 **[Require more computation]**
-  - [ ] Train with CLIP conditioning. 🚀 **[Require more computation]**
-  - [ ] Train with CLIP + T5 conditioning (probably costly during training and experiments). 🚀 **[Require more computation]**
+- [ ] Train with a text condition. Here we could conduct different experiments: 🚀 **[Require more computation]**
+  - [ ] Train with T5 conditioning.
+  - [ ] Train with CLIP conditioning.
+  - [ ] Train with CLIP + T5 conditioning (probably costly during training and experiments).
 
 #### Control model with more condition
 - [x] Load pretrained weights from [Latte](https://github.com/Vchitect/Latte).
