@@ -1,17 +1,18 @@
 from torchvision.transforms import Compose
 from transformers import AutoTokenizer
 
-from opensora.models.ae import vae, vqvae, videovae, videovqvae
 from .feature_datasets import LandscopeFeature, SkyFeature, LandscopeVideoFeature
 from torchvision import transforms
 from torchvision.transforms import Lambda
 
+from .landscope import Landscope
 from .t2v_datasets import T2V_dataset
 from .transform import ToTensorVideo, TemporalRandomCrop, RandomHorizontalFlipVideo, CenterCropResizeVideo
 from .ucf101 import UCF101
 from .sky_datasets import Sky
 
 ae_norm = {
+    "CausalVQVAEModel": Lambda(lambda x: x - 0.5),
     "checkpoint-14000": Lambda(lambda x: x - 0.5),
     "bair_stride4x2x2": Lambda(lambda x: x - 0.5),
     "ucf101_stride4x4x4": Lambda(lambda x: x - 0.5),
@@ -25,6 +26,7 @@ ae_norm = {
 
 }
 ae_denorm = {
+    "CausalVQVAEModel": lambda x: x + 0.5,
     "checkpoint-14000": lambda x: x + 0.5,
     "bair_stride4x2x2": lambda x: x + 0.5,
     "ucf101_stride4x4x4": lambda x: x + 0.5,
@@ -50,6 +52,16 @@ def getdataset(args):
             ]
         )
         return UCF101(args, transform=transform, temporal_sample=temporal_sample)
+    if args.dataset == 'landscope':
+        transform = Compose(
+            [
+                ToTensorVideo(),  # TCHW
+                CenterCropResizeVideo(size=args.max_image_size),
+                RandomHorizontalFlipVideo(p=0.5),
+                norm_fun,
+            ]
+        )
+        return Landscope(args, transform=transform, temporal_sample=temporal_sample)
     elif args.dataset == 'sky':
         transform = transforms.Compose([
             ToTensorVideo(),

@@ -18,31 +18,22 @@ class T5Wrapper(nn.Module):
         return text_encoder_embs.detach()
 
 class CLIPWrapper(nn.Module):
-    def __init__(self, args, device='cuda', cache_dir='./cache_dir', **kwargs):
+    def __init__(self, args):
         super(CLIPWrapper, self).__init__()
-        self.device = torch.device(device)
-        self.model_name = args.clip_model_name
-        self.cache_dir = cache_dir
-        
-        # Load the CLIP model and processor
-        self.clip_model = CLIPModel.from_pretrained(self.model_name, cache_dir=self.cache_dir).to(self.device).eval()
-        self.clip_processor = CLIPProcessor.from_pretrained(self.model_name, cache_dir=self.cache_dir)
+        self.model_name = args.text_encoder_name
+        dtype = get_precision(args)
+        model_kwargs = {'cache_dir': './cache_dir', 'low_cpu_mem_usage': True, 'torch_dtype': dtype}
+        self.text_enc = CLIPModel.from_pretrained(self.model_name, **model_kwargs).eval()
 
-    def forward(self, prompts): # prompts = ['I am a test caption', 'Test twice']
-        # Process the prompts and move to the correct device
-        inputs = self.clip_processor(text=prompts, return_tensors="pt", padding=True, truncation=True).to(self.device)
-        
-        # Generate text features
-        with torch.no_grad():
-            text_features = self.clip_model.get_text_features(**inputs)
-        
-        return text_features.detach()
+    def forward(self, input_ids, attention_mask): 
+        text_encoder_embs = self.text_enc.get_text_features(input_ids=input_ids, attention_mask=attention_mask)
+        return text_encoder_embs.detach()
 
 
 
 text_encoder = {
     'DeepFloyd/t5-v1_1-xxl': T5Wrapper,
-    'clip': CLIPWrapper
+    'openai/clip-vit-large-patch14': CLIPWrapper
 }
 
 
