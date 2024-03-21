@@ -1,5 +1,6 @@
 import math
 import os
+from glob import glob
 
 import decord
 import numpy as np
@@ -16,7 +17,7 @@ import random
 from opensora.utils.dataset_utils import DecordInit
 
 
-class UCF101(Dataset):
+class Landscope(Dataset):
     def __init__(self, args, transform, temporal_sample):
         self.data_path = args.data_path
         self.num_frames = args.num_frames
@@ -24,31 +25,22 @@ class UCF101(Dataset):
         self.temporal_sample = temporal_sample
         self.v_decoder = DecordInit()
 
-        self.classes = sorted(os.listdir(self.data_path))
-        self.class_to_idx = {cls_name: idx for idx, cls_name in enumerate(self.classes)}
         self.samples = self._make_dataset()
 
 
     def _make_dataset(self):
-        dataset = []
-        for class_name in self.classes:
-            class_path = os.path.join(self.data_path, class_name)
-            for fname in os.listdir(class_path):
-                if fname.endswith('.avi'):
-                    item = (os.path.join(class_path, fname), self.class_to_idx[class_name])
-                    dataset.append(item)
-        return dataset
+        return list(glob(os.path.join(self.data_path, '**', '*.mp4'), recursive=True))
 
     def __len__(self):
         return len(self.samples)
 
     def __getitem__(self, idx):
-        video_path, label = self.samples[idx]
+        video_path = self.samples[idx]
         try:
             video = self.tv_read(video_path)
             video = self.transform(video)  # T C H W -> T C H W
             video = video.transpose(0, 1)  # T C H W -> C T H W
-            return video, label
+            return video, 1
         except Exception as e:
             print(f'Error with {e}, {video_path}')
             return self.__getitem__(random.randint(0, self.__len__()-1))
