@@ -1,8 +1,14 @@
-from .imagebase import imagebase_ae, vae, vqvae, imagebase_ae_stride, imagebase_ae_channel
-from .videobase import videobase_ae, videovae, videovqvae, videobase_ae_stride, videobase_ae_channel
+from .imagebase import imagebase_ae, imagebase_ae_stride, imagebase_ae_channel
+from .videobase import videobase_ae, videobase_ae_stride, videobase_ae_channel
 from .videobase import (
     VQVAEConfiguration,
-    VQVAEModel
+    VQVAEModel,
+    VQVAEDataset,
+    VQVAETrainer,
+    CausalVQVAEModel,
+    CausalVQVAEConfiguration,
+    CausalVQVAEDataset,
+    CausalVQVAETrainer
 )
 
 ae_stride_config = {}

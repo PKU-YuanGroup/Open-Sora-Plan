@@ -14,13 +14,13 @@ class HFVAEWrapper(nn.Module):
             x = rearrange(x, 'b c t h w -> (b t) c h w').contiguous()
         x = self.vae.encode(x).latent_dist.sample().mul_(0.18215)
         if t != 0:
-            x = rearrange(x, '(b t) c h w -> b t c h w', t=t).contiguous()
+            x = rearrange(x, '(b t) c h w -> b c t h w', t=t).contiguous()
         return x
     def decode(self, x):
         t = 0
         if x.ndim == 5:
-            b, t, c, h, w = x.shape
-            x = rearrange(x, 'b t c h w -> (b t) c h w').contiguous()
+            b, c, t, h, w = x.shape
+            x = rearrange(x, 'b c t h w -> (b t) c h w').contiguous()
         x = self.vae.decode(x / 0.18215).sample
         if t != 0:
             x = rearrange(x, '(b t) c h w -> b t c h w', t=t).contiguous()
