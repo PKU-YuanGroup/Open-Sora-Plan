@@ -1,4 +1,7 @@
 
+**We need more dataset**, please refer to the [open-sora-Dataset](https://github.com/shaodong233/open-sora-Dataset) for details.
+
+
 ## Sky
 
 
