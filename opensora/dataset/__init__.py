@@ -1,7 +1,7 @@
 from torchvision.transforms import Compose
 from transformers import AutoTokenizer
 
-from .feature_datasets import LandscopeFeature, SkyFeature, LandscopeVideoFeature
+from .feature_datasets import T2V_Feature_dataset
 from torchvision import transforms
 from torchvision.transforms import Lambda
 
@@ -12,8 +12,10 @@ from .ucf101 import UCF101
 from .sky_datasets import Sky
 
 ae_norm = {
-    "CausalVQVAEModel": Lambda(lambda x: x - 0.5),
-    "checkpoint-14000": Lambda(lambda x: x - 0.5),
+    'CausalVQVAEModel_4x4x4': Lambda(lambda x: x - 0.5),
+    'CausalVQVAEModel_4x8x8': Lambda(lambda x: x - 0.5),
+    'VQVAEModel_4x4x4': Lambda(lambda x: x - 0.5),
+    'VQVAEModel_4x8x8': Lambda(lambda x: x - 0.5),
     "bair_stride4x2x2": Lambda(lambda x: x - 0.5),
     "ucf101_stride4x4x4": Lambda(lambda x: x - 0.5),
     "kinetics_stride4x4x4": Lambda(lambda x: x - 0.5),
@@ -26,8 +28,10 @@ ae_norm = {
 
 }
 ae_denorm = {
-    "CausalVQVAEModel": lambda x: x + 0.5,
-    "checkpoint-14000": lambda x: x + 0.5,
+    'CausalVQVAEModel_4x4x4': lambda x: x + 0.5,
+    'CausalVQVAEModel_4x8x8': lambda x: x + 0.5,
+    'VQVAEModel_4x4x4': lambda x: x + 0.5,
+    'VQVAEModel_4x8x8': lambda x: x + 0.5,
     "bair_stride4x2x2": lambda x: x + 0.5,
     "ucf101_stride4x4x4": lambda x: x + 0.5,
     "kinetics_stride4x4x4": lambda x: x + 0.5,
@@ -79,5 +83,7 @@ def getdataset(args):
         ])
         tokenizer = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir='./cache_dir')
         return T2V_dataset(args, transform=transform, temporal_sample=temporal_sample, tokenizer=tokenizer)
+    elif args.dataset == 't2v_feature':
+        return T2V_Feature_dataset(args, temporal_sample)
     else:
         raise NotImplementedError(args.dataset)
