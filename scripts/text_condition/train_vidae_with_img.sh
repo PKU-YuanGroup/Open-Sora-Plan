@@ -7,7 +7,7 @@ accelerate launch \
     --model LatteT2V-XL/122 \
     --text_encoder_name DeepFloyd/t5-v1_1-xxl \
     --dataset t2v \
-    --ae CausalVQVAEModel \
+    --ae CausalVQVAEModel_4x4x4 \
     --data_path /root/autodl-tmp/sea.csv \
     --video_folder /root/autodl-tmp/sea \
     --sample_rate 3 \
@@ -25,4 +25,9 @@ accelerate launch \
     --output_dir="t2v-f17s3-img4-128-causalvideovae488-bf16-ckpt-xformers" \
     --allow_tf32 \
     --use_image_num 4 \
-    --use_img_from_vid
+    --use_img_from_vid \
+    --pretrained t2v.pt \
+    --use_deepspeed \
+    --model_max_length 300
+
+

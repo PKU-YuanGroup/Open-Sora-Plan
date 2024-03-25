@@ -26,3 +26,5 @@ class CausalVQVAEConfiguration(VideoBaseConfiguration):
         self.time_downsample = time_downsample
         self.spatial_downsample = spatial_downsample
         self.no_pos_embd = no_pos_embd
+
+        self.hidden_size = n_hiddens
