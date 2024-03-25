@@ -1,18 +1,20 @@
 export WANDB_KEY=""
 export ENTITY=""
-export PROJECT="sky-f16s3-img4-128-imgae188-bf16-ckpt-flash"
-HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 accelerate launch \
+export PROJECT="t2v-f17s3-img4-512-causalvideovae444-bf16-ckpt-xformers"
+accelerate launch \
     --config_file scripts/accelerate_configs/ddp_config.yaml \
-    opensora/train/train.py \
-    --model Latte-XL/122 \
-    --dataset sky \
-    --ae stabilityai/sd-vae-ft-mse \
-    --data_path /remote-home/yeyang/sky_timelapse/sky_train/ \
+    opensora/train/train_t2v.py \
+    --model LatteT2V-XL/122 \
+    --text_encoder_name DeepFloyd/t5-v1_1-xxl \
+    --dataset t2v_feature \
+    --ae CausalVQVAEModel \
+    --data_path /root/autodl-tmp/sea.csv \
+    --video_folder /root/autodl-tmp/sea \
     --sample_rate 3 \
-    --num_frames 16 \
-    --max_image_size 128 \
+    --num_frames 17 \
+    --max_image_size 512 \
     --gradient_checkpointing \
-    --attention_mode flash \
+    --attention_mode xformers \
     --train_batch_size=8 --dataloader_num_workers 10 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
@@ -20,8 +22,9 @@ HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 accelerate launch \
     --mixed_precision="bf16" \
     --report_to="wandb" \
     --checkpointing_steps=500 \
-    --output_dir="sky-f16s3-img4-128-imgae188-bf16-ckpt-flash" \
+    --output_dir="t2v-f17s3-img4-512-causalvideovae444-bf16-ckpt-xformers" \
     --allow_tf32 \
     --use_image_num 4 \
     --use_img_from_vid
+
 
