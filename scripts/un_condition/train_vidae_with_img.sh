@@ -1,12 +1,12 @@
 export WANDB_KEY=""
 export ENTITY=""
-export PROJECT="sky-f17s3-img4-128-causalvideovae488-bf16-ckpt-flash"
+export PROJECT="sky-f17s3-img4-128-causalvideovae444-bf16-ckpt-flash"
 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 accelerate launch \
     --config_file scripts/accelerate_configs/ddp_config.yaml \
     opensora/train/train.py \
     --model Latte-XL/122 \
     --dataset sky \
-    --ae CausalVQVAEModel \
+    --ae CausalVQVAEModel_4x4x4 \
     --data_path /remote-home/yeyang/sky_timelapse/sky_train/ \
     --sample_rate 3 \
     --num_frames 17 \
@@ -20,7 +20,7 @@ HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 accelerate launch \
     --mixed_precision="bf16" \
     --report_to="wandb" \
     --checkpointing_steps=500 \
-    --output_dir="sky-f17s3-img4-128-causalvideovae488-bf16-ckpt-flash" \
+    --output_dir="sky-f17s3-img4-128-causalvideovae444-bf16-ckpt-flash" \
     --allow_tf32 \
     --use_image_num 4 \
     --use_img_from_vid
