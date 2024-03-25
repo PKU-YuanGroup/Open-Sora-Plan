@@ -1,6 +1,6 @@
 export WANDB_KEY=""
 export ENTITY=""
-export PROJECT="t2v-f17s3-img4-128-causalvideovae488-bf16-ckpt-xformers"
+export PROJECT="t2v-f17s3-img4-128-causalvideovae444-bf16-ckpt-xformers"
 accelerate launch \
     --config_file scripts/accelerate_configs/ddp_config.yaml \
     opensora/train/train_t2v.py \
@@ -22,7 +22,7 @@ accelerate launch \
     --mixed_precision="bf16" \
     --report_to="wandb" \
     --checkpointing_steps=500 \
-    --output_dir="t2v-f17s3-img4-128-causalvideovae488-bf16-ckpt-xformers" \
+    --output_dir="t2v-f17s3-img4-128-causalvideovae444-bf16-ckpt-xformers" \
     --allow_tf32 \
     --use_image_num 4 \
     --use_img_from_vid \

@@ -1,12 +1,12 @@
 export WANDB_KEY=""
 export ENTITY=""
-export PROJECT="ucf101-f16s3-128-imgvae188-bf16-ckpt-flash"
+export PROJECT="ucf101-f16s3-128-causalvideovae444-bf16-ckpt-flash"
 accelerate launch \
     --config_file scripts/accelerate_configs/ddp_config.yaml \
     opensora/train/train.py \
     --model Latte-XL/122 \
     --dataset ucf101 \
-    --ae CausalVQVAEModel \
+    --ae CausalVQVAEModel_4x4x4 \
     --data_path /remote-home/yeyang/UCF-101 \
     --train_classcondition \
     --num_classes 101 \
@@ -22,5 +22,5 @@ accelerate launch \
     --mixed_precision="bf16" \
     --report_to="wandb" \
     --checkpointing_steps=500 \
-    --output_dir="ucf101-f16s3-128-imgvae188-bf16-ckpt-flash" \
+    --output_dir="ucf101-f16s3-128-causalvideovae444-bf16-ckpt-flash" \
     --allow_tf32
