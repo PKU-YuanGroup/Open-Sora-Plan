@@ -1,3 +1,4 @@
+import json
 import os
 import torch
 import random
@@ -6,129 +7,100 @@ import torch.utils.data as data
 import numpy as np
 from glob import glob
 from PIL import Image
+from torch.utils.data import Dataset
 from tqdm import tqdm
 
 from opensora.dataset.transform import center_crop, RandomCropVideo
 
 
-class LandscopeVideoFeature(data.Dataset):
-    def __init__(self, args):
-
-        self.args = args
-        self.data_path = args.data_path
-        self.max_image_size = args.latent_size
-
-        data_all = list(glob(self.data_path))
-        self.num_frames = self.args.num_frames
-        self.sample_rate = self.args.sample_rate
-        print('Building dataset...')
-        self.data_all = [i for i in tqdm(data_all) if self.num_frames // args.ae_stride_t == np.load(i).shape[0]]
-        print(f'Total {len(self.data_all)} to train, origin dataset have {len(data_all)} videos.')
-
-    def __getitem__(self, index):
-        # try:
-        npy_path = self.data_all[index]
-        vframes = np.load(npy_path)  # t, c, h, w
-        video_clip = torch.from_numpy(vframes)  # T C H W
-        return video_clip, 1
-        # except Exception as e:
-        #     print(f'Error with {e}', npy_path)
-        #     return self.__getitem__(random.randint(0, self.__len__()-1))
-
-    def __len__(self):
-        return len(self.data_all)
-
-
-class LandscopeFeature(data.Dataset):
+class T2V_Feature_dataset(Dataset):
     def __init__(self, args, temporal_sample):
 
-        self.args = args
-        self.data_path = args.data_path
-        self.max_image_size = args.latent_size
+        self.video_folder = args.video_folder
+        self.num_frames = args.video_length
         self.temporal_sample = temporal_sample
 
-        data_all = list(glob(self.data_path))
-        self.num_frames = self.args.num_frames
-        self.sample_rate = self.args.sample_rate
         print('Building dataset...')
-        self.data_all = [i for i in tqdm(data_all) if self.num_frames * self.sample_rate < np.load(i).shape[0]]
-        print(f'Total {len(self.data_all)} to train, origin dataset have {len(data_all)} videos.')
+        if os.path.exists('samples_430k.json'):
+            with open('samples_430k.json', 'r') as f:
+                self.samples = json.load(f)
+        else:
+            self.samples = self._make_dataset()
+            with open('samples_430k.json', 'w') as f:
+                json.dump(self.samples, f, indent=2)
 
-    def __getitem__(self, index):
-        try:
-            npy_path = self.data_all[index]
-            vframes = np.load(npy_path)  # t, c, h, w
+        self.use_image_num = args.use_image_num
+        self.use_img_from_vid = args.use_img_from_vid
+        if self.use_image_num != 0 and not self.use_img_from_vid:
+            self.img_cap_list = self.get_img_cap_list()
 
-            total_frames = len(vframes)
+    def _make_dataset(self):
+        all_mp4 = list(glob(os.path.join(self.video_folder, '**', '*.mp4'), recursive=True))
+        # all_mp4 = all_mp4[:1000]
+        samples = []
+        for i in tqdm(all_mp4):
+            video_id = os.path.basename(i).split('.')[0]
+            ae = os.path.split(i)[0].replace('data_split', 'lb_causalvideovae444_feature')
+            ae = os.path.join(ae, f'{video_id}_causalvideovae444.npy')
+            if not os.path.exists(ae):
+                continue
 
-            # Sampling video frames
-            start_frame_ind, end_frame_ind = self.temporal_sample(total_frames)
-            assert end_frame_ind - start_frame_ind >= self.num_frames
-            frame_indice = np.linspace(start_frame_ind, end_frame_ind-1, num=self.num_frames, dtype=int) # start, stop, num=50
-            video_clip = vframes[frame_indice[0]: frame_indice[-1]+1: self.sample_rate]   #
-            video_clip = torch.from_numpy(video_clip)  # T C H W
-            return video_clip, 1
-        except Exception as e:
-            print(f'Error with {e}', npy_path)
-            return self.__getitem__(random.randint(0, self.__len__()-1))
-
-
-    def __len__(self):
-        return len(self.data_all)
-
-
-class SkyFeature(data.Dataset):
-    def __init__(self, args, temporal_sample=None):
-
-        self.args = args
-        self.data_path = args.data_path
-        self.temporal_sample = temporal_sample
-        self.num_frames = self.args.num_frames
-        self.sample_rate = self.args.sample_rate
-        self.data_all = self.load_video_frames(self.data_path)
-
-    def __getitem__(self, index):
-
-        try:
-            vframes = self.data_all[index]
-            total_frames = len(vframes)
-
-            # Sampling video frames
-            start_frame_ind, end_frame_ind = self.temporal_sample(total_frames)
-            assert end_frame_ind - start_frame_ind >= self.num_frames
-            frame_indice = np.linspace(start_frame_ind, end_frame_ind - 1, num=self.num_frames, dtype=int)  # start, stop, num=50
-
-            select_video_frames = vframes[frame_indice[0]: frame_indice[-1] + 1: self.sample_rate]
-
-            video_frames = []
-            for path in select_video_frames:
-                video_frame = torch.from_numpy(np.load(path)).unsqueeze(0)  # 1 c h w
-                video_frames.append(video_frame)
-            video_clip = torch.cat(video_frames, dim=0)  # T C H W
-            # video_clip = video_clip.transpose(0, 1)  # T C H W -> C T H W
-
-            return video_clip, 1
-        except Exception as e:
-            print(f'Error with {e}', vframes)
-            return self.__getitem__(random.randint(0, self.__len__()-1))
+            t5 = os.path.split(i)[0].replace('data_split', 'lb_t5_feature')
+            cond_list = []
+            cond_llava = os.path.join(t5, f'{video_id}_t5_llava_fea.npy')
+            mask_llava = os.path.join(t5, f'{video_id}_t5_llava_mask.npy')
+            if os.path.exists(cond_llava) and os.path.exists(mask_llava):
+                llava = dict(cond=cond_llava, mask=mask_llava)
+                cond_list.append(llava)
+            cond_sharegpt4v = os.path.join(t5, f'{video_id}_t5_sharegpt4v_fea.npy')
+            mask_sharegpt4v = os.path.join(t5, f'{video_id}_t5_sharegpt4v_mask.npy')
+            if os.path.exists(cond_sharegpt4v) and os.path.exists(mask_sharegpt4v):
+                sharegpt4v = dict(cond=cond_sharegpt4v, mask=mask_sharegpt4v)
+                cond_list.append(sharegpt4v)
+            if len(cond_list) > 0:
+                sample = dict(ae=ae, t5=cond_list)
+                samples.append(sample)
+        return samples
 
     def __len__(self):
-        return self.video_num
+        return len(self.samples)
 
-    def load_video_frames(self, dataroot):
-        data_all = []
-        frame_list = os.walk(dataroot)
-        for _, meta in enumerate(frame_list):
-            root = meta[0]
-            try:
-                frames = sorted(meta[2], key=lambda item: int(item.split('.')[0].split('_')[2]))
-            except:
-                pass
-                # print(meta[0]) # root
-                # print(meta[2]) # files
-            frames = [os.path.join(root, item) for item in frames if item.endswith('.npy')]
-            if len(frames) > max(0, self.num_frames * self.sample_rate):  # need all > (16 * frame-interval) videos
-                # if len(frames) >= max(0, self.target_video_len): # need all > 16 frames videos
-                data_all.append(frames)
-        self.video_num = len(data_all)
-        return data_all
+    def __getitem__(self, idx):
+        # try:
+        sample = self.samples[idx]
+        ae, t5 = sample['ae'], sample['t5']
+        t5 = random.choice(t5)
+        video_origin = np.load(ae)[0]  # C T H W
+        _, total_frames, _, _ = video_origin.shape
+        # Sampling video frames
+        start_frame_ind, end_frame_ind = self.temporal_sample(total_frames)
+        assert end_frame_ind - start_frame_ind >= self.num_frames
+        select_video_idx = np.linspace(start_frame_ind, end_frame_ind - 1, num=self.num_frames, dtype=int)  # start, stop, num=50
+        # print('select_video_idx', total_frames, select_video_idx)
+        video = video_origin[:, select_video_idx]  # C num_frames H W
+        video = torch.from_numpy(video)
+
+        cond = torch.from_numpy(np.load(t5['cond']))[0]  # L
+        cond_mask = torch.from_numpy(np.load(t5['mask']))[0]  # L D
+
+        if self.use_image_num != 0 and self.use_img_from_vid:
+            select_image_idx = np.random.randint(0, total_frames, self.use_image_num)
+            # print('select_image_idx', total_frames, self.use_image_num, select_image_idx)
+            images = video_origin[:, select_image_idx]  # c, num_img, h, w
+            images = torch.from_numpy(images)
+            video = torch.cat([video, images], dim=1)  # c, num_frame+num_img, h, w
+            cond = torch.stack([cond] * (1+self.use_image_num))  # 1+self.use_image_num, l
+            cond_mask = torch.stack([cond_mask] * (1+self.use_image_num))  # 1+self.use_image_num, l
+        elif self.use_image_num != 0 and not self.use_img_from_vid:
+            images, captions = self.img_cap_list[idx]
+            raise NotImplementedError
+        else:
+            pass
+
+        return video, cond, cond_mask
+        # except Exception as e:
+        #     print(f'Error with {e}, {sample}')
+        #     return self.__getitem__(random.randint(0, self.__len__() - 1))
+
+    def get_img_cap_list(self):
+        raise NotImplementedError
