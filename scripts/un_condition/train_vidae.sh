@@ -22,3 +22,4 @@ HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 accelerate launch \
     --checkpointing_steps=500 \
     --output_dir="sky-f17s3-128-causalvideovae488-bf16-ckpt-flash-log" \
     --allow_tf32
+

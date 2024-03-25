@@ -24,3 +24,5 @@ HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 accelerate launch \
     --allow_tf32 \
     --use_image_num 4 \
     --use_img_from_vid
+
+

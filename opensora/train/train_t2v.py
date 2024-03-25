@@ -160,7 +160,7 @@ def main(args):
     args.patch_size_t, args.patch_size_h, args.patch_size_w = patch_size_t, patch_size_h, patch_size_w
     assert ae_stride_h == ae_stride_w, f"Support only ae_stride_h == ae_stride_w now, but found ae_stride_h ({ae_stride_h}), ae_stride_w ({ae_stride_w})"
     assert patch_size_h == patch_size_w, f"Support only patch_size_h == patch_size_w now, but found patch_size_h ({patch_size_h}), patch_size_w ({patch_size_w})"
-    assert args.num_frames % ae_stride_t == 0, f"Num_frames must be divisible by ae_stride_t, but found num_frames ({args.num_frames}), ae_stride_t ({ae_stride_t})."
+    # assert args.num_frames % ae_stride_t == 0, f"Num_frames must be divisible by ae_stride_t, but found num_frames ({args.num_frames}), ae_stride_t ({ae_stride_t})."
     assert args.max_image_size % ae_stride_h == 0, f"Image size must be divisible by ae_stride_h, but found max_image_size ({args.max_image_size}),  ae_stride_h ({ae_stride_h})."
 
     latent_size = (args.max_image_size // ae_stride_h, args.max_image_size // ae_stride_w)
@@ -196,9 +196,10 @@ def main(args):
     # # use pretrained model?
     if args.pretrained:
         checkpoint = torch.load(args.pretrained, map_location='cpu')['model']
+        model_state_dict = model.state_dict()
         missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=False)
         logger.info(f'missing_keys {len(missing_keys)}, unexpected_keys {len(unexpected_keys)}')
-        logger.info(f'Successfully load {len(model.state_dict()) - len(missing_keys)} keys from {args.pretrained}!')
+        logger.info(f'Successfully load {len(model.state_dict()) - len(missing_keys)}/{len(model_state_dict)} keys from {args.pretrained}!')
         # load from pixart-alpha
         # pixelart_alpha = torch.load(args.pretrained, map_location='cpu')['state_dict']
         # checkpoint = {}
@@ -405,8 +406,8 @@ def main(args):
                 # attn_mask = attn_mask.to(device)  # B T H W
                 # assert torch.all(attn_mask.bool()), 'do not enable dynamic input'
                 attn_mask = None
-                input_ids = input_ids.to(accelerator.device)  # B L or B T+num_images L
-                cond_mask = cond_mask.to(accelerator.device)  # B L or B T+num_images L
+                input_ids = input_ids.to(accelerator.device)  # B L or B 1+num_images L
+                cond_mask = cond_mask.to(accelerator.device)  # B L or B 1+num_images L
 
                 with torch.no_grad():
                     # Map input images to latent space + normalize latents
@@ -423,7 +424,7 @@ def main(args):
 
                         # use for loop to avoid OOM, because T5 is too huge...
                         B, _, _ = input_ids.shape  # B T+num_images L
-                        cond = torch.stack([text_enc(input_ids[i], cond_mask[i]) for i in range(B)])  # B T+num_images L D
+                        cond = torch.stack([text_enc(input_ids[i], cond_mask[i]) for i in range(B)])  # B 1+num_images L D
 
                 model_kwargs = dict(encoder_hidden_states=cond, attention_mask=attn_mask,
                                     encoder_attention_mask=cond_mask, use_image_num=args.use_image_num)
@@ -484,7 +485,7 @@ def main(args):
                 break
 
             if accelerator.is_main_process:
-                validation_prompt = 'A woman'
+                validation_prompt = "The majestic beauty of a waterfall cascading down a cliff into a serene lake. The camera angle provides a bird's eye view of the waterfall."
                 if global_step % args.checkpointing_steps == 0:
                     logger.info(f"Running validation... \n"
                                 f"Generating {args.num_validation_videos} videos with prompt: {validation_prompt}")
@@ -498,7 +499,7 @@ def main(args):
                         ae_ = getae(args).to(accelerator.device).eval()
                         # text_enc_ = get_text_enc(args).to(accelerator.device).eval()
                         model_ = LatteT2V.from_pretrained(save_path, subfolder="model").to(accelerator.device).eval()
-                        diffusion_ = create_diffusion(str(500))
+                        diffusion_ = create_diffusion(str(250))
                         tokenizer_ = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir='./cache_dir')
                         videos = []
                         for idx in range(args.num_validation_videos):
