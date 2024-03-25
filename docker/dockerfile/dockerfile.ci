@@ -1,0 +1,5 @@
+ARG BASE_IMG
+FROM ${BASE_IMG}
+COPY . /home/workspace
+WORKDIR /home/workspace
+ENTRYPOINT [ "bash", "entrypoint.sh" ]

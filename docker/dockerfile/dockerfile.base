@@ -1,19 +1,21 @@
-ARG BASE_TAG
-FROM ${BASE_TAG}
-ARG USER_NAME=myuser
-ARG USER_PASSWD=111111
+ARG BASE_IMG
+FROM ${BASE_IMG}
+ARG USER_NAME
+ARG USER_PASSWD
+ARG USER_ID
+ARG GROUP_ID
 ARG DEBIAN_FRONTEND=noninteractive
 
 # Pre-install packages, pip install requirements and run post install script.
-COPY packages.txt .
-COPY requirements.txt .
-COPY postinstallscript.sh .
+COPY *.txt .
+COPY *.sh .
 RUN apt-get update && apt-get install -y sudo $(cat packages.txt)
+RUN bash preinstallscript.sh
 RUN pip install --no-cache-dir -r requirements.txt
 RUN bash postinstallscript.sh
 
 # Create a new user and group using the username argument
-RUN groupadd -r ${USER_NAME} && useradd -r -m -g${USER_NAME} ${USER_NAME}
+RUN groupadd -g ${GROUP_ID} ${USER_NAME} && useradd -u ${USER_ID} -g ${USER_NAME} ${USER_NAME}
 RUN echo "${USER_NAME}:${USER_PASSWD}" | chpasswd
 RUN usermod -aG sudo ${USER_NAME}
 USER ${USER_NAME}
