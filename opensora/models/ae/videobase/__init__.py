@@ -13,7 +13,12 @@ from .causal_vqvae import (
     CausalVQVAETrainer,
     CausalVQVAEModel, CausalVQVAEModelWrapper
 )
-
+from .causal_vae import (
+    CausalVAETrainer,
+    CausalVAEConfiguration,
+    CausalVAEDataset,
+    CausalVAEModel
+)
 """
 old code
 """

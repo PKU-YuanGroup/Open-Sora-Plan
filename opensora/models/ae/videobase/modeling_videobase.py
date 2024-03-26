@@ -1,5 +1,7 @@
 import torch
 from torch import nn
+import os
+import json
 
 """
 We are currently working on the abstraction of the code structure, 
@@ -13,7 +15,13 @@ class VideoBaseAE(nn.Module):
         
     @classmethod
     def load_from_checkpoint(cls, model_path):
-        pass
+        with open(os.path.join(model_path, "config.json"), "r") as file:
+            config = json.load(file)
+        state_dict = torch.load(os.path.join(model_path, "pytorch_model.bin"), map_location="cpu")
+        model = cls(config=cls.CONFIGURATION_CLS(**config))
+        model.load_state_dict(state_dict)
+        return model
+    
     @classmethod
     def download_and_load_model(cls, model_name, cache_dir=None):
         pass
