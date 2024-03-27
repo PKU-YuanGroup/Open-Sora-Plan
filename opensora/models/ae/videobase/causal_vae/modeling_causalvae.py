@@ -129,7 +129,8 @@ class Encoder(nn.Module):
             if i_level != self.num_resolutions - 1:
                 down.downsample = SpatialDownsample2x(block_in, block_in)
                 curr_res = curr_res // 2
-            if i_level < self.time_compress and i_level != self.num_resolutions - 1:
+            # if i_level < self.time_compress and i_level != self.num_resolutions - 1:
+            if i_level < self.time_compress:
                 down.time_downsample = TimeDownsample2x()
             self.down.append(down)
 
@@ -168,7 +169,8 @@ class Encoder(nn.Module):
                 hs.append(h)
             if i_level != self.num_resolutions - 1:
                 hs.append(self.down[i_level].downsample(hs[-1]))
-            if i_level < self.time_compress and i_level != self.num_resolutions - 1:
+            # if i_level < self.time_compress and i_level != self.num_resolutions - 1:
+            if i_level < self.time_compress:
                 hs.append(self.down[i_level].time_downsample(hs[-1]))
 
         # middle
@@ -268,9 +270,8 @@ class Decoder(nn.Module):
             if i_level != 0:
                 up.upsample = SpatialUpsample2x(block_in, block_in)
                 curr_res = curr_res * 2
-
-            # if i_level >= self.num_resolutions - 1 - self.time_compress and i_level < self.num_resolutions - 1:
             if i_level > self.num_resolutions - 1 - self.time_compress and i_level != 0:
+            # if i_level <= self.time_compress and i_level != 0:
                 up.time_upsample = TimeUpsample2x()
 
             self.up.insert(0, up)  # prepend to get consistent order
@@ -295,7 +296,9 @@ class Decoder(nn.Module):
                     h = self.up[i_level].attn[i_block](h)
             if i_level != 0:
                 h = self.up[i_level].upsample(h)
+            
             if i_level > self.num_resolutions - 1 - self.time_compress and i_level != 0:
+            # if i_level <= self.time_compress and i_level != 0:
                 h = self.up[i_level].time_upsample(h)
 
         # end
@@ -323,6 +326,7 @@ class CausalVAEModel(VideoBaseAE):
             perceptual_weight=config.perceptual_weight,
             disc_loss=config.disc_loss,
         )
+        self.loss.logvar.requires_grad = False
         self.encoder = Encoder(
             ch=config.hidden_size,
             out_ch=config.out_channels,

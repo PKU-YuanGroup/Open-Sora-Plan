@@ -26,15 +26,15 @@ class CausalVAEDataset(data.Dataset):
                          for ext in self.video_exts], [])
             
         warnings.filterwarnings('ignore')
-        cache_file = osp.join(folder, f"metadata_{sequence_length}.pkl")
+        cache_file = osp.join(folder, f"metadata_{sequence_length}_{sample_rate}.pkl")
         if dist.is_initialized() and dist.get_rank() != 0:
             dist.barrier()
         if not osp.exists(cache_file):
-            clips = VideoClips(video_files, sequence_length, num_workers=32)
+            clips = VideoClips(video_files, sequence_length, frame_rate=sample_rate, num_workers=32)
             pickle.dump(clips.metadata, open(cache_file, 'wb'))
         else:
             metadata = pickle.load(open(cache_file, 'rb'))
-            clips = VideoClips(video_files, sequence_length,
+            clips = VideoClips(video_files, sequence_length, frame_rate=sample_rate, 
                                _precomputed_metadata=metadata)
         if dist.is_initialized() and dist.get_rank() == 0:
             dist.barrier()

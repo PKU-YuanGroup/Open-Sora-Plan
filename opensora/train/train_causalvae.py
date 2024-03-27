@@ -13,7 +13,32 @@ from accelerate.utils import set_seed
 from transformers import HfArgumentParser, TrainingArguments
 from dataclasses import dataclass, field, asdict
 from typing import Tuple, List
+import torch.distributed as dist
 import os
+import cv2
+import torch
+import numpy as np
+
+def array_to_video(image_array, fps: float = 30.0, output_file: str = 'output_video.mp4') -> None:
+    height, width, channels = image_array[0].shape
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')    # type: ignore
+    video_writer = cv2.VideoWriter(output_file, fourcc, float(fps), (width, height))
+
+    for image in image_array:
+        image_rgb = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+        video_writer.write(image_rgb)
+
+    video_writer.release()
+
+def custom_to_video(x: torch.Tensor, fps: float = 2.0, output_file: str = 'output_video.mp4') -> None:
+    x = x.detach().cpu()
+    x = torch.clamp(x, -0.5, 0.5)
+    x = (x + 0.5)
+    x = x.permute(1, 2, 3, 0).numpy()  # (C, T, H, W) -> (T, H, W, C)
+    x = (255*x).astype(np.uint8)
+    array_to_video(x, fps=fps, output_file=output_file)
+    # imageio.mimwrite(output_file, x, fps=fps, quality=9)
+    return
 
 
 @dataclass
@@ -57,11 +82,14 @@ def train(args, vqvae_args, training_args):
         model = CausalVAEModel.load_from_checkpoint(training_args.resume_from_checkpoint)
     else:
         model = CausalVAEModel(config)
+    if (dist.is_initialized() and dist.get_rank() == 0) or not dist.is_initialized():
+        print(model)
     # Load Dataset
     dataset = CausalVAEDataset(args.data_path, sequence_length=args.video_num_frames, resolution=config.resolution, sample_rate=args.sample_rate)
+    custom_to_video(dataset[0]['video'], fps=10, output_file="dataset.mp4")
     # Load Trainer
     trainer = CausalVAETrainer(model, training_args, train_dataset=dataset)
-    trainer.train()
+    trainer.train(resume_from_checkpoint=training_args.resume_from_checkpoint)
 
 
 if __name__ == "__main__":

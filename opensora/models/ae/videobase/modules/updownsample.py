@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from .ops import cast_tuple
 from .conv import CausalConv3d
-
+from einops import rearrange
 
 class Upsample(nn.Module):
     def __init__(self, in_channels, out_channels):
@@ -95,7 +95,10 @@ class SpatialUpsample2x(nn.Module):
         )
 
     def forward(self, x):
-        x = F.interpolate(x, scale_factor=(1,2,2), mode="nearest")
+        t = x.shape[2]
+        x = rearrange(x, "b c t h w -> b (c t) h w")
+        x = F.interpolate(x, scale_factor=(2,2), mode="nearest")
+        x = rearrange(x, "b (c t) h w -> b c t h w", t=t)
         x = self.conv(x)
         return x
     
