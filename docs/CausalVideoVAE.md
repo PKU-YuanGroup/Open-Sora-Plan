@@ -1,4 +1,4 @@
-# Causal Video VAE Report
+# CausalVideoVAE Report
 
 ## Examples
 
