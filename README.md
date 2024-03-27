@@ -43,12 +43,9 @@ Project stages:
   
 ## 📰 News
 
-**[2024.03.27]** 🚀🚀🚀 We release the report of [VideoCausalVAE](docs/CausalVideoVAE.md), which supports both images and videos. The text-to-video model is on the way.
-
-We present our reconstructed video in this demonstration as follows:
+**[2024.03.27]** 🚀🚀🚀 We release the report of [VideoCausalVAE](docs/CausalVideoVAE.md), which supports both images and videos. We present our reconstructed video in this demonstration as follows. The text-to-video model is on the way.
 
 https://github.com/qqingzheng/Open-Sora-Plan/assets/88202804/0dbf8f8f-efba-414e-ad42-1f839839f9cf
-
 
 
 **[2024.03.10]** 🚀🚀🚀 This repo supports training a latent size of 225×90×90 (t×h×w), which means we are able to **train 1 minute of 1080P video with 30FPS** (2× interpolated frames and 2× super resolution) under class-condition.
