@@ -45,6 +45,12 @@ Project stages:
 
 **[2024.03.27]** 🚀🚀🚀 We release the report of [VideoCausalVAE](docs/CausalVideoVAE.md), which supports both images and videos. The text-to-video model is on the way.
 
+We present our reconstructed video in this demonstration as follows:
+
+https://github.com/qqingzheng/Open-Sora-Plan/assets/88202804/0dbf8f8f-efba-414e-ad42-1f839839f9cf
+
+
+
 **[2024.03.10]** 🚀🚀🚀 This repo supports training a latent size of 225×90×90 (t×h×w), which means we are able to **train 1 minute of 1080P video with 30FPS** (2× interpolated frames and 2× super resolution) under class-condition.
 
 **[2024.03.08]** We support the training code of text condition with 16 frames of 512x512. The code is mainly borrowed from [Latte](https://github.com/Vchitect/Latte).
@@ -205,10 +211,6 @@ Refer to the document [EVAL.md](docs/EVAL.md).
 python examples/rec_video_vae.py --rec-path test_video.mp4 --video-path video.mp4 --resolution 512 --num-frames 1440 --sample-rate 1 --sample-fps 24 -
 -device cuda --ckpt <Your ckpt>
 ```
-
-We present our reconstructed video in this demonstration as follows: 
-
-https://github.com/qqingzheng/Open-Sora-Plan/assets/88202804/0dbf8f8f-efba-414e-ad42-1f839839f9cf
 
 For more details, please refer to: [CausalVideoVAE Report](docs/CausalVideoVAE.md).
 
