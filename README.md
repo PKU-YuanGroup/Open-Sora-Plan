@@ -197,47 +197,22 @@ Refer to [Data.md](docs/Data.md)
 ###  Evaluation
 Refer to the document [EVAL.md](docs/EVAL.md).
 
-### Video-VQVAE (VideoGPT)
-
-#### Training
-
-To train VQVAE, run the script:
-
-```
-scripts/videogpt/train_videogpt.sh
-```
-
-You can modify the training parameters within the script. For training parameters, please refer to [transformers.TrainingArguments](https://huggingface.co/docs/transformers/v4.38.2/en/main_classes/trainer#transformers.TrainingArguments). Other parameters are explained as follows:
-
-##### VQ-VAE Specific Settings
-
-* `--embedding_dim`: number of dimensions for codebooks embeddings
-* `--n_codes 2048`: number of codes in the codebook
-* `--n_hiddens 240`: number of hidden features in the residual blocks
-* `--n_res_layers 4`: number of residual blocks
-* `--downsample "4,4,4"`: T H W downsampling stride of the encoder
-
-##### Dataset Settings
-* `--data_path <path>`: path to an `hdf5` file or a folder containing `train` and `test` folders with subdirectories of videos
-* `--resolution 128`: spatial resolution to train on 
-* `--sequence_length 16`: temporal resolution, or video clip length
+### Causal Video VAE
 
 #### Reconstructing
 
 ```Python
-python examples/rec_video.py --video-path "assets/origin_video_0.mp4" --rec-path "rec_video_0.mp4" --num-frames 500 --sample-rate 1
-```
-```Python
-python examples/rec_video.py --video-path "assets/origin_video_1.mp4" --rec-path "rec_video_1.mp4" --resolution 196 --num-frames 600 --sample-rate 1
+python examples/rec_video_vae.py --rec-path test_video.mp4 --video-path video.mp4 --resolution 512 --num-frames 1440 --sample-rate 1 --sample-fps 24 -
+-device cuda --ckpt <Your ckpt>
 ```
 
-We present four reconstructed videos in this demonstration, arranged from left to right as follows: 
+We present our reconstructed video in this demonstration as follows: 
 
-| **3s 596x336** | **10s 256x256** | **18s 196x196**  | **24s 168x96** |
-| --- | --- | --- | --- |
-| <img src="assets/rec_video_2.gif">  | <img src="assets/rec_video_0.gif">  | <img src="assets/rec_video_1.gif">  | <img src="assets/rec_video_3.gif"> |
+https://github.com/qqingzheng/Open-Sora-Plan/assets/88202804/0dbf8f8f-efba-414e-ad42-1f839839f9cf
 
-#### Others
+For more details, please refer to: [CausalVideoVAE Report](docs/CausalVideoVAE.md).
+
+### VideoGPT VQVAE
 
 Please refer to the document [VQVAE](docs/VQVAE.md).
 
