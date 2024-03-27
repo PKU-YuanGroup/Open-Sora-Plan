@@ -10,3 +10,5 @@ build/
 opensora.egg-info/
 wandb/
 .idea
+*.ipynb
+*.jpg
