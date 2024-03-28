@@ -27,7 +27,7 @@ class T5Embedder:
         self.hf_token = hf_token
         self.cache_dir = cache_dir
         self.dir_or_name = dir_or_name
-        cache_dir = os.path.join(self.cache_dir, 't5-v1_1-xxl')
+        cache_dir = os.path.join(self.cache_dir, self.dir_or_name)
         for filename in ['config.json', 'special_tokens_map.json', 'spiece.model', 'tokenizer_config.json',
                          'pytorch_model-00001-of-00002.bin', 'pytorch_model-00002-of-00002.bin', 'pytorch_model.bin.index.json']:
             hf_hub_download(repo_id='DeepFloyd/t5-v1_1-xxl', filename=filename, cache_dir=cache_dir,
