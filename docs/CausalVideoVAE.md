@@ -20,7 +20,7 @@ https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/88202804/8aa8f587-d9f1-4e
 
 ## Model Structure
 
-![image](https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/88202804/6242a88c-01eb-47a2-844b-aab6e45b6558)
+![image](https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/88202804/e3c8b35d-a217-4d96-b2e9-5c248a2859c8)
 
 
 The Causal Video VAE architecture inherits from the [Stable-Diffusion Image VAE](https://github.com/CompVis/stable-diffusion/tree/main). To ensure that the pretrained weights of the Image VAE can be seamlessly applied to the Video VAE, the model structure has been designed as follows:
