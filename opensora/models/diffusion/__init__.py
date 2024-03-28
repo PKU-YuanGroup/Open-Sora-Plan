@@ -1,4 +1,4 @@
-from .dit.modeling_dit import DiT_models
+
 from .latte.modeling_latte import Latte_models
 
 Diffusion_models = {}
