@@ -49,8 +49,7 @@ def calculate_psnr(videos1, videos2):
 
         psnr_results.append(psnr_results_of_a_video)
     
-    psnr_results = np.array(psnr_results)
-    
+    psnr_results = np.array(psnr_results) # [batch_size, num_frames]
     psnr = {}
     psnr_std = {}
 
