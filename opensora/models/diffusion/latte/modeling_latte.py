@@ -878,9 +878,12 @@ class LatteT2V(ModelMixin, ConfigMixin):
             `tuple` where the first element is the sample tensor.
         """
         input_batch_size, c, frame, h, w = hidden_states.shape
+        # print(hidden_states.shape, input_batch_size, c, frame, h, w, use_image_num)
+        # print(timestep)
+        # print(encoder_hidden_states.shape)
+        # print(encoder_attention_mask.shape)
         frame = frame - use_image_num  # 20-4=16
         hidden_states = rearrange(hidden_states, 'b c f h w -> (b f) c h w').contiguous()
-
         # ensure attention_mask is a bias, and give it a singleton query_tokens dimension.
         #   we may have done this conversion already, e.g. if we came here via UNet2DConditionModel#forward.
         #   we can tell by counting dims; if ndim == 2: it's a mask rather than a bias.
