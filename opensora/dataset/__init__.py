@@ -1,7 +1,7 @@
 from torchvision.transforms import Compose
 from transformers import AutoTokenizer
 
-from .feature_datasets import T2V_Feature_dataset
+from .feature_datasets import T2V_Feature_dataset, T2V_T5_Feature_dataset
 from torchvision import transforms
 from torchvision.transforms import Lambda
 
@@ -12,6 +12,7 @@ from .ucf101 import UCF101
 from .sky_datasets import Sky
 
 ae_norm = {
+    'CausalVAEModel_4x8x8': Lambda(lambda x: 2. * x - 1.),
     'CausalVQVAEModel_4x4x4': Lambda(lambda x: x - 0.5),
     'CausalVQVAEModel_4x8x8': Lambda(lambda x: x - 0.5),
     'VQVAEModel_4x4x4': Lambda(lambda x: x - 0.5),
@@ -28,6 +29,7 @@ ae_norm = {
 
 }
 ae_denorm = {
+    'CausalVAEModel_4x8x8': lambda x: (x + 1.) / 2.,
     'CausalVQVAEModel_4x4x4': lambda x: x + 0.5,
     'CausalVQVAEModel_4x8x8': lambda x: x + 0.5,
     'VQVAEModel_4x4x4': lambda x: x + 0.5,
@@ -85,5 +87,13 @@ def getdataset(args):
         return T2V_dataset(args, transform=transform, temporal_sample=temporal_sample, tokenizer=tokenizer)
     elif args.dataset == 't2v_feature':
         return T2V_Feature_dataset(args, temporal_sample)
+    elif args.dataset == 't2v_t5_feature':
+        transform = transforms.Compose([
+            ToTensorVideo(),
+            CenterCropResizeVideo(args.max_image_size),
+            RandomHorizontalFlipVideo(p=0.5),
+            norm_fun
+        ])
+        return T2V_T5_Feature_dataset(args, transform, temporal_sample)
     else:
         raise NotImplementedError(args.dataset)
