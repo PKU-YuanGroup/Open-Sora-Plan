@@ -1,6 +1,6 @@
 # Docker4ML
 
-Useful docker scripts for ML developement.
+Useful docker scripts for ML development.
 [https://github.com/SimonLeeGit/Docker4ML](https://github.com/SimonLeeGit/Docker4ML)
 
 ## Build Docker Image
@@ -11,7 +11,7 @@ bash docker_build.sh
 
 ![build_docker](build_docker.png)
 
-## Run Docker Container as Development Envirnoment
+## Run Docker Container as Development Environment
 
 ```bash
 bash docker_run.sh
@@ -49,7 +49,7 @@ Your user name used in docker container.
 
 Your user password used in docker container.
 
-### Config [requriements.txt](./requirements.txt)
+### Config [requirements.txt](./requirements.txt)
 
 You can add your default installed python libraries here.
 
