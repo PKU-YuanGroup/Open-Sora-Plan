@@ -18,8 +18,10 @@ class VideoBaseAE(nn.Module):
         with open(os.path.join(model_path, "config.json"), "r") as file:
             config = json.load(file)
         state_dict = torch.load(os.path.join(model_path, "pytorch_model.bin"), map_location="cpu")
+        if 'state_dict' in state_dict:
+            state_dict = state_dict['state_dict']
         model = cls(config=cls.CONFIGURATION_CLS(**config))
-        model.load_state_dict(state_dict, strict=False)
+        model.load_state_dict(state_dict)
         return model
     
     @classmethod
