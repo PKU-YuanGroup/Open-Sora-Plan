@@ -14,8 +14,8 @@ from tqdm import tqdm
 from transformers import AutoTokenizer
 
 from opensora.dataset import ae_denorm
-from opensora.models.ae import ae_channel_config, getae, ae_stride_config
-from opensora.models.ae.videobase import CausalVQVAEModelWrapper
+from opensora.models.ae import ae_channel_config, getae, ae_stride_config, getae_wrapper
+from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModelWrapper
 from opensora.models.diffusion import Diffusion_models
 from opensora.models.diffusion.diffusion import create_diffusion_T as create_diffusion
 from opensora.models.diffusion.latte.modeling_latte import LatteT2V
@@ -30,6 +30,7 @@ import imageio
 
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
+
 
 def main(args):
     # Setup PyTorch:
@@ -53,7 +54,7 @@ def main(args):
     tokenizer = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir='./cache_dir')
     text_enc = get_text_enc(args).to(device).eval()
     ae = getae(args).to(device).eval()
-    if isinstance(ae, CausalVQVAEModelWrapper):
+    if getae_wrapper(args) == CausalVQVAEModelWrapper or getae_wrapper(args) == CausalVAEModelWrapper:
         video_length = args.num_frames // ae_stride_config[args.ae][0] + 1
     else:
         video_length = args.num_frames // ae_stride_config[args.ae][0]
