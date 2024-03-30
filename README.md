@@ -19,6 +19,7 @@
 
 
 
+
 ## 💪 Goal
 This project aims to create a simple and scalable repo, to reproduce [Sora](https://openai.com/sora) (OpenAI, but we prefer to call it "ClosedAI" ) and build knowledge about Video-VQVAE (VideoGPT) + DiT at scale. However, since we have limited resources, we deeply wish all open-source community can contribute to this project. Pull requests are welcome!!!
 
