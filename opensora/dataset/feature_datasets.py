@@ -122,7 +122,7 @@ class T2V_T5_Feature_dataset(Dataset):
         if os.path.exists('samples_430k.json'):
             with open('samples_430k.json', 'r') as f:
                 self.samples = json.load(f)
-                self.samples = [dict(ae=i['ae'].replace('lb_causalvideovae444_feature', 'data_split').replace('_causalvideovae444.npy', '.mp4'), t5=i['t5']) for i in self.samples]
+                self.samples = [dict(ae=i['ae'].replace('lb_causalvideovae444_feature', 'data_split_1024').replace('_causalvideovae444.npy', '.mp4'), t5=i['t5']) for i in self.samples]
         else:
             self.samples = self._make_dataset()
             with open('samples_430k.json', 'w') as f:
@@ -145,7 +145,7 @@ class T2V_T5_Feature_dataset(Dataset):
             if not os.path.exists(ae):
                 continue
 
-            t5 = os.path.split(i)[0].replace('data_split', 'lb_t5_feature')
+            t5 = os.path.split(i)[0].replace('data_split_1024', 'lb_t5_feature')
             cond_list = []
             cond_llava = os.path.join(t5, f'{video_id}_t5_llava_fea.npy')
             mask_llava = os.path.join(t5, f'{video_id}_t5_llava_mask.npy')
