@@ -546,6 +546,11 @@ if __name__ == "__main__":
     parser.add_argument("--dynamic_frames", action="store_true")
     parser.add_argument("--compress_kv", action="store_true")
     parser.add_argument("--attention_mode", type=str, choices=['xformers', 'math', 'flash'], default="math")
+
+
+    parser.add_argument('--tile_overlap_factor', type=float, default=0.25)
+    parser.add_argument('--enable_tiling', action='store_true')
+
     parser.add_argument("--pretrained", type=str, default=None)
     parser.add_argument("--train_classcondition", action="store_true")
 
