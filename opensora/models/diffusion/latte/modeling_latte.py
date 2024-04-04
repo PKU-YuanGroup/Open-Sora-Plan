@@ -8,8 +8,8 @@ from einops import rearrange, repeat
 from typing import Any, Dict, Optional, Tuple
 from diffusers.models import Transformer2DModel
 from diffusers.utils import USE_PEFT_BACKEND, BaseOutput, deprecate
-from diffusers.models.embeddings import get_1d_sincos_pos_embed_from_grid, ImagePositionalEmbeddings, CaptionProjection, \
-    PatchEmbed, CombinedTimestepSizeEmbeddings
+from diffusers.models.embeddings import get_1d_sincos_pos_embed_from_grid, ImagePositionalEmbeddings, CaptionProjection
+# from diffusers.models.embeddings import PatchEmbed, CombinedTimestepSizeEmbeddings
 from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.models.modeling_utils import ModelMixin
 from diffusers.models.lora import LoRACompatibleConv, LoRACompatibleLinear
@@ -18,7 +18,8 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from .common_diffusers import BasicTransformerBlock, BasicTransformerBlock_, AdaLayerNormSingle, Transformer3DModelOutput
+from opensora.models.diffusion.utils.pos_embed import get_1d_sincos_pos_embed
+from .modules import PatchEmbed, BasicTransformerBlock, BasicTransformerBlock_, AdaLayerNormSingle, Transformer3DModelOutput
 
 
 class Latte(ModelMixin, ConfigMixin):
@@ -249,7 +250,12 @@ class Latte(ModelMixin, ConfigMixin):
         self.gradient_checkpointing = False
 
         # define temporal positional embedding
-        temp_pos_embed = self.get_1d_sincos_temp_embed(inner_dim, video_length)  # 1152 hidden size
+        # temp_pos_embed = self.get_1d_sincos_temp_embed(inner_dim, video_length)  # 1152 hidden size
+        # self.register_buffer("temp_pos_embed", torch.from_numpy(temp_pos_embed).float().unsqueeze(0), persistent=False)
+
+        interpolation_scale = self.config.video_length // 5  # => 5 (= 5 our causalvideovae) has interpolation scale 1
+        interpolation_scale = max(interpolation_scale, 1)
+        temp_pos_embed = get_1d_sincos_pos_embed(inner_dim, video_length, interpolation_scale=interpolation_scale)  # 1152 hidden size
         self.register_buffer("temp_pos_embed", torch.from_numpy(temp_pos_embed).float().unsqueeze(0), persistent=False)
 
     def _set_gradient_checkpointing(self, module, value=False):
@@ -526,9 +532,9 @@ class Latte(ModelMixin, ConfigMixin):
 
         return Transformer3DModelOutput(sample=output)
 
-    def get_1d_sincos_temp_embed(self, embed_dim, length):
-        pos = torch.arange(0, length).unsqueeze(1)
-        return get_1d_sincos_pos_embed_from_grid(embed_dim, pos)
+    # def get_1d_sincos_temp_embed(self, embed_dim, length):
+    #     pos = torch.arange(0, length).unsqueeze(1)
+    #     return get_1d_sincos_pos_embed_from_grid(embed_dim, pos)
 
     @classmethod
     def from_pretrained_2d(cls, pretrained_model_path, subfolder=None, **kwargs):
@@ -733,7 +739,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
                 interpolation_scale=interpolation_scale,
             )
 
-        # 3. Define transformers blocks
+        # 3. Define transformers blocks, spatial attention
         self.transformer_blocks = nn.ModuleList(
             [
                 BasicTransformerBlock(
@@ -819,7 +825,11 @@ class LatteT2V(ModelMixin, ConfigMixin):
         self.gradient_checkpointing = False
 
         # define temporal positional embedding
-        temp_pos_embed = self.get_1d_sincos_temp_embed(inner_dim, video_length)  # 1152 hidden size
+        # temp_pos_embed = self.get_1d_sincos_temp_embed(inner_dim, video_length)  # 1152 hidden size
+
+        interpolation_scale = self.config.video_length // 5  # => 5 (= 5 our causalvideovae) has interpolation scale 1
+        interpolation_scale = max(interpolation_scale, 1)
+        temp_pos_embed = get_1d_sincos_pos_embed(inner_dim, video_length, interpolation_scale=interpolation_scale)  # 1152 hidden size
         self.register_buffer("temp_pos_embed", torch.from_numpy(temp_pos_embed).float().unsqueeze(0), persistent=False)
 
     def _set_gradient_checkpointing(self, module, value=False):
@@ -902,7 +912,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
             attention_mask = (1 - attention_mask.to(hidden_states.dtype)) * -10000.0
             attention_mask = attention_mask.unsqueeze(1)
             attention_mask = attention_mask.to(self.dtype)
-
+        # 1 + 4, 1 -> video condition, 4 -> image condition
         # convert encoder_attention_mask to a bias the same way we do for attention_mask
         if encoder_attention_mask is not None and encoder_attention_mask.ndim == 2:  # ndim == 2 means no image joint
             encoder_attention_mask = (1 - encoder_attention_mask.to(hidden_states.dtype)) * -10000.0
@@ -1029,7 +1039,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
                 )
 
                 if enable_temporal_attentions:
-
+                    # b c f h w, f = 16 + 4
                     hidden_states = rearrange(hidden_states, '(b f) t d -> (b t) f d', b=input_batch_size).contiguous()
 
                     if use_image_num != 0 and self.training:
@@ -1100,9 +1110,9 @@ class LatteT2V(ModelMixin, ConfigMixin):
 
         return Transformer3DModelOutput(sample=output)
 
-    def get_1d_sincos_temp_embed(self, embed_dim, length):
-        pos = torch.arange(0, length).unsqueeze(1)
-        return get_1d_sincos_pos_embed_from_grid(embed_dim, pos)
+    # def get_1d_sincos_temp_embed(self, embed_dim, length):
+    #     pos = torch.arange(0, length).unsqueeze(1)
+    #     return get_1d_sincos_pos_embed_from_grid(embed_dim, pos)
 
     @classmethod
     def from_pretrained_2d(cls, pretrained_model_path, subfolder=None, **kwargs):
