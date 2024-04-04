@@ -481,6 +481,9 @@ def main(args):
                         with torch.no_grad():
                             # create pipeline
                             ae_ = getae(args).to(accelerator.device).eval()
+                            if args.enable_tiling:
+                                ae_.vae.enable_tiling()
+                                ae_.vae.tile_overlap_factor = args.tile_overlap_factor
                             text_enc_ = get_text_enc(args).to(accelerator.device).eval()
                             model_ = LatteT2V.from_pretrained(save_path, subfolder="model").to(accelerator.device).eval()
                             diffusion_ = create_diffusion(str(250))
@@ -553,6 +556,9 @@ if __name__ == "__main__":
     parser.add_argument("--compress_kv", action="store_true")
     parser.add_argument("--attention_mode", type=str, choices=['xformers', 'math', 'flash'], default="math")
     parser.add_argument("--pretrained", type=str, default=None)
+
+    parser.add_argument('--tile_overlap_factor', type=float, default=0.25)
+    parser.add_argument('--enable_tiling', action='store_true')
 
     parser.add_argument("--video_folder", type=str, default='')
     parser.add_argument("--text_encoder_name", type=str, default='DeepFloyd/t5-v1_1-xxl')
