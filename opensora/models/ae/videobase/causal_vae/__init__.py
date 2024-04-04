@@ -1,6 +1,8 @@
+import torch
+
 from .configuration_causalvae import CausalVAEConfiguration
 from .dataset_causalvae import CausalVAEDataset
-from .modeling_causalvae import CausalVAEModel
+from .modeling_causalvae import CausalVAEModel, DiagonalGaussianDistribution
 from .trainer_causalvae import CausalVAETrainer
 
 from einops import rearrange
@@ -19,3 +21,9 @@ class CausalVAEModelWrapper(nn.Module):
         x = self.vae.decode(x / 0.18215)
         x = rearrange(x, 'b c t h w -> b t c h w').contiguous()
         return x
+
+    def dtype(self):
+        return self.vae.dtype
+    #
+    # def device(self):
+    #     return self.vae.device
