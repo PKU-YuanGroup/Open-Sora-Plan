@@ -48,7 +48,7 @@ def crop(clip, i, j, h, w):
 def resize(clip, target_size, interpolation_mode):
     if len(target_size) != 2:
         raise ValueError(f"target size should be tuple (height, width), instead got {target_size}")
-    return torch.nn.functional.interpolate(clip, size=target_size, mode=interpolation_mode, align_corners=False)
+    return torch.nn.functional.interpolate(clip, size=target_size, mode=interpolation_mode, align_corners=True, antialias=True)
 
 
 def resize_scale(clip, target_size, interpolation_mode):
@@ -56,7 +56,7 @@ def resize_scale(clip, target_size, interpolation_mode):
         raise ValueError(f"target size should be tuple (height, width), instead got {target_size}")
     H, W = clip.size(-2), clip.size(-1)
     scale_ = target_size[0] / min(H, W)
-    return torch.nn.functional.interpolate(clip, scale_factor=scale_, mode=interpolation_mode, align_corners=False)
+    return torch.nn.functional.interpolate(clip, scale_factor=scale_, mode=interpolation_mode, align_corners=True, antialias=True)
 
 
 def resized_crop(clip, i, j, h, w, size, interpolation_mode="bilinear"):

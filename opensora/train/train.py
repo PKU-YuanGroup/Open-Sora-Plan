@@ -483,51 +483,51 @@ def main(args):
                         # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
                         ema_model.store(model.parameters())
                         ema_model.copy_to(model.parameters())
+                    if args.enable_tracker:
+                        with torch.no_grad():
+                            # create pipeline
+                            ae_ = getae(args).to(accelerator.device).eval()
+                            model_ = Latte.from_pretrained(save_path, subfolder="model").to(accelerator.device).eval()
+                            diffusion_ = create_diffusion(str(500))
+                            videos = []
+                            ys = []
+                            for _ in range(args.num_validation_videos):
+                                with torch.autocast(device_type='cuda', dtype=weight_dtype):
+                                    z = torch.randn(1, model_.in_channels, video_length,
+                                                    latent_size[0], latent_size[1], device=accelerator.device)
+                                    if args.train_classcondition:
+                                        y = torch.randint(0, args.num_classes, (1,), device=accelerator.device)
+                                        ys.append(y.detach().cpu.items())
+                                    sample_fn = model_.forward
+                                    model_kwargs = dict(class_labels=y if args.train_classcondition else None, attention_mask=None)
+                                    # Sample images:
+                                    samples = diffusion_.p_sample_loop(
+                                        sample_fn, z.shape, z, clip_denoised=False, model_kwargs=model_kwargs, progress=True,
+                                        device=accelerator.device
+                                    )
+                                    samples = ae_.decode(samples)
+                                    # Save and display images:
+                                    video = (ae_denorm[args.ae](samples[0]) * 255).add_(0.5).clamp_(0, 255).to(
+                                        dtype=torch.uint8).cpu().contiguous()  # t c h w
+                                    videos.append(video)
 
-                    with torch.no_grad():
-                        # create pipeline
-                        ae_ = getae(args).to(accelerator.device).eval()
-                        model_ = Latte.from_pretrained(save_path, subfolder="model").to(accelerator.device).eval()
-                        diffusion_ = create_diffusion(str(500))
-                        videos = []
-                        ys = []
-                        for _ in range(args.num_validation_videos):
-                            with torch.autocast(device_type='cuda', dtype=weight_dtype):
-                                z = torch.randn(1, model_.in_channels, video_length,
-                                                latent_size[0], latent_size[1], device=accelerator.device)
-                                if args.train_classcondition:
-                                    y = torch.randint(0, args.num_classes, (1,), device=accelerator.device)
-                                    ys.append(y.detach().cpu.items())
-                                sample_fn = model_.forward
-                                model_kwargs = dict(class_labels=y if args.train_classcondition else None, attention_mask=None)
-                                # Sample images:
-                                samples = diffusion_.p_sample_loop(
-                                    sample_fn, z.shape, z, clip_denoised=False, model_kwargs=model_kwargs, progress=True,
-                                    device=accelerator.device
+                        videos = torch.stack(videos).numpy()
+                        for tracker in accelerator.trackers:
+                            if tracker.name == "tensorboard":
+                                np_videos = np.stack([np.asarray(vid) for vid in videos])
+                                tracker.writer.add_video("validation", np_videos, global_step, fps=10)
+                            if tracker.name == "wandb":
+                                tracker.log(
+                                    {
+                                        "validation": [
+                                            wandb.Video(video, caption=f"{i}: {str(ys[i])}" if args.train_classcondition else f"{i}", fps=10)
+                                            for i, video in enumerate(videos)
+                                        ]
+                                    }
                                 )
-                                samples = ae_.decode(samples)
-                                # Save and display images:
-                                video = (ae_denorm[args.ae](samples[0]) * 255).add_(0.5).clamp_(0, 255).to(
-                                    dtype=torch.uint8).cpu().contiguous()  # t c h w
-                                videos.append(video)
 
-                    videos = torch.stack(videos).numpy()
-                    for tracker in accelerator.trackers:
-                        if tracker.name == "tensorboard":
-                            np_videos = np.stack([np.asarray(vid) for vid in videos])
-                            tracker.writer.add_video("validation", np_videos, global_step, fps=10)
-                        if tracker.name == "wandb":
-                            tracker.log(
-                                {
-                                    "validation": [
-                                        wandb.Video(video, caption=f"{i}: {str(ys[i])}" if args.train_classcondition else f"{i}", fps=10)
-                                        for i, video in enumerate(videos)
-                                    ]
-                                }
-                            )
-
-                    del ae_, model_, diffusion_
-                    torch.cuda.empty_cache()
+                        del ae_, model_, diffusion_
+                        torch.cuda.empty_cache()
 
     accelerator.wait_for_everyone()
     accelerator.end_training()
@@ -549,6 +549,7 @@ if __name__ == "__main__":
     parser.add_argument("--pretrained", type=str, default=None)
     parser.add_argument("--train_classcondition", action="store_true")
 
+    parser.add_argument("--enable_tracker", action="store_true")
     parser.add_argument("--use_image_num", type=int, default=0)
     parser.add_argument("--use_img_from_vid", action="store_true")
     parser.add_argument("--use_deepspeed", action="store_true")
