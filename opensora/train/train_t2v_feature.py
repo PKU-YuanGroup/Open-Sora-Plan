@@ -165,7 +165,7 @@ def main(args):
 
     latent_size = (args.max_image_size // ae_stride_h, args.max_image_size // ae_stride_w)
 
-    if getae_wrapper(args) == CausalVQVAEModelWrapper:
+    if getae_wrapper(args) == CausalVQVAEModelWrapper or getae_wrapper(args) == CausalVAEModelWrapper:
         args.video_length = video_length = args.num_frames // ae_stride_t + 1
     else:
         args.video_length = video_length = args.num_frames // ae_stride_t
@@ -477,62 +477,63 @@ def main(args):
                         ema_model.store(model.parameters())
                         ema_model.copy_to(model.parameters())
 
-                    with torch.no_grad():
-                        # create pipeline
-                        ae_ = getae(args).to(accelerator.device).eval()
-                        text_enc_ = get_text_enc(args).to(accelerator.device).eval()
-                        model_ = LatteT2V.from_pretrained(save_path, subfolder="model").to(accelerator.device).eval()
-                        diffusion_ = create_diffusion(str(250))
-                        tokenizer_ = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir='./cache_dir')
-                        videos = []
-                        for idx in range(args.num_validation_videos):
-                            with torch.autocast(device_type='cuda', dtype=weight_dtype):
-                                z = torch.randn(1, model_.in_channels, video_length,
-                                                latent_size[0], latent_size[1], device=accelerator.device)
-                                text_tokens_and_mask = tokenizer_(
-                                    validation_prompt,
-                                    max_length=args.model_max_length,
-                                    padding='max_length',
-                                    truncation=True,
-                                    return_attention_mask=True,
-                                    add_special_tokens=True,
-                                    return_tensors='pt'
-                                )
-                                input_ids = text_tokens_and_mask['input_ids'].to(accelerator.device)
-                                cond_mask = text_tokens_and_mask['attention_mask'].to(accelerator.device)
-                                cond = text_enc_(input_ids, cond_mask)  # B L D
-                                # cond = text_enc(input_ids, cond_mask)  # B L D
-                                model_kwargs = dict(encoder_hidden_states=cond, attention_mask=None, encoder_attention_mask=cond_mask)
-                                sample_fn = model_.forward
-                                # Sample images:
-                                samples = diffusion_.p_sample_loop(
-                                    sample_fn, z.shape, z, clip_denoised=False, model_kwargs=model_kwargs, progress=True,
-                                    device=accelerator.device
-                                )
-                                samples = ae_.decode(samples)
-                                # Save and display images:
-                                video = (ae_denorm[args.ae](samples[0]) * 255).add_(0.5).clamp_(0, 255).to(
-                                    dtype=torch.uint8).cpu().contiguous()  # t c h w
-                                videos.append(video)
+                    if args.enable_tracker:
+                        with torch.no_grad():
+                            # create pipeline
+                            ae_ = getae(args).to(accelerator.device).eval()
+                            text_enc_ = get_text_enc(args).to(accelerator.device).eval()
+                            model_ = LatteT2V.from_pretrained(save_path, subfolder="model").to(accelerator.device).eval()
+                            diffusion_ = create_diffusion(str(250))
+                            tokenizer_ = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir='./cache_dir')
+                            videos = []
+                            for idx in range(args.num_validation_videos):
+                                with torch.autocast(device_type='cuda', dtype=weight_dtype):
+                                    z = torch.randn(1, model_.in_channels, video_length,
+                                                    latent_size[0], latent_size[1], device=accelerator.device)
+                                    text_tokens_and_mask = tokenizer_(
+                                        validation_prompt,
+                                        max_length=args.model_max_length,
+                                        padding='max_length',
+                                        truncation=True,
+                                        return_attention_mask=True,
+                                        add_special_tokens=True,
+                                        return_tensors='pt'
+                                    )
+                                    input_ids = text_tokens_and_mask['input_ids'].to(accelerator.device)
+                                    cond_mask = text_tokens_and_mask['attention_mask'].to(accelerator.device)
+                                    cond = text_enc_(input_ids, cond_mask)  # B L D
+                                    # cond = text_enc(input_ids, cond_mask)  # B L D
+                                    model_kwargs = dict(encoder_hidden_states=cond, attention_mask=None, encoder_attention_mask=cond_mask)
+                                    sample_fn = model_.forward
+                                    # Sample images:
+                                    samples = diffusion_.p_sample_loop(
+                                        sample_fn, z.shape, z, clip_denoised=False, model_kwargs=model_kwargs, progress=True,
+                                        device=accelerator.device
+                                    )
+                                    samples = ae_.decode(samples)
+                                    # Save and display images:
+                                    video = (ae_denorm[args.ae](samples[0]) * 255).add_(0.5).clamp_(0, 255).to(
+                                        dtype=torch.uint8).cpu().contiguous()  # t c h w
+                                    videos.append(video)
 
-                    videos = torch.stack(videos).numpy()
-                    for tracker in accelerator.trackers:
-                        if tracker.name == "tensorboard":
-                            np_videos = np.stack([np.asarray(vid) for vid in videos])
-                            tracker.writer.add_video("validation", np_videos, global_step, fps=10)
-                        if tracker.name == "wandb":
-                            tracker.log(
-                                {
-                                    "validation": [
-                                        wandb.Video(video, caption=f"{i}: {validation_prompt}", fps=10)
-                                        for i, video in enumerate(videos)
-                                    ]
-                                }
-                            )
+                        videos = torch.stack(videos).numpy()
+                        for tracker in accelerator.trackers:
+                            if tracker.name == "tensorboard":
+                                np_videos = np.stack([np.asarray(vid) for vid in videos])
+                                tracker.writer.add_video("validation", np_videos, global_step, fps=10)
+                            if tracker.name == "wandb":
+                                tracker.log(
+                                    {
+                                        "validation": [
+                                            wandb.Video(video, caption=f"{i}: {validation_prompt}", fps=10)
+                                            for i, video in enumerate(videos)
+                                        ]
+                                    }
+                                )
 
-                    del ae_, text_enc_, model_, diffusion_, tokenizer_
-                    # del ae_, model_, diffusion_, tokenizer_
-                    torch.cuda.empty_cache()
+                        del ae_, text_enc_, model_, diffusion_, tokenizer_
+                        # del ae_, model_, diffusion_, tokenizer_
+                        torch.cuda.empty_cache()
 
     accelerator.wait_for_everyone()
     accelerator.end_training()
@@ -557,6 +558,7 @@ if __name__ == "__main__":
     parser.add_argument("--text_encoder_name", type=str, default='DeepFloyd/t5-v1_1-xxl')
     parser.add_argument("--model_max_length", type=int, default=120)
 
+    parser.add_argument("--enable_tracker", action="store_true")
     parser.add_argument("--use_image_num", type=int, default=0)
     parser.add_argument("--use_img_from_vid", action="store_true")
     parser.add_argument("--use_deepspeed", action="store_true")

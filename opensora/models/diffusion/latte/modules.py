@@ -44,7 +44,6 @@ else:
     xformers = None
 
 
-
 class PatchEmbed(nn.Module):
     """2D Image to Patch Embedding"""
 
@@ -109,6 +108,7 @@ class PatchEmbed(nn.Module):
             pos_embed = self.pos_embed
 
         return (latent + pos_embed).to(latent.dtype)
+
 
 @maybe_allow_in_graph
 class Attention(nn.Module):
