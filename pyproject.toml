@@ -29,6 +29,7 @@ train = ["deepspeed==0.9.5", "pydantic==1.10.13", "moviepy==1.0.3", "wandb==0.16
 dev = ["mypy==1.8.0"]
 
 
+
 [project.urls]
 "Homepage" = "https://github.com/PKU-YuanGroup/Open-Sora-Plan"
 "Bug Tracker" = "https://github.com/PKU-YuanGroup/Open-Sora-Plan/issues"
