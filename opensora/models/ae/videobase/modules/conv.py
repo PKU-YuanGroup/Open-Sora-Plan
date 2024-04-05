@@ -23,7 +23,8 @@ class CausalConv3d(nn.Module):
         self.conv = nn.Conv3d(
             chan_in, chan_out, self.kernel_size, stride=stride, padding=padding
         )
-        self._init_weights()
+        # self._init_weights()
+        self._init_identity()
 
     def _init_weights(self):
         ks = torch.tensor(self.kernel_size)
@@ -34,6 +35,22 @@ class CausalConv3d(nn.Module):
         self.conv.weight = nn.Parameter(mean_weight, requires_grad=True)
         if self.conv.bias is not None:
             nn.init.constant_(self.conv.bias, 0)
+    
+    def _init_identity(self):
+        # init causalconv3d act like nn.Identity()
+        weight = torch.zeros_like(self.conv.weight)
+        c_out, c_in, kt, kh, kw = weight.shape
+        if c_out != c_in: # c_in must be equal to c_out for identity
+            self._init_weights()
+        else:
+            dig_len = min(c_in, c_out)
+            if kh > 1:
+                weight[:dig_len, :dig_len, -1, 1, 1] = torch.eye(dig_len)
+            else:
+                weight[:dig_len, :dig_len, -1, 0, 0] = torch.eye(dig_len)
+            self.conv.weight = nn.Parameter(weight, requires_grad=True)
+            if self.conv.bias is not None:
+                nn.init.constant_(self.conv.bias, 0)
 
     def forward(self, x):
         # 1 + 16   16 as video, 1 as image
