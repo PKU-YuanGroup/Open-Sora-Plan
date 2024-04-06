@@ -28,7 +28,7 @@ class T2V_dataset(Dataset):
         self.model_max_length = args.model_max_length
         self.v_decoder = DecordInit()
 
-        with open('sharegpt4v_path_cap_.json', 'r') as f:
+        with open(args.data_path, 'r') as f:
             self.samples = json.load(f)
         self.use_image_num = args.use_image_num
         self.use_img_from_vid = args.use_img_from_vid
@@ -44,7 +44,8 @@ class T2V_dataset(Dataset):
             # input_ids = torch.ones(1, 120).to(torch.long).squeeze(0)
             # cond_mask = torch.cat([torch.ones(1, 60).to(torch.long), torch.ones(1, 60).to(torch.long)], dim=1).squeeze(0)
             # return video, input_ids, cond_mask
-            video = self.decord_read(self.samples[idx]['path'])
+            video_path = self.samples[idx]['path'].replace('data_split', 'data_split_tt')
+            video = self.decord_read(video_path)
             video = self.transform(video)  # T C H W -> T C H W
             video = video.transpose(0, 1)  # T C H W -> C T H W
             text = self.samples[idx]['cap'][0]
