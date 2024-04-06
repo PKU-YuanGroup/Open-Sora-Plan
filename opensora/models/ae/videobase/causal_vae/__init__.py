@@ -1,3 +1,5 @@
+import os.path
+
 import torch
 
 from .configuration_causalvae import CausalVAEConfiguration
@@ -9,9 +11,11 @@ from einops import rearrange
 from torch import nn
 
 class CausalVAEModelWrapper(nn.Module):
-    def __init__(self, ckpt):
+    def __init__(self, model_path, subfolder=None, cache_dir=None):
         super(CausalVAEModelWrapper, self).__init__()
-        self.vae = CausalVAEModel.load_from_checkpoint(ckpt)
+        # if os.path.exists(ckpt):
+        # self.vae = CausalVAEModel.load_from_checkpoint(ckpt)
+        self.vae = CausalVAEModel.from_pretrained(model_path, subfolder=subfolder, cache_dir=cache_dir)
     def encode(self, x):  # b c t h w
         # x = self.vae.encode(x).sample()
         x = self.vae.encode(x).sample().mul_(0.18215)
