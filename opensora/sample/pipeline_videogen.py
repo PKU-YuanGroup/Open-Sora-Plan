@@ -175,7 +175,7 @@ class VideoGenPipeline(DiffusionPipeline):
             batch_size = prompt_embeds.shape[0]
 
         # See Section 3.1. of the paper.
-        max_length = 120
+        max_length = 300
 
         if prompt_embeds is None:
             prompt = self._text_preprocessing(prompt, clean_caption=clean_caption)
@@ -196,7 +196,7 @@ class VideoGenPipeline(DiffusionPipeline):
             ):
                 removed_text = self.tokenizer.batch_decode(untruncated_ids[:, max_length - 1: -1])
                 logger.warning(
-                    "The following part of your input was truncated because CLIP can only handle sequences up to"
+                    "The following part of your input was truncated because the model can only handle sequences up to"
                     f" {max_length} tokens: {removed_text}"
                 )
 

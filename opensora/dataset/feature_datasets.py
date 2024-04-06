@@ -41,12 +41,12 @@ class T2V_Feature_dataset(Dataset):
         samples = []
         for i in tqdm(all_mp4):
             video_id = os.path.basename(i).split('.')[0]
-            ae = os.path.split(i)[0].replace('data_split', 'lb_causalvideovae444_feature')
+            ae = os.path.split(i)[0].replace('data_split_tt', 'lb_causalvideovae444_feature')
             ae = os.path.join(ae, f'{video_id}_causalvideovae444.npy')
             if not os.path.exists(ae):
                 continue
 
-            t5 = os.path.split(i)[0].replace('data_split', 'lb_t5_feature')
+            t5 = os.path.split(i)[0].replace('data_split_tt', 'lb_t5_feature')
             cond_list = []
             cond_llava = os.path.join(t5, f'{video_id}_t5_llava_fea.npy')
             mask_llava = os.path.join(t5, f'{video_id}_t5_llava_mask.npy')
