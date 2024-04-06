@@ -19,16 +19,12 @@ ae_channel_config.update(videobase_ae_channel)
 
 def getae(args):
     """deprecation"""
-    ae = imagebase_ae.get(args.ae, None)
-    if ae is None:
-        ae = videobase_ae.get(args.ae, None)
+    ae = imagebase_ae.get(args.ae, None) or videobase_ae.get(args.ae, None)
     assert ae is not None
     return ae(args.ae)
 
-def getae_wrapper(args):
+def getae_wrapper(ae):
     """deprecation"""
-    ae = imagebase_ae.get(args.ae, None)
-    if ae is None:
-        ae = videobase_ae.get(args.ae, None)
+    ae = imagebase_ae.get(ae, None) or videobase_ae.get(ae, None)
     assert ae is not None
     return ae

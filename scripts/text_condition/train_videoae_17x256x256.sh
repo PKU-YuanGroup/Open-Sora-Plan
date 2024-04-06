@@ -8,8 +8,9 @@ accelerate launch \
     --text_encoder_name DeepFloyd/t5-v1_1-xxl \
     --dataset t2v \
     --ae CausalVAEModel_4x8x8 \
-    --data_path /remote-home1/dataset/sharegpt4v_path_cap_.json \
-    --video_folder /remote-home1/dataset/data_split \
+    --ae_path CausalVAEModel_4x8x8 \
+    --data_path /remote-home1/dataset/sharegpt4v_path_cap_64x512x512.json \
+    --video_folder /remote-home1/dataset/data_split_tt \
     --sample_rate 1 \
     --num_frames 17 \
     --max_image_size 256 \
