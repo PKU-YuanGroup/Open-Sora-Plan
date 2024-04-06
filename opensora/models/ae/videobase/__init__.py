@@ -10,7 +10,6 @@ from .causal_vqvae import (
     CausalVQVAEModel, CausalVQVAEModelWrapper
 )
 from .causal_vae import (
-    CausalVAETrainer,
     CausalVAEModel, CausalVAEModelWrapper
 )
 
