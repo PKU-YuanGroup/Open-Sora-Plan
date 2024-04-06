@@ -42,7 +42,7 @@ from diffusers.utils import check_min_version, is_wandb_available
 
 from opensora.dataset import getdataset, ae_denorm
 from opensora.models.ae import getae, getae_wrapper
-from opensora.models.ae.videobase import CausalVQVAEModelWrapper
+from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModelWrapper
 from opensora.models.diffusion.diffusion import create_diffusion_T as create_diffusion
 from opensora.models.diffusion.latte.modeling_latte import LatteT2V
 from opensora.models.text_encoder import get_text_enc
@@ -165,7 +165,7 @@ def main(args):
 
     latent_size = (args.max_image_size // ae_stride_h, args.max_image_size // ae_stride_w)
 
-    if getae_wrapper(args) == CausalVQVAEModelWrapper or getae_wrapper(args) == CausalVAEModelWrapper:
+    if getae_wrapper(args.ae) == CausalVQVAEModelWrapper or getae_wrapper(args.ae) == CausalVAEModelWrapper:
         args.video_length = video_length = args.num_frames // ae_stride_t + 1
     else:
         args.video_length = video_length = args.num_frames // ae_stride_t
@@ -480,7 +480,7 @@ def main(args):
                     if args.enable_tracker:
                         with torch.no_grad():
                             # create pipeline
-                            ae_ = getae(args).to(accelerator.device).eval()
+                            ae_ = getae_wrapper(args.ae)(args.ae_path).to(accelerator.device).eval()
                             if args.enable_tiling:
                                 ae_.vae.enable_tiling()
                                 ae_.vae.tile_overlap_factor = args.tile_overlap_factor
@@ -549,6 +549,7 @@ if __name__ == "__main__":
     parser.add_argument("--model", type=str, choices=list(Diffusion_models.keys()), default="DiT-XL/122")
     parser.add_argument("--num_classes", type=int, default=1000)
     parser.add_argument("--ae", type=str, default="stabilityai/sd-vae-ft-mse")
+    parser.add_argument("--ae_path", type=str, default="stabilityai/sd-vae-ft-mse")
     parser.add_argument("--sample_rate", type=int, default=4)
     parser.add_argument("--num_frames", type=int, default=16)
     parser.add_argument("--max_image_size", type=int, default=128)
