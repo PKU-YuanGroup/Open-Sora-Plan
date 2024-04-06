@@ -1,10 +1,10 @@
 import sys
 sys.path.append(".")
 
+from opensora.models.ae.videobase.dataset_videobase import VideoDataset
 from opensora.models.ae.videobase import (
     VQVAEModel,
     VQVAEConfiguration,
-    VQVAEDataset,
     VQVAETrainer,
 )
 import argparse
@@ -38,7 +38,7 @@ def train(args, vqvae_args, training_args):
     # Load Model
     model = VQVAEModel(config)
     # Load Dataset
-    dataset = VQVAEDataset(args.data_path, sequence_length=args.sequence_length, resolution=config.resolution)
+    dataset = VideoDataset(args.data_path, sequence_length=args.sequence_length, resolution=config.resolution)
     # Load Trainer
     trainer = VQVAETrainer(model, training_args, train_dataset=dataset)
     trainer.train()

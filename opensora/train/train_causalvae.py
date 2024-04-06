@@ -1,104 +1,104 @@
 import sys
 sys.path.append(".")
-
+import torch
+import random
+import numpy as np
 from opensora.models.ae.videobase import (
-    CausalVAEConfiguration,
-    CausalVAEDataset,
     CausalVAEModel,
-    CausalVAETrainer,
 )
+from torch.utils.data import DataLoader
+from opensora.models.ae.videobase.dataset_videobase import VideoDataset
 import argparse
-from typing import Optional
-from accelerate.utils import set_seed
-from transformers import HfArgumentParser, TrainingArguments
+from transformers import HfArgumentParser
 from dataclasses import dataclass, field, asdict
-from typing import Tuple, List
 import torch.distributed as dist
 import os
-import cv2
-import torch
-import numpy as np
-
-def array_to_video(image_array, fps: float = 30.0, output_file: str = 'output_video.mp4') -> None:
-    height, width, channels = image_array[0].shape
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')    # type: ignore
-    video_writer = cv2.VideoWriter(output_file, fourcc, float(fps), (width, height))
-
-    for image in image_array:
-        image_rgb = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-        video_writer.write(image_rgb)
-
-    video_writer.release()
-
-def custom_to_video(x: torch.Tensor, fps: float = 2.0, output_file: str = 'output_video.mp4') -> None:
-    x = x.detach().cpu()
-    x = torch.clamp(x, -0.5, 0.5)
-    x = (x + 0.5)
-    x = x.permute(1, 2, 3, 0).numpy()  # (C, T, H, W) -> (T, H, W, C)
-    x = (255*x).astype(np.uint8)
-    array_to_video(x, fps=fps, output_file=output_file)
-    # imageio.mimwrite(output_file, x, fps=fps, quality=9)
-    return
-
+import pytorch_lightning as pl
+from pytorch_lightning.loggers import WandbLogger
+from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
 
 @dataclass
-class DataArguments:
-    data_path: str = field(default="./UCF101")
+class TrainingArguments:
+    exp_name: str = field(default="causalvae")
+    batch_size: int = field(default=1)
+    precision: str = field(default="bf16")
+    max_steps: int = field(default=100000)
+    save_steps: int = field(default=2000)
+    output_dir: str = field(default="results/causalvae")
+    video_path: str = field(default="/remote-home1/dataset/data_split_tt")
     video_num_frames: int = field(default=17)
     sample_rate: int = field(default=1)
+    dynamic_sample: bool = field(default=False)
+    model_config: str = field(default="scripts/causalvae/288.yaml")
+    n_nodes: int = field(default=1)
+    devices: int = field(default=8)
+    resolution: int = field(default=64)
+    num_workers: int = field(default=8)
+    resume_from_checkpoint: str = field(default=None)
+    
+def set_seed(seed=1006):
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
 
-@dataclass
-class CausalVAEArguments:
-    in_channels: int = field(default=3)
-    out_channels: int = field(default=3)
-    hidden_size: int = field(default=128)
-    z_channels: int = field(default=16)
-    ch_mult: Tuple[int] = field(default=(1, 1, 2, 2, 4))
-    num_res_block: int = field(default=2)
-    attn_resolutions: List[int] = field(default_factory=lambda: [16])
-    dropout: float = field(default=0.0)
-    resolution: int = field(default=256)
-    attn_type: str = field(default="vanilla3D")
-    use_linear_attn: bool = field(default=False)
-    embed_dim: int = field(default=16)
-    time_compress: int = field(default=2)
-    logvar_init: float = field(default=0.0)
-    kl_weight: float = field(default=1e-6)
-    pixelloss_weight: int = field(default=1)
-    perceptual_weight: int = field(default=1)
-    disc_loss: str = field(default="hinge")
-
-@dataclass
-class CausalVAETrainingArguments(TrainingArguments):
-    remove_unused_columns: Optional[bool] = field(
-        default=False, metadata={"help": "Remove columns not required by the model when using an nlp.Dataset."}
+def load_callbacks_and_logger(args):
+    checkpoint_callback = ModelCheckpoint(
+        dirpath=args.output_dir,
+        filename="model-{epoch:02d}-{step}",
+        every_n_train_steps=args.save_steps,
+        save_top_k=-1,
+        save_on_train_epoch_end=False,
     )
+    lr_monitor = LearningRateMonitor(logging_interval="step")
+    logger = WandbLogger(name=args.exp_name, log_model=False)
+    return [checkpoint_callback, lr_monitor], logger
 
-def train(args, vqvae_args, training_args):
+def train(args):
+    set_seed()
     # Load Config
-    config = CausalVAEConfiguration(**asdict(vqvae_args))
-    # Load Model
-    if training_args.resume_from_checkpoint is not None:
-        model = CausalVAEModel.load_from_checkpoint(training_args.resume_from_checkpoint)
+    model = CausalVAEModel()
+    if args.resume_from_checkpoint is not None:
+        model = CausalVAEModel.from_pretrained(args.resume_from_checkpoint)
     else:
-        model = CausalVAEModel(config)
+        model = CausalVAEModel.from_config(args.model_config)
+        
     if (dist.is_initialized() and dist.get_rank() == 0) or not dist.is_initialized():
         print(model)
+        
     # Load Dataset
-    dataset = CausalVAEDataset(args.data_path, sequence_length=args.video_num_frames, resolution=config.resolution, sample_rate=args.sample_rate)
-    custom_to_video(dataset[0]['video'], fps=10, output_file="dataset.mp4")
+    dataset = VideoDataset(args.video_path, sequence_length=args.video_num_frames, resolution=args.resolution, sample_rate=args.sample_rate, dynamic_sample=args.dynamic_sample)
+    train_loader = DataLoader(
+        dataset,
+        shuffle=True,
+        num_workers=args.num_workers,
+        batch_size=args.batch_size,
+        pin_memory=True,
+    )
+    # Load Callbacks and Logger
+    callbacks, logger = load_callbacks_and_logger(args)
     # Load Trainer
-    trainer = CausalVAETrainer(model, training_args, train_dataset=dataset)
-    trainer.train(resume_from_checkpoint=training_args.resume_from_checkpoint)
-
+    trainer = pl.Trainer(
+        accelerator="cuda",
+        devices=args.devices,
+        num_nodes=args.n_nodes,
+        callbacks=callbacks,
+        logger=logger,
+        log_every_n_steps=5,
+        precision=args.precision,
+        max_steps=args.max_steps,
+        strategy="ddp_find_unused_parameters_true"
+    )
+    trainer_kwargs = {}
+    if args.resume_from_checkpoint:
+        trainer_kwargs['ckpt_path'] = args.resume_from_checkpoint
+        
+    trainer.fit(
+        model,
+        train_loader,
+        **trainer_kwargs
+    )
 
 if __name__ == "__main__":
-    parser = HfArgumentParser((CausalVAEArguments, CausalVAETrainingArguments, DataArguments))
-    
-    if not sys.argv[-1].endswith(".yaml"):
-        raise Exception("Please use yaml config.")
-    
-    vqvae_args, training_args, data_args = parser.parse_yaml_file(yaml_file=os.path.abspath(sys.argv[-1]))
-    args = argparse.Namespace(**vars(vqvae_args), **vars(training_args), **vars(data_args))
-    set_seed(args.seed)
-    train(args, vqvae_args, training_args)
+    parser = HfArgumentParser(TrainingArguments)
+    args = parser.parse_args_into_dataclasses()
+    train(args[0])

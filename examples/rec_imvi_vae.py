@@ -14,10 +14,8 @@ from pytorchvideo.transforms import ShortSideScale
 from torchvision.transforms import Lambda, Compose
 
 import sys
-
-from opensora.dataset.transform import CenterCropVideo, resize
-
 sys.path.append(".")
+from opensora.dataset.transform import CenterCropVideo, resize
 from opensora.models.ae.videobase import CausalVAEModel
 
 
@@ -115,20 +113,21 @@ def main(args: argparse.Namespace):
     sample_fps = args.sample_fps
     sample_rate = args.sample_rate
     device = args.device
-    vqvae = CausalVAEModel.load_from_checkpoint(args.ckpt)
+    vqvae = CausalVAEModel.from_pretrained(args.ckpt)
     if args.enable_tiling:
         vqvae.enable_tiling()
         vqvae.tile_overlap_factor = args.tile_overlap_factor
     vqvae.eval()
     vqvae = vqvae.to(device)
-    vqvae = vqvae.to(torch.float16)
+    vqvae = vqvae # .to(torch.float16)
 
     with torch.no_grad():
         x_vae = preprocess(read_video(video_path, num_frames, sample_rate), resolution, crop_size)
         x_vae = x_vae.to(device)  # b c t h w
-        x_vae = x_vae.to(torch.float16)
-        latents = vqvae.encode(x_vae).sample().to(torch.float16)
+        x_vae = x_vae # .to(torch.float16)
+        latents = vqvae.encode(x_vae).sample() # .to(torch.float16)
         video_recon = vqvae.decode(latents)
+        
     if video_recon.shape[2] == 1:
         x = video_recon[0, :, 0, :, :]
         x = x.squeeze()
