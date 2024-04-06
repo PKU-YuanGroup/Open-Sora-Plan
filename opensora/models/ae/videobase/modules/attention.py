@@ -1,12 +1,13 @@
 import torch.nn as nn
 from .normalize import Normalize
-from ..modules.conv import CausalConv3d
+from .conv import CausalConv3d
 import torch
 import numpy as np
 from einops import rearrange
+from .block import Block
+from .ops import video_to_image
 
-
-class LinearAttention(nn.Module):
+class LinearAttention(Block):
     def __init__(self, dim, heads=4, dim_head=32):
         super().__init__()
         self.heads = heads
@@ -36,7 +37,7 @@ class LinAttnBlock(LinearAttention):
         super().__init__(dim=in_channels, heads=1, dim_head=in_channels)
 
 
-class AttnBlock3D(nn.Module):
+class AttnBlock3D(Block):
     def __init__(self, in_channels):
         super().__init__()
         self.in_channels = in_channels
@@ -74,7 +75,7 @@ class AttnBlock3D(nn.Module):
         return x + h_
 
 
-class AttnBlock(nn.Module):
+class AttnBlock(Block):
     def __init__(self, in_channels):
         super().__init__()
         self.in_channels = in_channels
@@ -90,7 +91,8 @@ class AttnBlock(nn.Module):
         self.proj_out = torch.nn.Conv2d(
             in_channels, in_channels, kernel_size=1, stride=1, padding=0
         )
-
+        
+    @video_to_image
     def forward(self, x):
         h_ = x
         h_ = self.norm(h_)
@@ -113,6 +115,48 @@ class AttnBlock(nn.Module):
         h_ = torch.bmm(v, w_)  # b, c,hw (hw of q) h_[b,c,j] = sum_i v[b,c,i] w_[b,i,j]
         h_ = h_.reshape(b, c, h, w)
 
+        h_ = self.proj_out(h_)
+
+        return x + h_
+
+
+class TemporalAttnBlock(Block):
+    def __init__(self, in_channels):
+        super().__init__()
+        self.in_channels = in_channels
+
+        self.norm = Normalize(in_channels)
+        self.q = torch.nn.Conv3d(in_channels, in_channels, kernel_size=1, stride=1, padding=0)
+        self.k = torch.nn.Conv3d(
+            in_channels, in_channels, kernel_size=1, stride=1, padding=0
+        )
+        self.v = torch.nn.Conv3d(
+            in_channels, in_channels, kernel_size=1, stride=1, padding=0
+        )
+        self.proj_out = torch.nn.Conv3d(
+            in_channels, in_channels, kernel_size=1, stride=1, padding=0
+        )
+        
+    def forward(self, x):
+        h_ = x
+        h_ = self.norm(h_)
+        q = self.q(h_)
+        k = self.k(h_)
+        v = self.v(h_)
+
+        # compute attention
+        b, c, t, h, w = q.shape
+        q = rearrange(q, "b c t h w -> (b h w) t c")
+        k = rearrange(k, "b c t h w -> (b h w) c t")
+        v = rearrange(v, "b c t h w -> (b h w) c t")
+        w_ = torch.bmm(q, k)
+        w_ = w_ * (int(c) ** (-0.5))
+        w_ = torch.nn.functional.softmax(w_, dim=2)
+
+        # attend to values
+        w_ = w_.permute(0, 2, 1)
+        h_ = torch.bmm(v, w_)
+        h_ = rearrange(h_, "(b h w) c t -> b c t h w", h=h, w=w)
         h_ = self.proj_out(h_)
 
         return x + h_

@@ -1,0 +1,13 @@
+python examples/rec_video_vae.py \
+    --batch_size 1 \
+    --real_video_dir ../test_eval/eyes_test \
+    --generated_video_dir ../test_eval/eyes_gen \
+    --device cuda \
+    --sample_fps 10 \
+    --sample_rate 1 \
+    --num_frames 17 \
+    --resolution 512 \
+    --crop_size 512 \
+    --num_workers 8 \
+    --ckpt results/pretrained_488 \
+    --enable_tiling

@@ -16,71 +16,7 @@ import os
 
 sys.path.append(".")
 from opensora.models.ae.videobase import CausalVAEModel
-from opensora.models.ae.videobase.modules.conv import BlockwiseConv3d
 import torch.nn as nn
-
-
-def replace_conv3d_with_blockwise(model):
-    for name, module in model.named_children():
-        if isinstance(module, nn.Conv3d):
-            new_module = BlockwiseConv3d(
-                module.in_channels,
-                module.out_channels,
-                module.kernel_size,
-                module.stride,
-                module.padding,
-                (4, 64, 64),
-            )
-            new_module.set_weights(
-                module.weight.data,
-                module.bias.data if module.bias is not None else None,
-            )
-            setattr(model, name, new_module)
-        else:
-            replace_conv3d_with_blockwise(module)
-
-
-def process_in_chunks(
-    video_data: torch.Tensor,
-    model: nn.Module,
-    chunk_size: int,
-    overlap: int,
-    device: str,
-):
-    assert (chunk_size + overlap - 1) % 4 == 0
-    num_frames = video_data.size(2)
-    output_chunks = []
-
-    start = 0
-    while start < num_frames:
-        end = min(start + chunk_size, num_frames)
-        if start + chunk_size + overlap < num_frames:
-            end += overlap
-        chunk = video_data[:, :, start:end, :, :]
-
-        with torch.no_grad():
-            chunk = chunk.half().to(device)
-            latents = model.encode(chunk)
-            recon_chunk = model.decode(latents.sample().half()).cpu().float()
-
-        if output_chunks:
-            overlap_step = min(overlap, recon_chunk.shape[2])
-            overlap_tensor = (
-                output_chunks[-1][:, :, -overlap_step:] * 1 / 4
-                + recon_chunk[:, :, :overlap_step] * 3 / 4
-            )
-            output_chunks[-1] = torch.cat(
-                (output_chunks[-1][:, :, :-overlap], overlap_tensor), dim=2
-            )
-            if end < num_frames:
-                output_chunks.append(recon_chunk[:, :, overlap:])
-            else:
-                output_chunks.append(recon_chunk[:, :, :, :, :])
-        else:
-            output_chunks.append(recon_chunk)
-        start += chunk_size
-    return torch.cat(output_chunks, dim=2)
-
 
 def array_to_video(
     image_array: npt.NDArray, fps: float = 30.0, output_file: str = "output_video.mp4"
@@ -102,7 +38,7 @@ def custom_to_video(
     x = x.detach().cpu()
     x = torch.clamp(x, -1, 1)
     x = (x + 1) / 2
-    x = x.permute(1, 2, 3, 0).numpy()
+    x = x.permute(1, 2, 3, 0).float().numpy()
     x = (255 * x).astype(np.uint8)
     array_to_video(x, fps=fps, output_file=output_file)
     return
@@ -199,12 +135,23 @@ class RealVideoDataset(Dataset):
         folder.sort()
         return folder
 
+def resize(x, resolution):
+    height, width = x.shape[-2:]
+    aspect_ratio = width / height
+    if width <= height:
+        new_width = resolution
+        new_height = int(resolution / aspect_ratio)
+    else:
+        new_height = resolution
+        new_width = int(resolution * aspect_ratio)
+    resized_x = F.interpolate(x, size=(new_height, new_width), mode='bilinear', align_corners=True, antialias=True)
+    return resized_x
 
 def _preprocess(video_data, short_size=128, crop_size=None):
     transform = Compose(
         [
-            Lambda(lambda x: ((x / 255.0)*2 - 1)),
-            ShortSideScale(size=short_size),
+            Lambda(lambda x: ((x / 255.0) * 2 - 1)),
+            Lambda(lambda x: resize(x, short_size)),
             (
                 CenterCropVideo(crop_size=crop_size)
                 if crop_size is not None
@@ -222,7 +169,7 @@ def _format_video_shape(video, time_compress=4, spatial_compress=8):
     height = video.shape[2]
     width = video.shape[3]
     new_time = (
-        (time - 1 - (time - 1) % time_compress)
+        (time - (time - 1) % time_compress)
         if (time - 1) % time_compress != 0
         else time
     )
@@ -256,10 +203,15 @@ def main(args: argparse.Namespace):
     if not os.path.exists(args.generated_video_dir):
         os.makedirs(args.generated_video_dir, exist_ok=True)
     
+    data_type = torch.bfloat16
+    
     # ---- Load Model ----
     device = args.device
-    vqvae = CausalVAEModel.load_from_checkpoint(ckpt)
-    vqvae = vqvae.half().to(device)
+    vqvae = CausalVAEModel.from_pretrained(args.ckpt)
+    vqvae = vqvae.to(device).to(data_type)
+    if args.enable_tiling:
+        vqvae.enable_tiling()
+        vqvae.tile_overlap_factor = args.tile_overlap_factor
     # ---- Load Model ----
 
     # ---- Prepare Dataset ----
@@ -283,11 +235,17 @@ def main(args: argparse.Namespace):
     # ---- Inference ----
     for batch in tqdm(dataloader):
         x, file_names = batch['video'], batch['file_name']
-        x = x.half().to(device)
-        latents = vqvae.encode(x)
-        video_recon = vqvae.decode(latents.sample().half())
+        x = x.to(device=device, dtype=data_type)  # b c t h w
+        latents = vqvae.encode(x).sample().to(data_type)
+        video_recon = vqvae.decode(latents)
         for idx, video in enumerate(video_recon):
             output_path = os.path.join(generated_video_dir, file_names[idx])
+            if args.output_origin:
+                os.makedirs(os.path.join(generated_video_dir, "origin/"), exist_ok=True)
+                origin_output_path = os.path.join(generated_video_dir, "origin/", file_names[idx])
+                custom_to_video(
+                    x[idx], fps=sample_fps / sample_rate, output_file=origin_output_path
+                )
             custom_to_video(
                 video, fps=sample_fps / sample_rate, output_file=output_path
             )
@@ -306,6 +264,9 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", type=int, default=1)
     parser.add_argument("--num_workers", type=int, default=8)
     parser.add_argument("--subset_size", type=int, default=None)
+    parser.add_argument("--tile_overlap_factor", type=float, default=0.25)
+    parser.add_argument('--enable_tiling', action='store_true')
+    parser.add_argument('--output_origin', action='store_true')
     parser.add_argument("--device", type=str, default="cuda")
 
     args = parser.parse_args()
