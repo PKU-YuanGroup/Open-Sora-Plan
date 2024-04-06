@@ -4,7 +4,6 @@ from torch import nn
 from .configuration_vqvae import VQVAEConfiguration
 from .modeling_vqvae import VQVAEModel
 from .trainer_vqvae import VQVAETrainer
-from .dataset_vqvae import VQVAEDataset
 
 videovqvae = [
     "bair_stride4x2x2",
