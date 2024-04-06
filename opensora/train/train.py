@@ -49,14 +49,9 @@ from opensora.utils.dataset_utils import Collate
 from opensora.models.ae import ae_stride_config, ae_channel_config
 from opensora.models.diffusion import Diffusion_models
 
-
-
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 check_min_version("0.24.0")
 logger = get_logger(__name__)
-
-
-
 
 def generate_timestep_weights(args, num_timesteps):
     weights = torch.ones(num_timesteps)

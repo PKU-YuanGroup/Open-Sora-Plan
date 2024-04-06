@@ -1,5 +1,4 @@
 from .modeling_causalvae import CausalVAEModel
-from .trainer_causalvae import CausalVAETrainer
 
 from einops import rearrange
 from torch import nn
