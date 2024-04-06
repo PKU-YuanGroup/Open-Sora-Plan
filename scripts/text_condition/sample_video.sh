@@ -1,4 +1,4 @@
-export ASCEND_RT_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+export ASCEND_RT_VISIBLE_DEVICES=7
 python opensora/sample/sample_t2v.py \
     --model_path LanguageBind/Open-Sora-Plan-v1.0.0 \
     --text_encoder_name DeepFloyd/t5-v1_1-xxl \

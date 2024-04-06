@@ -215,6 +215,7 @@ class CausalConv3d(nn.Module):
             x = prepare(x)
             return npu_config.run_with_dtype(self.conv, x, torch.float16, x_dtype)
         else:
+            x = prepare(x)
             return self.conv(x)
 
 # Modified from https://github.com/wilson1yan/VideoGPT
