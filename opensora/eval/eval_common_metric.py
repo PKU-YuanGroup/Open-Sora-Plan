@@ -45,6 +45,7 @@ sys.path.append(".")
 from opensora.eval.cal_lpips import calculate_lpips
 from opensora.eval.cal_fvd import calculate_fvd
 from opensora.eval.cal_psnr import calculate_psnr
+from opensora.eval.cal_flolpips import calculate_flolpips
 from opensora.eval.cal_ssim import calculate_ssim
 
 try:
@@ -80,6 +81,7 @@ class VideoDataset(Dataset):
             raise IndexError
         real_video_file = self.real_video_files[index]
         generated_video_file = self.generated_video_files[index]
+        print(real_video_file, generated_video_file)
         real_video_tensor  = self._load_video(real_video_file)
         generated_video_tensor  = self._load_video(generated_video_file)
         return {'real': real_video_tensor, 'generated':generated_video_tensor }
@@ -92,7 +94,7 @@ class VideoDataset(Dataset):
         total_frames = len(decord_vr)
         sample_frames_len = sample_rate * num_frames
 
-        if total_frames > sample_frames_len:
+        if total_frames >= sample_frames_len:
             s = 0
             e = s + sample_frames_len
             num_frames = num_frames
@@ -113,10 +115,12 @@ class VideoDataset(Dataset):
 
     def _combine_without_prefix(self, folder_path, prefix='.'):
         folder = []
+        os.makedirs(folder_path, exist_ok=True)
         for name in os.listdir(folder_path):
             if name[0] == prefix:
                 continue
-            folder.append(osp.join(folder_path, name))
+            if osp.isfile(osp.join(folder_path, name)):
+                folder.append(osp.join(folder_path, name))
         folder.sort()
         return folder
 
@@ -126,7 +130,6 @@ def _preprocess(video_data, short_size=128, crop_size=None):
             Lambda(lambda x: x / 255.0),
             ShortSideScale(size=short_size),
             CenterCropVideo(crop_size=crop_size),
-
         ]
     )
     video_outputs = transform(video_data)
@@ -134,18 +137,22 @@ def _preprocess(video_data, short_size=128, crop_size=None):
     return video_outputs
 
 
-def calculate_common_metric(args, dataloader,device):
+def calculate_common_metric(args, dataloader, device):
 
     score_list = []
     for batch_data in tqdm(dataloader): # {'real': real_video_tensor, 'generated':generated_video_tensor }
         real_videos = batch_data['real'] 
         generated_videos = batch_data['generated']
+        assert real_videos.shape[2] == generated_videos.shape[2]
         if args.metric == 'fvd':
             tmp_list = list(calculate_fvd(real_videos, generated_videos, args.device, method=args.fvd_method)['value'].values())
         elif args.metric == 'ssim':
             tmp_list = list(calculate_ssim(real_videos, generated_videos)['value'].values())
         elif args.metric == 'psnr':
             tmp_list = list(calculate_psnr(real_videos, generated_videos)['value'].values())
+        elif args.metric == 'flolpips':
+            result = calculate_flolpips(real_videos, generated_videos, args.device)
+            tmp_list = list(result['value'].values())
         else:
             tmp_list  = list(calculate_lpips(real_videos, generated_videos, args.device)['value'].values())
         score_list += tmp_list
@@ -170,7 +177,7 @@ def main():
     parser.add_argument('--num_frames', type=int, default=100)
     parser.add_argument('--sample_rate', type=int, default=1)
     parser.add_argument('--subset_size', type=int, default=None)
-    parser.add_argument("--metric", type=str, default="fvd",choices=['fvd','psnr','ssim','lpips'])
+    parser.add_argument("--metric", type=str, default="fvd",choices=['fvd','psnr','ssim','lpips', 'flolpips'])
     parser.add_argument("--fvd_method", type=str, default='styleganv',choices=['styleganv','videogpt'])
 
 

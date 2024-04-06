@@ -12,3 +12,4 @@ wandb/
 .idea
 *.ipynb
 *.jpg
+*.mp3

@@ -1,5 +1,13 @@
 from .imagebase import imagebase_ae, imagebase_ae_stride, imagebase_ae_channel
 from .videobase import videobase_ae, videobase_ae_stride, videobase_ae_channel
+from .videobase import (
+    VQVAEConfiguration,
+    VQVAEModel,
+    VQVAETrainer,
+    CausalVQVAEModel,
+    CausalVQVAEConfiguration,
+    CausalVQVAETrainer
+)
 
 ae_stride_config = {}
 ae_stride_config.update(imagebase_ae_stride)
