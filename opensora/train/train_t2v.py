@@ -12,6 +12,7 @@ import logging
 import math
 import os
 import shutil
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -24,6 +25,8 @@ from copy import deepcopy
 
 import accelerate
 import torch
+import torch_npu
+from opensora.npu_config import npu_config
 from torch.nn import functional as F
 import transformers
 from accelerate import Accelerator
@@ -400,164 +403,184 @@ def main(args):
         disable=not accelerator.is_local_main_process,
     )
 
-    for epoch in range(first_epoch, args.num_train_epochs):
-        train_loss = 0.0
-        for step, (x, input_ids, cond_mask) in enumerate(train_dataloader):
-            with accelerator.accumulate(model):
-                # Sample noise that we'll add to the latents
-                x = x.to(accelerator.device)  # B C T+num_images H W, 16 + 4
-                # attn_mask = attn_mask.to(device)  # B T H W
-                # assert torch.all(attn_mask.bool()), 'do not enable dynamic input'
-                attn_mask = None
-                input_ids = input_ids.to(accelerator.device)  # B L or B 1+num_images L
-                cond_mask = cond_mask.to(accelerator.device)  # B L or B 1+num_images L
+    experimental_config = torch_npu.profiler._ExperimentalConfig(
+        profiler_level=torch_npu.profiler.ProfilerLevel.Level1,
+        aic_metrics=torch_npu.profiler.AiCMetrics.PipeUtilization
+    )
+    test_output_path = "./npu_profiling_t2v"
+    os.makedirs(test_output_path, exist_ok=True)
 
-                with torch.no_grad():
-                    # Map input images to latent space + normalize latents
-                    if args.use_image_num == 0:
-                        x = ae.encode(x)  # B C T H W
-                        cond = text_enc(input_ids, cond_mask)  # B L -> B L D
-                    else:
-                        videos, images = x[:, :, :-args.use_image_num], x[:, :, -args.use_image_num:]
-                        videos = ae.encode(videos)  # B C T H W
-                        images = rearrange(images, 'b c t h w -> (b t) c 1 h w')
-                        images = ae.encode(images)
-                        images = rearrange(images, '(b t) c 1 h w -> b c t h w', t=args.use_image_num)
-                        x = torch.cat([videos, images], dim=2)   #  b c 16+4, h, w
+    with torch_npu.profiler.profile(
+            activities=[torch_npu.profiler.ProfilerActivity.NPU, torch_npu.profiler.ProfilerActivity.CPU],
+            with_stack=True,
+            record_shapes=True,
+            profile_memory=True,
+            experimental_config=experimental_config,
+            schedule=torch_npu.profiler.schedule(wait=10, warmup=0, active=1, repeat=1, skip_first=0),
+            on_trace_ready=torch_npu.profiler.tensorboard_trace_handler(f"./{test_output_path}/")
+    ) as prof:
 
-                        # use for loop to avoid OOM, because T5 is too huge...
-                        B, _, _ = input_ids.shape  # B T+num_images L  b 1+4, L
-                        cond = torch.stack([text_enc(input_ids[i], cond_mask[i]) for i in range(B)])  # B 1+num_images L D
+        for epoch in range(first_epoch, args.num_train_epochs):
+            train_loss = 0.0
+            for step, (x, input_ids, cond_mask) in enumerate(train_dataloader):
+                start_time = time.time()
+                with accelerator.accumulate(model):
+                    # Sample noise that we'll add to the latents
+                    x = x.to(accelerator.device)  # B C T+num_images H W, 16 + 4
+                    # attn_mask = attn_mask.to(device)  # B T H W
+                    # assert torch.all(attn_mask.bool()), 'do not enable dynamic input'
+                    attn_mask = None
+                    input_ids = input_ids.to(accelerator.device)  # B L or B 1+num_images L
+                    cond_mask = cond_mask.to(accelerator.device)  # B L or B 1+num_images L
 
-                model_kwargs = dict(encoder_hidden_states=cond, attention_mask=attn_mask,
-                                    encoder_attention_mask=cond_mask, use_image_num=args.use_image_num)
-                t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=accelerator.device)
-                loss_dict = diffusion.training_losses(model, x, t, model_kwargs)
-                loss = loss_dict["loss"].mean()
+                    with torch.no_grad():
+                        # Map input images to latent space + normalize latents
+                        if args.use_image_num == 0:
+                            x = ae.encode(x)  # B C T H W
+                            cond = text_enc(input_ids, cond_mask)  # B L -> B L D
+                        else:
+                            videos, images = x[:, :, :-args.use_image_num], x[:, :, -args.use_image_num:]
+                            videos = ae.encode(videos)  # B C T H W
+                            images = rearrange(images, 'b c t h w -> (b t) c 1 h w')
+                            images = ae.encode(images)
+                            images = rearrange(images, '(b t) c 1 h w -> b c t h w', t=args.use_image_num)
+                            x = torch.cat([videos, images], dim=2)   #  b c 16+4, h, w
 
-                # Gather the losses across all processes for logging (if we use distributed training).
-                avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
-                train_loss += avg_loss.item() / args.gradient_accumulation_steps
+                            # use for loop to avoid OOM, because T5 is too huge...
+                            B, _, _ = input_ids.shape  # B T+num_images L  b 1+4, L
+                            cond = torch.stack([text_enc(input_ids[i], cond_mask[i]) for i in range(B)])  # B 1+num_images L D
 
-                # Backpropagate
-                accelerator.backward(loss)
+                    model_kwargs = dict(encoder_hidden_states=cond, attention_mask=attn_mask,
+                                        encoder_attention_mask=cond_mask, use_image_num=args.use_image_num)
+                    t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=accelerator.device)
+                    loss_dict = diffusion.training_losses(model, x, t, model_kwargs)
+                    loss = loss_dict["loss"].mean()
+
+                    # Gather the losses across all processes for logging (if we use distributed training).
+                    avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
+                    train_loss += avg_loss.item() / args.gradient_accumulation_steps
+
+                    # Backpropagate
+                    accelerator.backward(loss)
+                    if accelerator.sync_gradients:
+                        params_to_clip = model.parameters()
+                        accelerator.clip_grad_norm_(params_to_clip, args.max_grad_norm)
+                    optimizer.step()
+                    lr_scheduler.step()
+                    optimizer.zero_grad()
+
+                # Checks if the accelerator has performed an optimization step behind the scenes
                 if accelerator.sync_gradients:
-                    params_to_clip = model.parameters()
-                    accelerator.clip_grad_norm_(params_to_clip, args.max_grad_norm)
-                optimizer.step()
-                lr_scheduler.step()
-                optimizer.zero_grad()
+                    progress_bar.update(1)
+                    global_step += 1
+                    accelerator.log({"train_loss": train_loss}, step=global_step)
+                    train_loss = 0.0
 
-            # Checks if the accelerator has performed an optimization step behind the scenes
-            if accelerator.sync_gradients:
-                progress_bar.update(1)
-                global_step += 1
-                accelerator.log({"train_loss": train_loss}, step=global_step)
-                train_loss = 0.0
+                    if args.use_deepspeed or accelerator.is_main_process:
+                        if global_step % args.checkpointing_steps == 0:
+                            # _before_ saving state, check if this save would set us over the `checkpoints_total_limit`
+                            if args.checkpoints_total_limit is not None:
+                                checkpoints = os.listdir(args.output_dir)
+                                checkpoints = [d for d in checkpoints if d.startswith("checkpoint")]
+                                checkpoints = sorted(checkpoints, key=lambda x: int(x.split("-")[1]))
 
-                if args.use_deepspeed or accelerator.is_main_process:
+                                # before we save the new checkpoint, we need to have at _most_ `checkpoints_total_limit - 1` checkpoints
+                                if len(checkpoints) >= args.checkpoints_total_limit:
+                                    num_to_remove = len(checkpoints) - args.checkpoints_total_limit + 1
+                                    removing_checkpoints = checkpoints[0:num_to_remove]
+
+                                    logger.info(
+                                        f"{len(checkpoints)} checkpoints already exist, removing {len(removing_checkpoints)} checkpoints"
+                                    )
+                                    logger.info(f"removing checkpoints: {', '.join(removing_checkpoints)}")
+
+                                    for removing_checkpoint in removing_checkpoints:
+                                        removing_checkpoint = os.path.join(args.output_dir, removing_checkpoint)
+                                        shutil.rmtree(removing_checkpoint)
+
+                            save_path = os.path.join(args.output_dir, f"checkpoint-{global_step}")
+                            accelerator.save_state(save_path)
+                            logger.info(f"Saved state to {save_path}")
+
+                    end_time = time.time()
+                    one_step_duration = end_time - start_time
+                    logs = {"step_loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0], 'time_cost(s)': f"{one_step_duration: .2f}"}
+                    progress_bar.set_postfix(**logs)
+
+                if global_step >= args.max_train_steps:
+                    break
+
+                if accelerator.is_main_process:
+                    validation_prompt = "The majestic beauty of a waterfall cascading down a cliff into a serene lake. The camera angle provides a bird's eye view of the waterfall."
                     if global_step % args.checkpointing_steps == 0:
-                        # _before_ saving state, check if this save would set us over the `checkpoints_total_limit`
-                        if args.checkpoints_total_limit is not None:
-                            checkpoints = os.listdir(args.output_dir)
-                            checkpoints = [d for d in checkpoints if d.startswith("checkpoint")]
-                            checkpoints = sorted(checkpoints, key=lambda x: int(x.split("-")[1]))
+                        logger.info(f"Running validation... \n"
+                                    f"Generating {args.num_validation_videos} videos with prompt: {validation_prompt}")
+                        if args.use_ema:
+                            # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
+                            ema_model.store(model.parameters())
+                            ema_model.copy_to(model.parameters())
 
-                            # before we save the new checkpoint, we need to have at _most_ `checkpoints_total_limit - 1` checkpoints
-                            if len(checkpoints) >= args.checkpoints_total_limit:
-                                num_to_remove = len(checkpoints) - args.checkpoints_total_limit + 1
-                                removing_checkpoints = checkpoints[0:num_to_remove]
+                        if args.enable_tracker:
+                            with torch.no_grad():
+                                # create pipeline
+                                ae_ = getae_wrapper(args.ae)(args.ae_path).to(accelerator.device).eval()
+                                if args.enable_tiling:
+                                    ae_.vae.enable_tiling()
+                                    ae_.vae.tile_overlap_factor = args.tile_overlap_factor
+                                # text_enc_ = get_text_enc(args).to(accelerator.device).eval()
+                                model_ = LatteT2V.from_pretrained(save_path, subfolder="model").to(accelerator.device).eval()
+                                diffusion_ = create_diffusion(str(250))
+                                tokenizer_ = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir='./cache_dir')
+                                videos = []
+                                for idx in range(args.num_validation_videos):
+                                    with torch.autocast(device_type='cuda', dtype=weight_dtype):
+                                        z = torch.randn(1, model_.in_channels, video_length,
+                                                        latent_size[0], latent_size[1], device=accelerator.device)
+                                        text_tokens_and_mask = tokenizer_(
+                                            validation_prompt,
+                                            max_length=args.model_max_length,
+                                            padding='max_length',
+                                            truncation=True,
+                                            return_attention_mask=True,
+                                            add_special_tokens=True,
+                                            return_tensors='pt'
+                                        )
+                                        input_ids = text_tokens_and_mask['input_ids'].to(accelerator.device)
+                                        cond_mask = text_tokens_and_mask['attention_mask'].to(accelerator.device)
+                                        # cond = text_enc_(input_ids, cond_mask)  # B L D
+                                        cond = text_enc(input_ids, cond_mask)  # B L D
+                                        model_kwargs = dict(encoder_hidden_states=cond, attention_mask=None, encoder_attention_mask=cond_mask)
+                                        sample_fn = model_.forward
+                                        # Sample images:
+                                        samples = diffusion_.p_sample_loop(
+                                            sample_fn, z.shape, z, clip_denoised=False, model_kwargs=model_kwargs, progress=True,
+                                            device=accelerator.device
+                                        )
+                                        samples = ae_.decode(samples)
+                                        # Save and display images:
+                                        video = (ae_denorm[args.ae](samples[0]) * 255).add_(0.5).clamp_(0, 255).to(
+                                            dtype=torch.uint8).cpu().contiguous()  # t c h w
+                                        videos.append(video)
 
-                                logger.info(
-                                    f"{len(checkpoints)} checkpoints already exist, removing {len(removing_checkpoints)} checkpoints"
-                                )
-                                logger.info(f"removing checkpoints: {', '.join(removing_checkpoints)}")
-
-                                for removing_checkpoint in removing_checkpoints:
-                                    removing_checkpoint = os.path.join(args.output_dir, removing_checkpoint)
-                                    shutil.rmtree(removing_checkpoint)
-
-                        save_path = os.path.join(args.output_dir, f"checkpoint-{global_step}")
-                        accelerator.save_state(save_path)
-                        logger.info(f"Saved state to {save_path}")
-
-                logs = {"step_loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
-                progress_bar.set_postfix(**logs)
-
-            if global_step >= args.max_train_steps:
-                break
-
-            if accelerator.is_main_process:
-                validation_prompt = "The majestic beauty of a waterfall cascading down a cliff into a serene lake. The camera angle provides a bird's eye view of the waterfall."
-                if global_step % args.checkpointing_steps == 0:
-                    logger.info(f"Running validation... \n"
-                                f"Generating {args.num_validation_videos} videos with prompt: {validation_prompt}")
-                    if args.use_ema:
-                        # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
-                        ema_model.store(model.parameters())
-                        ema_model.copy_to(model.parameters())
-
-                    if args.enable_tracker:
-                        with torch.no_grad():
-                            # create pipeline
-                            ae_ = getae_wrapper(args.ae)(args.ae_path).to(accelerator.device).eval()
-                            if args.enable_tiling:
-                                ae_.vae.enable_tiling()
-                                ae_.vae.tile_overlap_factor = args.tile_overlap_factor
-                            # text_enc_ = get_text_enc(args).to(accelerator.device).eval()
-                            model_ = LatteT2V.from_pretrained(save_path, subfolder="model").to(accelerator.device).eval()
-                            diffusion_ = create_diffusion(str(250))
-                            tokenizer_ = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir='./cache_dir')
-                            videos = []
-                            for idx in range(args.num_validation_videos):
-                                with torch.autocast(device_type='cuda', dtype=weight_dtype):
-                                    z = torch.randn(1, model_.in_channels, video_length,
-                                                    latent_size[0], latent_size[1], device=accelerator.device)
-                                    text_tokens_and_mask = tokenizer_(
-                                        validation_prompt,
-                                        max_length=args.model_max_length,
-                                        padding='max_length',
-                                        truncation=True,
-                                        return_attention_mask=True,
-                                        add_special_tokens=True,
-                                        return_tensors='pt'
+                            videos = torch.stack(videos).numpy()
+                            for tracker in accelerator.trackers:
+                                if tracker.name == "tensorboard":
+                                    np_videos = np.stack([np.asarray(vid) for vid in videos])
+                                    tracker.writer.add_video("validation", np_videos, global_step, fps=10)
+                                if tracker.name == "wandb":
+                                    tracker.log(
+                                        {
+                                            "validation": [
+                                                wandb.Video(video, caption=f"{i}: {validation_prompt}", fps=10)
+                                                for i, video in enumerate(videos)
+                                            ]
+                                        }
                                     )
-                                    input_ids = text_tokens_and_mask['input_ids'].to(accelerator.device)
-                                    cond_mask = text_tokens_and_mask['attention_mask'].to(accelerator.device)
-                                    # cond = text_enc_(input_ids, cond_mask)  # B L D
-                                    cond = text_enc(input_ids, cond_mask)  # B L D
-                                    model_kwargs = dict(encoder_hidden_states=cond, attention_mask=None, encoder_attention_mask=cond_mask)
-                                    sample_fn = model_.forward
-                                    # Sample images:
-                                    samples = diffusion_.p_sample_loop(
-                                        sample_fn, z.shape, z, clip_denoised=False, model_kwargs=model_kwargs, progress=True,
-                                        device=accelerator.device
-                                    )
-                                    samples = ae_.decode(samples)
-                                    # Save and display images:
-                                    video = (ae_denorm[args.ae](samples[0]) * 255).add_(0.5).clamp_(0, 255).to(
-                                        dtype=torch.uint8).cpu().contiguous()  # t c h w
-                                    videos.append(video)
 
-                        videos = torch.stack(videos).numpy()
-                        for tracker in accelerator.trackers:
-                            if tracker.name == "tensorboard":
-                                np_videos = np.stack([np.asarray(vid) for vid in videos])
-                                tracker.writer.add_video("validation", np_videos, global_step, fps=10)
-                            if tracker.name == "wandb":
-                                tracker.log(
-                                    {
-                                        "validation": [
-                                            wandb.Video(video, caption=f"{i}: {validation_prompt}", fps=10)
-                                            for i, video in enumerate(videos)
-                                        ]
-                                    }
-                                )
-
-                        # del ae_, text_enc_, model_, diffusion_, tokenizer_
-                        del ae_, model_, diffusion_, tokenizer_
-                        torch.cuda.empty_cache()
-
+                            # del ae_, text_enc_, model_, diffusion_, tokenizer_
+                            del ae_, model_, diffusion_, tokenizer_
+                            torch.cuda.empty_cache()
+                prof.step()
     accelerator.wait_for_everyone()
     accelerator.end_training()
 

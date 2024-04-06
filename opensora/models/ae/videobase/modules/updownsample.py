@@ -2,6 +2,8 @@ from typing import Union, Tuple
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from opensora.npu_config import npu_config
 from .resnet_block import ResnetBlock3D
 from .attention import TemporalAttnBlock
 from .normalize import Normalize
@@ -115,14 +117,24 @@ class TimeDownsample2x(Block):
     ):
         super().__init__()
         self.kernel_size = kernel_size
-        self.conv = nn.AvgPool3d((kernel_size,1,1), stride=(2,1,1))
-        
+        if npu_config.on_npu:
+            self.avg_pool = nn.AvgPool2d((kernel_size, 1), stride=(2, 1))
+        else:
+            self.avg_pool = nn.AvgPool3d((kernel_size, 1, 1), stride=(2, 1, 1))
+
     def forward(self, x):
         first_frame_pad = x[:, :, :1, :, :].repeat(
             (1, 1, self.kernel_size - 1, 1, 1)
         )
         x = torch.concatenate((first_frame_pad, x), dim=2)
-        return self.conv(x)
+        if npu_config.on_npu:
+            n, c, d, h, w = x.shape
+            input_reshaped = x.view(n, c, d, h * w)
+            pooled = self.avg_pool(input_reshaped)
+            output = pooled.view(n, c, d // 2, h, w)
+            return output
+        else:
+            return self.avg_pool(x)
 
 class TimeUpsample2x(Block):
     def __init__(
