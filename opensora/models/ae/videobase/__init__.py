@@ -1,28 +1,19 @@
-"""
-new code
-"""
 from .vqvae import (
     VQVAEConfiguration,
     VQVAEModel,
     VQVAETrainer,
-    VQVAEDataset, VQVAEModelWrapper
+    VQVAEModelWrapper
 )
 from .causal_vqvae import (
     CausalVQVAEConfiguration,
-    CausalVQVAEDataset,
     CausalVQVAETrainer,
     CausalVQVAEModel, CausalVQVAEModelWrapper
 )
 from .causal_vae import (
-    CausalVAEConfiguration,
-    CausalVAEDataset,
     CausalVAETrainer,
     CausalVAEModel, CausalVAEModelWrapper
 )
 
-"""
-old code
-"""
 
 videobase_ae_stride = {
     'CausalVAEModel_4x8x8': [4, 8, 8],

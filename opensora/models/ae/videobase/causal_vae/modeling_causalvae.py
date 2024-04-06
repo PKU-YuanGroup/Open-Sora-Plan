@@ -1,122 +1,71 @@
-import torch
-from torch import nn
-from tqdm import tqdm
-
-from .configuration_causalvae import CausalVAEConfiguration
-from ..modules.attention import make_attn
-from ..modules.resnet_block import ResnetBlock3D
-from ..modules.conv import CausalConv3d
-from ..modules.normalize import Normalize
-from ..modules.perceptual_loss import LPIPSWithDiscriminator
-from ..modules.updownsample import (
-    SpatialDownsample2x,
-    SpatialUpsample2x,
-    TimeDownsample2x,
-    TimeUpsample2x,
-)
-import numpy as np
+from ..modeling_videobase import VideoBaseAE_PL
+from ..modules import Normalize
 from ..modules.ops import nonlinearity
-from ..modeling_videobase import VideoBaseAE
-
-class DiagonalGaussianDistribution(object):
-    def __init__(self, parameters, deterministic=False):
-        self.parameters = parameters
-        self.mean, self.logvar = torch.chunk(parameters, 2, dim=1)
-        self.logvar = torch.clamp(self.logvar, -30.0, 20.0)
-        self.deterministic = deterministic
-        self.std = torch.exp(0.5 * self.logvar)
-        self.var = torch.exp(self.logvar)
-        if self.deterministic:
-            self.var = self.std = torch.zeros_like(self.mean).to(
-                device=self.parameters.device
-            )
-
-    def sample(self):
-        x = self.mean + self.std * torch.randn(self.mean.shape).to(
-            device=self.parameters.device
-        )
-        return x
-
-    def kl(self, other=None):
-        if self.deterministic:
-            return torch.Tensor([0.0])
-        else:
-            if other is None:
-                return 0.5 * torch.sum(
-                    torch.pow(self.mean, 2) + self.var - 1.0 - self.logvar,
-                    dim=[1, 2, 3],
-                )
-            else:
-                return 0.5 * torch.sum(
-                    torch.pow(self.mean - other.mean, 2) / other.var
-                    + self.var / other.var
-                    - 1.0
-                    - self.logvar
-                    + other.logvar,
-                    dim=[1, 2, 3],
-                )
-
-    def nll(self, sample, dims=[1, 2, 3]):
-        if self.deterministic:
-            return torch.Tensor([0.0])
-        logtwopi = np.log(2.0 * np.pi)
-        return 0.5 * torch.sum(
-            logtwopi + self.logvar + torch.pow(sample - self.mean, 2) / self.var,
-            dim=dims,
-        )
-
-    def mode(self):
-        return self.mean
+from typing import List, Tuple
+import torch.nn as nn
+from ..utils.module_utils import resolve_str_to_obj, Module
+from ..utils.distrib_utils import DiagonalGaussianDistribution
+from ..utils.scheduler_utils import cosine_scheduler
+import torch
+from diffusers.configuration_utils import register_to_config
 
 
 class Encoder(nn.Module):
     def __init__(
         self,
-        *,
-        ch,
-        out_ch,
-        ch_mult=(1, 2, 4, 8),
-        num_res_blocks,
-        attn_resolutions,
-        dropout=0.0,
-        resamp_with_conv=True,
-        in_channels,
-        resolution,
-        z_channels,
-        double_z=True,
-        use_linear_attn=False,
-        attn_type="vanilla",
-        time_compress=2,
-        **ignore_kwargs,
-    ):
+        z_channels: int,
+        hidden_size: int,
+        hidden_size_mult: Tuple[int] = (1, 2, 4, 4),
+        attn_resolutions: Tuple[int] = (16,),
+        conv_in: Module = "Conv2d",
+        conv_out: Module = "CasualConv3d",
+        attention: Module = "AttnBlock",
+        resnet_blocks: Tuple[Module] = (
+            "ResnetBlock2D",
+            "ResnetBlock2D",
+            "ResnetBlock2D",
+            "ResnetBlock3D",
+        ),
+        spatial_downsample: Tuple[Module] = (
+            "Downsample",
+            "Downsample",
+            "Downsample",
+            "",
+        ),
+        temporal_downsample: Tuple[Module] = ("", "", "TimeDownsampleRes2x", ""),
+        mid_resnet: Module = "ResnetBlock3D",
+        dropout: float = 0.0,
+        resolution: int = 256,
+        num_res_blocks: int = 2,
+        double_z: bool = True,
+    ) -> None:
         super().__init__()
-        if use_linear_attn:
-            attn_type = "linear"
-        self.ch = ch
-        self.temb_ch = 0
-        self.time_compress = time_compress
-        self.num_resolutions = len(ch_mult)
-        self.num_res_blocks = num_res_blocks
+        assert len(resnet_blocks) == len(hidden_size_mult), print(
+            hidden_size_mult, resnet_blocks
+        )
+        # ---- Config ----
+        self.num_resolutions = len(hidden_size_mult)
         self.resolution = resolution
-        self.in_channels = in_channels
+        self.num_res_blocks = num_res_blocks
 
-        # downsampling
-        self.conv_in = CausalConv3d(
-            in_channels, self.ch, kernel_size=3, stride=1, padding=1
+        # ---- In ----
+        self.conv_in = resolve_str_to_obj(conv_in)(
+            3, hidden_size, kernel_size=3, stride=1, padding=1
         )
 
+        # ---- Downsample ----
         curr_res = resolution
-        in_ch_mult = (1,) + tuple(ch_mult)
+        in_ch_mult = (1,) + tuple(hidden_size_mult)
         self.in_ch_mult = in_ch_mult
         self.down = nn.ModuleList()
         for i_level in range(self.num_resolutions):
             block = nn.ModuleList()
             attn = nn.ModuleList()
-            block_in = ch * in_ch_mult[i_level]
-            block_out = ch * ch_mult[i_level]
+            block_in = hidden_size * in_ch_mult[i_level]
+            block_out = hidden_size * hidden_size_mult[i_level]
             for i_block in range(self.num_res_blocks):
                 block.append(
-                    ResnetBlock3D(
+                    resolve_str_to_obj(resnet_blocks[i_level])(
                         in_channels=block_in,
                         out_channels=block_out,
                         dropout=dropout,
@@ -124,35 +73,37 @@ class Encoder(nn.Module):
                 )
                 block_in = block_out
                 if curr_res in attn_resolutions:
-                    attn.append(make_attn(block_in, attn_type=attn_type))
+                    attn.append(resolve_str_to_obj(attention)(block_in))
             down = nn.Module()
             down.block = block
             down.attn = attn
-            if i_level != self.num_resolutions - 1:
-                down.downsample = SpatialDownsample2x(block_in, block_in)
+            if spatial_downsample[i_level]:
+                down.downsample = resolve_str_to_obj(spatial_downsample[i_level])(
+                    block_in, block_in
+                )
                 curr_res = curr_res // 2
-            # if i_level < self.time_compress and i_level != self.num_resolutions - 1:
-            if i_level < self.time_compress:
-                down.time_downsample = TimeDownsample2x()
+            if temporal_downsample[i_level]:
+                down.time_downsample = resolve_str_to_obj(temporal_downsample[i_level])(
+                    block_in, block_in
+                )
             self.down.append(down)
 
-        # middle
+        # ---- Mid ----
         self.mid = nn.Module()
-        self.mid.block_1 = ResnetBlock3D(
+        self.mid.block_1 = resolve_str_to_obj(mid_resnet)(
             in_channels=block_in,
             out_channels=block_in,
             dropout=dropout,
         )
-        self.mid.attn_1 = make_attn(block_in, attn_type=attn_type)
-        self.mid.block_2 = ResnetBlock3D(
+        self.mid.attn_1 = resolve_str_to_obj(attention)(block_in)
+        self.mid.block_2 = resolve_str_to_obj(mid_resnet)(
             in_channels=block_in,
             out_channels=block_in,
             dropout=dropout,
         )
-
-        # end
+        # ---- Out ----
         self.norm_out = Normalize(block_in)
-        self.conv_out = CausalConv3d(
+        self.conv_out = resolve_str_to_obj(conv_out)(
             block_in,
             2 * z_channels if double_z else z_channels,
             kernel_size=3,
@@ -161,7 +112,6 @@ class Encoder(nn.Module):
         )
 
     def forward(self, x):
-        # downsampling
         hs = [self.conv_in(x)]
         for i_level in range(self.num_resolutions):
             for i_block in range(self.num_res_blocks):
@@ -169,18 +119,16 @@ class Encoder(nn.Module):
                 if len(self.down[i_level].attn) > 0:
                     h = self.down[i_level].attn[i_block](h)
                 hs.append(h)
-            if i_level != self.num_resolutions - 1:
+            if hasattr(self.down[i_level], "downsample"):
                 hs.append(self.down[i_level].downsample(hs[-1]))
-            # if i_level < self.time_compress and i_level != self.num_resolutions - 1:
-            if i_level < self.time_compress:
-                hs.append(self.down[i_level].time_downsample(hs[-1]))
+            if hasattr(self.down[i_level], "time_downsample"):
+                hs_down = self.down[i_level].time_downsample(hs[-1])
+                hs.append(hs_down)
 
-        # middle
-        h = hs[-1]
         h = self.mid.block_1(h)
         h = self.mid.attn_1(h)
         h = self.mid.block_2(h)
-        # end
+
         h = self.norm_out(h)
         h = nonlinearity(h)
         h = self.conv_out(h)
@@ -190,74 +138,67 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
     def __init__(
         self,
-        *,
-        ch,
-        out_ch,
-        ch_mult=(1, 2, 4, 8),
-        num_res_blocks,
-        attn_resolutions,
-        dropout=0.0,
-        resamp_with_conv=True,
-        in_channels,
-        resolution,
-        z_channels,
-        give_pre_end=False,
-        tanh_out=False,
-        use_linear_attn=False,
-        attn_type="vanilla",
-        time_compress=2,
-        **ignorekwargs,
+        z_channels: int,
+        hidden_size: int,
+        hidden_size_mult: Tuple[int] = (1, 2, 4, 4),
+        attn_resolutions: Tuple[int] = (16,),
+        conv_in: Module = "Conv2d",
+        conv_out: Module = "CasualConv3d",
+        attention: Module = "AttnBlock",
+        resnet_blocks: Tuple[Module] = (
+            "ResnetBlock3D",
+            "ResnetBlock3D",
+            "ResnetBlock3D",
+            "ResnetBlock3D",
+        ),
+        spatial_upsample: Tuple[Module] = (
+            "",
+            "SpatialUpsample2x",
+            "SpatialUpsample2x",
+            "SpatialUpsample2x",
+        ),
+        temporal_upsample: Tuple[Module] = ("", "", "", "TimeUpsampleRes2x"),
+        mid_resnet: Module = "ResnetBlock3D",
+        dropout: float = 0.0,
+        resolution: int = 256,
+        num_res_blocks: int = 2,
     ):
         super().__init__()
-        if use_linear_attn:
-            attn_type = "linear"
-        self.ch = ch
-        self.time_compress = time_compress
-        self.temb_ch = 0
-        self.num_resolutions = len(ch_mult)
-        self.num_res_blocks = num_res_blocks
+        # ---- Config ----
+        self.num_resolutions = len(hidden_size_mult)
         self.resolution = resolution
-        self.in_channels = in_channels
-        self.give_pre_end = give_pre_end
-        self.tanh_out = tanh_out
+        self.num_res_blocks = num_res_blocks
 
-        # compute in_ch_mult, block_in and curr_res at lowest res
-        in_ch_mult = (1,) + tuple(ch_mult)
-        block_in = ch * ch_mult[self.num_resolutions - 1]
+        # ---- In ----
+        block_in = hidden_size * hidden_size_mult[self.num_resolutions - 1]
         curr_res = resolution // 2 ** (self.num_resolutions - 1)
-        self.z_shape = (1, z_channels, curr_res, curr_res)
-        print(
-            "Working with z of shape {} = {} dimensions.".format(
-                self.z_shape, np.prod(self.z_shape)
-            )
+        self.conv_in = resolve_str_to_obj(conv_in)(
+            z_channels, block_in, kernel_size=3, padding=1
         )
 
-        # z to block_in
-        self.conv_in = CausalConv3d(z_channels, block_in, kernel_size=3, padding=1)
-
-        # middle
+        # ---- Mid ----
         self.mid = nn.Module()
-        self.mid.block_1 = ResnetBlock3D(
+        self.mid.block_1 = resolve_str_to_obj(mid_resnet)(
             in_channels=block_in,
             out_channels=block_in,
             dropout=dropout,
         )
-        self.mid.attn_1 = make_attn(block_in, attn_type=attn_type)
-        self.mid.block_2 = ResnetBlock3D(
+        self.mid.attn_1 = resolve_str_to_obj(attention)(block_in)
+        self.mid.block_2 = resolve_str_to_obj(mid_resnet)(
             in_channels=block_in,
             out_channels=block_in,
             dropout=dropout,
         )
 
-        # upsampling
+        # ---- Upsample ----
         self.up = nn.ModuleList()
         for i_level in reversed(range(self.num_resolutions)):
             block = nn.ModuleList()
             attn = nn.ModuleList()
-            block_out = ch * ch_mult[i_level]
+            block_out = hidden_size * hidden_size_mult[i_level]
             for i_block in range(self.num_res_blocks + 1):
                 block.append(
-                    ResnetBlock3D(
+                    resolve_str_to_obj(resnet_blocks[i_level])(
                         in_channels=block_in,
                         out_channels=block_out,
                         dropout=dropout,
@@ -265,120 +206,173 @@ class Decoder(nn.Module):
                 )
                 block_in = block_out
                 if curr_res in attn_resolutions:
-                    attn.append(make_attn(block_in, attn_type=attn_type))
+                    attn.append(resolve_str_to_obj(attention)(block_in))
             up = nn.Module()
             up.block = block
             up.attn = attn
-            if i_level != 0:
-                up.upsample = SpatialUpsample2x(block_in, block_in)
+            if spatial_upsample[i_level]:
+                up.upsample = resolve_str_to_obj(spatial_upsample[i_level])(
+                    block_in, block_in
+                )
                 curr_res = curr_res * 2
-            if i_level > self.num_resolutions - 1 - self.time_compress and i_level != 0:
-            # if i_level <= self.time_compress and i_level != 0:
-                up.time_upsample = TimeUpsample2x()
+            if temporal_upsample[i_level]:
+                up.time_upsample = resolve_str_to_obj(temporal_upsample[i_level])(
+                    block_in, block_in
+                )
+            self.up.insert(0, up)
 
-            self.up.insert(0, up)  # prepend to get consistent order
-
-        # end
+        # ---- Out ----
         self.norm_out = Normalize(block_in)
-        self.conv_out = CausalConv3d(block_in, out_ch, kernel_size=3, padding=1)
+        self.conv_out = resolve_str_to_obj(conv_out)(
+            block_in, 3, kernel_size=3, padding=1
+        )
 
     def forward(self, z):
-        self.last_z_shape = z.shape
-        # z to block_in
         h = self.conv_in(z)
-        # middle
         h = self.mid.block_1(h)
         h = self.mid.attn_1(h)
         h = self.mid.block_2(h)
-        # upsampling
+
         for i_level in reversed(range(self.num_resolutions)):
             for i_block in range(self.num_res_blocks + 1):
                 h = self.up[i_level].block[i_block](h)
                 if len(self.up[i_level].attn) > 0:
                     h = self.up[i_level].attn[i_block](h)
-            if i_level != 0:
+            if hasattr(self.up[i_level], "upsample"):
                 h = self.up[i_level].upsample(h)
-            
-            if i_level > self.num_resolutions - 1 - self.time_compress and i_level != 0:
-            # if i_level <= self.time_compress and i_level != 0:
+            if hasattr(self.up[i_level], "time_upsample"):
                 h = self.up[i_level].time_upsample(h)
-
-        # end
-        if self.give_pre_end:
-            return h
 
         h = self.norm_out(h)
         h = nonlinearity(h)
         h = self.conv_out(h)
-        if self.tanh_out:
-            h = torch.tanh(h)
         return h
 
 
-class CausalVAEModel(VideoBaseAE):
-    CONFIGURATION_CLS = CausalVAEConfiguration
+class CausalVAEModel(VideoBaseAE_PL):
 
-    def __init__(self, config: CausalVAEConfiguration):
+    @register_to_config
+    def __init__(
+        self,
+        lr: float = 1e-5,
+        hidden_size: int = 128,
+        z_channels: int = 4,
+        hidden_size_mult: Tuple[int] = (1, 2, 4, 4),
+        attn_resolutions: Tuple[int] = [],
+        dropout: float = 0.0,
+        resolution: int = 256,
+        double_z: bool = True,
+        embed_dim: int = 4,
+        num_res_blocks: int = 2,
+        loss_type: str = "opensora.models.ae.videobase.losses.LPIPSWithDiscriminator",
+        loss_params: dict = {
+            "kl_weight": 0.000001,
+            "logvar_init": 0.0,
+            "disc_start": 2001,
+            "disc_weight": 0.5,
+        },
+        q_conv: str = "CausalConv3d",
+        encoder_conv_in: Module = "CausalConv3d",
+        encoder_conv_out: Module = "CausalConv3d",
+        encoder_attention: Module = "AttnBlock3D",
+        encoder_resnet_blocks: Tuple[Module] = (
+            "ResnetBlock3D",
+            "ResnetBlock3D",
+            "ResnetBlock3D",
+            "ResnetBlock3D",
+        ),
+        encoder_spatial_downsample: Tuple[Module] = (
+            "SpatialDownsample2x",
+            "SpatialDownsample2x",
+            "SpatialDownsample2x",
+            "",
+        ),
+        encoder_temporal_downsample: Tuple[Module] = (
+            "",
+            "TimeDownsample2x",
+            "TimeDownsample2x",
+            "",
+        ),
+        encoder_mid_resnet: Module = "ResnetBlock3D",
+        decoder_conv_in: Module = "CausalConv3d",
+        decoder_conv_out: Module = "CausalConv3d",
+        decoder_attention: Module = "AttnBlock3D",
+        decoder_resnet_blocks: Tuple[Module] = (
+            "ResnetBlock3D",
+            "ResnetBlock3D",
+            "ResnetBlock3D",
+            "ResnetBlock3D",
+        ),
+        decoder_spatial_upsample: Tuple[Module] = (
+            "",
+            "SpatialUpsample2x",
+            "SpatialUpsample2x",
+            "SpatialUpsample2x",
+        ),
+        decoder_temporal_upsample: Tuple[Module] = ("", "", "TimeUpsample2x", "TimeUpsample2x"),
+        decoder_mid_resnet: Module = "ResnetBlock3D",
+    ) -> None:
         super().__init__()
-        self.config = config
-        # self.tile_sample_min_size = self.config.resolution
         self.tile_sample_min_size = 256
         self.tile_sample_min_size_t = 65
-        self.tile_latent_min_size = int(self.tile_sample_min_size / (2 ** (len(self.config.ch_mult) - 1)))
-        self.tile_latent_min_size_t = int((self.tile_sample_min_size_t-1) / (2 ** self.config.time_compress)) + 1
+        self.tile_latent_min_size = int(self.tile_sample_min_size / (2 ** (len(hidden_size_mult) - 1)))
+        # self.tile_latent_min_size_t = int((self.tile_sample_min_size_t-1) / (2 ** self.time_compress)) + 1
         self.tile_overlap_factor = 0.25
         self.use_tiling = False
 
-        self.loss = LPIPSWithDiscriminator(
-            logvar_init=config.logvar_init,
-            kl_weight=config.kl_weight,
-            pixelloss_weight=config.pixelloss_weight,
-            perceptual_weight=config.perceptual_weight,
-            disc_loss=config.disc_loss,
+        self.learning_rate = lr
+        self.lr_g_factor = 1.0
+
+        self.loss = resolve_str_to_obj(loss_type, append=False)(
+            **loss_params
         )
-        self.loss.logvar.requires_grad = False
+
         self.encoder = Encoder(
-            ch=config.hidden_size,
-            out_ch=config.out_channels,
-            ch_mult=config.ch_mult,
-            z_channels=config.z_channels,
-            num_res_blocks=config.num_res_block,
-            attn_resolutions=config.attn_resolutions,
-            dropout=config.dropout,
-            in_channels=config.in_channels,
-            resolution=config.resolution,
-            resamp_with_conv=True,
-            attn_type=config.attn_type,
-            use_linear_attn=config.use_linear_attn,
-            time_compress=config.time_compress,
+            z_channels=z_channels,
+            hidden_size=hidden_size,
+            hidden_size_mult=hidden_size_mult,
+            attn_resolutions=attn_resolutions,
+            conv_in=encoder_conv_in,
+            conv_out=encoder_conv_out,
+            attention=encoder_attention,
+            resnet_blocks=encoder_resnet_blocks,
+            spatial_downsample=encoder_spatial_downsample,
+            temporal_downsample=encoder_temporal_downsample,
+            mid_resnet=encoder_mid_resnet,
+            dropout=dropout,
+            resolution=resolution,
+            num_res_blocks=num_res_blocks,
+            double_z=double_z,
         )
+
         self.decoder = Decoder(
-            ch=config.hidden_size,
-            out_ch=config.out_channels,
-            ch_mult=config.ch_mult,
-            z_channels=config.z_channels,
-            num_res_blocks=config.num_res_block,
-            attn_resolutions=config.attn_resolutions,
-            dropout=config.dropout,
-            in_channels=config.in_channels,
-            resolution=config.resolution,
-            resamp_with_conv=True,
-            attn_type=config.attn_type,
-            use_linear_attn=config.use_linear_attn,
-            time_compress=config.time_compress,
+            z_channels=z_channels,
+            hidden_size=hidden_size,
+            hidden_size_mult=hidden_size_mult,
+            attn_resolutions=attn_resolutions,
+            conv_in=decoder_conv_in,
+            conv_out=decoder_conv_out,
+            attention=decoder_attention,
+            resnet_blocks=decoder_resnet_blocks,
+            spatial_upsample=decoder_spatial_upsample,
+            temporal_upsample=decoder_temporal_upsample,
+            mid_resnet=decoder_mid_resnet,
+            dropout=dropout,
+            resolution=resolution,
+            num_res_blocks=num_res_blocks,
         )
-        self.quant_conv = CausalConv3d(
-            2 * config.z_channels, 2 * config.embed_dim, 1
-        )
-        self.post_quant_conv = CausalConv3d(
-            config.embed_dim, config.z_channels, 1
-        )
-        self.embed_dim = config.embed_dim
+
+        quant_conv_cls = resolve_str_to_obj(q_conv)
+        self.quant_conv = quant_conv_cls(2 * z_channels, 2 * embed_dim, 1)
+        self.post_quant_conv = quant_conv_cls(embed_dim, z_channels, 1)
+        if hasattr(self.loss, "discriminator"):
+            self.automatic_optimization = False
 
     def encode(self, x):
-        # print(self.use_tiling, x.shape, self.tile_sample_min_size, self.tile_latent_min_size, self.tile_sample_min_size_t, self.tile_latent_min_size_t)
-        if self.use_tiling and (x.shape[-1] > self.tile_sample_min_size or x.shape[-2] > self.tile_sample_min_size):
-            # print('tileing')
+        if self.use_tiling and (
+            x.shape[-1] > self.tile_sample_min_size
+            or x.shape[-2] > self.tile_sample_min_size
+        ):
             return self.tiled_encode2d(x)
         h = self.encoder(x)
         moments = self.quant_conv(h)
@@ -386,8 +380,10 @@ class CausalVAEModel(VideoBaseAE):
         return posterior
 
     def decode(self, z):
-        if self.use_tiling and (z.shape[-1] > self.tile_latent_min_size or z.shape[-2] > self.tile_latent_min_size):
-            # print('tileing')
+        if self.use_tiling and (
+            z.shape[-1] > self.tile_latent_min_size
+            or z.shape[-2] > self.tile_latent_min_size
+        ):
             return self.tiled_decode2d(z)
         z = self.post_quant_conv(z)
         dec = self.decoder(z)
@@ -409,32 +405,151 @@ class CausalVAEModel(VideoBaseAE):
         x = x.to(memory_format=torch.contiguous_format).float()
         return x
 
+    def training_step(self, batch, batch_idx):
+        if hasattr(self.loss, "discriminator"):
+            return self._training_step_gan(batch, batch_idx=batch_idx)
+        else:
+            return self._training_step(batch, batch_idx=batch_idx)
+
+    def _training_step(self, batch, batch_idx):
+        inputs = self.get_input(batch, "video")
+        reconstructions, posterior = self(inputs)
+        aeloss, log_dict_ae = self.loss(
+            inputs,
+            reconstructions,
+            posterior,
+            split="train",
+        )
+        self.log(
+            "aeloss",
+            aeloss,
+            prog_bar=True,
+            logger=True,
+            on_step=True,
+            on_epoch=True,
+        )
+        self.log_dict(
+            log_dict_ae, prog_bar=False, logger=True, on_step=True, on_epoch=False
+        )
+        return aeloss
+
+    def _training_step_gan(self, batch, batch_idx):
+        inputs = self.get_input(batch, "video")
+        reconstructions, posterior = self(inputs)
+        opt1, opt2 = self.optimizers()
+        
+        # ---- AE Loss ----
+        opt1.zero_grad()
+        aeloss, log_dict_ae = self.loss(
+            inputs,
+            reconstructions,
+            posterior,
+            0,
+            self.global_step,
+            last_layer=self.get_last_layer(),
+            split="train",
+        )
+        self.log(
+            "aeloss",
+            aeloss,
+            prog_bar=True,
+            logger=True,
+            on_step=True,
+            on_epoch=True,
+        )
+        self.manual_backward(aeloss)
+        self.clip_gradients(opt1, gradient_clip_val=1, gradient_clip_algorithm="norm")
+        opt1.step()
+        # ---- GAN Loss ----
+        opt2.zero_grad()
+        discloss, log_dict_disc = self.loss(
+            inputs,
+            reconstructions,
+            posterior,
+            1,
+            self.global_step,
+            last_layer=self.get_last_layer(),
+            split="train",
+        )
+        self.log(
+            "discloss",
+            discloss,
+            prog_bar=True,
+            logger=True,
+            on_step=True,
+            on_epoch=True,
+        )
+        self.manual_backward(discloss)
+        self.clip_gradients(opt2, gradient_clip_val=1, gradient_clip_algorithm="norm")
+        opt2.step()
+        self.log_dict(
+            {**log_dict_ae, **log_dict_disc},
+            prog_bar=False,
+            logger=True,
+            on_step=True,
+            on_epoch=False,
+        )
+
+    def configure_optimizers(self):
+        from itertools import chain
+
+        lr = self.learning_rate
+        modules_to_train = [
+            self.encoder.named_parameters(),
+            self.decoder.named_parameters(),
+            self.post_quant_conv.named_parameters(),
+            self.quant_conv.named_parameters(),
+        ]
+        params_with_time = []
+        params_without_time = []
+        for name, param in chain(*modules_to_train):
+            if "time" in name:
+                params_with_time.append(param)
+            else:
+                params_without_time.append(param)
+        optimizers = []
+        opt_ae = torch.optim.Adam(
+            [
+                {"params": params_with_time, "lr": 0.0001},
+                {"params": params_without_time, "lr": 0.00001},
+            ],
+            lr=lr,
+            betas=(0.5, 0.9),
+        )
+        optimizers.append(opt_ae)
+
+        if hasattr(self.loss, "discriminator"):
+            opt_disc = torch.optim.Adam(
+                self.loss.discriminator.parameters(), lr=lr, betas=(0.5, 0.9)
+            )
+            optimizers.append(opt_disc)
+
+        return optimizers, []
+
     def get_last_layer(self):
-        return self.decoder.conv_out.weight
-    
-    # def init_from_ckpt(self, path, ignore_keys=list()):
-    #     sd = torch.load(path, map_location="cpu")
-    #     keys = list(sd.keys())
-    #     for k in keys:
-    #         for ik in ignore_keys:
-    #             if k.startswith(ik):
-    #                 print("Deleting key {} from state_dict.".format(k))
-    #                 del sd[k]
-    #     self.load_state_dict(sd, strict=False)
-    #     print(f"Restored from {path}")
+        if hasattr(self.decoder.conv_out, "conv"):
+            return self.decoder.conv_out.conv.weight
+        else:
+            return self.decoder.conv_out.weight
 
-
-
-    def blend_v(self, a: torch.Tensor, b: torch.Tensor, blend_extent: int) -> torch.Tensor:
+    def blend_v(
+        self, a: torch.Tensor, b: torch.Tensor, blend_extent: int
+    ) -> torch.Tensor:
         blend_extent = min(a.shape[3], b.shape[3], blend_extent)
         for y in range(blend_extent):
-            b[:, :, :, y, :] = a[:, :, :, -blend_extent + y, :] * (1 - y / blend_extent) + b[:, :, :, y, :] * (y / blend_extent)
+            b[:, :, :, y, :] = a[:, :, :, -blend_extent + y, :] * (
+                1 - y / blend_extent
+            ) + b[:, :, :, y, :] * (y / blend_extent)
         return b
 
-    def blend_h(self, a: torch.Tensor, b: torch.Tensor, blend_extent: int) -> torch.Tensor:
+    def blend_h(
+        self, a: torch.Tensor, b: torch.Tensor, blend_extent: int
+    ) -> torch.Tensor:
         blend_extent = min(a.shape[4], b.shape[4], blend_extent)
         for x in range(blend_extent):
-            b[:, :, :, :, x] = a[:, :, :, :, -blend_extent + x] * (1 - x / blend_extent) + b[:, :, :, :, x] * (x / blend_extent)
+            b[:, :, :, :, x] = a[:, :, :, :, -blend_extent + x] * (
+                1 - x / blend_extent
+            ) + b[:, :, :, :, x] * (x / blend_extent)
         return b
 
     def tiled_encode2d(self, x):
@@ -447,7 +562,13 @@ class CausalVAEModel(VideoBaseAE):
         for i in range(0, x.shape[3], overlap_size):
             row = []
             for j in range(0, x.shape[4], overlap_size):
-                tile = x[:, :, :, i : i + self.tile_sample_min_size, j : j + self.tile_sample_min_size]
+                tile = x[
+                    :,
+                    :,
+                    :,
+                    i : i + self.tile_sample_min_size,
+                    j : j + self.tile_sample_min_size,
+                ]
                 tile = self.encoder(tile)
                 tile = self.quant_conv(tile)
                 row.append(tile)
@@ -482,7 +603,13 @@ class CausalVAEModel(VideoBaseAE):
         for i in range(0, z.shape[3], overlap_size):
             row = []
             for j in range(0, z.shape[4], overlap_size):
-                tile = z[:, :, :, i : i + self.tile_latent_min_size, j : j + self.tile_latent_min_size]
+                tile = z[
+                    :,
+                    :,
+                    :,
+                    i : i + self.tile_latent_min_size,
+                    j : j + self.tile_latent_min_size,
+                ]
                 tile = self.post_quant_conv(tile)
                 decoded = self.decoder(tile)
                 row.append(decoded)
@@ -503,123 +630,22 @@ class CausalVAEModel(VideoBaseAE):
         dec = torch.cat(result_rows, dim=3)
         return dec
 
-
-    # def tiled_encode(self, x):
-    #     overlap_size = max(int(self.tile_sample_min_size * (1 - self.tile_overlap_factor)), 1)
-    #     blend_extent = max(int(self.tile_latent_min_size * self.tile_overlap_factor), 1)
-    #     row_limit = self.tile_latent_min_size - blend_extent
-    #
-    #     overlap_size_t = max(int((self.tile_sample_min_size_t - 1) * (1 - self.tile_overlap_factor)) + 1, 1)
-    #     blend_extent_t = max(int((self.tile_latent_min_size_t - 1) * self.tile_overlap_factor) + 1, 1)
-    #     row_limit_t = self.tile_latent_min_size_t - blend_extent_t
-    #
-    #     # Split the image into 512x512 tiles and encode them separately.
-    #     rows_t = []
-    #     # import ipdb
-    #     # ipdb.set_trace()
-    #     for t in tqdm(range(0, x.shape[2], overlap_size_t)):
-    #         rows = []
-    #         for i in range(0, x.shape[3], overlap_size):
-    #             row = []
-    #             for j in range(0, x.shape[4], overlap_size):
-    #                 tile = x[:, :, t: t + self.tile_sample_min_size_t, i: i + self.tile_sample_min_size, j: j + self.tile_sample_min_size]
-    #                 tile = self.encoder(tile)
-    #                 tile = self.quant_conv(tile)
-    #                 row.append(tile)
-    #             rows.append(row)
-    #         rows_t.append(rows)
-    #
-    #     result_rows_t = []
-    #     for t, rows in enumerate(rows_t):
-    #         result_rows = []
-    #         for i, row in enumerate(rows):
-    #             result_row = []
-    #             for j, tile in enumerate(row):
-    #                 # blend the above tile and the left tile
-    #                 # to the current tile and add the current tile to the result row
-    #                 if t > 0:
-    #                     tile = self.blend_t(rows_t[t - 1][i][j], tile, blend_extent_t)
-    #                 if i > 0:
-    #                     tile = self.blend_v(rows[i - 1][j], tile, blend_extent)
-    #                 if j > 0:
-    #                     tile = self.blend_h(row[j - 1], tile, blend_extent)
-    #                 result_row.append(tile[:, :, :row_limit_t, :row_limit, :row_limit])
-    #             result_rows.append(torch.cat(result_row, dim=4))
-    #         result_rows_t.append(torch.cat(result_rows, dim=3))
-    #
-    #     moments = torch.cat(result_rows_t, dim=2)
-    #     posterior = DiagonalGaussianDistribution(moments)
-    #
-    #     return posterior
-    #
-    # def tiled_decode(self, z):
-    #     overlap_size = max(int(self.tile_latent_min_size * (1 - self.tile_overlap_factor)), 1)
-    #     blend_extent = max(int(self.tile_sample_min_size * self.tile_overlap_factor), 1)
-    #     row_limit = self.tile_sample_min_size - blend_extent
-    #
-    #     overlap_size_t = max(int((self.tile_latent_min_size_t - 1) * (1 - self.tile_overlap_factor)) + 1, 1)
-    #     blend_extent_t = max(int((self.tile_sample_min_size_t - 1) * self.tile_overlap_factor) + 1, 1)
-    #     row_limit_t = self.tile_sample_min_size_t - blend_extent_t
-    #
-    #     # Split z into overlapping 64x64 tiles and decode them separately.
-    #     # The tiles have an overlap to avoid seams between tiles.
-    #     rows_t = []
-    #     for t in tqdm(range(0, z.shape[2], overlap_size_t)):
-    #         rows = []
-    #         for i in range(0, z.shape[3], overlap_size):
-    #             row = []
-    #             for j in range(0, z.shape[4], overlap_size):
-    #                 tile = z[:, :, t: t + self.tile_latent_min_size_t, i: i + self.tile_latent_min_size, j: j + self.tile_latent_min_size]
-    #                 tile = self.post_quant_conv(tile)
-    #                 decoded = self.decoder(tile)
-    #                 row.append(decoded)
-    #             rows.append(row)
-    #         rows_t.append(rows)
-    #
-    #     result_rows_t = []
-    #     for t, rows in enumerate(rows_t):
-    #         result_rows = []
-    #         for i, row in enumerate(rows):
-    #             result_row = []
-    #             for j, tile in enumerate(row):
-    #                 # blend the above tile and the left tile
-    #                 # to the current tile and add the current tile to the result row
-    #                 if t > 0:
-    #                     tile = self.blend_t(rows_t[t - 1][i][j], tile, blend_extent_t)
-    #                 if i > 0:
-    #                     tile = self.blend_v(rows[i - 1][j], tile, blend_extent)
-    #                 if j > 0:
-    #                     tile = self.blend_h(row[j - 1], tile, blend_extent)
-    #                 result_row.append(tile[:, :, :row_limit_t, :row_limit, :row_limit])
-    #             result_rows.append(torch.cat(result_row, dim=4))
-    #         result_rows_t.append(torch.cat(result_rows, dim=3))
-    #
-    #     dec = torch.cat(result_rows_t, dim=2)
-    #     return dec
-    #
-    # def blend_t(self, a: torch.Tensor, b: torch.Tensor, blend_extent_t: int) -> torch.Tensor:
-    #     blend_extent_t = min(a.shape[2], b.shape[2], blend_extent_t)
-    #     for t in range(blend_extent_t):
-    #         b[:, :, t, :, :] = a[:, :, -blend_extent_t + t, :, :] * (1 - t / blend_extent_t) + b[:, :, t, :, :] * (
-    #                     t / blend_extent_t)
-    #     return b
-    #
-    # def blend_v(self, a: torch.Tensor, b: torch.Tensor, blend_extent: int) -> torch.Tensor:
-    #     blend_extent = min(a.shape[3], b.shape[3], blend_extent)
-    #     for y in range(blend_extent):
-    #         b[:, :, :, y, :] = a[:, :, :, -blend_extent + y, :] * (1 - y / blend_extent) + b[:, :, :, y, :] * (
-    #                     y / blend_extent)
-    #     return b
-    #
-    # def blend_h(self, a: torch.Tensor, b: torch.Tensor, blend_extent: int) -> torch.Tensor:
-    #     blend_extent = min(a.shape[4], b.shape[4], blend_extent)
-    #     for x in range(blend_extent):
-    #         b[:, :, :, :, x] = a[:, :, :, :, -blend_extent + x] * (1 - x / blend_extent) + b[:, :, :, :, x] * (
-    #                     x / blend_extent)
-    #     return b
-
     def enable_tiling(self, use_tiling: bool = True):
         self.use_tiling = use_tiling
 
     def disable_tiling(self):
         self.enable_tiling(False)
+
+    def init_from_ckpt(self, path, ignore_keys=list(), remove_loss=True):
+        sd = torch.load(path, map_location="cpu")
+        if "state_dict" in sd:
+            sd = sd["state_dict"]
+        keys = list(sd.keys())
+        for k in keys:
+            for ik in ignore_keys:
+                if k.startswith(ik):
+                    print("Deleting key {} from state_dict.".format(k))
+                    del sd[k]
+            if remove_loss and "loss" in k:
+                del sd[k]
+        self.load_state_dict(sd, strict=False)
