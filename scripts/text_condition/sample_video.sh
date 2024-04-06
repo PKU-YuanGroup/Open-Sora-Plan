@@ -1,11 +1,11 @@
-CUDA_VISIBLE_DEVICES=0 python opensora/sample/sample_t2v.py \
-    --model LatteT2V-XL/122 \
+CUDA_VISIBLE_DEVICES=7 python opensora/sample/sample_t2v.py \
+    --model_path LanguageBind/Open-Sora-Plan-v1.0.0 \
     --text_encoder_name DeepFloyd/t5-v1_1-xxl \
-    --text_prompt "The video captures the majestic beauty of a waterfall cascading down a cliff into a serene lake. The waterfall, with its powerful flow, is the central focus of the video. The surrounding landscape is lush and green, with trees and foliage adding to the natural beauty of the scene. The camera angle provides a bird's eye view of the waterfall, allowing viewers to appreciate the full height and grandeur of the waterfall. The video is a stunning representation of nature's power and beauty." \
+    --text_prompt examples/prompt_list_7.txt \
     --ae CausalVAEModel_4x8x8 \
-    --ckpt checkpoint-6500 \
+    --version 65x512x512 \
+    --save_img_path "./sample_videos/prompt_list_7" \
     --fps 24 \
-    --num_frames 65 \
-    --image_size 512 \
-    --num_sampling_steps 100 \
+    --guidance_scale 7.5 \
+    --num_sampling_steps 250 \
     --enable_tiling
