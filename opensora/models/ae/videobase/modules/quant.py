@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.distributed as dist
 import numpy as np
 import torch.nn.functional as F
-from ..utils.op_utils import shift_dim
+from .ops import shift_dim
 
 class Codebook(nn.Module):
     def __init__(self, n_codes, embedding_dim):
