@@ -1,4 +1,5 @@
-CUDA_VISIBLE_DEVICES=0 python opensora/sample/sample_t2v.py \
+export ASCEND_RT_VISIBLE_DEVICES=0
+python opensora/sample/sample_t2v.py \
     --model LatteT2V-XL/122 \
     --text_encoder_name DeepFloyd/t5-v1_1-xxl \
     --text_prompt "A quiet beach at dawn, the waves gently lapping at the shore and the sky painted in pastel hues." \

@@ -2,6 +2,8 @@ import torch.nn as nn
 from typing import Union, Tuple
 import torch.nn.functional as F
 import torch
+
+from opensora.npu_config import npu_config
 from .block import Block
 from .ops import cast_tuple
 from einops import rearrange
@@ -90,10 +92,18 @@ class CausalConv3d(nn.Module):
             nn.init.constant_(self.conv.bias, 0)
             
     def forward(self, x):
-        # 1 + 16   16 as video, 1 as image
-        first_frame_pad = x[:, :, :1, :, :].repeat(
-            (1, 1, self.time_kernel_size - 1, 1, 1)
-        )   # b c t h w
-        x = torch.concatenate((first_frame_pad, x), dim=2)
-        return self.conv(x)
+        def prepare(x):
+            # 1 + 16   16 as video, 1 as image
+            first_frame_pad = x[:, :, :1, :, :].repeat(
+                (1, 1, self.time_kernel_size - 1, 1, 1)
+            )  # b c t h w
+            x = torch.concatenate((first_frame_pad, x), dim=2)
+
+        if npu_config.on_npu:
+            x_dtype = x.dtype
+            x = x.to(torch.float16)
+            x = prepare(x)
+            return npu_config.run_with_dtype(self.conv, x, torch.float16, x_dtype)
+        else:
+            return self.conv(x)
     

@@ -2,7 +2,7 @@ import os
 import torch
 import argparse
 import torchvision
-
+from opensora.npu_config import npu_config
 from diffusers.schedulers import (DDIMScheduler, DDPMScheduler, PNDMScheduler,
                                   EulerDiscreteScheduler, DPMSolverMultistepScheduler,
                                   HeunDiscreteScheduler, EulerAncestralDiscreteScheduler,
@@ -104,14 +104,14 @@ def main(args):
             if args.force_images:
                 videos = videos[:, 0].permute(0, 3, 1, 2)  # b t h w c -> b c h w
                 save_image(videos / 255.0, os.path.join(args.save_img_path,
-                                                     prompt.replace(' ', '_')[:100] + f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}.{ext}'),
+                                                     prompt.replace(' ', '_')[:50] + f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}.{ext}'),
                            nrow=1, normalize=True, value_range=(0, 1))  # t c h w
 
             else:
                 imageio.mimwrite(
                     os.path.join(
                         args.save_img_path,
-                        prompt.replace(' ', '_')[:100] + f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}.{ext}'
+                        prompt.replace(' ', '_')[:50] + f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}.{ext}'
                     ), videos[0],
                     fps=args.fps, quality=9)  # highest quality is 10, lowest is 0
         except:
