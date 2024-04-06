@@ -1,4 +1,5 @@
 import torch
+from diffusers import ModelMixin, ConfigMixin
 from torch import nn
 import os
 import json
@@ -9,7 +10,7 @@ so there is no content here for the moment.
 It will be gradually optimized over time. 
 Contributions from the open-source community are welcome.
 """
-class VideoBaseAE(nn.Module):
+class VideoBaseAE(ModelMixin, ConfigMixin):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         

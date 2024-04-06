@@ -32,31 +32,22 @@ def main(args):
     torch.set_grad_enabled(False)
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    vae = getae(args).to(device, dtype=torch.float16)
+    vae = CausalVAEModelWrapper(args.model_path, subfolder="vae", cache_dir='cache_dir').to(device, dtype=torch.float16)
     if args.enable_tiling:
         vae.vae.enable_tiling()
         vae.vae.tile_overlap_factor = args.tile_overlap_factor
-    if getae_wrapper(args) == CausalVQVAEModelWrapper or getae_wrapper(args) == CausalVAEModelWrapper:
-        video_length = args.num_frames // ae_stride_config[args.ae][0] + 1
-    else:
-        video_length = args.num_frames // ae_stride_config[args.ae][0]
+
+    video_length, image_size = int(args.version.split('x')[0]), int(args.version.split('x')[1])
     if args.force_images:
         video_length = 1
-        ext = '.jpg'
+        ext = 'jpg'
     else:
         ext = 'mp4'
     # Load model:
-    latent_size = (args.image_size // ae_stride_config[args.ae][1], args.image_size // ae_stride_config[args.ae][2])
-    args.latent_size = latent_size
-    vae.latent_size = latent_size
-    transformer_model = LatteT2V.from_pretrained(args.ckpt, subfolder="model", torch_dtype=torch.float16).to(device)
+    transformer_model = LatteT2V.from_pretrained(args.model_path, subfolder=args.version, torch_dtype=torch.float16).to(device)
     transformer_model.force_images = args.force_images
-    # tokenizer = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir='./cache_dir')
-    # text_encoder = get_text_enc(args).to(device).eval()
     tokenizer = T5Tokenizer.from_pretrained(args.text_encoder_name, cache_dir="cache_dir")
     text_encoder = T5EncoderModel.from_pretrained(args.text_encoder_name, cache_dir="cache_dir", torch_dtype=torch.float16).to(device)
-
-    transformer_model.eval()  # important!
 
     # set eval mode
     transformer_model.eval()
@@ -101,8 +92,8 @@ def main(args):
         print('Processing the ({}) prompt'.format(prompt))
         videos = videogen_pipeline(prompt,
                                    video_length=video_length,
-                                   height=args.image_size,
-                                   width=args.image_size,
+                                   height=image_size,
+                                   width=image_size,
                                    num_inference_steps=args.num_sampling_steps,
                                    guidance_scale=args.guidance_scale,
                                    enable_temporal_attentions=not args.force_images,
@@ -113,14 +104,14 @@ def main(args):
             if args.force_images:
                 videos = videos[:, 0].permute(0, 3, 1, 2)  # b t h w c -> b c h w
                 save_image(videos / 255.0, os.path.join(args.save_img_path,
-                                                     prompt.replace(' ', '_') + f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}.{ext}'),
+                                                     prompt.replace(' ', '_')[:100] + f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}.{ext}'),
                            nrow=1, normalize=True, value_range=(0, 1))  # t c h w
 
             else:
                 imageio.mimwrite(
                     os.path.join(
                         args.save_img_path,
-                        prompt.replace(' ', '_') + f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}.{ext}'
+                        prompt.replace(' ', '_')[:100] + f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}.{ext}'
                     ), videos[0],
                     fps=args.fps, quality=9)  # highest quality is 10, lowest is 0
         except:
@@ -144,13 +135,12 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--ckpt", type=str, default="")
-    parser.add_argument("--model", type=str, default='Latte-XL/122')
+    parser.add_argument("--model_path", type=str, default='LanguageBind/Open-Sora-Plan-v1.0.0')
+    parser.add_argument("--version", type=str, default='65x512x512', choices=['65x512x512', '65x256x256', '17x256x256'])
     parser.add_argument("--ae", type=str, default='CausalVAEModel_4x8x8')
     parser.add_argument("--text_encoder_name", type=str, default='DeepFloyd/t5-v1_1-xxl')
     parser.add_argument("--save_img_path", type=str, default="./sample_videos/t2v")
     parser.add_argument("--beta_start", type=float, default=0.0001)
-    parser.add_argument("--image_size", type=int, default=512)
     parser.add_argument("--beta_end", type=float, default=0.02)
     parser.add_argument("--guidance_scale", type=float, default=7.5)
     parser.add_argument("--beta_schedule", type=str, default="linear")
@@ -158,12 +148,9 @@ if __name__ == "__main__":
     parser.add_argument("--sample_method", type=str, default="PNDM")
     parser.add_argument("--num_sampling_steps", type=int, default=50)
     parser.add_argument("--fps", type=int, default=24)
-    parser.add_argument("--num_frames", type=int, default=65)
     parser.add_argument("--run_time", type=int, default=0)
     parser.add_argument("--text_prompt", nargs='+')
-
     parser.add_argument('--force_images', action='store_true')
-
     parser.add_argument('--tile_overlap_factor', type=float, default=0.25)
     parser.add_argument('--enable_tiling', action='store_true')
     args = parser.parse_args()
