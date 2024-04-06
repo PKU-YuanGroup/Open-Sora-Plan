@@ -50,8 +50,9 @@ def generate_img(prompt, sample_steps, scale, seed=0, randomize_seed=False, forc
 
 if __name__ == '__main__':
     args = type('args', (), {
+        'ae': 'CausalVAEModel_4x8x8',
         'force_images': False,
-        'model_path': 'LanguageBind/Open-Sora-Plan-65x512x512-v1.0.0',
+        'model_path': 'LanguageBind/Open-Sora-Plan-v1.0.0',
         'text_encoder_name': 'DeepFloyd/t5-v1_1-xxl',
         'version': '65x512x512'
     })
@@ -59,9 +60,11 @@ if __name__ == '__main__':
     # Load model:
     transformer_model = LatteT2V.from_pretrained(args.model_path, subfolder=args.version, torch_dtype=torch.float16, cache_dir='cache_dir').to(device)
 
-    vae = CausalVAEModelWrapper(args.model_path, subfolder="vae", cache_dir='cache_dir').to(device, dtype=torch.float16)
+    vae = getae_wrapper(args.ae)(args.model_path, subfolder="vae", cache_dir='cache_dir').to(device, dtype=torch.float16)
     vae.vae.enable_tiling()
-
+    image_size = int(args.version.split('x')[1])
+    latent_size = (image_size // ae_stride_config[args.ae][1], image_size // ae_stride_config[args.ae][2])
+    vae.latent_size = latent_size
     transformer_model.force_images = args.force_images
     tokenizer = T5Tokenizer.from_pretrained(args.text_encoder_name, cache_dir="cache_dir")
     text_encoder = T5EncoderModel.from_pretrained(args.text_encoder_name, cache_dir="cache_dir",

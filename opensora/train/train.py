@@ -41,8 +41,8 @@ from diffusers.training_utils import EMAModel, compute_snr
 from diffusers.utils import check_min_version, is_wandb_available
 
 from opensora.dataset import getdataset, ae_denorm
-from opensora.models.ae import getae
-from opensora.models.ae.videobase import CausalVQVAEModelWrapper
+from opensora.models.ae import getae, getae_wrapper
+from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModelWrapper
 from opensora.models.diffusion.diffusion import create_diffusion_T as create_diffusion
 from opensora.models.diffusion.latte.modeling_latte import Latte
 from opensora.utils.dataset_utils import Collate
@@ -151,7 +151,10 @@ def main(args):
     # Create model:
 
     diffusion = create_diffusion(timestep_respacing="")  # default: 1000 steps, linear noise schedule
-    ae = getae(args).eval()
+    ae = getae_wrapper(args.ae)(args.ae_path).eval()
+    if args.enable_tiling:
+        ae.vae.enable_tiling()
+        ae.vae.tile_overlap_factor = args.tile_overlap_factor
 
     ae_stride_t, ae_stride_h, ae_stride_w = ae_stride_config[args.ae]
     args.ae_stride_t, args.ae_stride_h, args.ae_stride_w = ae_stride_t, ae_stride_h, ae_stride_w
@@ -167,10 +170,10 @@ def main(args):
 
     latent_size = (args.max_image_size // ae_stride_h, args.max_image_size // ae_stride_w)
 
-    if isinstance(ae, CausalVQVAEModelWrapper):
-        video_length = args.num_frames // ae_stride_t + 1
+    if getae_wrapper(args.ae) == CausalVQVAEModelWrapper or getae_wrapper(args.ae) == CausalVAEModelWrapper:
+        args.video_length = video_length = args.num_frames // ae_stride_t + 1
     else:
-        video_length = args.num_frames // ae_stride_t
+        args.video_length = video_length = args.num_frames // ae_stride_t
     model = Diffusion_models[args.model](
         in_channels=ae_channel_config[args.ae],
         out_channels=ae_channel_config[args.ae] * 2,
@@ -486,7 +489,7 @@ def main(args):
                     if args.enable_tracker:
                         with torch.no_grad():
                             # create pipeline
-                            ae_ = getae(args).to(accelerator.device).eval()
+                            ae_ = getae_wrapper(args.ae)(args.ae_path).to(accelerator.device).eval()
                             model_ = Latte.from_pretrained(save_path, subfolder="model").to(accelerator.device).eval()
                             diffusion_ = create_diffusion(str(500))
                             videos = []

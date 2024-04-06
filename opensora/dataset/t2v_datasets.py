@@ -44,7 +44,7 @@ class T2V_dataset(Dataset):
             # input_ids = torch.ones(1, 120).to(torch.long).squeeze(0)
             # cond_mask = torch.cat([torch.ones(1, 60).to(torch.long), torch.ones(1, 60).to(torch.long)], dim=1).squeeze(0)
             # return video, input_ids, cond_mask
-            video_path = self.samples[idx]['path'].replace('data_split', 'data_split_tt')
+            video_path = self.samples[idx]['path']
             video = self.decord_read(video_path)
             video = self.transform(video)  # T C H W -> T C H W
             video = video.transpose(0, 1)  # T C H W -> C T H W
