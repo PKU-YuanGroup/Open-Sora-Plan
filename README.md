@@ -43,10 +43,17 @@ Project stages:
   
 ## 📰 News
 
+**[2024.04.07]** 🚀🚀🚀 Today, we are thrilled to present Open-Sora-Plan v1.0.0, which significantly enhances video generation quality and text control capabilities. See our [report](docs/Report-v1.0.0.md)
+
+**Text-to-Video Generation** with 65×512×512
+
+https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/37e3107e-56b3-4b09-8920-fa1d8d144b9e
+
+**Text-to-Image Generation** with 512×512
+
+![download](https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/491d72bc-e762-48ff-bdcc-cc69350f56d6)
+
 **[2024.03.27]** 🚀🚀🚀 We release the report of [VideoCausalVAE](docs/CausalVideoVAE.md), which supports both images and videos. We present our reconstructed video in this demonstration as follows. The text-to-video model is on the way.
-
-https://github.com/qqingzheng/Open-Sora-Plan/assets/88202804/0dbf8f8f-efba-414e-ad42-1f839839f9cf
-
 
 **[2024.03.10]** 🚀🚀🚀 This repo supports training a latent size of 225×90×90 (t×h×w), which means we are able to **train 1 minute of 1080P video with 30FPS** (2× interpolated frames and 2× super resolution) under class-condition.
 
