@@ -1,5 +1,5 @@
 compute_environment: LOCAL_MACHINE
-distributed_type: MULTI_NPU
+distributed_type: MULTI_GPU
 fsdp_config: {}
 machine_rank: 0
 main_process_ip: null

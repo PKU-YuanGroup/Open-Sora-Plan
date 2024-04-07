@@ -19,6 +19,8 @@ def range_pop(self):
 class NPUConfig:
     def __init__(self):
         self.on_npu = npu_is_available
+        self.profiling = True
+        self.profiling_step = 10
         if self.on_npu:
             from torch_npu.contrib import transfer_to_npu
             torch_npu.npu.set_compile_mode(jit_compile=False)

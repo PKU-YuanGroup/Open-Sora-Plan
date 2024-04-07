@@ -98,6 +98,7 @@ class CausalConv3d(nn.Module):
                 (1, 1, self.time_kernel_size - 1, 1, 1)
             )  # b c t h w
             x = torch.concatenate((first_frame_pad, x), dim=2)
+            return x
 
         if npu_config.on_npu:
             x_dtype = x.dtype
