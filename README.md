@@ -43,7 +43,7 @@ Project stages:
   
 ## 📰 News
 
-**[2024.04.07]** 🚀🚀🚀 Today, we are thrilled to present Open-Sora-Plan v1.0.0, which significantly enhances video generation quality and text control capabilities. See our [report](docs/Report-v1.0.0.md)
+**[2024.04.07]** 🚀🚀🚀 Today, we are thrilled to present Open-Sora-Plan v1.0.0, which significantly enhances video generation quality and text control capabilities. See our [report](docs/Report-v1.0.0.md).
 
 **Text-to-Video Generation** with 65×512×512
 
