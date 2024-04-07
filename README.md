@@ -16,7 +16,7 @@
 [![GitHub repo watchers](https://img.shields.io/github/watchers/PKU-YuanGroup/Open-Sora-Plan?style=flat&logo=github&logoColor=whitesmoke&label=Watchers)](https://github.com/PKU-YuanGroup/Open-Sora-Plan/watchers)&#160;
 [![GitHub repo size](https://img.shields.io/github/repo-size/PKU-YuanGroup/Open-Sora-Plan?style=flat&logo=github&logoColor=whitesmoke&label=Repo%20Size)](https://github.com/PKU-YuanGroup/Open-Sora-Plan/archive/refs/heads/main.zip)
 
-We are thrilled to present **Open-Sora-Plan v1.0.0**, which significantly enhances video generation quality and text control capabilities. See our [report](docs/Report-v1.0.0.md). We are training for higher resolution (>1024) as well as longer duration (>10s) videos, here is a preview of the next release.
+We are thrilled to present **Open-Sora-Plan v1.0.0**, which significantly enhances video generation quality and text control capabilities. See our [report](docs/Report-v1.0.0.md). We are training for higher resolution (>1024) as well as longer duration (>10s) videos, here is a preview of the next release. We show compressed .gif on github, which loses some quality.
 
 | 257×512×512 (10s) | 65×1024×1024 (2.7s) | 65×1024×1024 (2.7s) | 
 | --- | --- | --- |
