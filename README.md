@@ -17,6 +17,14 @@
 [![GitHub repo size](https://img.shields.io/github/repo-size/PKU-YuanGroup/Open-Sora-Plan?style=flat&logo=github&logoColor=whitesmoke&label=Repo%20Size)](https://github.com/PKU-YuanGroup/Open-Sora-Plan/archive/refs/heads/main.zip)
 
 
+| A serene underwater scene featuring a sea turtle swimming... | Yellow and black tropical fish dart through the sea.  | a dynamic interaction between the ocean and a large rock...  |
+| --- | --- | --- |
+| <img src="assets/rrdqk-puoud.gif" width=256> | <img src="assets/dpvj8-y3ubn.gif" width=256>  | <img src="assets/i1ude-11d4e.gif" width=256> |
+| The dynamic movement of tall, wispy grasses swaying in the wind... | Slow pan upward of blazing oak fire in an indoor fireplace.  | A serene waterfall cascading down moss-covered rocks...  |
+| <img src="assets/y70q9-y5tip.gif" width=256> | <img src="assets/ozg76-g1aqh.gif" width=256>  | <img src="assets/kntw7-iuluy.gif" width=256> |
+
+
+
 
 
 ## 💪 Goal
@@ -44,14 +52,6 @@ Project stages:
 ## 📰 News
 
 **[2024.04.07]** 🚀🚀🚀 Today, we are thrilled to present Open-Sora-Plan v1.0.0, which significantly enhances video generation quality and text control capabilities. See our [report](docs/Report-v1.0.0.md).
-
-**Text-to-Video Generation** with 65×512×512
-
-https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/37e3107e-56b3-4b09-8920-fa1d8d144b9e
-
-**Text-to-Image Generation** with 512×512
-
-![download](https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/491d72bc-e762-48ff-bdcc-cc69350f56d6)
 
 **[2024.03.27]** 🚀🚀🚀 We release the report of [VideoCausalVAE](docs/CausalVideoVAE.md), which supports both images and videos. We present our reconstructed video in this demonstration as follows. The text-to-video model is on the way.
 
