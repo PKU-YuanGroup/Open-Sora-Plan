@@ -18,13 +18,13 @@
 
 We are thrilled to present **Open-Sora-Plan v1.0.0**, which significantly enhances video generation quality and text control capabilities. See our [report](docs/Report-v1.0.0.md). We are training for higher resolution (>1024) as well as longer duration (>10s) videos, here is a preview of the next release.
 
-| 257×512×512 | 65×1024×1024 | 65×1024×1024 | 
+| 257×512×512 (10s) | 65×1024×1024 (2.7s) | 65×1024×1024 (2.7s) | 
 | --- | --- | --- |
 | <img src="assets/pvvm5-5hm65.gif" width=224> |  <img src="assets/nr2a2-oe6qj.gif" width=448> |<img src="assets/ns4et-xj8ax.gif" width=448>  |  
 | Time-lapse of a coastal landscape transitioning from sunrise to nightfall...  |  A quiet beach at dawn, the waves gently lapping at the shore and the sky painted in pastel hues....|Sunset over the sea.  | 
 
 
-| 65×512×512 | 65×512×512 | 65×512×512 |
+| 65×512×512 (2.7s) | 65×512×512 (2.7s) | 65×512×512 (2.7s) |
 | --- | --- | --- |
 | <img src="assets/rrdqk-puoud.gif" width=224> | <img src="assets/dpvj8-y3ubn.gif" width=224>  | <img src="assets/i1ude-11d4e.gif" width=224> |
 | A serene underwater scene featuring a sea turtle swimming... | Yellow and black tropical fish dart through the sea.  | a dynamic interaction between the ocean and a large rock...  |
