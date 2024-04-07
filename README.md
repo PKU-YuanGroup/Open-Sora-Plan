@@ -240,8 +240,6 @@ python examples/rec_video_vae.py --rec-path test_video.mp4 --video-path video.mp
 -device cuda --ckpt <Your ckpt>
 ```
 
-For more details, please refer to: [CausalVideoVAE Report](docs/CausalVideoVAE.md).
-
 ### VideoGPT VQVAE
 
 Please refer to the document [VQVAE](docs/VQVAE.md).
