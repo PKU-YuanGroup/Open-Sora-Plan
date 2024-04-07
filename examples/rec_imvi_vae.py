@@ -10,6 +10,7 @@ import torch
 from PIL import Image
 from decord import VideoReader, cpu
 from torch.nn import functional as F
+import torch.nn as nn
 from pytorchvideo.transforms import ShortSideScale
 from torchvision.transforms import Lambda, Compose
 
@@ -18,6 +19,47 @@ sys.path.append(".")
 from opensora.dataset.transform import CenterCropVideo, resize
 from opensora.models.ae.videobase import CausalVAEModel
 
+
+def process_in_chunks(
+    video_data: torch.Tensor,
+    model: nn.Module,
+    chunk_size: int,
+    overlap: int,
+    device: str,
+):
+    assert (chunk_size + overlap - 1) % 4 == 0
+    num_frames = video_data.size(2)
+    output_chunks = []
+
+    start = 0
+    while start < num_frames:
+        end = min(start + chunk_size, num_frames)
+        if start + chunk_size + overlap < num_frames:
+            end += overlap
+        chunk = video_data[:, :, start:end, :, :]
+
+        with torch.no_grad():
+            chunk = chunk.to(device)
+            latents = model.encode(chunk)
+            recon_chunk = model.decode(latents.sample().half()).cpu().float()
+
+        if output_chunks:
+            overlap_step = min(overlap, recon_chunk.shape[2])
+            overlap_tensor = (
+                output_chunks[-1][:, :, -overlap_step:] * 1 / 4
+                + recon_chunk[:, :, :overlap_step] * 3 / 4
+            )
+            output_chunks[-1] = torch.cat(
+                (output_chunks[-1][:, :, :-overlap], overlap_tensor), dim=2
+            )
+            if end < num_frames:
+                output_chunks.append(recon_chunk[:, :, overlap:])
+            else:
+                output_chunks.append(recon_chunk[:, :, :, :, :])
+        else:
+            output_chunks.append(recon_chunk)
+        start += chunk_size
+    return torch.cat(output_chunks, dim=2)
 
 def array_to_video(image_array: npt.NDArray, fps: float = 30.0, output_file: str = 'output_video.mp4') -> None:
     height, width, channels = image_array[0].shape
@@ -119,14 +161,12 @@ def main(args: argparse.Namespace):
         vqvae.tile_overlap_factor = args.tile_overlap_factor
     vqvae.eval()
     vqvae = vqvae.to(device)
-    vqvae = vqvae # .to(torch.float16)
+    vqvae = vqvae.to(torch.float16)
 
     with torch.no_grad():
         x_vae = preprocess(read_video(video_path, num_frames, sample_rate), resolution, crop_size)
-        x_vae = x_vae.to(device)  # b c t h w
-        x_vae = x_vae # .to(torch.float16)
-        latents = vqvae.encode(x_vae).sample() # .to(torch.float16)
-        video_recon = vqvae.decode(latents)
+        x_vae = x_vae.to(device).to(torch.float16)  # b c t h w
+        video_recon = process_in_chunks(x_vae, vqvae, 13, 4, device)
         
     if video_recon.shape[2] == 1:
         x = video_recon[0, :, 0, :, :]
