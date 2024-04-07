@@ -1,5 +1,4 @@
-export ASCEND_RT_VISIBLE_DEVICES=0
-python opensora/sample/sample_t2v.py \
+CUDA_VISIBLE_DEVICES=0 python opensora/sample/sample_t2v.py \
     --model_path LanguageBind/Open-Sora-Plan-v1.0.0 \
     --text_encoder_name DeepFloyd/t5-v1_1-xxl \
     --text_prompt examples/prompt_list_0.txt \
