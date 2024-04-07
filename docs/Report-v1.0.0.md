@@ -22,7 +22,7 @@ Open-Sora-Plan v1.0.0 supports joint training of images and videos. Here, we pre
 
 ### CasualVideoVAE Reconstruction
 
-**Video Reconstruction** with 720×1280. Since github can't put too big video, we put it here: [1](https://streamable.com/gqojal), [2](https://streamable.com/6nu3j8). 
+**Video Reconstruction** with 720×1280. Since github can't upload large video, we put it here: [1](https://streamable.com/gqojal), [2](https://streamable.com/6nu3j8). 
 
 https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/88202804/c100bb02-2420-48a3-9d7b-4608a41f14aa
 
