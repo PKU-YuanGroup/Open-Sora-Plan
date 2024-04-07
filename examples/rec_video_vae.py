@@ -18,6 +18,7 @@ sys.path.append(".")
 from opensora.models.ae.videobase import CausalVAEModel
 import torch.nn as nn
 
+
 def array_to_video(
     image_array: npt.NDArray, fps: float = 30.0, output_file: str = "output_video.mp4"
 ) -> None:

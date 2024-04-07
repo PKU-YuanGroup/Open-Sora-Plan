@@ -3,13 +3,13 @@ python opensora/train/train_causalvae.py \
     --batch_size 1 \
     --precision bf16 \
     --max_steps 40000 \
-    --save_steps 2000 \
-    --output_dir results/causalvae \
+    --save_steps 100 \
+    --output_dir results/causalvae_ \
     --video_path /remote-home1/dataset/data_split_tt \
-    --video_num_frames 5 \
+    --video_num_frames 1 \
     --resolution 32 \
     --sample_rate 1 \
     --n_nodes 1 \
     --devices 1 \
     --num_workers 8 \
-    --model_config scripts/causalvae/release.json
+    --load_from_checkpoint ./results/pretrained_488/

@@ -35,6 +35,8 @@ class TrainingArguments:
     resolution: int = field(default=64)
     num_workers: int = field(default=8)
     resume_from_checkpoint: str = field(default=None)
+    load_from_checkpoint: str = field(default=None)
+    
     
 def set_seed(seed=1006):
     torch.manual_seed(seed)
@@ -57,8 +59,8 @@ def train(args):
     set_seed()
     # Load Config
     model = CausalVAEModel()
-    if args.resume_from_checkpoint is not None:
-        model = CausalVAEModel.from_pretrained(args.resume_from_checkpoint)
+    if args.load_from_checkpoint is not None:
+        model = CausalVAEModel.from_pretrained(args.load_from_checkpoint)
     else:
         model = CausalVAEModel.from_config(args.model_config)
         
@@ -91,12 +93,14 @@ def train(args):
     trainer_kwargs = {}
     if args.resume_from_checkpoint:
         trainer_kwargs['ckpt_path'] = args.resume_from_checkpoint
-        
+    
     trainer.fit(
         model,
         train_loader,
         **trainer_kwargs
     )
+    # Save Huggingface Model
+    model.save_pretrained(os.path.join(args.output_dir, "hf"))
 
 if __name__ == "__main__":
     parser = HfArgumentParser(TrainingArguments)
