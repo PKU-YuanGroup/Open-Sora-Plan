@@ -16,10 +16,13 @@
 [![GitHub repo watchers](https://img.shields.io/github/watchers/PKU-YuanGroup/Open-Sora-Plan?style=flat&logo=github&logoColor=whitesmoke&label=Watchers)](https://github.com/PKU-YuanGroup/Open-Sora-Plan/watchers)&#160;
 [![GitHub repo size](https://img.shields.io/github/repo-size/PKU-YuanGroup/Open-Sora-Plan?style=flat&logo=github&logoColor=whitesmoke&label=Repo%20Size)](https://github.com/PKU-YuanGroup/Open-Sora-Plan/archive/refs/heads/main.zip)
 
-| 65×1024×1024 | 65×1024×1024 |
-| --- | --- |
-| <img src="assets/nr2a2-oe6qj.gif" width=512> | <img src="assets/ns4et-xj8ax.gif" width=512>  |
-| A quiet beach at dawn, the waves gently lapping at the shore and the sky painted in pastel hues.... | Sunset over the sea.  |
+We are thrilled to present **Open-Sora-Plan v1.0.0**, which significantly enhances video generation quality and text control capabilities. See our [report](docs/Report-v1.0.0.md). We are training for higher resolution (>1024) as well as longer duration (>10s) videos, here is a preview of the next release.
+
+| 257×512×512 | 65×1024×1024 | 65×1024×1024 | 
+| --- | --- | --- |
+| <img src="assets/pvvm5-5hm65.gif" width=256> |  <img src="assets/nr2a2-oe6qj.gif" width=512> |<img src="assets/ns4et-xj8ax.gif" width=512>  |  
+| Time-lapse of a coastal landscape transitioning from sunrise to nightfall...  |  A quiet beach at dawn, the waves gently lapping at the shore and the sky painted in pastel hues....|Sunset over the sea.  | 
+
 
 | 65×512×512 | 65×512×512 | 65×512×512 |
 | --- | --- | --- |
