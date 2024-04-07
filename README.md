@@ -16,12 +16,17 @@
 [![GitHub repo watchers](https://img.shields.io/github/watchers/PKU-YuanGroup/Open-Sora-Plan?style=flat&logo=github&logoColor=whitesmoke&label=Watchers)](https://github.com/PKU-YuanGroup/Open-Sora-Plan/watchers)&#160;
 [![GitHub repo size](https://img.shields.io/github/repo-size/PKU-YuanGroup/Open-Sora-Plan?style=flat&logo=github&logoColor=whitesmoke&label=Repo%20Size)](https://github.com/PKU-YuanGroup/Open-Sora-Plan/archive/refs/heads/main.zip)
 
+| 65*1024*1024 | 65*1024*1024 |
+| --- | --- |
+| <img src="assets/nr2a2-oe6qj.gif" width=512> | <img src="assets/ns4et-xj8ax.gif" width=512>  |
+| A quiet beach at dawn, the waves gently lapping at the shore and the sky painted in pastel hues.... | Sunset over the sea.  |
 
-| A serene underwater scene featuring a sea turtle swimming... | Yellow and black tropical fish dart through the sea.  | a dynamic interaction between the ocean and a large rock...  |
+| 65*512*512 | 65*512*512 | 65*512*512 |
 | --- | --- | --- |
 | <img src="assets/rrdqk-puoud.gif" width=256> | <img src="assets/dpvj8-y3ubn.gif" width=256>  | <img src="assets/i1ude-11d4e.gif" width=256> |
-| The dynamic movement of tall, wispy grasses swaying in the wind... | Slow pan upward of blazing oak fire in an indoor fireplace.  | A serene waterfall cascading down moss-covered rocks...  |
+| A serene underwater scene featuring a sea turtle swimming... | Yellow and black tropical fish dart through the sea.  | a dynamic interaction between the ocean and a large rock...  |
 | <img src="assets/y70q9-y5tip.gif" width=256> | <img src="assets/ozg76-g1aqh.gif" width=256>  | <img src="assets/kntw7-iuluy.gif" width=256> |
+| The dynamic movement of tall, wispy grasses swaying in the wind... | Slow pan upward of blazing oak fire in an indoor fireplace.  | A serene waterfall cascading down moss-covered rocks...  |
 
 
 
@@ -246,7 +251,8 @@ sh scripts/text_condition/train_videoae_17x256x256.sh
 ```
 ```
 sh scripts/text_condition/train_videoae_65x256x256.sh
-``````
+```
+```
 sh scripts/text_condition/train_videoae_65x512x512.sh
 ```
 
