@@ -44,9 +44,9 @@
     ""
   ],
   "encoder_temporal_downsample": [
+    "TimeDownsample2x",
+    "TimeDownsample2x",
     "",
-    "TimeDownsample2x",
-    "TimeDownsample2x",
     ""
   ],
   "hidden_size": 128,
