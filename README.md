@@ -99,7 +99,7 @@ https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/37e3107e-56b3-4b
 - [x] Add 2D RoPE to improve generalization ability as [FiT](https://github.com/whlzy/FiT). 🤝 Thanks to [@jpthu17](https://github.com/jpthu17)
 - [x] Compress KV according to [PixArt-sigma](https://pixart-alpha.github.io/PixArt-sigma-project). 
 - [x] Support deepspeed for videogpt training. 🤝 Thanks to [@sennnnn](https://github.com/sennnnn)
-- [ ] Train a **low dimension** Video-AE, whether it is VAE or VQVAE. ⌛ [WIP] 🚀 **[Require more computation]**
+- [x] Train a **low dimension** Video-AE, whether it is VAE or VQVAE.
 - [x] Extract offline feature.
 - [x] Train with offline feature.
 - [x] Add frame interpolation model. 🤝 Thanks to [@yunyangge](https://github.com/yunyangge)
@@ -137,7 +137,7 @@ https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/37e3107e-56b3-4b
   - [x] Train using the deepspeed engine. 🤝 Thanks to [@sennnnn](https://github.com/sennnnn)
   - [ ] Integrate with [Colossal-AI](https://github.com/PKU-YuanGroup/Open-Sora-Plan/issues/59#issue-2170735221) for a cheaper, faster, and more efficient. 🙏 **[Need your contribution]**
 - [ ] Train with a text condition. Here we could conduct different experiments: 🚀 **[Require more computation]**
-  - [ ] Train with T5 conditioning.
+  - [x] Train with T5 conditioning.
   - [ ] Train with CLIP conditioning.
   - [ ] Train with CLIP + T5 conditioning (probably costly during training and experiments).
 
@@ -201,6 +201,22 @@ pip install -e '.[dev]'
 
 ## 🗝️ Usage
 
+
+### 🤗 Demo
+
+#### Gradio Web UI  <a href='https://github.com/gradio-app/gradio'><img src='https://img.shields.io/github/stars/gradio-app/gradio'></a> 
+
+Highly recommend trying out our web demo by the following command. We also provide [online demo](https://huggingface.co/spaces/LanguageBind/Open-Sora-Plan-v1.0.0) in Huggingface Spaces.
+```bash
+python -m opensora.serve.gradio_web_server
+```
+
+#### CLI Inference
+
+```bash
+sh scripts/text_condition/sample_video.sh
+```
+
 ### Datasets
 Refer to [Data.md](docs/Data.md)
 
@@ -228,13 +244,11 @@ Please refer to the document [VQVAE](docs/VQVAE.md).
 ```
 sh scripts/text_condition/train_videoae_17x256x256.sh
 ```
-
-
-#### Sampling
 ```
-sh scripts/text_condition/sample_video.sh
+sh scripts/text_condition/train_videoae_65x256x256.sh
+``````
+sh scripts/text_condition/train_videoae_65x512x512.sh
 ```
-
 
 
 ## 🚀 Improved Training Performance
