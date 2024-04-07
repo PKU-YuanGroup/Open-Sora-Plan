@@ -221,7 +221,7 @@ pip install -e '.[dev]'
 
 #### Gradio Web UI  <a href='https://github.com/gradio-app/gradio'><img src='https://img.shields.io/github/stars/gradio-app/gradio'></a> 
 
-Highly recommend trying out our web demo by the following command. 🤝 Enjoying the [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/camenduru/MoE-LLaVA-jupyter/blob/main/MoE_LLaVA_jupyter.ipynb), created by [@camenduru](https://github.com/camenduru), who generously supports our research!
+Highly recommend trying out our web demo by the following command. 🤝 Enjoying the [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/camenduru/Open-Sora-Plan-jupyter/blob/main/Open_Sora_Plan_jupyter.ipynb), created by [@camenduru](https://github.com/camenduru), who generously supports our research!
 <!--
 We also provide [online demo](https://huggingface.co/spaces/LanguageBind/Open-Sora-Plan-v1.0.0) in Huggingface Spaces.
 -->
