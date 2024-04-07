@@ -142,6 +142,7 @@ Project stages:
 
 #### Train the 1080p model on video2text dataset
 - [ ] Looking for a suitable dataset, welcome to discuss and recommend. 🙏 **[Need your contribution]**
+  - [x]  Recommend [Panda-70M](https://github.com/snap-research/Panda-70M) and [MiraData](https://github.com/mira-space/MiraData) datasets.
 - [ ] Add synthetic video created by game engines or 3D representations. 🙏 **[Need your contribution]**
 - [x] Finish data loading, and pre-processing utils. ⌛ [WIP]
 - [ ] Support memory friendly training.
