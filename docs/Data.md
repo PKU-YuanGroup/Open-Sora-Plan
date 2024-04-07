@@ -2,6 +2,15 @@
 **We need more dataset**, please refer to the [open-sora-Dataset](https://github.com/shaodong233/open-sora-Dataset) for details.
 
 
+## Panda-70M
+
+Panda-70M ([Link](https://github.com/snap-research/Panda-70M)) is a large-scale dataset with 70M high-quality video-caption pairs. It provides a one-sentence caption for each video clip.
+
+## MiraData
+
+MiraData ([Link](https://github.com/mira-space/MiraData)) is a new large-scale video dataset specifically designed for long video generation tasks. The key features of MiraData are **long video duration** and **dense structured captions**. The current v0 version contains 57,803 video clips, totaling 1,754 hours, containing two scenarios: gaming and city/scenic exploration.
+
+
 ## Sky
 
 
