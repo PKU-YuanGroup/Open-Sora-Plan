@@ -22,7 +22,7 @@ We are thrilled to present **Open-Sora-Plan v1.0.0**, which significantly enhanc
 
 Thanks to **HUAWEI Ascend NPU Team** for supporting us. 
 
-目前已支持国产NPU芯片(华为昇腾910b)进行推理，下一步将支持训练，具体可参考[PR180
+目前已支持国产AI芯片(华为昇腾910b，期待更多国产算力芯片)进行推理，下一步将支持国产算力训练，具体可参考[PR180
 ](https://github.com/PKU-YuanGroup/Open-Sora-Plan/pull/180).
 
 | 257×512×512 (10s) | 65×1024×1024 (2.7s) | 65×1024×1024 (2.7s) | 
