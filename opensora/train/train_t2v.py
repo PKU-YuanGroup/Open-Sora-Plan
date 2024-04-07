@@ -25,7 +25,10 @@ from copy import deepcopy
 
 import accelerate
 import torch
-import torch_npu
+try:
+    import torch_npu
+except:
+    pass
 from opensora.npu_config import npu_config
 from torch.nn import functional as F
 import transformers
