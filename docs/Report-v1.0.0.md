@@ -6,21 +6,21 @@ In March 2024, we launched a plan called Open-Sora-Plan, which aims to reproduce
 
 Compared with previous video generation model, Open-Sora-Plan v1.0.0 has several improvements:
 
-1. **Efficient training and inference with CasualVideoVAE**. We apply a spatial-temporal compression to the videos by 4×8×8.
-2. **Joint image-video training for better quality**. Our CasualVideoVAE considers the first frame as an image, allowing for the simultaneous encoding of both images and videos in a natural manner. This allows the diffusion model to grasp more spatial-visual details to improve visual quality.
+1. **Efficient training and inference with CausalVideoVAE**. We apply a spatial-temporal compression to the videos by 4×8×8.
+2. **Joint image-video training for better quality**. Our CausalVideoVAE considers the first frame as an image, allowing for the simultaneous encoding of both images and videos in a natural manner. This allows the diffusion model to grasp more spatial-visual details to improve visual quality.
 
 ### Open-Source Release
 We open-source the Open-Sora-Plan to facilitate future development of Video Generation in the community. Code, data, model will be made publicly available.
 - Demo: Hugging Face demo [here](https://huggingface.co/spaces/LanguageBind/Open-Sora-Plan-v1.0.0).
 - Code: All training scripts and sample scripts.
-- Model: Both Diffusion Model and CasualVideoVAE [here](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.0.0).
+- Model: Both Diffusion Model and CausalVideoVAE [here](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.0.0).
 - Data: Both raw videos and captions [here](https://huggingface.co/datasets/LanguageBind/Open-Sora-Plan-v1.0.0).
 
 ## Gallery
 
 Open-Sora-Plan v1.0.0 supports joint training of images and videos. Here, we present the capabilities of Video/Image Reconstruction and Generation:
 
-### CasualVideoVAE Reconstruction
+### CausalVideoVAE Reconstruction
 
 **Video Reconstruction** with 720×1280. Since github can't upload large video, we put it here: [1](https://streamable.com/gqojal), [2](https://streamable.com/6nu3j8). 
 
@@ -47,7 +47,7 @@ https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/37e3107e-56b3-4b
 
 ## Detailed Technical Report
 
-### CasualVideoVAE
+### CausalVideoVAE
 
 #### Model Structure
 
@@ -66,7 +66,7 @@ The CausalVideoVAE architecture inherits from the [Stable-Diffusion Image VAE](h
 We present the loss curves for two distinct initialization methods under 17×256×256. The yellow curve represents the loss using tail init, while the blue curve corresponds to the loss from center initialization. As shown in the graph, tail initialization demonstrates better performance on the loss curve. Additionally, we found that center initialization leads to error accumulation, causing the collapse over extended durations.
 
 #### Inference Tricks
-Despite the VAE in Diffusion training being frozen, we still find it challenging to afford the cost of the CasualVideoVAE. In our case, with 80GB of GPU memory, we can only infer a video of either 256×512×512 or 32×1024×1024 resolution using half-precision, which limits our ability to scale up to longer and higher-resolution videos. Therefore, we adopt tile convolution, which allows us to infer videos of arbitrary duration or resolution with nearly constant memory usage.
+Despite the VAE in Diffusion training being frozen, we still find it challenging to afford the cost of the CausalVideoVAE. In our case, with 80GB of GPU memory, we can only infer a video of either 256×512×512 or 32×1024×1024 resolution using half-precision, which limits our ability to scale up to longer and higher-resolution videos. Therefore, we adopt tile convolution, which allows us to infer videos of arbitrary duration or resolution with nearly constant memory usage.
 
 ### Data Construction
 We define a high-quality video dataset based on two core principles: (1) No content-unrelated watermarks. (2) High-quality and dense captions.
@@ -87,8 +87,8 @@ Similar to previous work, we employ a multi-stage cascaded training approach, wh
 | Training Data | ~40k videos |  ~40k videos |  ~40k videos |  ~40k videos | 
 
 ## Next Release Preview
-### CasualVideoVAE
-Currently, the released version of CasualVideoVAE (v1.0.0) has two main drawbacks: **motion blurring** and **gridding effect**. We have made a series of improvements to CasualVideoVAE to reduce its inference cost and enhance its performance. We are currently referring to this enhanced version as the "preview version," which will be released in the next update. Preview reconstruction is as follows:
+### CausalVideoVAE
+Currently, the released version of CausalVideoVAE (v1.0.0) has two main drawbacks: **motion blurring** and **gridding effect**. We have made a series of improvements to CausalVideoVAE to reduce its inference cost and enhance its performance. We are currently referring to this enhanced version as the "preview version," which will be released in the next update. Preview reconstruction is as follows:
 
 **1 min Video Reconstruction with 720×1280**. Since github can't put too big video, we put it here: [origin video](https://streamable.com/u4onbb), [reconstruction video](https://streamable.com/qt8ncc). 
 
@@ -128,4 +128,4 @@ Although v1.0.0 has shown promising results, we acknowledge that we still have a
 
 3. **Enhanced conditional control**: We seek to enhance the conditional control capabilities of our models, providing users with more options and control over the generated videos.
 
-Furthermore, through careful observation of the generated videos, we have noticed the presence of some non-physiological speckles or abnormal flow. This can be attributed to the limited performance of CasualVideoVAE, as mentioned earlier. In future experiments, we plan to retrain a diffusion model using a more powerful version of CasualVideoVAE to address these issues.
+Furthermore, through careful observation of the generated videos, we have noticed the presence of some non-physiological speckles or abnormal flow. This can be attributed to the limited performance of CausalVideoVAE, as mentioned earlier. In future experiments, we plan to retrain a diffusion model using a more powerful version of CausalVideoVAE to address these issues.
