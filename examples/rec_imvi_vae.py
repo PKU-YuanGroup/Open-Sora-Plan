@@ -119,13 +119,13 @@ def main(args: argparse.Namespace):
         vqvae.tile_overlap_factor = args.tile_overlap_factor
     vqvae.eval()
     vqvae = vqvae.to(device)
-    vqvae = vqvae # .to(torch.float16)
+    vqvae = vqvae.to(torch.float16)
 
     with torch.no_grad():
         x_vae = preprocess(read_video(video_path, num_frames, sample_rate), resolution, crop_size)
         x_vae = x_vae.to(device)  # b c t h w
-        x_vae = x_vae # .to(torch.float16)
-        latents = vqvae.encode(x_vae).sample() # .to(torch.float16)
+        x_vae = x_vae.to(torch.float16)
+        latents = vqvae.encode(x_vae).sample().to(torch.float16)
         video_recon = vqvae.decode(latents)
         
     if video_recon.shape[2] == 1:
