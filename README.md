@@ -255,7 +255,7 @@ python examples/rec_video_vae.py --rec-path test_video.mp4 --video-path video.mp
 
 #### Training and Inference
 
-Please refer to the document [VQVAE](docs/Train_And_Eval_CausalVideoVAE.md).
+Please refer to the document [CausalVideoVAE](docs/Train_And_Eval_CausalVideoVAE.md).
 
 ### VideoGPT VQVAE
 
