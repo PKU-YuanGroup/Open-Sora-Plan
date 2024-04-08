@@ -23,7 +23,7 @@ DESCRIPTION = """
 ## If Open-Sora-Plan is helpful, please help to ✨ the [Github Repo](https://github.com/PKU-YuanGroup/Open-Sora-Plan) and recommend it to your friends 😊'
 #### [Open-Sora-Plan v1.0.0](https://github.com/PKU-YuanGroup/Open-Sora-Plan) is a transformer-based text-to-video diffusion system trained on text embeddings from T5.
 #### This demo is only trained on 40k videos, when creating videos, please be aware that it has the potential to generate harmful videos. For more details read our [report]().
-#### Image generation is typically 50 steps, video generation maybe 250 steps will yield good results, but this may take 2-3 minutes.
+#### Image generation is typically 50 steps, video generation maybe 150 steps will yield good results, but this may take 3-4 minutes.
 #### Feel free to enjoy the examples.
 #### English prompts ONLY; 提示词仅限英文
 ####

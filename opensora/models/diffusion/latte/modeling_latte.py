@@ -8,8 +8,7 @@ from einops import rearrange, repeat
 from typing import Any, Dict, Optional, Tuple
 from diffusers.models import Transformer2DModel
 from diffusers.utils import USE_PEFT_BACKEND, BaseOutput, deprecate
-from diffusers.models.embeddings import get_1d_sincos_pos_embed_from_grid, ImagePositionalEmbeddings, CaptionProjection
-# from diffusers.models.embeddings import PatchEmbed, CombinedTimestepSizeEmbeddings
+from diffusers.models.embeddings import get_1d_sincos_pos_embed_from_grid, ImagePositionalEmbeddings
 from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.models.modeling_utils import ModelMixin
 from diffusers.models.lora import LoRACompatibleConv, LoRACompatibleLinear
@@ -19,7 +18,8 @@ import torch.nn.functional as F
 from torch import nn
 
 from opensora.models.diffusion.utils.pos_embed import get_1d_sincos_pos_embed
-from .modules import PatchEmbed, BasicTransformerBlock, BasicTransformerBlock_, AdaLayerNormSingle, Transformer3DModelOutput
+from .modules import PatchEmbed, BasicTransformerBlock, BasicTransformerBlock_, AdaLayerNormSingle, \
+    Transformer3DModelOutput, CaptionProjection
 
 
 class Latte(ModelMixin, ConfigMixin):
