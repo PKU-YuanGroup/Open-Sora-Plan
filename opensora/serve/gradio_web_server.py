@@ -63,7 +63,8 @@ if __name__ == '__main__':
     # Load model:
     transformer_model = LatteT2V.from_pretrained(args.model_path, subfolder=args.version, torch_dtype=torch.float16, cache_dir='cache_dir').to(device)
 
-    vae = getae_wrapper(args.ae)(args.model_path, subfolder="vae", cache_dir='cache_dir').to(device, dtype=torch.float16)
+    vae = getae_wrapper(args.ae)(args.model_path, subfolder="vae", cache_dir='cache_dir').to(device)
+    vae = vae.half()
     vae.vae.enable_tiling()
     image_size = int(args.version.split('x')[1])
     latent_size = (image_size // ae_stride_config[args.ae][1], image_size // ae_stride_config[args.ae][2])
@@ -82,7 +83,7 @@ if __name__ == '__main__':
                                          text_encoder=text_encoder,
                                          tokenizer=tokenizer,
                                          scheduler=scheduler,
-                                         transformer=transformer_model).to(device=device)
+                                         transformer=transformer_model).to(device)
 
 
     demo = gr.Interface(
