@@ -24,7 +24,7 @@ CausalVideoVAE is located in the directory `opensora/models/ae/videobase`. The d
 └── vqvae
 ```
 
-The `casual_vae` directory defines the overall structure of the CausalVideoVAE model, and the `modules` directory contains some of the required modules for the model, including CausalConv3D, ResnetBlock3D, Attention, etc. The `losses` directory includes GAN LOSS, Perception Loss, and other content.
+The `casual_vae` directory defines the overall structure of the CausalVideoVAE model, and the `modules` directory contains some of the required modules for the model, including **CausalConv3D**, **ResnetBlock3D**, **Attention**, etc. The `losses` directory includes **GAN loss**, **Perception loss**, and other content.
 
 ## Configuration
 
@@ -108,7 +108,7 @@ Taking the release version model configuration file `release.json` as an example
 }
 ```
 
-It configures the modules used in different layers of the encoder and decoder, as well as the GAN Loss. By changing the model configuration file, it is easy to train different model structures.
+It configures the modules used in different layers of the encoder and decoder, as well as the loss. By changing the model configuration file, it is easy to train different model structures.
 
 ### Training Script
 
