@@ -2,6 +2,8 @@
 
 To execute in the terminal: `bash scripts/causalvae/train.sh`
 
+> When using GAN loss for training, two backward propagations are required. However, when [custom optimizers](https://lightning.ai/docs/pytorch/stable/model/manual_optimization.html#use-multiple-optimizers-like-gans) are implemented in PyTorch Lightning, it can lead to the training step count being doubled, meaning each training loop effectively results in two steps. This issue can make it counterintuitive when setting the training step count and the starting step count for the GAN loss.
+
 ## Code Structure
 
 CausalVideoVAE is located in the directory `opensora/models/ae/videobase`. The directory structure is as follows:
