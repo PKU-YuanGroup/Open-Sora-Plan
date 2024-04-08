@@ -22,7 +22,7 @@
 
 We are thrilled to present **Open-Sora-Plan v1.0.0**, which significantly enhances video generation quality and text control capabilities. See our [report](docs/Report-v1.0.0.md). We are training for higher resolution (>1024) as well as longer duration (>10s) videos, here is a preview of the next release. We show compressed .gif on github, which loses some quality.
 
-Thanks to **HUAWEI Ascend NPU Team** for supporting us. 
+Thanks to **HUAWEI Ascend NPU Team** for supporting us.
 
 目前已支持国产AI芯片(华为昇腾910b，期待更多国产算力芯片)进行推理，下一步将支持国产算力训练，具体可参考[PR180
 ](https://github.com/PKU-YuanGroup/Open-Sora-Plan/pull/180).
@@ -304,6 +304,7 @@ For more details, please refer to the [Contribution Guidelines](docs/Contributio
 
 ## 👍 Acknowledgement
 * [Latte](https://github.com/Vchitect/Latte): The **main codebase** we built upon and it is an wonderful video gererated model.
+* [PixArt-alpha](https://github.com/PixArt-alpha/PixArt-alpha): Fast Training of Diffusion Transformer for Photorealistic Text-to-Image Synthesis.
 * [VideoGPT](https://github.com/wilson1yan/VideoGPT): Video Generation using VQ-VAE and Transformers.
 * [DiT](https://github.com/facebookresearch/DiT): Scalable Diffusion Models with Transformers.
 * [FiT](https://github.com/whlzy/FiT): Flexible Vision Transformer for Diffusion Model.
