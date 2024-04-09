@@ -9,7 +9,7 @@ from diffusers.models.modeling_utils import ModelMixin
 from typing import Optional, Union
 import glob
 
-class VideoBaseAE(ModelMixin, ConfigMixin):
+class VideoBaseAE(nn.Module):
     _supports_gradient_checkpointing = False
     
     def __init__(self, *args, **kwargs) -> None:
