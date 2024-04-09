@@ -195,7 +195,11 @@ def main(args):
 
     # # use pretrained model?
     if args.pretrained:
-        checkpoint = torch.load(args.pretrained, map_location='cpu')['model']
+        if 'safetensors' in args.pretrained:
+            from safetensors.torch import load_file as safe_load
+            checkpoint = safe_load(args.pretrained, device="cpu")
+        else:
+            checkpoint = torch.load(args.pretrained, map_location='cpu')['model']
         model_state_dict = model.state_dict()
         missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=False)
         logger.info(f'missing_keys {len(missing_keys)} {missing_keys}, unexpected_keys {len(unexpected_keys)}')
