@@ -24,9 +24,6 @@ class NPUConfig:
         if self.on_npu:
             from torch_npu.contrib import transfer_to_npu
             torch_npu.npu.set_compile_mode(jit_compile=False)
-            import deepspeed as ds
-            ds.accelerator.cuda_accelerator.CUDA_Accelerator.range_push = range_push
-            ds.accelerator.cuda_accelerator.CUDA_Accelerator.range_pop = range_pop
 
     def npu_format_cast(self, x):
         return torch_npu.npu_format_cast(x, 2)
