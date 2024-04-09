@@ -439,7 +439,6 @@ class CausalVAEModel(VideoBaseAE_PL):
         opt1, opt2 = self.optimizers()
         
         # ---- AE Loss ----
-        opt1.zero_grad()
         aeloss, log_dict_ae = self.loss(
             inputs,
             reconstructions,
@@ -457,11 +456,11 @@ class CausalVAEModel(VideoBaseAE_PL):
             on_step=True,
             on_epoch=True,
         )
+        opt1.zero_grad()
         self.manual_backward(aeloss)
         self.clip_gradients(opt1, gradient_clip_val=1, gradient_clip_algorithm="norm")
         opt1.step()
         # ---- GAN Loss ----
-        opt2.zero_grad()
         discloss, log_dict_disc = self.loss(
             inputs,
             reconstructions,
@@ -479,6 +478,7 @@ class CausalVAEModel(VideoBaseAE_PL):
             on_step=True,
             on_epoch=True,
         )
+        opt2.zero_grad()
         self.manual_backward(discloss)
         self.clip_gradients(opt2, gradient_clip_val=1, gradient_clip_algorithm="norm")
         opt2.step()
