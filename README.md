@@ -68,7 +68,7 @@ Project stages:
   
 ## 📰 News
 
-**[2024.04.09]** 🚀 Excited to share our latest exploration on metamorphic time-lapse video generation: [MagicTime](https://github.com/PKU-YuanGroup/MagicTime), which learns real-world physics knowledge from time-lapse videos.
+**[2024.04.09]** 🚀 Excited to share our latest exploration on metamorphic time-lapse video generation: [MagicTime](https://github.com/PKU-YuanGroup/MagicTime), which learns real-world physics knowledge from time-lapse videos. Here is the dataset for train (updateing): [Open-Sora-Dataset](https://github.com/PKU-YuanGroup/Open-Sora-Dataset).
 
 **[2024.04.07]** 🔥🔥🔥 Today, we are thrilled to present Open-Sora-Plan v1.0.0, which significantly enhances video generation quality and text control capabilities. See our [report](docs/Report-v1.0.0.md). Thanks to HUAWEI NPU for supporting us.
 
@@ -325,8 +325,25 @@ For more details, please refer to the [Contribution Guidelines](docs/Contributio
 [![Star History](https://api.star-history.com/svg?repos=PKU-YuanGroup/Open-Sora-Plan)](https://star-history.com/#PKU-YuanGroup/Open-Sora-Plan&Date)
 -->
 
+
+## Citing
+
+### BibTeX
+
+```bibtex
+@misc{lin2024opensora,
+  author = {PKU-Yuan Lab and Tuzhan AI etc.},
+  title = {Open Sora Plan},
+  year = {2024},
+  publisher = {GitHub},
+  journal = {GitHub repository},
+  howpublished = {\url{https://github.com/PKU-YuanGroup/Open-Sora-Plan}}
+}
+```
+
 ## 🤝 Community contributors
 
 <a href="https://github.com/PKU-YuanGroup/Open-Sora-Plan/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=PKU-YuanGroup/Open-Sora-Plan" />
 </a>
+
