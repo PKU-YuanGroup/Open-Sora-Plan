@@ -86,7 +86,7 @@ https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/37e3107e-56b3-4b
 |---|---|---|---|---|
 | 训练视频尺寸 | 17×256×256 |  65×256×256 | 65×512×512 |  65×1024×1024 | 
 | 计算资源 (#A800 GPU x #小时) | 32 × 40 |  32 × 18 |  32 × 6 |  训练中 | 
-| 权重 | [HF](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.0.0/tree/main/17x256x256) | [HF](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.0.0/tree/main/65x256x256) |  [HF](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.0.0/tree/main/65x512x512) |  Under training | 
+| 权重 | [HF](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.0.0/tree/main/17x256x256) | [HF](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.0.0/tree/main/65x256x256) |  [HF](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.0.0/tree/main/65x512x512) |  训练中 | 
 | 日志 | [wandb](https://api.wandb.ai/links/linbin/p6n3evym) |  [wandb](https://api.wandb.ai/links/linbin/t2g53sew) |  [wandb](https://api.wandb.ai/links/linbin/uomr0xzb) | 训练中 | 
 | 训练数据 | ~40k videos |  ~40k videos |  ~40k videos |  ~40k videos | 
 
