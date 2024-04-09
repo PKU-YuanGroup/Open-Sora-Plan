@@ -112,11 +112,35 @@ It configures the modules used in different layers of the encoder and decoder, a
 
 ### Training Script
 
-For specific parameters, see the code in `opensora/train/train_causalvae.py`
+The following is a description of the parameters for the `train_causalvae.py`:
+
+| Parameter                  | Default Value | Description                                            |
+|-----------------------------|-----------------|--------------------------------------------------------|
+| `--exp_name`                 | "causalvae"      | The name of the experiment, used for the folder where results are saved. |
+| `--batch_size`               | 1               | The number of samples per training iteration.                  |
+| `--precision`                | "bf16"          | The numerical precision type used for training.                |
+| `--max_steps`                | 100000          | The maximum number of steps for the training process.          |
+| ``--save_steps`               | 2000            | The interval at which to save the model during training.      |
+| `--output_dir`               | "results/causalvae" | The directory where training results are saved.          |
+| `--video_path`               | "/remote-home1/dataset/data_split_tt" | The path where the video data is stored.            |
+| `--video_num_frames`         | 17              | The number of frames per video.                             |
+| `--sample_rate`              | 1               | The sampling rate, indicating the number of video frames per second. |
+| `--dynamic_sample`            | False           | Whether to use dynamic sampling.                               |
+| `--model_config`             | "scripts/causalvae/288.yaml" | The path to the model configuration file.              |
+| `--n_nodes`                  | 1               | The number of nodes used for training.                        |
+| `--devices`                  | 8               | The number of devices used for training.                       |
+| `--resolution`               | 432              | The resolution of the videos.                                 |
+| `--num_workers`              | 8               | The number of subprocesses used for data handling.            |
+| `--resume_from_checkpoint`   | None            | Resume training from a specified checkpoint.                  |
+| `--load_from_checkpoint`     | None            | Load the model from a specified checkpoint.                  |
+
+Please ensure that the values provided for these parameters are appropriate for your training setup.
 
 # Evaluation
 
 In the repository, we can use the script `scripts/causalvae/gen_video.sh` to generate videos and evaluate the generated videos through the script `scripts/causalvae/eval.sh`. Please check the scripts for detailed parameters. Currently, it supports common metrics such as `lpips`, `flolpips`, `ssim`, `psnr`, etc.
+
+> Please note that you must generate the videos before executing the eval script. Additionally, it is essential to ensure that the video parameters used when generating the videos are consistent with those used during the evaluation.
 
 # How to Import a Trained Model
 
@@ -126,3 +150,4 @@ Our model class inherits from the configuration and model management classes of 
 model = CausalVAEModel.from_pretrained(args.ckpt)
 model = model.to(device)
 ```
+
