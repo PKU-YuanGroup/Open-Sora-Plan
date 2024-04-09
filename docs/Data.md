@@ -9,7 +9,7 @@ We open source v1.0.0 all the training data, the annotations and the original vi
 
 These data consist of segmented video clips, with each clip obtained through center cropping. The resolution of each clip is 512×512. There are 64 frames in each clip, and their corresponding captions can be found in the annotation files.
 
-We present additional details [here](https://github.com/PKU-YuanGroup/Open-Sora-Plan/blob/main/docs/Report-v1.0.0.md#data-construction).
+We present additional details in [report](https://github.com/PKU-YuanGroup/Open-Sora-Plan/blob/main/docs/Report-v1.0.0.md#data-construction) and [Open-Sora-Dataset](https://github.com/PKU-YuanGroup/Open-Sora-Dataset).
 
 ### Class-condition
 
