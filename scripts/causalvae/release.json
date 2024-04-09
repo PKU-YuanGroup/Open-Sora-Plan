@@ -1,0 +1,71 @@
+{
+  "_class_name": "CausalVAEModel",
+  "_diffusers_version": "0.27.2",
+  "attn_resolutions": [],
+  "decoder_attention": "AttnBlock3D",
+  "decoder_conv_in": "CausalConv3d",
+  "decoder_conv_out": "CausalConv3d",
+  "decoder_mid_resnet": "ResnetBlock3D",
+  "decoder_resnet_blocks": [
+    "ResnetBlock3D",
+    "ResnetBlock3D",
+    "ResnetBlock3D",
+    "ResnetBlock3D"
+  ],
+  "decoder_spatial_upsample": [
+    "",
+    "SpatialUpsample2x",
+    "SpatialUpsample2x",
+    "SpatialUpsample2x"
+  ],
+  "decoder_temporal_upsample": [
+    "",
+    "",
+    "TimeUpsample2x",
+    "TimeUpsample2x"
+  ],
+  "double_z": true,
+  "dropout": 0.0,
+  "embed_dim": 4,
+  "encoder_attention": "AttnBlock3D",
+  "encoder_conv_in": "CausalConv3d",
+  "encoder_conv_out": "CausalConv3d",
+  "encoder_mid_resnet": "ResnetBlock3D",
+  "encoder_resnet_blocks": [
+    "ResnetBlock3D",
+    "ResnetBlock3D",
+    "ResnetBlock3D",
+    "ResnetBlock3D"
+  ],
+  "encoder_spatial_downsample": [
+    "SpatialDownsample2x",
+    "SpatialDownsample2x",
+    "SpatialDownsample2x",
+    ""
+  ],
+  "encoder_temporal_downsample": [
+    "TimeDownsample2x",
+    "TimeDownsample2x",
+    "",
+    ""
+  ],
+  "hidden_size": 128,
+  "hidden_size_mult": [
+    1,
+    2,
+    4,
+    4
+  ],
+  "loss_params": {
+    "disc_start": 2001,
+    "disc_weight": 0.5,
+    "kl_weight": 1e-06,
+    "logvar_init": 0.0
+  },
+  "loss_type": "opensora.models.ae.videobase.losses.LPIPSWithDiscriminator",
+  "lr": 1e-05,
+  "num_res_blocks": 2,
+  "q_conv": "CausalConv3d",
+  "resolution": 256,
+  "z_channels": 4
+}
