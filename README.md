@@ -25,8 +25,7 @@ We are thrilled to present **Open-Sora-Plan v1.0.0**, which significantly enhanc
 
 Thanks to **HUAWEI Ascend NPU Team** for supporting us.
 
-目前已支持国产AI芯片(华为昇腾910b，期待更多国产算力芯片)进行推理，下一步将支持国产算力训练，具体可参考[PR180
-](https://github.com/PKU-YuanGroup/Open-Sora-Plan/pull/180).
+目前已支持国产AI芯片(华为昇腾910b，期待更多国产算力芯片)进行推理，下一步将支持国产算力训练，具体可参考[PR180](https://github.com/PKU-YuanGroup/Open-Sora-Plan/pull/180).
 
 | 257×512×512 (10s) | 65×1024×1024 (2.7s) | 65×1024×1024 (2.7s) | 
 | --- | --- | --- |
@@ -96,7 +95,7 @@ Project stages:
 - [ ] Add docker file. ⌛ [WIP] 🤝 Thanks to [@Mon-ius](https://github.com/Mon-ius), [@SimonLeeGit](https://github.com/SimonLeeGit)
 - [ ] Enable type hints for functions. 🤝 Thanks to [@RuslanPeresy](https://github.com/RuslanPeresy), 🙏 **[Need your contribution]**
 - [x] Resume from checkpoint.
-- [x] Add Video-VQGAN model, which is borrowed from [VideoGPT](https://github.com/wilson1yan/VideoGPT).
+- [x] Add Video-VQVAE model, which is borrowed from [VideoGPT](https://github.com/wilson1yan/VideoGPT).
 - [x] Support variable aspect ratios, resolutions, durations training on [DiT](https://github.com/facebookresearch/DiT).
 - [x] Support Dynamic mask input inspired by [FiT](https://github.com/whlzy/FiT).
 - [x] Add class-conditioning on embeddings.
@@ -123,12 +122,13 @@ Project stages:
 - [x] Add frame interpolation model. 🤝 Thanks to [@yunyangge](https://github.com/yunyangge)
 - [x] Add super resolution model. 🤝 Thanks to [@Linzy19](https://github.com/Linzy19)
 - [x] Add accelerate to automatically manage training.
-- [ ] Joint training with images. 🙏 **[Need your contribution]**
+- [x] Joint training with images.
 - [ ] Implement [MaskDiT](https://github.com/Anima-Lab/MaskDiT) technique for fast training. 🙏 **[Need your contribution]**
 - [ ] Incorporate [NaViT](https://arxiv.org/abs/2307.06304). 🙏 **[Need your contribution]**
 - [ ] Add [FreeNoise](https://github.com/arthur-qiu/FreeNoise-LaVie) support for training-free longer video generation. 🙏 **[Need your contribution]**
 
 #### Conduct text2video experiments on landscape dataset.
+- [x] Load pretrained weights from [Latte](https://github.com/Vchitect/Latte).
 - [ ] Implement [PeRFlow](https://github.com/magic-research/piecewise-rectified-flow) for improving the sampling process. 🙏 **[Need your contribution]**
 - [x] Finish data loading, pre-processing utils.
 - [x] Add T5 support. 
@@ -145,23 +145,21 @@ Project stages:
 #### Train the 1080p model on video2text dataset
 - [ ] Looking for a suitable dataset, welcome to discuss and recommend. 🙏 **[Need your contribution]**
 - [ ] Add synthetic video created by game engines or 3D representations. 🙏 **[Need your contribution]**
-- [x] Finish data loading, and pre-processing utils. ⌛ [WIP]
-- [ ] Support memory friendly training.
+- [x] Finish data loading, and pre-processing utils.
+- [x] Support memory friendly training.
   - [x] Add flash-attention2 from pytorch.
   - [x] Add xformers.  🤝 Thanks to [@jialin-zhao](https://github.com/jialin-zhao)
   - [x] Support mixed precision training.
   - [x] Add gradient checkpoint.
   - [x] Support for ReBased and Ring attention. 🤝 Thanks to [@kabachuha](https://github.com/kabachuha)
   - [x] Train using the deepspeed engine. 🤝 Thanks to [@sennnnn](https://github.com/sennnnn)
-  - [ ] Integrate with [Colossal-AI](https://github.com/PKU-YuanGroup/Open-Sora-Plan/issues/59#issue-2170735221) for a cheaper, faster, and more efficient. 🙏 **[Need your contribution]**
 - [ ] Train with a text condition. Here we could conduct different experiments: 🚀 **[Require more computation]**
   - [x] Train with T5 conditioning.
   - [ ] Train with CLIP conditioning.
   - [ ] Train with CLIP + T5 conditioning (probably costly during training and experiments).
 
 #### Control model with more condition
-- [x] Load pretrained weights from [Latte](https://github.com/Vchitect/Latte).
-- [ ] Incorporating [ControlNet](https://github.com/lllyasviel/ControlNet). 🙏 **[Need your contribution]**
+- [ ] Incorporating [ControlNet](https://github.com/lllyasviel/ControlNet). ⌛ [WIP] 🙏 **[Need your contribution]**
 
 ## 📂 Repo structure (WIP)
 ```
