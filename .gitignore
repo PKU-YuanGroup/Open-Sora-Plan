@@ -13,3 +13,4 @@ wandb/
 *.ipynb
 *.jpg
 *.mp3
+*.safetensors
