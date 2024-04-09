@@ -31,7 +31,7 @@ You can easily calculate the following video quality metrics, which supports the
     ```
 ## Pretrain model
 - FVD
-    Before you cacluate FVD, you should first download the FVD pre-trained model. You can manually download any of the following and put it into FVD folder. 
+    Before you calculate FVD, you should first download the FVD pre-trained model. You can manually download any of the following and put it into FVD folder. 
     - `i3d_torchscript.pt` from [here](https://www.dropbox.com/s/ge9e5ujwgetktms/i3d_torchscript.pt) 
     - `i3d_pretrained_400.pt` from [here](https://onedrive.live.com/download?cid=78EEF3EB6AE7DBCB&resid=78EEF3EB6AE7DBCB%21199&authkey=AApKdFHPXzWLNyI)
 
