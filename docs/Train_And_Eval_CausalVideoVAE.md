@@ -129,7 +129,7 @@ The following is a description of the parameters for the `train_causalvae.py`:
 | `--model_config`             | "scripts/causalvae/288.yaml" | The path to the model configuration file.              |
 | `--n_nodes`                  | 1               | The number of nodes used for training.                        |
 | `--devices`                  | 8               | The number of devices used for training.                       |
-| `--resolution`               | 432              | The resolution of the videos.                                 |
+| `--resolution`               | 256              | The resolution of the videos.                                 |
 | `--num_workers`              | 8               | The number of subprocesses used for data handling.            |
 | `--resume_from_checkpoint`   | None            | Resume training from a specified checkpoint.                  |
 | `--load_from_checkpoint`     | None            | Load the model from a specified checkpoint.                  |
@@ -138,7 +138,12 @@ Please ensure that the values provided for these parameters are appropriate for 
 
 # Evaluation
 
-In the repository, we can use the script `scripts/causalvae/gen_video.sh` to generate videos and evaluate the generated videos through the script `scripts/causalvae/eval.sh`. Please check the scripts for detailed parameters. Currently, it supports common metrics such as `lpips`, `flolpips`, `ssim`, `psnr`, etc.
+
+1. Video Generation:
+The script `scripts/causalvae/gen_video.sh` in the repository is utilized for generating videos. For the parameters, please refer to the script itself.
+
+2. Video Evaluation:
+After video generation, You can evaluate the generated videos using the `scripts/causalvae/eval.sh` script. This evaluation script supports common metrics, including lpips, flolpips, ssim, psnr, and more.
 
 > Please note that you must generate the videos before executing the eval script. Additionally, it is essential to ensure that the video parameters used when generating the videos are consistent with those used during the evaluation.
 
