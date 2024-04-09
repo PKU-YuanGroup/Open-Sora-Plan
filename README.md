@@ -29,7 +29,7 @@ Thanks to **HUAWEI Ascend NPU Team** for supporting us.
 
 | 257×512×512 (10s) | 65×1024×1024 (2.7s) | 65×1024×1024 (2.7s) | 
 | --- | --- | --- |
-| <img src="assets/pvvm5-5hm65.gif" width=224> |  <img src="assets/nr2a2-oe6qj.gif" width=448> |<img src="assets/ns4et-xj8ax.gif" width=448>  |  
+| <img src="assets/D_0_0.gif" width=224> |  <img src="assets/nr2a2-oe6qj.gif" width=448> |<img src="assets/ns4et-xj8ax.gif" width=448>  |  
 | Time-lapse of a coastal landscape transitioning from sunrise to nightfall...  |  A quiet beach at dawn, the waves gently lapping at the shore and the sky painted in pastel hues....|Sunset over the sea.  | 
 
 
