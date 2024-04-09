@@ -70,7 +70,7 @@ class TrainingArguments:
         default=8, metadata={"help": "The number of devices used for training."}
     )
     resolution: int = field(
-        default=432, metadata={"help": "The resolution of the videos."}
+        default=256, metadata={"help": "The resolution of the videos."}
     )
     num_workers: int = field(
         default=8,
