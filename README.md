@@ -326,20 +326,24 @@ For more details, please refer to the [Contribution Guidelines](docs/Contributio
 -->
 
 
-## Citing
+## ✏️ Citing
 
 ### BibTeX
 
 ```bibtex
-@misc{lin2024opensora,
-  author = {PKU-Yuan Lab and Tuzhan AI etc.},
-  title = {Open Sora Plan},
-  year = {2024},
-  publisher = {GitHub},
-  journal = {GitHub repository},
-  howpublished = {\url{https://github.com/PKU-YuanGroup/Open-Sora-Plan}}
+@software{pku_yuan_lab_and_tuzhan_ai_etc_2024_10948109,
+  author       = {PKU-Yuan Lab and Tuzhan AI etc.},
+  title        = {Open-Sora-Plan},
+  month        = apr,
+  year         = 2024,
+  publisher    = {GitHub},
+  doi          = {10.5281/zenodo.10948109},
+  url          = {https://doi.org/10.5281/zenodo.10948109}
 }
 ```
+### Latest DOI
+
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.10948109.svg)](https://zenodo.org/records/10948109)
 
 ## 🤝 Community contributors
 
