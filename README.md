@@ -29,15 +29,15 @@ Thanks to **HUAWEI Ascend NPU Team** for supporting us.
 
 | 257×512×512 (10s) | 65×1024×1024 (2.7s) | 65×1024×1024 (2.7s) | 
 | --- | --- | --- |
-| <img src="assets/D_0_0.gif" width=224> |  <img src="assets/nr2a2-oe6qj.gif" width=448> |<img src="assets/ns4et-xj8ax.gif" width=448>  |  
+| <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/88202804/37c29fcb-47ba-4c6e-9ce8-612f0eab6634" width=224> |  <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/88202804/6362c3ad-b1c4-4c36-8737-ad8a1e1dbed4" width=448> |<img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/88202804/d90dd228-611b-44b7-93f4-fa99e224bd11" width=448>  |  
 | Time-lapse of a coastal landscape transitioning from sunrise to nightfall...  |  A quiet beach at dawn, the waves gently lapping at the shore and the sky painted in pastel hues....|Sunset over the sea.  | 
 
 
 | 65×512×512 (2.7s) | 65×512×512 (2.7s) | 65×512×512 (2.7s) |
 | --- | --- | --- |
-| <img src="assets/rrdqk-puoud.gif" width=224> | <img src="assets/dpvj8-y3ubn.gif" width=224>  | <img src="assets/i1ude-11d4e.gif" width=224> |
+| <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/88202804/deca421b-dbc5-4d16-a80b-89c1d8b4fce7" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/88202804/7cddd996-7c17-4d8e-a47d-e57c0930a91d" width=224>  | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/88202804/029ed424-e977-470b-a39d-ebc2d3e61c1c" width=224> |
 | A serene underwater scene featuring a sea turtle swimming... | Yellow and black tropical fish dart through the sea.  | a dynamic interaction between the ocean and a large rock...  |
-| <img src="assets/y70q9-y5tip.gif" width=224> | <img src="assets/ozg76-g1aqh.gif" width=224>  | <img src="assets/kntw7-iuluy.gif" width=224> |
+| <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/88202804/900e7293-9c7c-4844-b7e7-c0b0b9f7e055" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/88202804/a710d498-5f43-4553-be12-e80f9d5b442e" width=224>  | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/88202804/1d350503-98f6-4e88-8802-2dd915357726" width=224> |
 | The dynamic movement of tall, wispy grasses swaying in the wind... | Slow pan upward of blazing oak fire in an indoor fireplace.  | A serene waterfall cascading down moss-covered rocks...  |
 
 
@@ -61,8 +61,8 @@ Project stages:
 
 
 <div style="display: flex; justify-content: center;"> 
-  <img src="assets/we_want_you.jpg" width=200> 
-  <img src="assets/framework.jpg" width=600> 
+  <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/88202804/6b3095e9-88e8-4481-9b1b-ff9aaa25caf1" width=200> 
+  <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/88202804/f0a2ebca-6d25-4f94-be29-bd0a29cd9230" width=600> 
 </div>
 
   
