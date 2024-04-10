@@ -308,7 +308,7 @@ For more details, please refer to the [Contribution Guidelines](docs/Contributio
 
 
 ## 👍 Acknowledgement
-* [Latte](https://github.com/Vchitect/Latte): The **main codebase** we built upon and it is an wonderful video gererated model.
+* [Latte](https://github.com/Vchitect/Latte): The **main codebase** we built upon and it is an wonderful video generated model.
 * [PixArt-alpha](https://github.com/PixArt-alpha/PixArt-alpha): Fast Training of Diffusion Transformer for Photorealistic Text-to-Image Synthesis.
 * [VideoGPT](https://github.com/wilson1yan/VideoGPT): Video Generation using VQ-VAE and Transformers.
 * [DiT](https://github.com/facebookresearch/DiT): Scalable Diffusion Models with Transformers.
