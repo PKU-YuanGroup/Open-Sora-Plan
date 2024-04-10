@@ -7,6 +7,7 @@ import random
 
 import imageio
 import torch
+import torch_npu
 from diffusers import PNDMScheduler
 from huggingface_hub import hf_hub_download
 from torchvision.utils import save_image
@@ -27,6 +28,7 @@ from opensora.serve.gradio_utils import block_css, title_markdown, randomize_see
 
 @torch.inference_mode()
 def generate_img(prompt, sample_steps, scale, seed=0, randomize_seed=False, force_images=False):
+    torch_npu.npu.set_device(0)
     seed = int(randomize_seed_fn(seed, randomize_seed))
     set_env(seed)
     video_length = transformer_model.config.video_length if not force_images else 1
