@@ -260,7 +260,7 @@ Parameter explanation:
 
 - `--enable_time_chunk`: This parameter is a flag to enable a time chunking. This will block the video in the temporal dimension and reconstruct the long video. This is only an operation performed in the video space, not the latent space, and cannot be used for training.
 
-#### Training and Inference
+#### Training and Eval
 
 Please refer to the document [CausalVideoVAE](docs/Train_And_Eval_CausalVideoVAE.md).
 
