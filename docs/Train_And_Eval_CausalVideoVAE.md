@@ -120,7 +120,7 @@ The following is a description of the parameters for the `train_causalvae.py`:
 | `--batch_size`               | 1               | The number of samples per training iteration.                  |
 | `--precision`                | "bf16"          | The numerical precision type used for training.                |
 | `--max_steps`                | 100000          | The maximum number of steps for the training process.          |
-| ``--save_steps`               | 2000            | The interval at which to save the model during training.      |
+| `--save_steps`               | 2000            | The interval at which to save the model during training.      |
 | `--output_dir`               | "results/causalvae" | The directory where training results are saved.          |
 | `--video_path`               | "/remote-home1/dataset/data_split_tt" | The path where the video data is stored.            |
 | `--video_num_frames`         | 17              | The number of frames per video.                             |

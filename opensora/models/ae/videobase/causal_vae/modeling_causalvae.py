@@ -510,8 +510,9 @@ class CausalVAEModel(VideoBaseAE_PL):
         optimizers = []
         opt_ae = torch.optim.Adam(
             [
-                {"params": params_with_time, "lr": 0.0001},
-                {"params": params_without_time, "lr": 0.00001},
+                # maintain the same learning rate
+                {"params": params_with_time, "lr": lr},  
+                {"params": params_without_time, "lr": lr},
             ],
             lr=lr,
             betas=(0.5, 0.9),
