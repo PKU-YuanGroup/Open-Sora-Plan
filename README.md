@@ -248,10 +248,17 @@ Refer to the document [EVAL.md](docs/EVAL.md).
 
 #### Reconstructing
 
+Example:
+
 ```Python
-python examples/rec_video_vae.py --rec-path test_video.mp4 --video-path video.mp4 --resolution 512 --num-frames 1440 --sample-rate 1 --sample-fps 24 -
--device cuda --ckpt <Your ckpt>
+python examples/rec_imvi_vae.py --video_path test_video.mp4 --rec_path output_video.mp4 --fps 24 --resolution 512 --crop_size 512 --num_frames 128 --sample_rate 1 --ae CausalVAEModel_4x8x8 --model_path pretrained_488_release --enable_tiling --enable_time_chunk
 ```
+
+Parameter explanation:
+
+- `--enable_tiling`: This parameter is a flag to enable a tiling conv.
+
+- `--enable_time_chunk`: This parameter is a flag to enable a time chunking. This will block the video in the temporal dimension and reconstruct the long video. This is only an operation performed in the video space, not the latent space, and cannot be used for training.
 
 #### Training and Inference
 
