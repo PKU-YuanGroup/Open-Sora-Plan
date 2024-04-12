@@ -81,12 +81,12 @@ We define a high-quality video dataset based on two core principles: (1) No cont
 | LLaVA-1.6-34B | 141.75851073472666 |  472 | 48.52492072346965 | 
 
 ### Training Diffusion Model
-Similar to previous work, we employ a multi-stage cascaded training approach, which consumes a total of 2,048 A800 GPU hours. We found that joint training with images significantly accelerates model convergence and enhances visual perception, aligning with the findings of [Latte](https://github.com/Vchitect/Latte). Below is our training card:
+Similar to previous work, we employ a multi-stage cascaded training approach, which consumes a total of 2,528 A800 GPU hours. We found that joint training with images significantly accelerates model convergence and enhances visual perception, aligning with the findings of [Latte](https://github.com/Vchitect/Latte). Below is our training card:
 
 | Name | Stage 1 | Stage 2 | Stage 3 | Stage 4 |
 |---|---|---|---|---|
 | Training Video Size | 17×256×256 |  65×256×256 | 65×512×512 |  65×1024×1024 | 
-| Compute (#A800 GPU x #Hours) | 32 × 40 |  32 × 18 |  32 × 6 |  Under training | 
+| Compute (#A800 GPU x #Hours) | 32 × 40 |  32 × 22 |  32 × 17 |  Under training | 
 | Checkpoint | [HF](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.0.0/tree/main/17x256x256) | [HF](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.0.0/tree/main/65x256x256) |  [HF](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.0.0/tree/main/65x512x512) |  Under training | 
 | Log | [wandb](https://api.wandb.ai/links/linbin/p6n3evym) |  [wandb](https://api.wandb.ai/links/linbin/t2g53sew) |  [wandb](https://api.wandb.ai/links/linbin/uomr0xzb) | Under training | 
 | Training Data | ~40k videos |  ~40k videos |  ~40k videos |  ~40k videos | 
