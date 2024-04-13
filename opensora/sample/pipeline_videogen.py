@@ -19,11 +19,8 @@ import urllib.parse as ul
 from typing import Callable, List, Optional, Tuple, Union
 
 import torch
-import einops
-from einops import rearrange
 from transformers import T5EncoderModel, T5Tokenizer
 
-from diffusers.image_processor import VaeImageProcessor
 from diffusers.models import AutoencoderKL, Transformer2DModel
 from diffusers.schedulers import DPMSolverMultistepScheduler
 from diffusers.utils import (
@@ -501,8 +498,18 @@ class VideoGenPipeline(DiffusionPipeline):
         return caption.strip()
 
     # Copied from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion.StableDiffusionPipeline.prepare_latents
-    def prepare_latents(self, batch_size, num_channels_latents, video_length, height, width, dtype, device, generator,
-                        latents=None):
+    def prepare_latents(
+        self, 
+        batch_size: int, 
+        num_channels_latents: int, 
+        video_length: int, 
+        height: int, 
+        width: int,
+        dtype: torch.dtype, 
+        device: Union[str, torch.device],
+        generator: Optional[torch.Generator],
+        latents: Optional[torch.FloatTensor]=None
+        ):
         shape = (
         batch_size, num_channels_latents, video_length, self.vae.latent_size[0], self.vae.latent_size[1])
         if isinstance(generator, list) and len(generator) != batch_size:
@@ -750,7 +757,7 @@ class VideoGenPipeline(DiffusionPipeline):
 
         return VideoPipelineOutput(video=video)
 
-    def decode_latents(self, latents):
+    def decode_latents(self, latents: torch.FloatTensor):
         video = self.vae.decode(latents)
         # video = self.vae.decode(latents / 0.18215)
         # video = rearrange(video, 'b c t h w -> b t c h w').contiguous()
