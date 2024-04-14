@@ -560,7 +560,10 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=str, required=True)
-    parser.add_argument("--data_path", type=str, required=True)
+    parser.add_argument("--video_data_path", type=str, required=True)
+    parser.add_argument("--video_folder", type=str, default='')
+    parser.add_argument("--image_data_path", type=str, default='')
+    parser.add_argument("--image_folder", type=str, default='')
     parser.add_argument("--model", type=str, choices=list(Diffusion_models.keys()), default="Latte-XL/122")
     parser.add_argument("--num_classes", type=int, default=1000)
     parser.add_argument("--ae", type=str, default="stabilityai/sd-vae-ft-mse")
@@ -576,7 +579,6 @@ if __name__ == "__main__":
     parser.add_argument('--enable_tiling', action='store_true')
     parser.add_argument('--use_rope', action='store_true')
 
-    parser.add_argument("--video_folder", type=str, default='')
     parser.add_argument("--text_encoder_name", type=str, default='DeepFloyd/t5-v1_1-xxl')
     parser.add_argument("--cache_dir", type=str, default='./cache_dir')
     parser.add_argument("--model_max_length", type=int, default=300)

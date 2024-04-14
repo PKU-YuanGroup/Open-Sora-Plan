@@ -10,7 +10,7 @@ accelerate launch \
     --dataset t2v \
     --ae CausalVAEModel_4x8x8 \
     --ae_path "../../Open-Sora-Plan/CausalVAEModel_4x8x8/" \
-    --data_path "../../Open-Sora-Plan/sharegpt4v_path_cap_64x512x512_mixkit.json" \
+    --video_data_path "../../Open-Sora-Plan/sharegpt4v_path_cap_64x512x512_mixkit.json" \
     --video_folder /remote-home1/dataset/data_split_tt \
     --sample_rate 1 \
     --num_frames 65 \

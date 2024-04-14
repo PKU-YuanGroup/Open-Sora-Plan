@@ -9,6 +9,7 @@ import torch
 import torchvision.transforms as transforms
 from torch.utils.data.dataset import Dataset
 from tqdm import tqdm
+from PIL import Image
 
 from opensora.utils.dataset_utils import DecordInit
 from opensora.utils.utils import text_preprocessing
@@ -37,7 +38,9 @@ class T2V_dataset(Dataset):
         self.use_image_num = args.use_image_num
         self.use_img_from_vid = args.use_img_from_vid
         if self.use_image_num != 0 and not self.use_img_from_vid:
-            self.img_cap_list = self.get_img_cap_list()
+            self.image_folder = args.image_folder
+            self.image_data_path = args.image_data_path
+            self.img_cap_list = self.get_img_cap_list(self.image_data_path)
 
     def __len__(self):
         return len(self.samples)
@@ -92,8 +95,29 @@ class T2V_dataset(Dataset):
         return dict(image=image, input_ids=input_ids, cond_mask=cond_mask)
 
     def get_image(self, idx):
-        raise NotImplementedError
-        image_data = self.img_cap_list[idx]
+        idx = idx % len(self.img_cap_list)  # out of range
+        image_data = self.img_cap_list[idx]  # [{'path': path, 'cap': cap}, ...]
+        
+        image = [Image.open(os.path.join(self.image_folder, i['path'])) for i in image_data] # num_img [h, w, c]
+        image = [torch.from_numpy(np.array(i)) for i in image_data] # num_img [h, w, c]
+        image = [rearrange(i, 'h w c -> c h w').unsqueeze(0) for i in image] # num_img [1 c h w]
+        image = [self.transform(i) for i in image]  # num_img [1 C H W] -> num_img [1 C H W]
+        image = [i.transpose(0, 1) for i in image]  # num_img [1 C H W] -> num_img [C 1 H W]
+
+        caps = [i['cap'] for i in image_data]
+        text = text_preprocessing(text)
+        text_tokens_and_mask = self.tokenizer(
+            caps,
+            max_length=self.model_max_length,
+            padding='max_length',
+            truncation=True,
+            return_attention_mask=True,
+            add_special_tokens=True,
+            return_tensors='pt'
+        )
+        input_ids = text_tokens_and_mask['input_ids']  # self.use_image_num, l
+        cond_mask = text_tokens_and_mask['attention_mask']  # self.use_image_num, l
+
         return dict(image=image, input_ids=input_ids, cond_mask=cond_mask)
 
     def tv_read(self, path):
@@ -122,5 +146,8 @@ class T2V_dataset(Dataset):
         video_data = video_data.permute(0, 3, 1, 2)  # (T, H, W, C) -> (T C H W)
         return video_data
 
-    def get_img_cap_list(self):
-        raise NotImplementedError
+    def get_img_cap_list(self, image_data_path):
+        with open(image_data_path, 'r') as f:
+            image_data = json.load(image_data_path)
+        image_data = [image_data[i: i+self.use_image_num] for i in range(0, len(image_data), self.use_image_num)]
+        return image_data[:-1]  # drop last to avoid error length
