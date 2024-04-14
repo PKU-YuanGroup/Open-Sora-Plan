@@ -148,24 +148,26 @@ def main(args):
     # Create model:
 
     diffusion = create_diffusion(timestep_respacing="")  # default: 1000 steps, linear noise schedule
-    ae = getae_wrapper(args.ae)(args.ae_path).eval()
+    ae = getae_wrapper(args.ae)(args.ae_path, cache_dir=args.cache_dir).eval()
     if args.enable_tiling:
         ae.vae.enable_tiling()
         ae.vae.tile_overlap_factor = args.tile_overlap_factor
     text_enc = get_text_enc(args).eval()
 
     ae_stride_t, ae_stride_h, ae_stride_w = ae_stride_config[args.ae]
+    assert ae_stride_h == ae_stride_w, f"Support only ae_stride_h == ae_stride_w now, but found ae_stride_h ({ae_stride_h}), ae_stride_w ({ae_stride_w})"
     args.ae_stride_t, args.ae_stride_h, args.ae_stride_w = ae_stride_t, ae_stride_h, ae_stride_w
     args.ae_stride = args.ae_stride_h
     patch_size = args.model[-3:]
     patch_size_t, patch_size_h, patch_size_w = int(patch_size[0]), int(patch_size[1]), int(patch_size[2])
     args.patch_size = patch_size_h
     args.patch_size_t, args.patch_size_h, args.patch_size_w = patch_size_t, patch_size_h, patch_size_w
-    assert ae_stride_h == ae_stride_w, f"Support only ae_stride_h == ae_stride_w now, but found ae_stride_h ({ae_stride_h}), ae_stride_w ({ae_stride_w})"
     assert patch_size_h == patch_size_w, f"Support only patch_size_h == patch_size_w now, but found patch_size_h ({patch_size_h}), patch_size_w ({patch_size_w})"
     # assert args.num_frames % ae_stride_t == 0, f"Num_frames must be divisible by ae_stride_t, but found num_frames ({args.num_frames}), ae_stride_t ({ae_stride_t})."
     assert args.max_image_size % ae_stride_h == 0, f"Image size must be divisible by ae_stride_h, but found max_image_size ({args.max_image_size}),  ae_stride_h ({ae_stride_h})."
 
+    args.stride_t = ae_stride_t * patch_size_t
+    args.stride = ae_stride_h * patch_size_h
     latent_size = (args.max_image_size // ae_stride_h, args.max_image_size // ae_stride_w)
 
     if getae_wrapper(args.ae) == CausalVQVAEModelWrapper or getae_wrapper(args.ae) == CausalVAEModelWrapper:
@@ -193,6 +195,8 @@ def main(args):
         video_length=video_length,
         attention_mode=args.attention_mode,
         # compress_kv=args.compress_kv
+        use_rope=args.use_rope, 
+        model_max_length=args.model_max_length, 
     )
     model.gradient_checkpointing = args.gradient_checkpointing
 
@@ -207,20 +211,6 @@ def main(args):
         missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=False)
         logger.info(f'missing_keys {len(missing_keys)} {missing_keys}, unexpected_keys {len(unexpected_keys)}')
         logger.info(f'Successfully load {len(model.state_dict()) - len(missing_keys)}/{len(model_state_dict)} keys from {args.pretrained}!')
-        # load from pixart-alpha
-        # pixelart_alpha = torch.load(args.pretrained, map_location='cpu')['state_dict']
-        # checkpoint = {}
-        # for k, v in pixelart_alpha.items():
-        #     if 'x_embedder' in k or 't_embedder' in k or 'y_embedder' in k:
-        #         checkpoint[k] = v
-        #     if k.startswith('blocks'):
-        #         k_spilt = k.split('.')
-        #         blk_id = str(int(k_spilt[1]) * 2)
-        #         k_spilt[1] = blk_id
-        #         new_k = '.'.join(k_spilt)
-        #         checkpoint[new_k] = v
-        # missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=False)
-        # logger.info(f'Successfully load {len(model.state_dict()) - len(missing_keys)} keys from {args.pretrained}!')
 
     # Freeze vae and text encoders.
     ae.requires_grad_(False)
@@ -238,7 +228,8 @@ def main(args):
 
     # Move unet, vae and text_encoder to device and cast to weight_dtype
     # The VAE is in float32 to avoid NaN losses.
-    ae.to(accelerator.device, dtype=torch.float32)
+    # ae.to(accelerator.device, dtype=torch.float32)
+    ae.to(accelerator.device, dtype=weight_dtype)
     text_enc.to(accelerator.device, dtype=weight_dtype)
 
     # Create EMA for the unet.
@@ -319,7 +310,7 @@ def main(args):
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
         shuffle=True,
-        # collate_fn=Collate(args),  # TODO: do not enable dynamic mask in this point
+        collate_fn=Collate(args),
         batch_size=args.train_batch_size,
         num_workers=args.dataloader_num_workers,
     )
@@ -406,15 +397,14 @@ def main(args):
 
     for epoch in range(first_epoch, args.num_train_epochs):
         train_loss = 0.0
-        for step, (x, input_ids, cond_mask) in enumerate(train_dataloader):
+        for step, (x, attn_mask, input_ids, cond_mask) in enumerate(train_dataloader):
             with accelerator.accumulate(model):
                 # Sample noise that we'll add to the latents
-                x = x.to(accelerator.device)  # B C T+num_images H W, 16 + 4
-                # attn_mask = attn_mask.to(device)  # B T H W
-                # assert torch.all(attn_mask.bool()), 'do not enable dynamic input'
-                attn_mask = None
+                x = x.to(accelerator.device, dtype=weight_dtype)  # B C T+num_images H W, 16 + 4
+                attn_mask = attn_mask.to(accelerator.device)  # B L or B 1+num_images L
                 input_ids = input_ids.to(accelerator.device)  # B L or B 1+num_images L
                 cond_mask = cond_mask.to(accelerator.device)  # B L or B 1+num_images L
+                print('(x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape', x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape)
 
                 with torch.no_grad():
                     # Map input images to latent space + normalize latents
@@ -427,12 +417,13 @@ def main(args):
                         images = rearrange(images, 'b c t h w -> (b t) c 1 h w')
                         images = ae.encode(images)
                         images = rearrange(images, '(b t) c 1 h w -> b c t h w', t=args.use_image_num)
-                        x = torch.cat([videos, images], dim=2)   #  b c 16+4, h, w
+                        x = torch.cat([videos, images], dim=2)   #  b c 17+4, h, w
 
                         # use for loop to avoid OOM, because T5 is too huge...
                         B, _, _ = input_ids.shape  # B T+num_images L  b 1+4, L
                         cond = torch.stack([text_enc(input_ids[i], cond_mask[i]) for i in range(B)])  # B 1+num_images L D
 
+                print('(x.shape, attn_mask.shape, cond.shape, cond_mask.shape', x.shape, attn_mask.shape, cond.shape, cond_mask.shape)
                 model_kwargs = dict(encoder_hidden_states=cond, attention_mask=attn_mask,
                                     encoder_attention_mask=cond_mask, use_image_num=args.use_image_num)
                 t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=accelerator.device)
@@ -570,24 +561,25 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=str, required=True)
     parser.add_argument("--data_path", type=str, required=True)
-    parser.add_argument("--model", type=str, choices=list(Diffusion_models.keys()), default="DiT-XL/122")
+    parser.add_argument("--model", type=str, choices=list(Diffusion_models.keys()), default="Latte-XL/122")
     parser.add_argument("--num_classes", type=int, default=1000)
     parser.add_argument("--ae", type=str, default="stabilityai/sd-vae-ft-mse")
     parser.add_argument("--ae_path", type=str, default="stabilityai/sd-vae-ft-mse")
     parser.add_argument("--sample_rate", type=int, default=4)
     parser.add_argument("--num_frames", type=int, default=16)
     parser.add_argument("--max_image_size", type=int, default=128)
-    parser.add_argument("--dynamic_frames", action="store_true")
     parser.add_argument("--compress_kv", action="store_true")
-    parser.add_argument("--attention_mode", type=str, choices=['xformers', 'math', 'flash'], default="math")
+    parser.add_argument("--attention_mode", type=str, choices=['xformers', 'math', 'flash'], default="xformers")
     parser.add_argument("--pretrained", type=str, default=None)
 
     parser.add_argument('--tile_overlap_factor', type=float, default=0.25)
     parser.add_argument('--enable_tiling', action='store_true')
+    parser.add_argument('--use_rope', action='store_true')
 
     parser.add_argument("--video_folder", type=str, default='')
     parser.add_argument("--text_encoder_name", type=str, default='DeepFloyd/t5-v1_1-xxl')
-    parser.add_argument("--model_max_length", type=int, default=120)
+    parser.add_argument("--cache_dir", type=str, default='./cache_dir')
+    parser.add_argument("--model_max_length", type=int, default=300)
 
     parser.add_argument("--enable_tracker", action="store_true")
     parser.add_argument("--use_image_num", type=int, default=0)

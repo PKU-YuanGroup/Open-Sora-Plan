@@ -10,7 +10,7 @@ class T5Wrapper(nn.Module):
         super(T5Wrapper, self).__init__()
         self.model_name = args.text_encoder_name
         dtype = get_precision(args)
-        t5_model_kwargs = {'cache_dir': './cache_dir', 'low_cpu_mem_usage': True, 'torch_dtype': dtype}
+        t5_model_kwargs = {'cache_dir': args.cache_dir, 'low_cpu_mem_usage': True, 'torch_dtype': dtype}
         self.text_enc = T5EncoderModel.from_pretrained(self.model_name, **t5_model_kwargs).eval()
 
     def forward(self, input_ids, attention_mask):
@@ -22,7 +22,7 @@ class CLIPWrapper(nn.Module):
         super(CLIPWrapper, self).__init__()
         self.model_name = args.text_encoder_name
         dtype = get_precision(args)
-        model_kwargs = {'cache_dir': './cache_dir', 'low_cpu_mem_usage': True, 'torch_dtype': dtype}
+        model_kwargs = {'cache_dir': args.cache_dir, 'low_cpu_mem_usage': True, 'torch_dtype': dtype}
         self.text_enc = CLIPModel.from_pretrained(self.model_name, **model_kwargs).eval()
 
     def forward(self, input_ids, attention_mask): 

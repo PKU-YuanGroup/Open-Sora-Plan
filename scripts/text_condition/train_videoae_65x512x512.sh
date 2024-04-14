@@ -1,15 +1,16 @@
 export WANDB_KEY=""
 export ENTITY=""
-export PROJECT="t2v-f65-256-img16-videovae488-bf16-ckpt-xformers-bs4-lr2e-5-t5"
+export PROJECT="test"
 accelerate launch \
     --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
     opensora/train/train_t2v.py \
     --model LatteT2V-XL/122 \
     --text_encoder_name DeepFloyd/t5-v1_1-xxl \
+    --cache_dir "../../Open-Sora-Plan/cache_dir" \
     --dataset t2v \
     --ae CausalVAEModel_4x8x8 \
-    --ae_path CausalVAEModel_4x8x8 \
-    --data_path /remote-home1/dataset/sharegpt4v_path_cap_.json \
+    --ae_path "../../Open-Sora-Plan/CausalVAEModel_4x8x8/" \
+    --data_path "../../Open-Sora-Plan/sharegpt4v_path_cap_64x512x512_mixkit.json" \
     --video_folder /remote-home1/dataset/data_split_tt \
     --sample_rate 1 \
     --num_frames 65 \
@@ -26,9 +27,9 @@ accelerate launch \
     --mixed_precision="bf16" \
     --report_to="wandb" \
     --checkpointing_steps=500 \
-    --output_dir="t2v-f65-512-img16-videovae488-bf16-ckpt-xformers-bs4-lr2e-5-t5" \
+    --output_dir="test" \
     --allow_tf32 \
-    --pretrained t2v-f65-256-img4-videovae488-bf16-ckpt-xformers-bs4-lr2e-5-t5/checkpoint-15000/model/diffusion_pytorch_model.safetensors \
+    --pretrained t2v.pt \
     --use_deepspeed \
     --model_max_length 300 \
     --use_image_num 16 \
