@@ -14,6 +14,10 @@ from opensora.utils.dataset_utils import DecordInit
 from opensora.utils.utils import text_preprocessing
 
 
+def random_video_noise(t, c, h, w):
+    vid = torch.rand(t, c, h, w) * 255.0
+    vid = vid.to(torch.uint8)
+    return vid
 
 class T2V_dataset(Dataset):
     def __init__(self, args, transform, temporal_sample, tokenizer):
@@ -40,46 +44,57 @@ class T2V_dataset(Dataset):
 
     def __getitem__(self, idx):
         try:
-            # video = torch.randn(3, 16, 128, 128)
-            # input_ids = torch.ones(1, 120).to(torch.long).squeeze(0)
-            # cond_mask = torch.cat([torch.ones(1, 60).to(torch.long), torch.ones(1, 60).to(torch.long)], dim=1).squeeze(0)
-            # return video, input_ids, cond_mask
-            video_path = self.samples[idx]['path']
-            video = self.decord_read(video_path)
-            video = self.transform(video)  # T C H W -> T C H W
-            video = video.transpose(0, 1)  # T C H W -> C T H W
-            text = self.samples[idx]['cap'][0]
-
-            text = text_preprocessing(text)
-            text_tokens_and_mask = self.tokenizer(
-                text,
-                max_length=self.model_max_length,
-                padding='max_length',
-                truncation=True,
-                return_attention_mask=True,
-                add_special_tokens=True,
-                return_tensors='pt'
-            )
-            input_ids = text_tokens_and_mask['input_ids'].squeeze(0)
-            cond_mask = text_tokens_and_mask['attention_mask'].squeeze(0)
-
+            video_data = self.get_video(idx)
+            image_data = {}
             if self.use_image_num != 0 and self.use_img_from_vid:
-                select_image_idx = np.linspace(0, self.num_frames-1, self.use_image_num, dtype=int)
-                assert self.num_frames >= self.use_image_num
-                images = video[:, select_image_idx]  # c, num_img, h, w
-                video = torch.cat([video, images], dim=1)  # c, num_frame+num_img, h, w
-                input_ids = torch.stack([input_ids] * (1+self.use_image_num))  # 1+self.use_image_num, l
-                cond_mask = torch.stack([cond_mask] * (1+self.use_image_num))  # 1+self.use_image_num, l
+                image_data = self.get_image_from_video(video_data)
             elif self.use_image_num != 0 and not self.use_img_from_vid:
-                images, captions = self.img_cap_list[idx]
-                raise NotImplementedError
+                image_data = self.get_image(idx)
             else:
-                pass
-
-            return video, input_ids, cond_mask
+                raise NotImplementedError
+            return dict(video_data=video_data, image_data=image_data)
         except Exception as e:
             print(f'Error with {e}, {self.samples[idx]}')
             return self.__getitem__(random.randint(0, self.__len__() - 1))
+
+    def get_video(self, idx):
+        # video = random.choice([random_video_noise(65, 3, 720, 360) * 255, random_video_noise(65, 3, 1024, 1024), random_video_noise(65, 3, 360, 720)])
+        # print('random shape', video.shape)
+        # input_ids = torch.ones(1, 120).to(torch.long).squeeze(0)
+        # cond_mask = torch.cat([torch.ones(1, 60).to(torch.long), torch.ones(1, 60).to(torch.long)], dim=1).squeeze(0)
+        
+        video_path = self.samples[idx]['path'].replace('/remote-home1/dataset/data_split_tt', '/yzwldata01/dataset/split_1024')
+        video = self.decord_read(video_path)
+        video = self.transform(video)  # T C H W -> T C H W
+        video = video.transpose(0, 1)  # T C H W -> C T H W
+        text = self.samples[idx]['cap'][0]
+
+        text = text_preprocessing(text)
+        text_tokens_and_mask = self.tokenizer(
+            text,
+            max_length=self.model_max_length,
+            padding='max_length',
+            truncation=True,
+            return_attention_mask=True,
+            add_special_tokens=True,
+            return_tensors='pt'
+        )
+        input_ids = text_tokens_and_mask['input_ids']
+        cond_mask = text_tokens_and_mask['attention_mask']
+        return dict(video=video, input_ids=input_ids, cond_mask=cond_mask)
+
+    def get_image_from_video(self, video_data):
+        select_image_idx = np.linspace(0, self.num_frames-1, self.use_image_num, dtype=int)
+        assert self.num_frames >= self.use_image_num
+        image = [video_data['video'][:, i:i+1] for i in select_image_idx]  # num_img [c, 1, h, w]
+        input_ids = video_data['input_ids'].repeat(self.use_image_num, 1)  # self.use_image_num, l
+        cond_mask = video_data['cond_mask'].repeat(self.use_image_num, 1)  # self.use_image_num, l
+        return dict(image=image, input_ids=input_ids, cond_mask=cond_mask)
+
+    def get_image(self, idx):
+        raise NotImplementedError
+        image_data = self.img_cap_list[idx]
+        return dict(image=image, input_ids=input_ids, cond_mask=cond_mask)
 
     def tv_read(self, path):
         vframes, aframes, info = torchvision.io.read_video(filename=path, pts_unit='sec', output_format='TCHW')

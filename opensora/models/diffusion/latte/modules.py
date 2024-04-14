@@ -263,10 +263,6 @@ class Attention(nn.Module):
         self.dropout = dropout
         self.use_rope = use_rope
 
-        if self.use_rope:
-            self.rope2d = RoPE2D(freq=100)
-            self.rope1d = RoPE1D(freq=100)
-
         # we make use of this private variable to know whether this class is loaded
         # with an deprecated state dict so that we can convert it on the fly
         self._from_deprecated_attn_block = _from_deprecated_attn_block
@@ -350,7 +346,7 @@ class Attention(nn.Module):
         # but only if it has the default `scale` argument. TODO remove scale_qk check when we move to torch 2.1
         if processor is None:
             processor = (
-                AttnProcessor2_0(attention_mode) if hasattr(F, "scaled_dot_product_attention") and self.scale_qk else AttnProcessor()
+                AttnProcessor2_0(attention_mode, use_rope) if hasattr(F, "scaled_dot_product_attention") and self.scale_qk else AttnProcessor()
             )
         self.set_processor(processor)
 
@@ -843,8 +839,13 @@ class AttnProcessor2_0:
     Processor for implementing scaled dot-product attention (enabled by default if you're using PyTorch 2.0).
     """
 
-    def __init__(self, attention_mode='xformers'):
+    def __init__(self, attention_mode='xformers', use_rope=False):
         self.attention_mode = attention_mode
+        self.use_rope = use_rope
+        
+        if self.use_rope:
+            self.rope2d = RoPE2D(freq=100)
+            self.rope1d = RoPE1D(freq=100)
         if not hasattr(F, "scaled_dot_product_attention"):
             raise ImportError("AttnProcessor2_0 requires PyTorch 2.0, to use it, please upgrade PyTorch to 2.0.")
 
@@ -904,7 +905,10 @@ class AttnProcessor2_0:
         key = key.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
         value = value.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
 
-        if self.rope is not None:
+        if self.use_rope:
+            print('use rope')
+            print('use rope')
+            print('use rope')
             # require the shape of (batch_size x nheads x ntokens x dim)
             if position_q.ndim == 3:
                 query = self.rope2d(query, position_q) 

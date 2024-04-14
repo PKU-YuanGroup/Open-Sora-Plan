@@ -1,5 +1,5 @@
 import math
-
+from einops import rearrange
 import decord
 from torch.nn import functional as F
 import torch
@@ -58,45 +58,55 @@ class Collate:
         self.num_frames = args.num_frames
         self.use_image_num = args.use_image_num
         self.max_thw = (self.num_frames, self.max_image_size, self.max_image_size)
-        self.max_ihw = (self.use_image_num, self.max_image_size, self.max_image_size)
+        self.max_1hw = (1, self.max_image_size, self.max_image_size)
 
+    def package(self, batch):
+        batch_tubes_vid = [i['video_data']['video'] for i in batch]  # b [c t h w]
+        input_ids_vid = torch.stack([i['video_data']['input_ids'] for i in batch])  # b 1 l
+        cond_mask_vid = torch.stack([i['video_data']['cond_mask'] for i in batch])  # b 1 l
+        batch_tubes_img, input_ids_img, cond_mask_img = None, None, None
+        if self.use_image_num != 0: 
+            import ipdb;ipdb.set_trace()
+            batch_tubes_img = [j for i in batch for j in i['image_data']['image']]  # b*num_img [c 1 h w]
+            input_ids_img = torch.stack([i['image_data']['input_ids'] for i in batch])  # b image_num l
+            cond_mask_img = torch.stack([i['image_data']['cond_mask'] for i in batch])  # b image_num l
+        return batch_tubes_vid, input_ids_vid, cond_mask_vid, batch_tubes_img, input_ids_img, cond_mask_img
 
     def __call__(self, batch):
-        unzip = tuple(zip(*batch))
-        batch_tubes, input_ids, cond_mask = unzip
-        input_ids = torch.stack(input_ids).squeeze(1)
-        cond_mask = torch.stack(cond_mask).squeeze(1)
+        batch_tubes_vid, input_ids_vid, cond_mask_vid, batch_tubes_img, input_ids_img, cond_mask_img = self.package(batch)
 
         ds_stride = self.ae_stride * self.patch_size
         t_ds_stride = self.ae_stride_t * self.patch_size_t
         if self.use_image_num == 0:
-            pad_batch_tubes, attention_mask = process(batch_tubes, t_ds_stride, ds_stride, self.max_thw, self.ae_stride_thw, self.patch_size_thw)
+            pad_batch_tubes, attention_mask = process(batch_tubes_vid, t_ds_stride, ds_stride, 
+                                                      self.max_thw, self.ae_stride_thw, self.patch_size_thw, extra_1=True)
             # attention_mask: b t hw, use first frame
             attention_mask = attention_mask[:, 0]  # b hw
+            input_ids, cond_mask = input_ids_vid.squeeze(1), cond_mask_vid.squeeze(1)  # b 1 l -> b l
         else:
-            batch_tubes_vid = [i[:, :-self.use_image_num] for i in batch_tubes]
-            pad_batch_tubes_vid, attention_mask_vid = process(batch_tubes_vid, t_ds_stride, ds_stride, self.max_thw, self.ae_stride_thw, self.patch_size_thw)
-            print('pad_batch_tubes_vid.shape, attention_mask_vid.shape', pad_batch_tubes_vid.shape, attention_mask_vid.shape)
+            pad_batch_tubes_vid, attention_mask_vid = self.process(batch_tubes_vid, t_ds_stride, ds_stride, 
+                                                                   self.max_thw, self.ae_stride_thw, self.patch_size_thw, extra_1=True)
             # attention_mask_vid: b t hw, use first frame
             attention_mask_vid = attention_mask_vid[:, :1]  # b 1 hw
-            batch_tubes_img = [i[:, -self.use_image_num:] for i in batch_tubes]
-            pad_batch_tubes_img, attention_mask_img = process(batch_tubes_img, 1, ds_stride, self.max_ihw, self.ae_stride_1hw, self.patch_size_1hw)
-            print('pad_batch_tubes_img.shape, attention_mask_img.shape', pad_batch_tubes_img.shape, attention_mask_img.shape)
-            pad_batch_tubes = torch.cat([pad_batch_tubes_vid, pad_batch_tubes_img], dim=3)
+            pad_batch_tubes_img, attention_mask_img = self.process(batch_tubes_img, 1, ds_stride, 
+                                                                   self.max_1hw, self.ae_stride_1hw, self.patch_size_1hw, extra_1=False)
+            pad_batch_tubes_img = rearrange(pad_batch_tubes_img, '(b i) c 1 h w -> b c i h w', i=self.use_image_num)
+            attention_mask_img = rearrange(attention_mask_img, '(b i) 1 hw -> b i hw', i=self.use_image_num)
+            pad_batch_tubes = torch.cat([pad_batch_tubes_vid, pad_batch_tubes_img], dim=2)  # concat at temporal, video first
             # attention_mask_img: b num_img hw
             attention_mask = torch.cat([attention_mask_vid, attention_mask_img], dim=1)  # b 1+num_img hw
+            input_ids = torch.cat([input_ids_vid, input_ids_img], dim=1)  # b 1+num_img hw
+            cond_mask = torch.cat([cond_mask_vid, cond_mask_img], dim=1)  # b 1+num_img hw
         return pad_batch_tubes, attention_mask, input_ids, cond_mask
 
-    def process(batch_tubes, t_ds_stride, ds_stride, max_thw, ae_stride_thw, patch_size_thw):
+    def process(self, batch_tubes, t_ds_stride, ds_stride, max_thw, ae_stride_thw, patch_size_thw, extra_1):
         # pad to max multiple of ds_stride
         batch_input_size = [i.shape for i in batch_tubes]  # [(c t h w), (c t h w)]
         max_t, max_h, max_w = max_thw
-        # max_t, max_h, max_w = max([i[1] for i in batch_input_size]), \
-        #                       max([i[2] for i in batch_input_size]), \
-        #                       max([i[3] for i in batch_input_size])
-        pad_max_t, pad_max_h, pad_max_w = pad_to_multiple(max_t, t_ds_stride), \
+        pad_max_t, pad_max_h, pad_max_w = pad_to_multiple(max_t-1 if extra_1 else max_t, t_ds_stride), \
                                           pad_to_multiple(max_h, ds_stride), \
                                           pad_to_multiple(max_w, ds_stride)
+        pad_max_t = pad_max_t + 1 if extra_1 else pad_max_t
         each_pad_t_h_w = [[pad_max_t - i.shape[1],
                            pad_max_h - i.shape[2],
                            pad_max_w - i.shape[3]] for i in batch_tubes]
@@ -108,13 +118,13 @@ class Collate:
 
         # make attention_mask
         max_tube_size = [pad_max_t, pad_max_h, pad_max_w]
-        max_latent_size = [max_tube_size[0] // ae_stride_thw[0],
+        max_latent_size = [((max_tube_size[0]-1) // ae_stride_thw[0] + 1) if extra_1 else (max_tube_size[0] // ae_stride_thw[0]),
                            max_tube_size[1] // ae_stride_thw[1],
                            max_tube_size[2] // ae_stride_thw[2]]
-        max_patchify_latent_size = [max_latent_size[0] // patch_size_thw[0],
+        max_patchify_latent_size = [((max_latent_size[0]-1) // patch_size_thw[0] + 1) if extra_1 else (max_latent_size[0] // patch_size_thw[0]),
                                     max_latent_size[1] // patch_size_thw[1],
                                     max_latent_size[2] // patch_size_thw[2]]
-        valid_patchify_latent_size = [[int(math.ceil(i[1] / t_ds_stride)),
+        valid_patchify_latent_size = [[int(math.ceil((i[1]-1) / t_ds_stride)) + 1 if extra_1 else int(math.ceil(i[1] / t_ds_stride)),
                                        int(math.ceil(i[2] / ds_stride)),
                                        int(math.ceil(i[3] / ds_stride))] for i in batch_input_size]
         attention_mask = [F.pad(torch.ones(i),
