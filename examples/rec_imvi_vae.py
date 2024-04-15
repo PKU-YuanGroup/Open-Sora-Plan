@@ -153,7 +153,8 @@ def preprocess(video_data: torch.Tensor, short_size: int = 128, crop_size: Optio
 def main(args: argparse.Namespace):
     device = args.device
     kwarg = {}
-    vae = getae_wrapper(args.ae)(args.model_path, subfolder="vae", cache_dir='cache_dir', **kwarg).to(device)
+    # vae = getae_wrapper(args.ae)(args.model_path, subfolder="vae", cache_dir='cache_dir', **kwarg).to(device)
+    vae = getae_wrapper(args.ae)(args.ae_path, **kwarg).to(device)
     if args.enable_tiling:
         vae.vae.enable_tiling()
         vae.vae.tile_overlap_factor = args.tile_overlap_factor
@@ -191,6 +192,7 @@ if __name__ == '__main__':
     parser.add_argument('--video_path', type=str, default='')
     parser.add_argument('--rec_path', type=str, default='')
     parser.add_argument('--ae', type=str, default='')
+    parser.add_argument('--ae_path', type=str, default='')
     parser.add_argument('--model_path', type=str, default='results/pretrained')
     parser.add_argument('--fps', type=int, default=30)
     parser.add_argument('--resolution', type=int, default=336)

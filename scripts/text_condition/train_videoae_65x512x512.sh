@@ -28,7 +28,7 @@ accelerate launch \
     --lr_warmup_steps=0 \
     --mixed_precision="bf16" \
     --report_to="tensorboard" \
-    --checkpointing_steps=100 \
+    --checkpointing_steps=500 \
     --output_dir="512_origin_useimg" \
     --allow_tf32 \
     --pretrained t2v.pt \

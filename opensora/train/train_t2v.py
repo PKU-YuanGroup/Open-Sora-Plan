@@ -426,7 +426,6 @@ def main(args):
                             array_to_video(x, fps=fps, output_file=output_file)
                             return
 
-                        # import ipdb;ipdb.set_trace()
                         # videos = ae.decode(videos.to(dtype=weight_dtype))[0]
                         # videos = videos.transpose(0, 1)
                         # custom_to_video(videos.to(torch.float32), fps=24, output_file='tmp.mp4')
@@ -435,18 +434,19 @@ def main(args):
                         images = rearrange(images, 'b c t h w -> (b t) c 1 h w')
                         images = ae.encode(images)
 
-
+                        # import ipdb;ipdb.set_trace()
                         # images = ae.decode(images.to(dtype=weight_dtype))
-                        # x = images[0, 0, :, :, :].to(torch.float32)
-                        # x = x.squeeze()
-                        # x = x.detach().cpu().numpy()
-                        # x = np.clip(x, -1, 1)
-                        # x = (x + 1) / 2
-                        # x = (255 * x).astype(np.uint8)
-                        # x = x.transpose(1, 2, 0)
-                        # from PIL import Image
-                        # image = Image.fromarray(x)
-                        # image.save('tmp.jpg')
+                        # for idx in range(args.use_image_num):
+                        #     x = images[idx, 0, :, :, :].to(torch.float32)
+                        #     x = x.squeeze()
+                        #     x = x.detach().cpu().numpy()
+                        #     x = np.clip(x, -1, 1)
+                        #     x = (x + 1) / 2
+                        #     x = (255 * x).astype(np.uint8)
+                        #     x = x.transpose(1, 2, 0)
+                        #     from PIL import Image
+                        #     image = Image.fromarray(x)
+                        #     image.save(f'tmp{idx}.jpg')
                         # import sys
                         # sys.exit()
 

@@ -1,10 +1,11 @@
 from .block import Block
 from .attention import (
     AttnBlock3D,
+    AttnBlock3DFix,
     AttnBlock,
     LinAttnBlock,
     LinearAttention,
-    TemporalAttnBlock,
+    TemporalAttnBlock
 )
 from .conv import CausalConv3d, Conv2d
 from .normalize import GroupNorm, Normalize
