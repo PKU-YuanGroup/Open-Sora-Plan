@@ -22,3 +22,8 @@ wandb/
 cache_dir/
 wandb/
 test/
+sample_videos/
+512*
+720*
+1024*
+debug*

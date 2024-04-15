@@ -404,7 +404,7 @@ def main(args):
                 attn_mask = attn_mask.to(accelerator.device)  # B L or B 1+num_images L
                 input_ids = input_ids.to(accelerator.device)  # B L or B 1+num_images L
                 cond_mask = cond_mask.to(accelerator.device)  # B L or B 1+num_images L
-                print('(x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape', x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape)
+                # print('(x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape', x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape)
 
                 with torch.no_grad():
                     # Map input images to latent space + normalize latents
@@ -414,8 +414,43 @@ def main(args):
                     else:
                         videos, images = x[:, :, :-args.use_image_num], x[:, :, -args.use_image_num:]
                         videos = ae.encode(videos)  # B C T H W
+
+
+                        def custom_to_video(x: torch.Tensor, fps: float = 2.0, output_file: str = 'output_video.mp4') -> None:
+                            from examples.rec_imvi_vae import array_to_video
+                            x = x.detach().cpu()
+                            x = torch.clamp(x, -1, 1)
+                            x = (x + 1) / 2
+                            x = x.permute(1, 2, 3, 0).numpy()
+                            x = (255*x).astype(np.uint8)
+                            array_to_video(x, fps=fps, output_file=output_file)
+                            return
+
+                        # import ipdb;ipdb.set_trace()
+                        # videos = ae.decode(videos.to(dtype=weight_dtype))[0]
+                        # videos = videos.transpose(0, 1)
+                        # custom_to_video(videos.to(torch.float32), fps=24, output_file='tmp.mp4')
+                        # sys.exit()
+
                         images = rearrange(images, 'b c t h w -> (b t) c 1 h w')
                         images = ae.encode(images)
+
+
+                        # images = ae.decode(images.to(dtype=weight_dtype))
+                        # x = images[0, 0, :, :, :].to(torch.float32)
+                        # x = x.squeeze()
+                        # x = x.detach().cpu().numpy()
+                        # x = np.clip(x, -1, 1)
+                        # x = (x + 1) / 2
+                        # x = (255 * x).astype(np.uint8)
+                        # x = x.transpose(1, 2, 0)
+                        # from PIL import Image
+                        # image = Image.fromarray(x)
+                        # image.save('tmp.jpg')
+                        # import sys
+                        # sys.exit()
+
+
                         images = rearrange(images, '(b t) c 1 h w -> b c t h w', t=args.use_image_num)
                         x = torch.cat([videos, images], dim=2)   #  b c 17+4, h, w
 
@@ -423,7 +458,7 @@ def main(args):
                         B, _, _ = input_ids.shape  # B T+num_images L  b 1+4, L
                         cond = torch.stack([text_enc(input_ids[i], cond_mask[i]) for i in range(B)])  # B 1+num_images L D
 
-                print('(x.shape, attn_mask.shape, cond.shape, cond_mask.shape', x.shape, attn_mask.shape, cond.shape, cond_mask.shape)
+                # print('(x.shape, attn_mask.shape, cond.shape, cond_mask.shape', x.shape, attn_mask.shape, cond.shape, cond_mask.shape)
                 model_kwargs = dict(encoder_hidden_states=cond, attention_mask=attn_mask,
                                     encoder_attention_mask=cond_mask, use_image_num=args.use_image_num)
                 t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=accelerator.device)
@@ -483,16 +518,16 @@ def main(args):
                 break
 
             if accelerator.is_main_process:
-                validation_prompt = "The majestic beauty of a waterfall cascading down a cliff into a serene lake. The camera angle provides a bird's eye view of the waterfall."
                 if global_step % args.checkpointing_steps == 0:
-                    logger.info(f"Running validation... \n"
-                                f"Generating {args.num_validation_videos} videos with prompt: {validation_prompt}")
                     if args.use_ema:
                         # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
                         ema_model.store(model.parameters())
                         ema_model.copy_to(model.parameters())
 
                     if args.enable_tracker:
+                        validation_prompt = "The majestic beauty of a waterfall cascading down a cliff into a serene lake."
+                        logger.info(f"Running validation... \n"
+                                    f"Generating {args.num_validation_videos} videos with prompt: {validation_prompt}")
                         with torch.no_grad():
                             # create pipeline
                             ae_ = getae_wrapper(args.ae)(args.ae_path).to(accelerator.device).eval()
@@ -564,28 +599,27 @@ if __name__ == "__main__":
     parser.add_argument("--video_folder", type=str, default='')
     parser.add_argument("--image_data_path", type=str, default='')
     parser.add_argument("--image_folder", type=str, default='')
-    parser.add_argument("--model", type=str, choices=list(Diffusion_models.keys()), default="Latte-XL/122")
-    parser.add_argument("--num_classes", type=int, default=1000)
-    parser.add_argument("--ae", type=str, default="stabilityai/sd-vae-ft-mse")
-    parser.add_argument("--ae_path", type=str, default="stabilityai/sd-vae-ft-mse")
-    parser.add_argument("--sample_rate", type=int, default=4)
-    parser.add_argument("--num_frames", type=int, default=16)
-    parser.add_argument("--max_image_size", type=int, default=128)
-    parser.add_argument("--compress_kv", action="store_true")
-    parser.add_argument("--attention_mode", type=str, choices=['xformers', 'math', 'flash'], default="xformers")
-    parser.add_argument("--pretrained", type=str, default=None)
+    parser.add_argument("--sample_rate", type=int, default=1)
+    parser.add_argument("--num_frames", type=int, default=17)
+    parser.add_argument("--max_image_size", type=int, default=512)
+    parser.add_argument("--use_img_from_vid", action="store_true")
+    parser.add_argument("--use_image_num", type=int, default=0)
+    parser.add_argument("--model_max_length", type=int, default=300)
 
     parser.add_argument('--tile_overlap_factor', type=float, default=0.25)
     parser.add_argument('--enable_tiling', action='store_true')
+    parser.add_argument("--compress_kv", action="store_true")
+    parser.add_argument("--attention_mode", type=str, choices=['xformers', 'math', 'flash'], default="xformers")
     parser.add_argument('--use_rope', action='store_true')
 
+    parser.add_argument("--model", type=str, choices=list(Diffusion_models.keys()), default="Latte-XL/122")
+    parser.add_argument("--pretrained", type=str, default=None)
+    parser.add_argument("--ae", type=str, default="stabilityai/sd-vae-ft-mse")
+    parser.add_argument("--ae_path", type=str, default="stabilityai/sd-vae-ft-mse")
     parser.add_argument("--text_encoder_name", type=str, default='DeepFloyd/t5-v1_1-xxl')
     parser.add_argument("--cache_dir", type=str, default='./cache_dir')
-    parser.add_argument("--model_max_length", type=int, default=300)
 
     parser.add_argument("--enable_tracker", action="store_true")
-    parser.add_argument("--use_image_num", type=int, default=0)
-    parser.add_argument("--use_img_from_vid", action="store_true")
     parser.add_argument("--use_deepspeed", action="store_true")
     parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
     parser.add_argument(

@@ -22,9 +22,6 @@ def random_video_noise(t, c, h, w):
 
 class T2V_dataset(Dataset):
     def __init__(self, args, transform, temporal_sample, tokenizer):
-
-        # with open(args.data_path, 'r') as csvfile:
-        #     self.samples = list(csv.DictReader(csvfile))
         self.video_folder = args.video_folder
         self.num_frames = args.num_frames
         self.transform = transform
@@ -33,17 +30,17 @@ class T2V_dataset(Dataset):
         self.model_max_length = args.model_max_length
         self.v_decoder = DecordInit()
 
-        with open(args.data_path, 'r') as f:
-            self.samples = json.load(f)
+        with open(args.video_data_path, 'r') as f:
+            self.vid_cap_list = json.load(f)
         self.use_image_num = args.use_image_num
         self.use_img_from_vid = args.use_img_from_vid
         if self.use_image_num != 0 and not self.use_img_from_vid:
             self.image_folder = args.image_folder
             self.image_data_path = args.image_data_path
-            self.img_cap_list = self.get_img_cap_list(self.image_data_path)
+            self.img_cap_list = self.get_img_cap_list()
 
     def __len__(self):
-        return len(self.samples)
+        return len(self.vid_cap_list)
 
     def __getitem__(self, idx):
         try:
@@ -57,7 +54,7 @@ class T2V_dataset(Dataset):
                 raise NotImplementedError
             return dict(video_data=video_data, image_data=image_data)
         except Exception as e:
-            print(f'Error with {e}, {self.samples[idx]}')
+            print(f'Error with {e}, {self.vid_cap_list[idx]}')
             return self.__getitem__(random.randint(0, self.__len__() - 1))
 
     def get_video(self, idx):
@@ -66,11 +63,11 @@ class T2V_dataset(Dataset):
         # input_ids = torch.ones(1, 120).to(torch.long).squeeze(0)
         # cond_mask = torch.cat([torch.ones(1, 60).to(torch.long), torch.ones(1, 60).to(torch.long)], dim=1).squeeze(0)
         
-        video_path = self.samples[idx]['path'].replace('/remote-home1/dataset/data_split_tt', '/yzwldata01/dataset/split_1024')
+        video_path = self.vid_cap_list[idx]['path'].replace('/remote-home1/dataset/data_split_tt', '/yzwldata01/dataset/split_1024')
         video = self.decord_read(video_path)
         video = self.transform(video)  # T C H W -> T C H W
         video = video.transpose(0, 1)  # T C H W -> C T H W
-        text = self.samples[idx]['cap'][0]
+        text = self.vid_cap_list[idx]['cap'][0]
 
         text = text_preprocessing(text)
         text_tokens_and_mask = self.tokenizer(
@@ -98,26 +95,29 @@ class T2V_dataset(Dataset):
         idx = idx % len(self.img_cap_list)  # out of range
         image_data = self.img_cap_list[idx]  # [{'path': path, 'cap': cap}, ...]
         
-        image = [Image.open(os.path.join(self.image_folder, i['path'])) for i in image_data] # num_img [h, w, c]
-        image = [torch.from_numpy(np.array(i)) for i in image_data] # num_img [h, w, c]
+        image = [Image.open(os.path.join(self.image_folder, i['path'])).convert('RGB') for i in image_data] # num_img [h, w, c]
+        image = [torch.from_numpy(np.array(i)) for i in image] # num_img [h, w, c]
         image = [rearrange(i, 'h w c -> c h w').unsqueeze(0) for i in image] # num_img [1 c h w]
         image = [self.transform(i) for i in image]  # num_img [1 C H W] -> num_img [1 C H W]
         image = [i.transpose(0, 1) for i in image]  # num_img [1 C H W] -> num_img [C 1 H W]
 
         caps = [i['cap'] for i in image_data]
-        text = text_preprocessing(text)
-        text_tokens_and_mask = self.tokenizer(
-            caps,
-            max_length=self.model_max_length,
-            padding='max_length',
-            truncation=True,
-            return_attention_mask=True,
-            add_special_tokens=True,
-            return_tensors='pt'
-        )
-        input_ids = text_tokens_and_mask['input_ids']  # self.use_image_num, l
-        cond_mask = text_tokens_and_mask['attention_mask']  # self.use_image_num, l
-
+        text = [text_preprocessing(cap) for cap in caps]
+        input_ids, cond_mask = [], []
+        for t in text:
+            text_tokens_and_mask = self.tokenizer(
+                t,
+                max_length=self.model_max_length,
+                padding='max_length',
+                truncation=True,
+                return_attention_mask=True,
+                add_special_tokens=True,
+                return_tensors='pt'
+            )
+            input_ids.append(text_tokens_and_mask['input_ids'])
+            cond_mask.append(text_tokens_and_mask['attention_mask'])
+        input_ids = torch.cat(input_ids)  # self.use_image_num, l
+        cond_mask = torch.cat(cond_mask)  # self.use_image_num, l
         return dict(image=image, input_ids=input_ids, cond_mask=cond_mask)
 
     def tv_read(self, path):
@@ -146,8 +146,8 @@ class T2V_dataset(Dataset):
         video_data = video_data.permute(0, 3, 1, 2)  # (T, H, W, C) -> (T C H W)
         return video_data
 
-    def get_img_cap_list(self, image_data_path):
-        with open(image_data_path, 'r') as f:
-            image_data = json.load(image_data_path)
+    def get_img_cap_list(self):
+        with open(self.image_data_path, 'r') as f:
+            image_data = json.load(f)
         image_data = [image_data[i: i+self.use_image_num] for i in range(0, len(image_data), self.use_image_num)]
         return image_data[:-1]  # drop last to avoid error length

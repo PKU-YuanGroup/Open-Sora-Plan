@@ -155,7 +155,6 @@ class PatchEmbed(nn.Module):
             latent = latent.flatten(2).transpose(1, 2)  # BCHW -> BNC
         if self.layer_norm:
             latent = self.norm(latent)
-
         if self.use_rope:
             return latent.to(latent.dtype)
         # Interpolate positional embeddings if needed.
@@ -905,10 +904,8 @@ class AttnProcessor2_0:
         key = key.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
         value = value.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
 
+        # import ipdb;ipdb.set_trace()
         if self.use_rope:
-            print('use rope')
-            print('use rope')
-            print('use rope')
             # require the shape of (batch_size x nheads x ntokens x dim)
             if position_q.ndim == 3:
                 query = self.rope2d(query, position_q) 
@@ -1463,7 +1460,7 @@ class BasicTransformerBlock(nn.Module):
                 bias=attention_bias,
                 upcast_attention=upcast_attention,
                 attention_mode=attention_mode,  # only xformers support attention_mask
-                use_rope=use_rope, 
+                use_rope=False,  # do not position in cross attention
             )  # is self-attn if encoder_hidden_states is none
         else:
             self.norm2 = None

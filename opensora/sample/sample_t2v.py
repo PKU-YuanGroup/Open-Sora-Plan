@@ -33,18 +33,20 @@ def main(args):
     torch.set_grad_enabled(False)
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    vae = getae_wrapper(args.ae)(args.model_path, subfolder="vae", cache_dir='cache_dir').to(device, dtype=torch.float16)
+    # vae = getae_wrapper(args.ae)(args.model_path, subfolder="vae", cache_dir='cache_dir').to(device, dtype=torch.float16)
+    vae = getae_wrapper(args.ae)(args.ae_path).to(device, dtype=torch.float16)
     if args.enable_tiling:
         vae.vae.enable_tiling()
         vae.vae.tile_overlap_factor = args.tile_overlap_factor
 
     # Load model:
-    transformer_model = LatteT2V.from_pretrained(args.model_path, subfolder=args.version, cache_dir="cache_dir", torch_dtype=torch.float16).to(device)
+    # transformer_model = LatteT2V.from_pretrained(args.model_path, subfolder=args.version, cache_dir="cache_dir", torch_dtype=torch.float16).to(device)
+    transformer_model = LatteT2V.from_pretrained(args.model_path, torch_dtype=torch.float16).to(device)
     transformer_model.force_images = args.force_images
-    tokenizer = T5Tokenizer.from_pretrained(args.text_encoder_name, cache_dir="cache_dir")
-    text_encoder = T5EncoderModel.from_pretrained(args.text_encoder_name, cache_dir="cache_dir", torch_dtype=torch.float16).to(device)
+    tokenizer = T5Tokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
+    text_encoder = T5EncoderModel.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir, torch_dtype=torch.float16).to(device)
 
-    video_length, image_size = transformer_model.config.video_length, int(args.version.split('x')[1])
+    video_length, image_size = transformer_model.config.video_length, args.image_size
     latent_size = (image_size // ae_stride_config[args.ae][1], image_size // ae_stride_config[args.ae][2])
     vae.latent_size = latent_size
     if args.force_images:
@@ -143,8 +145,11 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_path", type=str, default='LanguageBind/Open-Sora-Plan-v1.0.0')
-    parser.add_argument("--version", type=str, default='65x512x512', choices=['65x512x512', '65x256x256', '17x256x256'])
+    parser.add_argument("--version", type=str, default=None, choices=[None, '65x512x512', '65x256x256', '17x256x256'])
+    parser.add_argument("--image_size", type=int, default=512)
+    parser.add_argument("--cache_dir", type=str, default='./cache_dir')
     parser.add_argument("--ae", type=str, default='CausalVAEModel_4x8x8')
+    parser.add_argument("--ae_path", type=str, default='CausalVAEModel_4x8x8')
     parser.add_argument("--text_encoder_name", type=str, default='DeepFloyd/t5-v1_1-xxl')
     parser.add_argument("--save_img_path", type=str, default="./sample_videos/t2v")
     parser.add_argument("--guidance_scale", type=float, default=7.5)

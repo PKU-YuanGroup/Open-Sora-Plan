@@ -1,11 +1,13 @@
 CUDA_VISIBLE_DEVICES=0 python opensora/sample/sample_t2v.py \
-    --model_path LanguageBind/Open-Sora-Plan-v1.0.0 \
+    --model_path 512_origin_useimg/checkpoint-300/model \
+    --image_size 512 \
+    --cache_dir "../../Open-Sora-Plan/cache_dir" \
     --text_encoder_name DeepFloyd/t5-v1_1-xxl \
     --text_prompt examples/prompt_list_0.txt \
     --ae CausalVAEModel_4x8x8 \
-    --version 65x512x512 \
-    --save_img_path "./sample_videos/prompt_list_0" \
+    --ae_path "../released/vae" \
+    --save_img_path "./sample_videos/512_origin_useimg" \
     --fps 24 \
     --guidance_scale 7.5 \
-    --num_sampling_steps 250 \
+    --num_sampling_steps 50 \
     --enable_tiling

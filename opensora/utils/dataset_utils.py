@@ -66,7 +66,6 @@ class Collate:
         cond_mask_vid = torch.stack([i['video_data']['cond_mask'] for i in batch])  # b 1 l
         batch_tubes_img, input_ids_img, cond_mask_img = None, None, None
         if self.use_image_num != 0: 
-            import ipdb;ipdb.set_trace()
             batch_tubes_img = [j for i in batch for j in i['image_data']['image']]  # b*num_img [c 1 h w]
             input_ids_img = torch.stack([i['image_data']['input_ids'] for i in batch])  # b image_num l
             cond_mask_img = torch.stack([i['image_data']['cond_mask'] for i in batch])  # b image_num l

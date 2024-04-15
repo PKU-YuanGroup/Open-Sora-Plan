@@ -128,6 +128,7 @@ except ImportError:
             assert positions.ndim == 3 and positions.shape[-1] == 2  # Batch, Seq, 2
             cos, sin = self.get_cos_sin(D, int(positions.max()) + 1, tokens.device, tokens.dtype)
             # split features into two along the feature dimension, and apply rope1d on each half
+            # import ipdb;ipdb.set_trace()
             y, x = tokens.chunk(2, dim=-1)
             y = self.apply_rope1d(y, positions[:, :, 0], cos, sin)
             x = self.apply_rope1d(x, positions[:, :, 1], cos, sin)
@@ -183,9 +184,10 @@ except ImportError:
                 * tokens after appplying RoPE2D (batch_size x nheads x ntokens x dim)
             """
             D = tokens.size(3)
-            assert positions.ndim == 3 and positions.shape[-1] == 2  # Batch, Seq, 2
+            assert positions.ndim == 2  # Batch, Seq
+            # import ipdb;ipdb.set_trace()
             cos, sin = self.get_cos_sin(D, int(positions.max()) + 1, tokens.device, tokens.dtype)
-            tokens = self.apply_rope1d(t, positions, cos, sin)
+            tokens = self.apply_rope1d(tokens, positions, cos, sin)
             return tokens
 
 
@@ -212,7 +214,7 @@ class PositionGetter1D(object):
         self.cache_positions = {}
         
     def __call__(self, b, l, device):
-        if not (h,w) in self.cache_positions:
+        if not (l) in self.cache_positions:
             x = torch.arange(l, device=device)
             self.cache_positions[l] = x # (l, )
         pos = self.cache_positions[l].view(1, l).expand(b, -1).clone()
