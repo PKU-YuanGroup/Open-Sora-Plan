@@ -1,6 +1,6 @@
 export WANDB_KEY=""
 export ENTITY=""
-export PROJECT="512_origin_useimg"
+export PROJECT="512_useimg"
 accelerate launch \
     --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
     opensora/train/train_t2v.py \
@@ -29,7 +29,7 @@ accelerate launch \
     --mixed_precision="bf16" \
     --report_to="tensorboard" \
     --checkpointing_steps=500 \
-    --output_dir="512_origin_useimg" \
+    --output_dir="512_useimg" \
     --allow_tf32 \
     --pretrained t2v.pt \
     --use_deepspeed \

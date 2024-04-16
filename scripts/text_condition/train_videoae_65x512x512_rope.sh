@@ -12,6 +12,8 @@ accelerate launch \
     --ae_path "../../Open-Sora-Plan/CausalVAEModel_4x8x8/" \
     --video_data_path "../../Open-Sora-Plan/sharegpt4v_path_cap_64x512x512_mixkit.json" \
     --video_folder /remote-home1/dataset/data_split_tt \
+    --image_data_path "../../../dataset/image_114054.json" \
+    --image_folder "../../../dataset/picture" \
     --sample_rate 1 \
     --num_frames 65 \
     --max_image_size 512 \
@@ -32,7 +34,7 @@ accelerate launch \
     --pretrained t2v.pt \
     --use_deepspeed \
     --model_max_length 300 \
-    --use_image_num 8 \
+    --use_image_num 4 \
     --use_img_from_vid \
     --enable_tiling \
     --use_rope

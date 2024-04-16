@@ -45,7 +45,7 @@ from opensora.models.ae import getae, getae_wrapper
 from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModelWrapper
 from opensora.models.diffusion.diffusion import create_diffusion_T as create_diffusion
 from opensora.models.diffusion.latte.modeling_latte import LatteT2V
-from opensora.models.text_encoder import get_text_enc
+from opensora.models.text_encoder import get_text_enc, get_text_warpper
 from opensora.utils.dataset_utils import Collate
 from opensora.models.ae import ae_stride_config, ae_channel_config
 from opensora.models.diffusion import Diffusion_models
@@ -145,14 +145,24 @@ def main(args):
         #         repo_id=args.hub_model_id or Path(args.output_dir).name, exist_ok=True, token=args.hub_token
         #     ).repo_id
 
-    # Create model:
+    # For mixed precision training we cast all non-trainable weigths to half-precision
+    # as these weights are only used for inference, keeping weights in full precision is not required.
+    weight_dtype = torch.float32
+    if accelerator.mixed_precision == "fp16":
+        weight_dtype = torch.float16
+    elif accelerator.mixed_precision == "bf16":
+        weight_dtype = torch.bfloat16
 
+    # Create model:
     diffusion = create_diffusion(timestep_respacing="")  # default: 1000 steps, linear noise schedule
-    ae = getae_wrapper(args.ae)(args.ae_path, cache_dir=args.cache_dir).eval()
+    kwargs = {}
+    ae = getae_wrapper(args.ae)(args.ae_path, cache_dir=args.cache_dir, **kwargs).eval()
     if args.enable_tiling:
         ae.vae.enable_tiling()
         ae.vae.tile_overlap_factor = args.tile_overlap_factor
-    text_enc = get_text_enc(args).eval()
+        
+    kwargs = {'load_in_8bit': False, 'torch_dtype': weight_dtype}
+    text_enc = get_text_warpper(args.text_encoder_name)(args, **kwargs).eval()
 
     ae_stride_t, ae_stride_h, ae_stride_w = ae_stride_config[args.ae]
     assert ae_stride_h == ae_stride_w, f"Support only ae_stride_h == ae_stride_w now, but found ae_stride_h ({ae_stride_h}), ae_stride_w ({ae_stride_w})"
@@ -218,19 +228,14 @@ def main(args):
     # Set model as trainable.
     model.train()
 
-    # For mixed precision training we cast all non-trainable weigths to half-precision
-    # as these weights are only used for inference, keeping weights in full precision is not required.
-    weight_dtype = torch.float32
-    if accelerator.mixed_precision == "fp16":
-        weight_dtype = torch.float16
-    elif accelerator.mixed_precision == "bf16":
-        weight_dtype = torch.bfloat16
 
     # Move unet, vae and text_encoder to device and cast to weight_dtype
     # The VAE is in float32 to avoid NaN losses.
     # ae.to(accelerator.device, dtype=torch.float32)
     ae.to(accelerator.device, dtype=weight_dtype)
+    # ae.to(accelerator.device)
     text_enc.to(accelerator.device, dtype=weight_dtype)
+    # text_enc.to(accelerator.device)
 
     # Create EMA for the unet.
     if args.use_ema:
@@ -400,13 +405,19 @@ def main(args):
         for step, (x, attn_mask, input_ids, cond_mask) in enumerate(train_dataloader):
             with accelerator.accumulate(model):
                 # Sample noise that we'll add to the latents
+
+                
                 x = x.to(accelerator.device, dtype=weight_dtype)  # B C T+num_images H W, 16 + 4
                 attn_mask = attn_mask.to(accelerator.device)  # B L or B 1+num_images L
                 input_ids = input_ids.to(accelerator.device)  # B L or B 1+num_images L
                 cond_mask = cond_mask.to(accelerator.device)  # B L or B 1+num_images L
-                # print('(x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape', x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape)
-
+                print('x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape', x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape)
+                
                 with torch.no_grad():
+                    # use for loop to avoid OOM, because T5 is too huge...
+                    B, _, _ = input_ids.shape  # B T+num_images L  b 1+4, L
+                    cond = torch.stack([text_enc(input_ids[i], cond_mask[i]) for i in range(B)])  # B 1+num_images L D
+                    
                     # Map input images to latent space + normalize latents
                     if args.use_image_num == 0:
                         x = ae.encode(x)  # B C T H W
@@ -454,11 +465,9 @@ def main(args):
                         images = rearrange(images, '(b t) c 1 h w -> b c t h w', t=args.use_image_num)
                         x = torch.cat([videos, images], dim=2)   #  b c 17+4, h, w
 
-                        # use for loop to avoid OOM, because T5 is too huge...
-                        B, _, _ = input_ids.shape  # B T+num_images L  b 1+4, L
-                        cond = torch.stack([text_enc(input_ids[i], cond_mask[i]) for i in range(B)])  # B 1+num_images L D
+                
 
-                # print('(x.shape, attn_mask.shape, cond.shape, cond_mask.shape', x.shape, attn_mask.shape, cond.shape, cond_mask.shape)
+                print('(x.shape, attn_mask.shape, cond.shape, cond_mask.shape', x.shape, attn_mask.shape, cond.shape, cond_mask.shape)
                 model_kwargs = dict(encoder_hidden_states=cond, attention_mask=attn_mask,
                                     encoder_attention_mask=cond_mask, use_image_num=args.use_image_num)
                 t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=accelerator.device)

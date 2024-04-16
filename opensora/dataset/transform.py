@@ -248,9 +248,11 @@ class LongSideResizeVideo:
     def __init__(
             self,
             size,
+            skip_low_resolution=False, 
             interpolation_mode="bilinear",
     ):
         self.size = size
+        self.skip_low_resolution = skip_low_resolution
         self.interpolation_mode = interpolation_mode
 
     def __call__(self, clip):
@@ -262,6 +264,8 @@ class LongSideResizeVideo:
                 size is (T, C, 512, *) or (T, C, *, 512)
         """
         _, _, h, w = clip.shape
+        if self.skip_low_resolution and max(h, w) <= self.size:
+            return clip
         if h > w:
             w = int(w * self.size / h)
             h = self.size

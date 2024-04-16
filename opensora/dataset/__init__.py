@@ -49,7 +49,7 @@ def getdataset(args):
     if args.dataset == 't2v':
         transform = transforms.Compose([
             ToTensorVideo(),
-            LongSideResizeVideo(args.max_image_size),
+            LongSideResizeVideo(args.max_image_size, skip_low_resolution=True),
             SpatialStrideCropVideo(args.stride), 
             # RandomHorizontalFlipVideo(p=0.5),  # in case their caption have position decription
             norm_fun

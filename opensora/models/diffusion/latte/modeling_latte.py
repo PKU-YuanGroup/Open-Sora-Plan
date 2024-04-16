@@ -93,6 +93,8 @@ class LatteT2V(ModelMixin, ConfigMixin):
         self.use_rope = use_rope
         self.model_max_length = model_max_length
 
+        self.config.hidden_size = model_max_length
+
         conv_cls = nn.Conv2d if USE_PEFT_BACKEND else LoRACompatibleConv
         linear_cls = nn.Linear if USE_PEFT_BACKEND else LoRACompatibleLinear
 
