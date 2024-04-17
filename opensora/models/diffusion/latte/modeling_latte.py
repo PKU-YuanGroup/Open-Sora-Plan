@@ -169,7 +169,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
                 in_channels=in_channels,
                 embed_dim=inner_dim,
                 interpolation_scale=interpolation_scale,
-                use_rope=self.use_rope, 
+                use_rope=False,  # abs pos
             )
 
         # 3. Define transformers blocks, spatial attention
@@ -430,7 +430,6 @@ class LatteT2V(ModelMixin, ConfigMixin):
         timestep_spatial = repeat(timestep, 'b d -> (b f) d', f=frame + use_image_num).contiguous()
         timestep_temp = repeat(timestep, 'b d -> (b p) d', p=num_patches).contiguous()
         
-        # import ipdb;ipdb.set_trace()
         position_spatial, position_temporal, position_condition = None, None, None
         if self.use_rope:
             condition_length = encoder_hidden_states_spatial.shape[-2]  # instead of self.model_max_length

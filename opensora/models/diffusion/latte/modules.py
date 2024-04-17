@@ -156,7 +156,7 @@ class PatchEmbed(nn.Module):
         if self.layer_norm:
             latent = self.norm(latent)
         if self.use_rope:
-            return latent.to(latent.dtype)
+            return latent
         # Interpolate positional embeddings if needed.
         # (For PixArt-Alpha: https://github.com/PixArt-alpha/PixArt-alpha/blob/0f55e922376d8b797edd44d25d0e7464b260dcab/diffusion/model/nets/PixArtMS.py#L162C151-L162C160)
         if self.height != height or self.width != width:
@@ -904,7 +904,6 @@ class AttnProcessor2_0:
         key = key.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
         value = value.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
 
-        # import ipdb;ipdb.set_trace()
         if self.use_rope:
             # require the shape of (batch_size x nheads x ntokens x dim)
             if position_q.ndim == 3:
@@ -1579,8 +1578,8 @@ class BasicTransformerBlock(nn.Module):
                 norm_hidden_states,
                 encoder_hidden_states=encoder_hidden_states,
                 attention_mask=encoder_attention_mask,
-                position_q=position_spatial,
-                position_k=position_condition,
+                # position_q=position_spatial,  # cross attn do not need relative position
+                # position_k=position_condition,
                 **cross_attention_kwargs,
             )
             hidden_states = attn_output + hidden_states

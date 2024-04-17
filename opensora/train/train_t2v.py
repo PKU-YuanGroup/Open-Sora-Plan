@@ -467,7 +467,7 @@ def main(args):
 
                 
 
-                print('(x.shape, attn_mask.shape, cond.shape, cond_mask.shape', x.shape, attn_mask.shape, cond.shape, cond_mask.shape)
+                # print('(x.shape, attn_mask.shape, cond.shape, cond_mask.shape', x.shape, attn_mask.shape, cond.shape, cond_mask.shape)
                 model_kwargs = dict(encoder_hidden_states=cond, attention_mask=attn_mask,
                                     encoder_attention_mask=cond_mask, use_image_num=args.use_image_num)
                 t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=accelerator.device)
