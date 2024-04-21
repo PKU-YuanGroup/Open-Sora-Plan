@@ -1,12 +1,13 @@
-CUDA_VISIBLE_DEVICES=0 python opensora/sample/sample_t2v.py \
-    --model_path 512_rope_abs/checkpoint-1600/model \
+CUDA_VISIBLE_DEVICES=6 python opensora/sample/sample_t2v.py \
+    --model_path /remote-home1/yeyang/sora4.8/Open-Sora-Plan/cache_dir/models--LanguageBind--Open-Sora-Plan-v1.0.0/snapshots/92a849c00ab99ae2c7cd7ff156f2ae02eb25c45d/65x512x512 \
+    --version 65x512x512 \
     --image_size 512 \
-    --cache_dir "../../Open-Sora-Plan/cache_dir" \
+    --cache_dir "/remote-home1/yeyang/sora4.8/Open-Sora-Plan/cache_dir" \
     --text_encoder_name DeepFloyd/t5-v1_1-xxl \
     --text_prompt examples/prompt_list_0.txt \
     --ae CausalVAEModel_4x8x8 \
-    --ae_path "../../Open-Sora-Plan/CausalVAEModel_4x8x8/" \
-    --save_img_path "./sample_videos/512_rope" \
+    --ae_path "/remote-home1/yeyang/sora4.8/Open-Sora-Plan/CausalVAEModel_4x8x8/" \
+    --save_img_path "./sample_videos" \
     --fps 24 \
     --guidance_scale 10.0 \
     --num_sampling_steps 50 \

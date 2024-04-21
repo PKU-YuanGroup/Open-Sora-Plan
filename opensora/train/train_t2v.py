@@ -204,7 +204,7 @@ def main(args):
         attention_type='default',
         video_length=video_length,
         attention_mode=args.attention_mode,
-        # compress_kv=args.compress_kv
+        compress_kv_factor=args.compress_kv_factor
         use_rope=args.use_rope, 
         model_max_length=args.model_max_length, 
     )
@@ -620,6 +620,7 @@ if __name__ == "__main__":
     parser.add_argument("--compress_kv", action="store_true")
     parser.add_argument("--attention_mode", type=str, choices=['xformers', 'math', 'flash'], default="xformers")
     parser.add_argument('--use_rope', action='store_true')
+    parser.add_argument('--compress_kv_factor', type=int, default=1)
 
     parser.add_argument("--model", type=str, choices=list(Diffusion_models.keys()), default="Latte-XL/122")
     parser.add_argument("--pretrained", type=str, default=None)

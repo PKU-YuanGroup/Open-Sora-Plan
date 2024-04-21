@@ -98,6 +98,8 @@ class LatteT2V(ModelMixin, ConfigMixin):
         self.num_layers = num_layers
         self.config.hidden_size = model_max_length
 
+        assert not (self.compress_kv_factor != 1 and use_rope), "Can not both enable compressing kv and using rope"
+
         conv_cls = nn.Conv2d if USE_PEFT_BACKEND else LoRACompatibleConv
         linear_cls = nn.Linear if USE_PEFT_BACKEND else LoRACompatibleLinear
 
@@ -135,7 +137,6 @@ class LatteT2V(ModelMixin, ConfigMixin):
             in_channels=in_channels,
             embed_dim=inner_dim,
             interpolation_scale=interpolation_scale_2d,
-            use_rope=False,  # hard coding, because abs. pos is important, using it to accelerate training
         )
 
         
@@ -144,14 +145,16 @@ class LatteT2V(ModelMixin, ConfigMixin):
             interpolation_scale_1d = (self.config.video_length - 1) // 16  # => 16 (= 16 Latte) has interpolation scale 1
         else:
             interpolation_scale_1d = self.config.video_length // 16  # => 16 (= 16 Latte) has interpolation scale 1
+        interpolation_scale_1d = self.config.video_length // 5  # 
         interpolation_scale_1d = max(interpolation_scale_1d, 1)
         temp_pos_embed = get_1d_sincos_pos_embed(inner_dim, video_length, interpolation_scale=interpolation_scale_1d)  # 1152 hidden size
         self.register_buffer("temp_pos_embed", torch.from_numpy(temp_pos_embed).float().unsqueeze(0), persistent=False)
 
-        self.position_getter_2d = PositionGetter2D()
-        self.position_getter_1d = PositionGetter1D()
-
-        self.rope_scaling = rope_scaling = dict(type=rope_scaling_type, factor_2d=interpolation_scale_2d, factor_1d=interpolation_scale_1d)
+        rope_scaling = None
+        if self.use_rope:
+            self.position_getter_2d = PositionGetter2D()
+            self.position_getter_1d = PositionGetter1D()
+            rope_scaling = dict(type=rope_scaling_type, factor_2d=interpolation_scale_2d, factor_1d=interpolation_scale_1d)
 
         # 3. Define transformers blocks, spatial attention
         self.transformer_blocks = nn.ModuleList(
@@ -175,7 +178,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
                     attention_mode=attention_mode, 
                     use_rope=use_rope, 
                     rope_scaling=rope_scaling, 
-                    compress_kv_factor=(compress_kv_factor, compress_kv_factor) if d >= num_layers // 2 else (), # follow pixart-sigma, apply in second-half layers
+                    compress_kv_factor=(compress_kv_factor, compress_kv_factor) if d >= num_layers // 2 and compress_kv_factor != 1 else None, # follow pixart-sigma, apply in second-half layers
                 )
                 for d in range(num_layers)
             ]
@@ -203,7 +206,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
                     attention_mode=attention_mode, 
                     use_rope=use_rope, 
                     rope_scaling=rope_scaling, 
-                    compress_kv_factor=(compress_kv_factor, ) if d >= num_layers // 2 else (), # follow pixart-sigma, apply in second-half layers
+                    compress_kv_factor=(compress_kv_factor, ) if d >= num_layers // 2 and compress_kv_factor != 1 else None, # follow pixart-sigma, apply in second-half layers
                 )
                 for d in range(num_layers)
             ]
@@ -250,9 +253,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
     def make_position(self, b, t, use_image_num, h, w, device):
         pos_hw = self.position_getter_2d(b*(t+use_image_num), h, w, device)  # fake_b = b*(t+use_image_num)
         pos_t = self.position_getter_1d(b*h*w, t, device)  # fake_b = b*h*w
-        pos_hw_compress = self.position_getter_2d(b*(t+use_image_num), h//self.compress_kv_factor, w//self.compress_kv_factor, device)  # fake_b = b*(t+use_image_num)
-        pos_t_compress = self.position_getter_1d(b*h*w, t//self.compress_kv_factor, device)  # fake_b = b*h*w
-        return pos_hw, pos_t, pos_hw_compress, pos_t_compress
+        return pos_hw, pos_t
 
     def make_attn_mask(self, attention_mask, frame, dtype):
         attention_mask = attention_mask.flatten(-2)  # *, h w -> *, hw
@@ -341,21 +342,22 @@ class LatteT2V(ModelMixin, ConfigMixin):
         # this helps to broadcast it as a bias over attention scores, which will be in one of the following shapes:
         #   [batch,  heads, query_tokens, key_tokens] (e.g. torch sdp attn)
         #   [batch * heads, query_tokens, key_tokens] (e.g. xformers or classic attn)
-        import ipdb;ipdb.set_trace()
         if attention_mask is None:
             if use_image_num == 0:
                 attention_mask = torch.ones((input_batch_size, h//self.patch_size, w//self.patch_size), device=hidden_states.device, dtype=hidden_states.dtype)
             else:
                 attention_mask = torch.ones((input_batch_size, 1+use_image_num, h//self.patch_size, w//self.patch_size), device=hidden_states.device, dtype=hidden_states.dtype)
+
+        dtype = attention_mask.dtype
         if use_image_num == 0:
-            attention_mask_compress = F.max_pool2d(attention_mask.unsqueeze(1), kernel_size=self.compress_kv_factor, stride=self.compress_kv_factor).squeeze(1)
+            attention_mask_compress = F.max_pool2d(attention_mask.unsqueeze(1).float(), kernel_size=self.compress_kv_factor, stride=self.compress_kv_factor).squeeze(1)
         else:
-            attention_mask_compress = F.max_pool2d(attention_mask, kernel_size=self.compress_kv_factor, stride=self.compress_kv_factor)
+            attention_mask_compress = F.max_pool2d(attention_mask.float(), kernel_size=self.compress_kv_factor, stride=self.compress_kv_factor)
+        attention_mask_compress = attention_mask_compress.to(dtype)
 
         attention_mask = self.make_attn_mask(attention_mask, frame, hidden_states.dtype)
         attention_mask_compress = self.make_attn_mask(attention_mask_compress, frame, hidden_states.dtype)
 
-        import ipdb;ipdb.set_trace()
         # 1 + 4, 1 -> video condition, 4 -> image condition
         # convert encoder_attention_mask to a bias the same way we do for attention_mask
         if encoder_attention_mask is not None and encoder_attention_mask.ndim == 2:  # ndim == 2 means no image joint
@@ -413,9 +415,9 @@ class LatteT2V(ModelMixin, ConfigMixin):
         timestep_spatial = repeat(timestep, 'b d -> (b f) d', f=frame + use_image_num).contiguous()
         timestep_temp = repeat(timestep, 'b d -> (b p) d', p=num_patches).contiguous()
         
-        pos_hw, pos_t, pos_hw_compress, pos_t_compress = None, None, None, None
+        pos_hw, pos_t = None, None
         if self.use_rope:
-            pos_hw, pos_t, pos_hw_compress, pos_t_compress = self.make_position(input_batch_size, frame, use_image_num, height, width, hidden_states.device)
+            pos_hw, pos_t = self.make_position(input_batch_size, frame, use_image_num, height, width, hidden_states.device)
 
         for i, (spatial_block, temp_block) in enumerate(zip(self.transformer_blocks, self.temporal_transformer_blocks)):
 
@@ -430,7 +432,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
                     cross_attention_kwargs,
                     class_labels,
                     pos_hw, 
-                    pos_hw_compress if i >= self.num_layers // 2 else pos_hw, 
+                    pos_hw, 
                     hw, 
                     use_reentrant=False,
                 )
@@ -456,7 +458,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
                             cross_attention_kwargs,
                             class_labels,
                             pos_t, 
-                            pos_t_compress if i >= self.num_layers // 2 else pos_t, 
+                            pos_t, 
                             (frame, ), 
                             use_reentrant=False,
                         )
@@ -480,7 +482,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
                             cross_attention_kwargs,
                             class_labels,
                             pos_t, 
-                            pos_t_compress if i >= self.num_layers // 2 else pos_t, 
+                            pos_t, 
                             (frame, ), 
                             use_reentrant=False,
                         )
@@ -497,7 +499,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
                     cross_attention_kwargs,
                     class_labels,
                     pos_hw, 
-                    pos_hw_compress if i >= self.num_layers // 2 else pos_hw, 
+                    pos_hw, 
                     hw, 
                 )
 
@@ -521,7 +523,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
                             cross_attention_kwargs,
                             class_labels,
                             pos_t, 
-                            pos_t_compress if i >= self.num_layers // 2 else pos_t, 
+                            pos_t, 
                             (frame, ), 
                         )
 
@@ -543,7 +545,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
                             cross_attention_kwargs,
                             class_labels,
                             pos_t, 
-                            pos_t_compress if i >= self.num_layers // 2 else pos_t, 
+                            pos_t, 
                             (frame, ), 
                         )
 
@@ -619,11 +621,12 @@ if __name__ == '__main__':
     {
         'ae': 'CausalVAEModel_4x8x8', 
         'attention_mode': 'xformers', 
-        'use_rope': True, 
+        'use_rope': False, 
         'model_max_length': 300, 
         'max_image_size': 512, 
         'num_frames': 65, 
-        'use_image_num': 16
+        'use_image_num': 16, 
+        'compress_kv_factor': 1
     }
     )
     b = 2
@@ -633,11 +636,11 @@ if __name__ == '__main__':
     ae_stride_t, ae_stride_h, ae_stride_w = ae_stride_config[args.ae]
     latent_size = (args.max_image_size // ae_stride_h, args.max_image_size // ae_stride_w)
     if getae_wrapper(args.ae) == CausalVQVAEModelWrapper or getae_wrapper(args.ae) == CausalVAEModelWrapper:
-        args.video_length = video_length = args.num_frames // ae_stride_t + 1
+        args.video_length = video_length = (args.num_frames - 1) // ae_stride_t + 1
     else:
         video_length = args.num_frames // ae_stride_t
 
-    device = torch.device('cuda:0')
+    device = torch.device('cuda:6')
     model = LatteT2V_D64_XL_122(
         in_channels=ae_channel_config[args.ae],
         out_channels=ae_channel_config[args.ae] * 2,
@@ -658,20 +661,20 @@ if __name__ == '__main__':
         attention_type='default',
         video_length=video_length,
         attention_mode=args.attention_mode,
-        # compress_kv=args.compress_kv
+        compress_kv_factor=args.compress_kv_factor, 
         use_rope=args.use_rope, 
         model_max_length=args.model_max_length, 
     ).to(device)
-    try:
-        ckpt = torch.load(r"t2v.pt", map_location='cpu')['model']
-        model.load_state_dict(ckpt)
-    except Exception as e:
-        print(e)
+    # try:
+    #     ckpt = torch.load(r"t2v.pt", map_location='cpu')['model']
+    #     model.load_state_dict(ckpt)
+    # except Exception as e:
+    #     print(e)
     print(model)
 
     x = torch.randn(b, c,  1+(args.num_frames-1)//ae_stride_t+args.use_image_num, args.max_image_size//ae_stride_h, args.max_image_size//ae_stride_w).to(device)
     cond = torch.randn(b, 1+args.use_image_num, args.model_max_length, cond_c).to(device)
-    attn_mask = torch.randint(0, 2, (b, 1+args.use_image_num, (args.max_image_size//ae_stride_h//2)**2)).to(device)  # B L or B 1+num_images L
+    attn_mask = torch.randint(0, 2, (b, 1+args.use_image_num, args.max_image_size//ae_stride_h//2, args.max_image_size//ae_stride_w//2)).to(device)  # B L or B 1+num_images L
     cond_mask = torch.randint(0, 2, (b, 1+args.use_image_num, args.model_max_length)).to(device)  # B L or B 1+num_images L
     timestep = torch.randint(0, 1000, (b,), device=device)
     model_kwargs = dict(hidden_states=x, encoder_hidden_states=cond, attention_mask=attn_mask, 

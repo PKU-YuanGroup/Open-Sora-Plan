@@ -40,8 +40,9 @@ def main(args):
         vae.vae.tile_overlap_factor = args.tile_overlap_factor
 
     # Load model:
-    # transformer_model = LatteT2V.from_pretrained(args.model_path, subfolder=args.version, cache_dir="cache_dir", torch_dtype=torch.float16).to(device)
+    # transformer_model = LatteT2V.from_pretrained(args.model_path, subfolder=args.version, cache_dir=args.cache_dir, torch_dtype=torch.float16).to(device)
     transformer_model = LatteT2V.from_pretrained(args.model_path, torch_dtype=torch.float16).to(device)
+    print(transformer_model.config)
     transformer_model.force_images = args.force_images
     tokenizer = T5Tokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
     text_encoder = T5EncoderModel.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir, torch_dtype=torch.float16).to(device)

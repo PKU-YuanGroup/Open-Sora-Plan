@@ -117,7 +117,6 @@ class PatchEmbed(nn.Module):
         flatten=True,
         bias=True,
         interpolation_scale=1,
-        use_rope=False, 
     ):
         super().__init__()
 
@@ -138,14 +137,12 @@ class PatchEmbed(nn.Module):
         # https://github.com/PixArt-alpha/PixArt-alpha/blob/0f55e922376d8b797edd44d25d0e7464b260dcab/diffusion/model/nets/PixArtMS.py#L161
         self.height, self.width = height // patch_size, width // patch_size
 
-        self.use_rope = use_rope
-        if not self.use_rope:
-            self.base_size = height // patch_size
-            self.interpolation_scale = interpolation_scale
-            pos_embed = get_2d_sincos_pos_embed(
-                embed_dim, int(num_patches**0.5), base_size=self.base_size, interpolation_scale=self.interpolation_scale
-            )
-            self.register_buffer("pos_embed", torch.from_numpy(pos_embed).float().unsqueeze(0), persistent=False)
+        self.base_size = height // patch_size
+        self.interpolation_scale = interpolation_scale
+        pos_embed = get_2d_sincos_pos_embed(
+            embed_dim, int(num_patches**0.5), base_size=self.base_size, interpolation_scale=self.interpolation_scale
+        )
+        self.register_buffer("pos_embed", torch.from_numpy(pos_embed).float().unsqueeze(0), persistent=False)
 
     def forward(self, latent):
         height, width = latent.shape[-2] // self.patch_size, latent.shape[-1] // self.patch_size
@@ -155,8 +152,6 @@ class PatchEmbed(nn.Module):
             latent = latent.flatten(2).transpose(1, 2)  # BCHW -> BNC
         if self.layer_norm:
             latent = self.norm(latent)
-        if self.use_rope:
-            return latent
         # Interpolate positional embeddings if needed.
         # (For PixArt-Alpha: https://github.com/PixArt-alpha/PixArt-alpha/blob/0f55e922376d8b797edd44d25d0e7464b260dcab/diffusion/model/nets/PixArtMS.py#L162C151-L162C160)
         if self.height != height or self.width != width:
@@ -324,6 +319,10 @@ class Attention(nn.Module):
             linear_cls = nn.Linear
         else:
             linear_cls = LoRACompatibleLinear
+
+        assert not (self.use_rope and (self.compress_kv_factor is not None)), "Can not both enable compressing kv and using rope"
+        if self.compress_kv_factor is not None:
+            self._init_compress()
 
         self.to_q = linear_cls(query_dim, self.inner_dim, bias=bias)
 
@@ -784,7 +783,6 @@ class Attention(nn.Module):
         if attention_mask is None:
             return attention_mask
 
-        import ipdb;ipdb.set_trace()
         current_length: int = attention_mask.shape[-1]
         if current_length != target_length:
             if attention_mask.device.type == "mps":
@@ -838,6 +836,17 @@ class Attention(nn.Module):
 
         return encoder_hidden_states
 
+    def _init_compress(self):
+        if len(self.compress_kv_factor) == 2:
+            self.sr = nn.Conv2d(self.inner_dim, self.inner_dim, groups=self.inner_dim, kernel_size=self.compress_kv_factor, stride=self.compress_kv_factor)
+            self.sr.weight.data.fill_(1/self.compress_kv_factor[0]**2)
+        elif len(self.compress_kv_factor) == 1:
+            self.kernel_size = self.compress_kv_factor[0]
+            self.sr = nn.Conv1d(self.inner_dim, self.inner_dim, groups=self.inner_dim, kernel_size=self.compress_kv_factor[0], stride=self.compress_kv_factor[0])
+            self.sr.weight.data.fill_(1/self.compress_kv_factor[0])
+        self.sr.bias.data.zero_()
+        self.norm = nn.LayerNorm(self.inner_dim)
+
 class AttnProcessor2_0:
     r"""
     Processor for implementing scaled dot-product attention (enabled by default if you're using PyTorch 2.0).
@@ -849,25 +858,12 @@ class AttnProcessor2_0:
         self.use_rope = use_rope
         self.rope_scaling = rope_scaling
         self.compress_kv_factor = compress_kv_factor
-        
         if self.use_rope:
             self._init_rope()
-        if len(self.compress_kv_factor) > 0:
-            self._init_compress()
 
         if not hasattr(F, "scaled_dot_product_attention"):
             raise ImportError("AttnProcessor2_0 requires PyTorch 2.0, to use it, please upgrade PyTorch to 2.0.")
         
-    def _init_compress(self):
-        if len(self.compress_kv_factor) == 2:
-            self.sr = nn.Conv2d(self.dim, self.dim, groups=self.dim, kernel_size=self.compress_kv_factor, stride=self.compress_kv_factor)
-            self.sr.weight.data.fill_(1/self.compress_kv_factor**2)
-        elif len(self.compress_kv_factor) == 1:
-            self.kernel_size = self.compress_kv_factor[0]
-            self.sr = nn.Conv1d(self.dim, self.dim, groups=self.dim, kernel_size=self.compress_kv_factor[0], stride=self.compress_kv_factor[0])
-            self.sr.weight.data.fill_(1/self.compress_kv_factor)
-        self.sr.bias.data.zero_()
-        self.norm = nn.LayerNorm(self.dim)
 
     def _init_rope(self):
         if self.rope_scaling is None:
@@ -908,12 +904,29 @@ class AttnProcessor2_0:
             batch_size, channel, height, width = hidden_states.shape
             hidden_states = hidden_states.view(batch_size, channel, height * width).transpose(1, 2)
 
+
+
+        if self.compress_kv_factor is not None:
+            batch_size = hidden_states.shape[0]
+            if len(last_shape) == 2:
+                encoder_hidden_states = hidden_states.permute(0, 2, 1).reshape(batch_size, self.dim, *last_shape)
+                encoder_hidden_states = attn.sr(encoder_hidden_states).reshape(batch_size, self.dim, -1).permute(0, 2, 1)
+            elif len(last_shape) == 1:
+                encoder_hidden_states = hidden_states.permute(0, 2, 1)
+                if last_shape[0] % 2 == 1:
+                    first_frame_pad = encoder_hidden_states[:, :, :1].repeat((1, 1, attn.kernel_size - 1))
+                    encoder_hidden_states = torch.concatenate((first_frame_pad, encoder_hidden_states), dim=2)
+                encoder_hidden_states = attn.sr(encoder_hidden_states).permute(0, 2, 1)
+            else:
+                raise NotImplementedError(f'NotImplementedError with last_shape {last_shape}')
+                
+            encoder_hidden_states = attn.norm(encoder_hidden_states)
+
         batch_size, sequence_length, _ = (
             hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
         )
 
         if attention_mask is not None:
-            import ipdb;ipdb.set_trace()
             attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length, batch_size)
             # scaled_dot_product_attention expects attention_mask shape to be
             # (batch, heads, source_length, target_length)
@@ -929,20 +942,8 @@ class AttnProcessor2_0:
             encoder_hidden_states = hidden_states
         elif attn.norm_cross:
             encoder_hidden_states = attn.norm_encoder_hidden_states(encoder_hidden_states)
-        import ipdb;ipdb.set_trace()
-        if len(self.compress_kv_factor) > 0:
-            if len(last_shape) == 2:
-                encoder_hidden_states = encoder_hidden_states.permute(0, 2, 1).reshape(batch_size, self.dim, *last_shape)
-                encoder_hidden_states = self.sr(encoder_hidden_states).reshape(batch_size, self.dim, -1).permute(0, 2, 1)
-            elif len(last_shape) == 1:
-                encoder_hidden_states = encoder_hidden_states.permute(0, 2, 1)
-                if last_shape[0] % 2 == 1:
-                    first_frame_pad = encoder_hidden_states[:, :, :1].repeat((1, 1, self.kernel_size - 1))
-                    x = torch.concatenate((first_frame_pad, x), dim=2)
-                encoder_hidden_states = self.sr(encoder_hidden_states).permute(0, 2, 1)
-            else:
-                raise NotImplementedError(f'NotImplementedError with last_shape {last_shape}')
-            encoder_hidden_states = self.norm(encoder_hidden_states)
+
+        
 
         key = attn.to_k(encoder_hidden_states, *args)
         value = attn.to_v(encoder_hidden_states, *args)
