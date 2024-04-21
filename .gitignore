@@ -21,9 +21,10 @@ wandb/
 *.pt
 cache_dir/
 wandb/
-test/
+test*
 sample_videos/
 512*
 720*
 1024*
 debug*
+private*

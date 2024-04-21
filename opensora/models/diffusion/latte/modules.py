@@ -20,7 +20,7 @@ from diffusers.models.activations import GEGLU, GELU, ApproximateGELU
 
 from dataclasses import dataclass
 
-from opensora.models.diffusion.utils.pos_embed import get_2d_sincos_pos_embed, RoPE1D, RoPE2D
+from opensora.models.diffusion.utils.pos_embed import get_2d_sincos_pos_embed, RoPE1D, RoPE2D, LinearScalingRoPE2D, LinearScalingRoPE1D
 
 if is_xformers_available():
     import xformers
@@ -251,6 +251,8 @@ class Attention(nn.Module):
         processor: Optional["AttnProcessor"] = None,
         attention_mode: str = 'xformers',
         use_rope: bool = False,
+        rope_scaling: Optional[Dict] = None, 
+        compress_kv_factor: Optional[Tuple] = None, 
     ):
         super().__init__()
         self.inner_dim = dim_head * heads
@@ -261,6 +263,8 @@ class Attention(nn.Module):
         self.residual_connection = residual_connection
         self.dropout = dropout
         self.use_rope = use_rope
+        self.rope_scaling = rope_scaling
+        self.compress_kv_factor = compress_kv_factor
 
         # we make use of this private variable to know whether this class is loaded
         # with an deprecated state dict so that we can convert it on the fly
@@ -345,7 +349,7 @@ class Attention(nn.Module):
         # but only if it has the default `scale` argument. TODO remove scale_qk check when we move to torch 2.1
         if processor is None:
             processor = (
-                AttnProcessor2_0(attention_mode, use_rope) if hasattr(F, "scaled_dot_product_attention") and self.scale_qk else AttnProcessor()
+                AttnProcessor2_0(self.inner_dim, attention_mode, use_rope, rope_scaling=rope_scaling, compress_kv_factor=compress_kv_factor) if hasattr(F, "scaled_dot_product_attention") and self.scale_qk else AttnProcessor()
             )
         self.set_processor(processor)
 
@@ -780,6 +784,7 @@ class Attention(nn.Module):
         if attention_mask is None:
             return attention_mask
 
+        import ipdb;ipdb.set_trace()
         current_length: int = attention_mask.shape[-1]
         if current_length != target_length:
             if attention_mask.device.type == "mps":
@@ -838,16 +843,46 @@ class AttnProcessor2_0:
     Processor for implementing scaled dot-product attention (enabled by default if you're using PyTorch 2.0).
     """
 
-    def __init__(self, attention_mode='xformers', use_rope=False):
+    def __init__(self, dim=1152, attention_mode='xformers', use_rope=False, rope_scaling=None, compress_kv_factor=None):
+        self.dim = dim
         self.attention_mode = attention_mode
         self.use_rope = use_rope
+        self.rope_scaling = rope_scaling
+        self.compress_kv_factor = compress_kv_factor
         
         if self.use_rope:
-            self.rope2d = RoPE2D(freq=100)
-            self.rope1d = RoPE1D(freq=100)
+            self._init_rope()
+        if len(self.compress_kv_factor) > 0:
+            self._init_compress()
+
         if not hasattr(F, "scaled_dot_product_attention"):
             raise ImportError("AttnProcessor2_0 requires PyTorch 2.0, to use it, please upgrade PyTorch to 2.0.")
+        
+    def _init_compress(self):
+        if len(self.compress_kv_factor) == 2:
+            self.sr = nn.Conv2d(self.dim, self.dim, groups=self.dim, kernel_size=self.compress_kv_factor, stride=self.compress_kv_factor)
+            self.sr.weight.data.fill_(1/self.compress_kv_factor**2)
+        elif len(self.compress_kv_factor) == 1:
+            self.kernel_size = self.compress_kv_factor[0]
+            self.sr = nn.Conv1d(self.dim, self.dim, groups=self.dim, kernel_size=self.compress_kv_factor[0], stride=self.compress_kv_factor[0])
+            self.sr.weight.data.fill_(1/self.compress_kv_factor)
+        self.sr.bias.data.zero_()
+        self.norm = nn.LayerNorm(self.dim)
 
+    def _init_rope(self):
+        if self.rope_scaling is None:
+            self.rope2d = RoPE2D()
+            self.rope1d = RoPE1D()
+        else:
+            scaling_type = self.rope_scaling["type"]
+            scaling_factor_2d = self.rope_scaling["factor_2d"]
+            scaling_factor_1d = self.rope_scaling["factor_1d"]
+            if scaling_type == "linear":
+                self.rope2d = LinearScalingRoPE2D(scaling_factor=scaling_factor_2d)
+                self.rope1d = LinearScalingRoPE1D(scaling_factor=scaling_factor_1d)
+            else:
+                raise ValueError(f"Unknown RoPE scaling type {scaling_type}")
+            
     def __call__(
         self,
         attn: Attention,
@@ -858,6 +893,7 @@ class AttnProcessor2_0:
         scale: float = 1.0,
         position_q: Optional[torch.LongTensor] = None,
         position_k: Optional[torch.LongTensor] = None,
+        last_shape: Tuple[int] = None, 
     ) -> torch.FloatTensor:
         residual = hidden_states
 
@@ -877,6 +913,7 @@ class AttnProcessor2_0:
         )
 
         if attention_mask is not None:
+            import ipdb;ipdb.set_trace()
             attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length, batch_size)
             # scaled_dot_product_attention expects attention_mask shape to be
             # (batch, heads, source_length, target_length)
@@ -892,6 +929,20 @@ class AttnProcessor2_0:
             encoder_hidden_states = hidden_states
         elif attn.norm_cross:
             encoder_hidden_states = attn.norm_encoder_hidden_states(encoder_hidden_states)
+        import ipdb;ipdb.set_trace()
+        if len(self.compress_kv_factor) > 0:
+            if len(last_shape) == 2:
+                encoder_hidden_states = encoder_hidden_states.permute(0, 2, 1).reshape(batch_size, self.dim, *last_shape)
+                encoder_hidden_states = self.sr(encoder_hidden_states).reshape(batch_size, self.dim, -1).permute(0, 2, 1)
+            elif len(last_shape) == 1:
+                encoder_hidden_states = encoder_hidden_states.permute(0, 2, 1)
+                if last_shape[0] % 2 == 1:
+                    first_frame_pad = encoder_hidden_states[:, :, :1].repeat((1, 1, self.kernel_size - 1))
+                    x = torch.concatenate((first_frame_pad, x), dim=2)
+                encoder_hidden_states = self.sr(encoder_hidden_states).permute(0, 2, 1)
+            else:
+                raise NotImplementedError(f'NotImplementedError with last_shape {last_shape}')
+            encoder_hidden_states = self.norm(encoder_hidden_states)
 
         key = attn.to_k(encoder_hidden_states, *args)
         value = attn.to_v(encoder_hidden_states, *args)
@@ -1113,6 +1164,8 @@ class BasicTransformerBlock_(nn.Module):
             num_positional_embeddings: Optional[int] = None,
             attention_mode: str = "xformers",
             use_rope: bool = False, 
+            rope_scaling: Optional[Dict] = None, 
+            compress_kv_factor: Optional[Tuple] = None, 
     ):
         super().__init__()
         self.only_cross_attention = only_cross_attention
@@ -1156,7 +1209,9 @@ class BasicTransformerBlock_(nn.Module):
             cross_attention_dim=cross_attention_dim if only_cross_attention else None,
             upcast_attention=upcast_attention,
             attention_mode=attention_mode, 
-            use_rope=use_rope
+            use_rope=use_rope, 
+            rope_scaling=rope_scaling, 
+            compress_kv_factor=compress_kv_factor, 
         )
 
         # # 2. Cross-Attn
@@ -1215,7 +1270,9 @@ class BasicTransformerBlock_(nn.Module):
             timestep: Optional[torch.LongTensor] = None,
             cross_attention_kwargs: Dict[str, Any] = None,
             class_labels: Optional[torch.LongTensor] = None,
-            position_temporal: Optional[torch.LongTensor] = None,
+            position_q: Optional[torch.LongTensor] = None,
+            position_k: Optional[torch.LongTensor] = None,
+            frame: int = None, 
     ) -> torch.FloatTensor:
         # Notice that normalization is always applied before the real computation in the following blocks.
         # 0. Self-Attention
@@ -1253,8 +1310,9 @@ class BasicTransformerBlock_(nn.Module):
             norm_hidden_states,
             encoder_hidden_states=encoder_hidden_states if self.only_cross_attention else None,
             attention_mask=attention_mask,
-            position_q=position_temporal,
-            position_k=position_temporal, 
+            position_q=position_q,
+            position_k=position_k, 
+            last_shape=frame, 
             **cross_attention_kwargs,
         )
         if self.use_ada_layer_norm_zero:
@@ -1394,6 +1452,8 @@ class BasicTransformerBlock(nn.Module):
         num_positional_embeddings: Optional[int] = None,
         attention_mode: str = "xformers", 
         use_rope: bool = False,
+        rope_scaling: Optional[Dict] = None,
+        compress_kv_factor: Optional[Tuple] = None, 
     ):
         super().__init__()
         self.only_cross_attention = only_cross_attention
@@ -1437,7 +1497,9 @@ class BasicTransformerBlock(nn.Module):
             cross_attention_dim=cross_attention_dim if only_cross_attention else None,
             upcast_attention=upcast_attention,
             attention_mode=attention_mode, 
-            use_rope=use_rope
+            use_rope=use_rope, 
+            rope_scaling=rope_scaling, 
+            compress_kv_factor=compress_kv_factor, 
         )
 
         # 2. Cross-Attn
@@ -1460,6 +1522,7 @@ class BasicTransformerBlock(nn.Module):
                 upcast_attention=upcast_attention,
                 attention_mode=attention_mode,  # only xformers support attention_mask
                 use_rope=False,  # do not position in cross attention
+                compress_kv_factor=None, 
             )  # is self-attn if encoder_hidden_states is none
         else:
             self.norm2 = None
@@ -1502,8 +1565,9 @@ class BasicTransformerBlock(nn.Module):
         timestep: Optional[torch.LongTensor] = None,
         cross_attention_kwargs: Dict[str, Any] = None,
         class_labels: Optional[torch.LongTensor] = None,
-        position_spatial: Optional[torch.LongTensor] = None,
-        position_condition: Optional[torch.LongTensor] = None,
+        position_q: Optional[torch.LongTensor] = None,
+        position_k: Optional[torch.LongTensor] = None,
+        hw: Tuple[int, int] = None, 
     ) -> torch.FloatTensor:
         # Notice that normalization is always applied before the real computation in the following blocks.
         # 0. Self-Attention
@@ -1541,8 +1605,9 @@ class BasicTransformerBlock(nn.Module):
             norm_hidden_states,
             encoder_hidden_states=encoder_hidden_states if self.only_cross_attention else None,
             attention_mask=attention_mask,
-            position_q=position_spatial,
-            position_k=position_spatial,
+            position_q=position_q,
+            position_k=position_k,
+            last_shape=hw, 
             **cross_attention_kwargs,
         )
         if self.use_ada_layer_norm_zero:
@@ -1578,8 +1643,9 @@ class BasicTransformerBlock(nn.Module):
                 norm_hidden_states,
                 encoder_hidden_states=encoder_hidden_states,
                 attention_mask=encoder_attention_mask,
-                # position_q=position_spatial,  # cross attn do not need relative position
-                # position_k=position_condition,
+                position_q=None,  # cross attn do not need relative position
+                position_k=None,
+                last_shape=None, 
                 **cross_attention_kwargs,
             )
             hidden_states = attn_output + hidden_states

@@ -77,23 +77,23 @@ class Collate:
         ds_stride = self.ae_stride * self.patch_size
         t_ds_stride = self.ae_stride_t * self.patch_size_t
         if self.use_image_num == 0:
-            pad_batch_tubes, attention_mask = process(batch_tubes_vid, t_ds_stride, ds_stride, 
+            pad_batch_tubes, attention_mask = self.process(batch_tubes_vid, t_ds_stride, ds_stride, 
                                                       self.max_thw, self.ae_stride_thw, self.patch_size_thw, extra_1=True)
             # attention_mask: b t hw, use first frame
-            attention_mask = attention_mask[:, 0]  # b hw
+            attention_mask = attention_mask[:, 0]  # b h w
             input_ids, cond_mask = input_ids_vid.squeeze(1), cond_mask_vid.squeeze(1)  # b 1 l -> b l
         else:
             pad_batch_tubes_vid, attention_mask_vid = self.process(batch_tubes_vid, t_ds_stride, ds_stride, 
                                                                    self.max_thw, self.ae_stride_thw, self.patch_size_thw, extra_1=True)
             # attention_mask_vid: b t hw, use first frame
-            attention_mask_vid = attention_mask_vid[:, :1]  # b 1 hw
+            attention_mask_vid = attention_mask_vid[:, :1]  # b 1 h w
             pad_batch_tubes_img, attention_mask_img = self.process(batch_tubes_img, 1, ds_stride, 
                                                                    self.max_1hw, self.ae_stride_1hw, self.patch_size_1hw, extra_1=False)
             pad_batch_tubes_img = rearrange(pad_batch_tubes_img, '(b i) c 1 h w -> b c i h w', i=self.use_image_num)
-            attention_mask_img = rearrange(attention_mask_img, '(b i) 1 hw -> b i hw', i=self.use_image_num)
+            attention_mask_img = rearrange(attention_mask_img, '(b i) 1 h w -> b i h w', i=self.use_image_num)
             pad_batch_tubes = torch.cat([pad_batch_tubes_vid, pad_batch_tubes_img], dim=2)  # concat at temporal, video first
             # attention_mask_img: b num_img hw
-            attention_mask = torch.cat([attention_mask_vid, attention_mask_img], dim=1)  # b 1+num_img hw
+            attention_mask = torch.cat([attention_mask_vid, attention_mask_img], dim=1)  # b 1+num_img h w
             input_ids = torch.cat([input_ids_vid, input_ids_img], dim=1)  # b 1+num_img hw
             cond_mask = torch.cat([cond_mask_vid, cond_mask_img], dim=1)  # b 1+num_img hw
         return pad_batch_tubes, attention_mask, input_ids, cond_mask
@@ -131,5 +131,6 @@ class Collate:
                                  0, max_patchify_latent_size[1] - i[1],
                                  0, max_patchify_latent_size[0] - i[0]), value=0) for i in valid_patchify_latent_size]
         attention_mask = torch.stack(attention_mask)
-        attention_mask = attention_mask.flatten(-2)  # b t h w -> b t hw
+        # attention_mask = attention_mask.flatten(-2)  # b t h w -> b t hw
+        attention_mask = attention_mask  # b t h w
         return pad_batch_tubes, attention_mask

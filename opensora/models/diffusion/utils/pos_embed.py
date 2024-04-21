@@ -87,10 +87,11 @@ except ImportError:
 
     class RoPE2D(torch.nn.Module):
 
-        def __init__(self, freq=100.0, F0=1.0):
+        def __init__(self, freq=10000.0, F0=1.0, scaling_factor=1.0):
             super().__init__()
             self.base = freq
             self.F0 = F0
+            self.scaling_factor = scaling_factor
             self.cache = {}
 
         def get_cos_sin(self, D, seq_len, device, dtype):
@@ -135,6 +136,16 @@ except ImportError:
             tokens = torch.cat((y, x), dim=-1)
             return tokens
 
+class LinearScalingRoPE2D(RoPE2D):
+    """Code from https://github.com/huggingface/transformers/blob/main/src/transformers/models/llama/modeling_llama.py#L148"""
+
+    def forward(self, tokens, positions):
+        # difference to the original RoPE: a scaling factor is aplied to the position ids
+        dtype = positions.dtype
+        positions = positions.float() / self.scaling_factor
+        positions = positions.to(dtype)
+        tokens = super().forward(tokens, positions)
+        return tokens
 
 
 try:
@@ -147,10 +158,11 @@ except ImportError:
 
     class RoPE1D(torch.nn.Module):
 
-        def __init__(self, freq=100.0, F0=1.0):
+        def __init__(self, freq=10000.0, F0=1.0, scaling_factor=1.0):
             super().__init__()
             self.base = freq
             self.F0 = F0
+            self.scaling_factor = scaling_factor
             self.cache = {}
 
         def get_cos_sin(self, D, seq_len, device, dtype):
@@ -188,6 +200,17 @@ except ImportError:
             cos, sin = self.get_cos_sin(D, int(positions.max()) + 1, tokens.device, tokens.dtype)
             tokens = self.apply_rope1d(tokens, positions, cos, sin)
             return tokens
+
+class LinearScalingRoPE1D(RoPE1D):
+    """Code from https://github.com/huggingface/transformers/blob/main/src/transformers/models/llama/modeling_llama.py#L148"""
+    
+    def forward(self, tokens, positions):
+        # difference to the original RoPE: a scaling factor is aplied to the position ids
+        dtype = positions.dtype
+        positions = positions.float() / self.scaling_factor
+        positions = positions.to(dtype)
+        tokens = super().forward(tokens, positions)
+        return tokens
 
 
 class PositionGetter2D(object):

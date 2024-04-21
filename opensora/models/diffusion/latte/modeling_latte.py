@@ -83,6 +83,8 @@ class LatteT2V(ModelMixin, ConfigMixin):
             attention_mode: str = 'flash', 
             use_rope: bool = False, 
             model_max_length: int = 300, 
+            rope_scaling_type: str = 'linear', 
+            compress_kv_factor: int = 1, 
     ):
         super().__init__()
         self.use_linear_projection = use_linear_projection
@@ -92,7 +94,8 @@ class LatteT2V(ModelMixin, ConfigMixin):
         self.video_length = video_length
         self.use_rope = use_rope
         self.model_max_length = model_max_length
-
+        self.compress_kv_factor = compress_kv_factor
+        self.num_layers = num_layers
         self.config.hidden_size = model_max_length
 
         conv_cls = nn.Conv2d if USE_PEFT_BACKEND else LoRACompatibleConv
@@ -116,61 +119,39 @@ class LatteT2V(ModelMixin, ConfigMixin):
             deprecate("norm_type!=num_embeds_ada_norm", "1.0.0", deprecation_message, standard_warn=False)
             norm_type = "ada_norm"
 
-        if self.is_input_continuous and self.is_input_vectorized:
-            raise ValueError(
-                f"Cannot define both `in_channels`: {in_channels} and `num_vector_embeds`: {num_vector_embeds}. Make"
-                " sure that either `in_channels` or `num_vector_embeds` is None."
-            )
-        elif self.is_input_vectorized and self.is_input_patches:
-            raise ValueError(
-                f"Cannot define both `num_vector_embeds`: {num_vector_embeds} and `patch_size`: {patch_size}. Make"
-                " sure that either `num_vector_embeds` or `num_patches` is None."
-            )
-        elif not self.is_input_continuous and not self.is_input_vectorized and not self.is_input_patches:
-            raise ValueError(
-                f"Has to define `in_channels`: {in_channels}, `num_vector_embeds`: {num_vector_embeds}, or patch_size:"
-                f" {patch_size}. Make sure that `in_channels`, `num_vector_embeds` or `num_patches` is not None."
-            )
-
         # 2. Define input layers
-        if self.is_input_continuous:
-            self.in_channels = in_channels
+        assert sample_size is not None, "Transformer2DModel over patched input must provide sample_size"
 
-            self.norm = torch.nn.GroupNorm(num_groups=norm_num_groups, num_channels=in_channels, eps=1e-6, affine=True)
-            if use_linear_projection:
-                self.proj_in = linear_cls(in_channels, inner_dim)
-            else:
-                self.proj_in = conv_cls(in_channels, inner_dim, kernel_size=1, stride=1, padding=0)
-        elif self.is_input_vectorized:
-            assert sample_size is not None, "Transformer2DModel over discrete input must provide sample_size"
-            assert num_vector_embeds is not None, "Transformer2DModel over discrete input must provide num_embed"
+        self.height = sample_size[0]
+        self.width = sample_size[1]
 
-            self.height = sample_size[0]
-            self.width = sample_size[1]
-            self.num_vector_embeds = num_vector_embeds
-            self.num_latent_pixels = self.height * self.width
+        self.patch_size = patch_size
+        interpolation_scale_2d = self.config.sample_size[0] // 64  # => 64 (= 512 pixart) has interpolation scale 1
+        interpolation_scale_2d = max(interpolation_scale_2d, 1)
+        self.pos_embed = PatchEmbed(
+            height=sample_size[0],
+            width=sample_size[1],
+            patch_size=patch_size,
+            in_channels=in_channels,
+            embed_dim=inner_dim,
+            interpolation_scale=interpolation_scale_2d,
+            use_rope=False,  # hard coding, because abs. pos is important, using it to accelerate training
+        )
 
-            self.latent_image_embedding = ImagePositionalEmbeddings(
-                num_embed=num_vector_embeds, embed_dim=inner_dim, height=self.height, width=self.width
-            )
-        elif self.is_input_patches:
-            assert sample_size is not None, "Transformer2DModel over patched input must provide sample_size"
+        
+        # define temporal positional embedding
+        if self.config.video_length % 2 == 1:
+            interpolation_scale_1d = (self.config.video_length - 1) // 16  # => 16 (= 16 Latte) has interpolation scale 1
+        else:
+            interpolation_scale_1d = self.config.video_length // 16  # => 16 (= 16 Latte) has interpolation scale 1
+        interpolation_scale_1d = max(interpolation_scale_1d, 1)
+        temp_pos_embed = get_1d_sincos_pos_embed(inner_dim, video_length, interpolation_scale=interpolation_scale_1d)  # 1152 hidden size
+        self.register_buffer("temp_pos_embed", torch.from_numpy(temp_pos_embed).float().unsqueeze(0), persistent=False)
 
-            self.height = sample_size[0]
-            self.width = sample_size[1]
+        self.position_getter_2d = PositionGetter2D()
+        self.position_getter_1d = PositionGetter1D()
 
-            self.patch_size = patch_size
-            interpolation_scale = self.config.sample_size[0] // 64  # => 64 (= 512 pixart) has interpolation scale 1
-            interpolation_scale = max(interpolation_scale, 1)
-            self.pos_embed = PatchEmbed(
-                height=sample_size[0],
-                width=sample_size[1],
-                patch_size=patch_size,
-                in_channels=in_channels,
-                embed_dim=inner_dim,
-                interpolation_scale=interpolation_scale,
-                use_rope=False,  # abs pos
-            )
+        self.rope_scaling = rope_scaling = dict(type=rope_scaling_type, factor_2d=interpolation_scale_2d, factor_1d=interpolation_scale_1d)
 
         # 3. Define transformers blocks, spatial attention
         self.transformer_blocks = nn.ModuleList(
@@ -192,7 +173,9 @@ class LatteT2V(ModelMixin, ConfigMixin):
                     norm_eps=norm_eps,
                     attention_type=attention_type,
                     attention_mode=attention_mode, 
-                    use_rope=self.use_rope, 
+                    use_rope=use_rope, 
+                    rope_scaling=rope_scaling, 
+                    compress_kv_factor=(compress_kv_factor, compress_kv_factor) if d >= num_layers // 2 else (), # follow pixart-sigma, apply in second-half layers
                 )
                 for d in range(num_layers)
             ]
@@ -218,7 +201,9 @@ class LatteT2V(ModelMixin, ConfigMixin):
                     norm_eps=norm_eps,
                     attention_type=attention_type,
                     attention_mode=attention_mode, 
-                    use_rope=self.use_rope, 
+                    use_rope=use_rope, 
+                    rope_scaling=rope_scaling, 
+                    compress_kv_factor=(compress_kv_factor, ) if d >= num_layers // 2 else (), # follow pixart-sigma, apply in second-half layers
                 )
                 for d in range(num_layers)
             ]
@@ -259,25 +244,37 @@ class LatteT2V(ModelMixin, ConfigMixin):
 
         self.gradient_checkpointing = False
 
-        # define temporal positional embedding
-        # temp_pos_embed = self.get_1d_sincos_temp_embed(inner_dim, video_length)  # 1152 hidden size
-        if not self.use_rope:
-            interpolation_scale = self.config.video_length // 5  # => 5 (= 5 our causalvideovae) has interpolation scale 1
-            interpolation_scale = max(interpolation_scale, 1)
-            temp_pos_embed = get_1d_sincos_pos_embed(inner_dim, video_length, interpolation_scale=interpolation_scale)  # 1152 hidden size
-            self.register_buffer("temp_pos_embed", torch.from_numpy(temp_pos_embed).float().unsqueeze(0), persistent=False)
-        else:
-            self.position_getter_2d = PositionGetter2D()
-            self.position_getter_1d = PositionGetter1D()
-
     def _set_gradient_checkpointing(self, module, value=False):
         self.gradient_checkpointing = value
 
-    def make_position(self, b, t, use_image_num, h, w, model_max_length, device):
-        position_spatial = self.position_getter_2d(b*(t+use_image_num), h, w, device)  # fake_b = b*(t+use_image_num)
-        position_temporal = self.position_getter_1d(b*h*w, t, device)  # fake_b = b*h*w
-        position_condition = self.position_getter_1d(b*(t+use_image_num), model_max_length, device)  # fake_b = b*(t+use_image_num)
-        return position_spatial, position_temporal, position_condition
+    def make_position(self, b, t, use_image_num, h, w, device):
+        pos_hw = self.position_getter_2d(b*(t+use_image_num), h, w, device)  # fake_b = b*(t+use_image_num)
+        pos_t = self.position_getter_1d(b*h*w, t, device)  # fake_b = b*h*w
+        pos_hw_compress = self.position_getter_2d(b*(t+use_image_num), h//self.compress_kv_factor, w//self.compress_kv_factor, device)  # fake_b = b*(t+use_image_num)
+        pos_t_compress = self.position_getter_1d(b*h*w, t//self.compress_kv_factor, device)  # fake_b = b*h*w
+        return pos_hw, pos_t, pos_hw_compress, pos_t_compress
+
+    def make_attn_mask(self, attention_mask, frame, dtype):
+        attention_mask = attention_mask.flatten(-2)  # *, h w -> *, hw
+        if attention_mask is not None and attention_mask.ndim == 2:
+            # assume that mask is expressed as:
+            #   (1 = keep,      0 = discard)
+            # convert mask into a bias that can be added to attention scores:
+            #   (keep = +0,     discard = -10000.0)
+            attention_mask = (1 - attention_mask.to(dtype)) * -10000.0
+            attention_mask = attention_mask.unsqueeze(1)
+            attention_mask = repeat(attention_mask, 'b 1 l -> (b f) 1 l', f=frame).contiguous()
+            attention_mask = attention_mask.to(self.dtype)
+        elif attention_mask is not None and attention_mask.ndim == 3:  # ndim == 3 means image joint
+            attention_mask = (1 - attention_mask.to(dtype)) * -10000.0
+            attention_mask_video = attention_mask[:, :1, ...]
+            attention_mask_video = repeat(attention_mask_video, 'b 1 l -> b (1 f) l',
+                                                  f=frame).contiguous()
+            attention_mask_image = attention_mask[:, 1:, ...]
+            attention_mask = torch.cat([attention_mask_video, attention_mask_image], dim=1)
+            attention_mask = rearrange(attention_mask, 'b n l -> (b n) l').contiguous().unsqueeze(1)
+            attention_mask = attention_mask.to(self.dtype)
+        return attention_mask
 
     def forward(
             self,
@@ -332,10 +329,6 @@ class LatteT2V(ModelMixin, ConfigMixin):
             `tuple` where the first element is the sample tensor.
         """
         input_batch_size, c, frame, h, w = hidden_states.shape
-        # print(hidden_states.shape, input_batch_size, c, frame, h, w, use_image_num)
-        # print(timestep)
-        # print(encoder_hidden_states.shape)
-        # print(encoder_attention_mask.shape)
         frame = frame - use_image_num  # 20-4=16
         hidden_states = rearrange(hidden_states, 'b c f h w -> (b f) c h w').contiguous()
         # ensure attention_mask is a bias, and give it a singleton query_tokens dimension.
@@ -348,32 +341,21 @@ class LatteT2V(ModelMixin, ConfigMixin):
         # this helps to broadcast it as a bias over attention scores, which will be in one of the following shapes:
         #   [batch,  heads, query_tokens, key_tokens] (e.g. torch sdp attn)
         #   [batch * heads, query_tokens, key_tokens] (e.g. xformers or classic attn)
-
+        import ipdb;ipdb.set_trace()
         if attention_mask is None:
             if use_image_num == 0:
-                attention_mask = torch.ones((input_batch_size, h*w//self.patch_size//self.patch_size), device=hidden_states.device, dtype=hidden_states.dtype)
+                attention_mask = torch.ones((input_batch_size, h//self.patch_size, w//self.patch_size), device=hidden_states.device, dtype=hidden_states.dtype)
             else:
-                attention_mask = torch.ones((input_batch_size, 1+use_image_num, h*w//self.patch_size//self.patch_size), device=hidden_states.device, dtype=hidden_states.dtype)
-        
-        if attention_mask is not None and attention_mask.ndim == 2:
-            # assume that mask is expressed as:
-            #   (1 = keep,      0 = discard)
-            # convert mask into a bias that can be added to attention scores:
-            #       (keep = +0,     discard = -10000.0)
-            attention_mask = (1 - attention_mask.to(hidden_states.dtype)) * -10000.0
-            attention_mask = attention_mask.unsqueeze(1)
-            attention_mask = repeat(attention_mask, 'b 1 l -> (b f) 1 l', f=frame).contiguous()
-            attention_mask = attention_mask.to(self.dtype)
-        elif attention_mask is not None and attention_mask.ndim == 3:  # ndim == 3 means image joint
-            attention_mask = (1 - attention_mask.to(hidden_states.dtype)) * -10000.0
-            attention_mask_video = attention_mask[:, :1, ...]
-            attention_mask_video = repeat(attention_mask_video, 'b 1 l -> b (1 f) l',
-                                                  f=frame).contiguous()
-            attention_mask_image = attention_mask[:, 1:, ...]
-            attention_mask = torch.cat([attention_mask_video, attention_mask_image], dim=1)
-            attention_mask = rearrange(attention_mask, 'b n l -> (b n) l').contiguous().unsqueeze(1)
-            attention_mask = attention_mask.to(self.dtype)
+                attention_mask = torch.ones((input_batch_size, 1+use_image_num, h//self.patch_size, w//self.patch_size), device=hidden_states.device, dtype=hidden_states.dtype)
+        if use_image_num == 0:
+            attention_mask_compress = F.max_pool2d(attention_mask.unsqueeze(1), kernel_size=self.compress_kv_factor, stride=self.compress_kv_factor).squeeze(1)
+        else:
+            attention_mask_compress = F.max_pool2d(attention_mask, kernel_size=self.compress_kv_factor, stride=self.compress_kv_factor)
 
+        attention_mask = self.make_attn_mask(attention_mask, frame, hidden_states.dtype)
+        attention_mask_compress = self.make_attn_mask(attention_mask_compress, frame, hidden_states.dtype)
+
+        import ipdb;ipdb.set_trace()
         # 1 + 4, 1 -> video condition, 4 -> image condition
         # convert encoder_attention_mask to a bias the same way we do for attention_mask
         if encoder_attention_mask is not None and encoder_attention_mask.ndim == 2:  # ndim == 2 means no image joint
@@ -397,6 +379,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
         # 1. Input
         if self.is_input_patches:  # here
             height, width = hidden_states.shape[-2] // self.patch_size, hidden_states.shape[-1] // self.patch_size
+            hw = (height, width)
             num_patches = height * width
 
             hidden_states = self.pos_embed(hidden_states.to(self.dtype))  # alrady add positional embeddings
@@ -430,11 +413,9 @@ class LatteT2V(ModelMixin, ConfigMixin):
         timestep_spatial = repeat(timestep, 'b d -> (b f) d', f=frame + use_image_num).contiguous()
         timestep_temp = repeat(timestep, 'b d -> (b p) d', p=num_patches).contiguous()
         
-        position_spatial, position_temporal, position_condition = None, None, None
+        pos_hw, pos_t, pos_hw_compress, pos_t_compress = None, None, None, None
         if self.use_rope:
-            condition_length = encoder_hidden_states_spatial.shape[-2]  # instead of self.model_max_length
-            position_spatial, position_temporal, position_condition = self.make_position(input_batch_size, frame, use_image_num, 
-                                                                                         height, width, condition_length, hidden_states.device)
+            pos_hw, pos_t, pos_hw_compress, pos_t_compress = self.make_position(input_batch_size, frame, use_image_num, height, width, hidden_states.device)
 
         for i, (spatial_block, temp_block) in enumerate(zip(self.transformer_blocks, self.temporal_transformer_blocks)):
 
@@ -442,14 +423,15 @@ class LatteT2V(ModelMixin, ConfigMixin):
                 hidden_states = torch.utils.checkpoint.checkpoint(
                     spatial_block,
                     hidden_states,
-                    attention_mask,
+                    attention_mask_compress if i >= self.num_layers // 2 else attention_mask, 
                     encoder_hidden_states_spatial,
                     encoder_attention_mask,
                     timestep_spatial,
                     cross_attention_kwargs,
                     class_labels,
-                    position_spatial, 
-                    position_condition, 
+                    pos_hw, 
+                    pos_hw_compress if i >= self.num_layers // 2 else pos_hw, 
+                    hw, 
                     use_reentrant=False,
                 )
 
@@ -460,7 +442,8 @@ class LatteT2V(ModelMixin, ConfigMixin):
                         hidden_states_video = hidden_states[:, :frame, ...]
                         hidden_states_image = hidden_states[:, frame:, ...]
 
-                        if i == 0 and not self.use_rope:
+                        # if i == 0 and not self.use_rope:
+                        if i == 0:
                             hidden_states_video = hidden_states_video + self.temp_pos_embed
 
                         hidden_states_video = torch.utils.checkpoint.checkpoint(
@@ -472,7 +455,9 @@ class LatteT2V(ModelMixin, ConfigMixin):
                             timestep_temp,
                             cross_attention_kwargs,
                             class_labels,
-                            position_temporal, 
+                            pos_t, 
+                            pos_t_compress if i >= self.num_layers // 2 else pos_t, 
+                            (frame, ), 
                             use_reentrant=False,
                         )
 
@@ -481,7 +466,8 @@ class LatteT2V(ModelMixin, ConfigMixin):
                                                   b=input_batch_size).contiguous()
 
                     else:
-                        if i == 0 and not self.use_rope:
+                        # if i == 0 and not self.use_rope:
+                        if i == 0:
                             hidden_states = hidden_states + self.temp_pos_embed
 
                         hidden_states = torch.utils.checkpoint.checkpoint(
@@ -493,7 +479,9 @@ class LatteT2V(ModelMixin, ConfigMixin):
                             timestep_temp,
                             cross_attention_kwargs,
                             class_labels,
-                            position_temporal, 
+                            pos_t, 
+                            pos_t_compress if i >= self.num_layers // 2 else pos_t, 
+                            (frame, ), 
                             use_reentrant=False,
                         )
 
@@ -502,14 +490,15 @@ class LatteT2V(ModelMixin, ConfigMixin):
             else:
                 hidden_states = spatial_block(
                     hidden_states,
-                    attention_mask,
+                    attention_mask_compress if i >= self.num_layers // 2 else attention_mask, 
                     encoder_hidden_states_spatial,
                     encoder_attention_mask,
                     timestep_spatial,
                     cross_attention_kwargs,
                     class_labels,
-                    position_spatial, 
-                    position_condition, 
+                    pos_hw, 
+                    pos_hw_compress if i >= self.num_layers // 2 else pos_hw, 
+                    hw, 
                 )
 
                 if enable_temporal_attentions:
@@ -531,7 +520,9 @@ class LatteT2V(ModelMixin, ConfigMixin):
                             timestep_temp,
                             cross_attention_kwargs,
                             class_labels,
-                            position_temporal, 
+                            pos_t, 
+                            pos_t_compress if i >= self.num_layers // 2 else pos_t, 
+                            (frame, ), 
                         )
 
                         hidden_states = torch.cat([hidden_states_video, hidden_states_image], dim=1)
@@ -539,7 +530,8 @@ class LatteT2V(ModelMixin, ConfigMixin):
                                                   b=input_batch_size).contiguous()
 
                     else:
-                        if i == 0 and not self.use_rope:
+                        # if i == 0 and not self.use_rope:
+                        if i == 0:
                             hidden_states = hidden_states + self.temp_pos_embed
 
                         hidden_states = temp_block(
@@ -550,7 +542,9 @@ class LatteT2V(ModelMixin, ConfigMixin):
                             timestep_temp,
                             cross_attention_kwargs,
                             class_labels,
-                            position_temporal, 
+                            pos_t, 
+                            pos_t_compress if i >= self.num_layers // 2 else pos_t, 
+                            (frame, ), 
                         )
 
                         hidden_states = rearrange(hidden_states, '(b t) f d -> (b f) t d',
@@ -588,10 +582,6 @@ class LatteT2V(ModelMixin, ConfigMixin):
             return (output,)
 
         return Transformer3DModelOutput(sample=output)
-
-    # def get_1d_sincos_temp_embed(self, embed_dim, length):
-    #     pos = torch.arange(0, length).unsqueeze(1)
-    #     return get_1d_sincos_pos_embed_from_grid(embed_dim, pos)
 
     @classmethod
     def from_pretrained_2d(cls, pretrained_model_path, subfolder=None, **kwargs):
