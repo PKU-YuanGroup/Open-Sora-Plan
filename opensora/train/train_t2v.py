@@ -204,7 +204,7 @@ def main(args):
         attention_type='default',
         video_length=video_length,
         attention_mode=args.attention_mode,
-        compress_kv_factor=args.compress_kv_factor
+        compress_kv_factor=args.compress_kv_factor, 
         use_rope=args.use_rope, 
         model_max_length=args.model_max_length, 
     )

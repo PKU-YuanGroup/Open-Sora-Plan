@@ -145,7 +145,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
             interpolation_scale_1d = (self.config.video_length - 1) // 16  # => 16 (= 16 Latte) has interpolation scale 1
         else:
             interpolation_scale_1d = self.config.video_length // 16  # => 16 (= 16 Latte) has interpolation scale 1
-        interpolation_scale_1d = self.config.video_length // 5  # 
+        # interpolation_scale_1d = self.config.video_length // 5  # 
         interpolation_scale_1d = max(interpolation_scale_1d, 1)
         temp_pos_embed = get_1d_sincos_pos_embed(inner_dim, video_length, interpolation_scale=interpolation_scale_1d)  # 1152 hidden size
         self.register_buffer("temp_pos_embed", torch.from_numpy(temp_pos_embed).float().unsqueeze(0), persistent=False)

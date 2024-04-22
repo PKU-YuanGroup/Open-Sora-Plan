@@ -4,6 +4,7 @@ import numpy as np
 import torchvision
 from einops import rearrange
 from decord import VideoReader
+from os.path import join as opj
 
 import torch
 import torchvision.transforms as transforms
@@ -28,6 +29,7 @@ class T2V_dataset(Dataset):
         self.temporal_sample = temporal_sample
         self.tokenizer = tokenizer
         self.model_max_length = args.model_max_length
+        self.video_folder = args.video_folder
         self.v_decoder = DecordInit()
 
         with open(args.video_data_path, 'r') as f:
@@ -63,8 +65,8 @@ class T2V_dataset(Dataset):
         # input_ids = torch.ones(1, 120).to(torch.long).squeeze(0)
         # cond_mask = torch.cat([torch.ones(1, 60).to(torch.long), torch.ones(1, 60).to(torch.long)], dim=1).squeeze(0)
         
-        video_path = self.vid_cap_list[idx]['path'].replace('/remote-home1/dataset/data_split_tt', '/yzwldata01/dataset/split_1024')
-        video = self.decord_read(video_path)
+        video_path = opj(self.video_folder, self.vid_cap_list[idx]['path'])
+        video = self.decord_read(video_path, self.vid_cap_list[idx]['frame_idx'])
         video = self.transform(video)  # T C H W -> T C H W
         video = video.transpose(0, 1)  # T C H W -> C T H W
         text = self.vid_cap_list[idx]['cap'][0]
@@ -133,11 +135,15 @@ class T2V_dataset(Dataset):
 
         return video
 
-    def decord_read(self, path):
+    def decord_read(self, path, frame_idx=None):
         decord_vr = self.v_decoder(path)
         total_frames = len(decord_vr)
         # Sampling video frames
-        start_frame_ind, end_frame_ind = self.temporal_sample(total_frames)
+        if frame_idx is None:
+            start_frame_ind, end_frame_ind = self.temporal_sample(total_frames)
+        else:
+            start_frame_ind, end_frame_ind = frame_idx.split(':')
+            start_frame_ind, end_frame_ind = int(start_frame_ind), int(end_frame_ind)
         # assert end_frame_ind - start_frame_ind >= self.num_frames
         frame_indice = np.linspace(start_frame_ind, end_frame_ind - 1, self.num_frames, dtype=int)
 
