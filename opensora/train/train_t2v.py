@@ -162,7 +162,8 @@ def main(args):
         ae.vae.tile_overlap_factor = args.tile_overlap_factor
         
     kwargs = {'load_in_8bit': False, 'torch_dtype': weight_dtype}
-    text_enc = get_text_warpper(args.text_encoder_name)(args, **kwargs).eval()
+    # text_enc = get_text_warpper(args.text_encoder_name)(args, **kwargs).eval()
+    text_enc = get_text_enc(args).eval()
 
     ae_stride_t, ae_stride_h, ae_stride_w = ae_stride_config[args.ae]
     assert ae_stride_h == ae_stride_w, f"Support only ae_stride_h == ae_stride_w now, but found ae_stride_h ({ae_stride_h}), ae_stride_w ({ae_stride_w})"

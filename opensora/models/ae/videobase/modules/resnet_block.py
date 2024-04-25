@@ -5,6 +5,8 @@ from .normalize import Normalize
 from .ops import nonlinearity, video_to_image
 from .conv import CausalConv3d
 from .block import Block
+from opensora.npu_config import npu_config
+
 
 class ResnetBlock2D(Block):
     def __init__(self, *, in_channels, out_channels=None, conv_shortcut=False,
@@ -71,10 +73,12 @@ class ResnetBlock3D(Block):
 
     def forward(self, x):
         h = x
-        h = self.norm1(h)
+        # h = self.norm1(h)
+        h = npu_config.run_group_norm(self.norm1, h)
         h = nonlinearity(h)
         h = self.conv1(h)
-        h = self.norm2(h)
+        # h = self.norm2(h)
+        h = npu_config.run_group_norm(self.norm2, h)
         h = nonlinearity(h)
         h = self.dropout(h)
         h = self.conv2(h)
