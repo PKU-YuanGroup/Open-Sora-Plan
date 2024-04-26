@@ -1,7 +1,7 @@
 from importlib import import_module
 
 import numpy as np
-from typing import Any, Dict, Optional, Tuple, Callable
+from typing import Any, Dict, Optional, Tuple, Callable, Union
 from diffusers.utils import USE_PEFT_BACKEND, BaseOutput, deprecate, is_xformers_available
 from diffusers.models.lora import LoRACompatibleConv, LoRACompatibleLinear
 
@@ -643,7 +643,7 @@ class Attention(nn.Module):
         self,
         hidden_states: torch.FloatTensor,
         encoder_hidden_states: Optional[torch.FloatTensor] = None,
-        attention_mask: Optional[torch.FloatTensor] = None,
+        attention_mask: Optional[Union[torch.FloatTensor, torch.BoolTensor]] = None,
         **cross_attention_kwargs,
     ) -> torch.Tensor:
         r"""
@@ -884,7 +884,7 @@ class AttnProcessor2_0:
         attn: Attention,
         hidden_states: torch.FloatTensor,
         encoder_hidden_states: Optional[torch.FloatTensor] = None,
-        attention_mask: Optional[torch.FloatTensor] = None,
+        attention_mask: Optional[Union[torch.FloatTensor, torch.BoolTensor]] = None,
         temb: Optional[torch.FloatTensor] = None,
         scale: float = 1.0,
         position_q: Optional[torch.LongTensor] = None,
@@ -1265,9 +1265,9 @@ class BasicTransformerBlock_(nn.Module):
     def forward(
             self,
             hidden_states: torch.FloatTensor,
-            attention_mask: Optional[torch.FloatTensor] = None,
+            attention_mask: Optional[Union[torch.FloatTensor, torch.BoolTensor]] = None,
             encoder_hidden_states: Optional[torch.FloatTensor] = None,
-            encoder_attention_mask: Optional[torch.FloatTensor] = None,
+            encoder_attention_mask: Optional[Union[torch.FloatTensor, torch.BoolTensor]] = None,
             timestep: Optional[torch.LongTensor] = None,
             cross_attention_kwargs: Dict[str, Any] = None,
             class_labels: Optional[torch.LongTensor] = None,
@@ -1560,9 +1560,9 @@ class BasicTransformerBlock(nn.Module):
     def forward(
         self,
         hidden_states: torch.FloatTensor,
-        attention_mask: Optional[torch.FloatTensor] = None,
+        attention_mask: Optional[Union[torch.FloatTensor, torch.BoolTensor]] = None,
         encoder_hidden_states: Optional[torch.FloatTensor] = None,
-        encoder_attention_mask: Optional[torch.FloatTensor] = None,
+        encoder_attention_mask: Optional[Union[torch.FloatTensor, torch.BoolTensor]] = None,
         timestep: Optional[torch.LongTensor] = None,
         cross_attention_kwargs: Dict[str, Any] = None,
         class_labels: Optional[torch.LongTensor] = None,
