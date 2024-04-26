@@ -39,7 +39,7 @@ from huggingface_hub import create_repo
 from packaging import version
 from tqdm.auto import tqdm
 from transformers import HfArgumentParser, TrainingArguments, AutoTokenizer
-
+import random
 import diffusers
 from diffusers import DDPMScheduler, PNDMScheduler
 from diffusers.optimization import get_scheduler
@@ -65,6 +65,15 @@ class ProgressInfo:
     def __init__(self, global_step, train_loss=0.0):
         self.global_step = global_step
         self.train_loss = train_loss
+
+def seed_everything(seed=0):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 def generate_timestep_weights(args, num_timesteps):
     weights = torch.ones(num_timesteps)
@@ -115,7 +124,7 @@ def generate_timestep_weights(args, num_timesteps):
 
 def main(args):
     logging_dir = Path(args.output_dir, args.logging_dir)
-
+    seed_everything()
     accelerator_project_config = ProjectConfiguration(project_dir=args.output_dir, logging_dir=logging_dir)
 
     accelerator = Accelerator(
@@ -652,6 +661,8 @@ def main(args):
     else:
         train_all_epoch()
 
+    if args.loss_save_path != None:
+        npu_config.save_loss(args.loss_save_path)
     accelerator.wait_for_everyone()
     accelerator.end_training()
 
@@ -895,6 +906,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--local_rank", type=int, default=-1, help="For distributed training: local_rank")
     parser.add_argument("--noise_offset", type=float, default=0, help="The scale of noise offset.")
+    parser.add_argument("--loss_save_path", type=str, default=None, help="The path to save loss.")
 
     args = parser.parse_args()
     main(args)

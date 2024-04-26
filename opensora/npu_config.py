@@ -11,9 +11,10 @@ except:
 class NPUConfig:
     def __init__(self):
         self.on_npu = npu_is_available
-        self.profiling = True
+        self.profiling = False
         self.profiling_step = 5
         self._loss = []
+        self.enable_FA = False
         self.rank = int(os.environ["RANK"])
         if self.on_npu:
             from torch_npu.contrib import transfer_to_npu

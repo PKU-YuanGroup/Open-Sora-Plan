@@ -21,7 +21,11 @@ from diffusers.models.activations import GEGLU, GELU, ApproximateGELU
 from dataclasses import dataclass
 
 from opensora.models.diffusion.utils.pos_embed import get_2d_sincos_pos_embed, RoPE1D, RoPE2D, LinearScalingRoPE2D, LinearScalingRoPE1D
-
+try:
+    import torch_npu
+except:
+    pass
+from opensora.npu_config import npu_config
 if is_xformers_available():
     import xformers
     import xformers.ops
@@ -798,12 +802,12 @@ class Attention(nn.Module):
                 # TODO: re-enable tests/models/test_models_unet_2d_condition.py#test_model_xattn_padding
                 attention_mask = F.pad(attention_mask, (0, target_length), value=0.0)
 
-        if out_dim == 3:
-            if attention_mask.shape[0] < batch_size * head_size:
-                attention_mask = attention_mask.repeat_interleave(head_size, dim=0)
-        elif out_dim == 4:
-            attention_mask = attention_mask.unsqueeze(1)
-            attention_mask = attention_mask.repeat_interleave(head_size, dim=1)
+        # if out_dim == 3:
+        #     if attention_mask.shape[0] < batch_size * head_size:
+        #         attention_mask = attention_mask.repeat_interleave(head_size, dim=0)
+        # elif out_dim == 4:
+        #     attention_mask = attention_mask.unsqueeze(1)
+        #     attention_mask = attention_mask.repeat_interleave(head_size, dim=1)
 
         return attention_mask
 
@@ -930,7 +934,7 @@ class AttnProcessor2_0:
             attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length, batch_size)
             # scaled_dot_product_attention expects attention_mask shape to be
             # (batch, heads, source_length, target_length)
-            attention_mask = attention_mask.view(batch_size, attn.heads, -1, attention_mask.shape[-1])
+            attention_mask = attention_mask.view(batch_size, 1, -1, attention_mask.shape[-1])
 
         if attn.group_norm is not None:
             hidden_states = attn.group_norm(hidden_states.transpose(1, 2)).transpose(1, 2)
@@ -948,49 +952,53 @@ class AttnProcessor2_0:
         key = attn.to_k(encoder_hidden_states, *args)
         value = attn.to_v(encoder_hidden_states, *args)
 
-        inner_dim = key.shape[-1]
-        head_dim = inner_dim // attn.heads
+        if npu_config.on_npu and npu_config.enable_FA:
+            hidden_states = torch_npu.npu_fusion_attention(query, key, value, atten_mask=attention_mask, input_layout="BSH",
+                                           head_num=attn.heads)[0]
+        else:
+            inner_dim = key.shape[-1]
+            head_dim = inner_dim // attn.heads
 
-        query = query.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
+            query = query.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
 
-        key = key.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
-        value = value.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
+            key = key.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
+            value = value.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
 
-        if self.use_rope:
-            # require the shape of (batch_size x nheads x ntokens x dim)
-            if position_q.ndim == 3:
-                query = self.rope2d(query, position_q) 
-            elif position_q.ndim == 2:
-                query = self.rope1d(query, position_q) 
-            else:
-                raise NotImplementedError
-            if position_k.ndim == 3:
-                key = self.rope2d(key, position_k)
-            elif position_k.ndim == 2:
-                key = self.rope1d(key, position_k)
-            else:
-                raise NotImplementedError
+            if self.use_rope:
+                # require the shape of (batch_size x nheads x ntokens x dim)
+                if position_q.ndim == 3:
+                    query = self.rope2d(query, position_q)
+                elif position_q.ndim == 2:
+                    query = self.rope1d(query, position_q)
+                else:
+                    raise NotImplementedError
+                if position_k.ndim == 3:
+                    key = self.rope2d(key, position_k)
+                elif position_k.ndim == 2:
+                    key = self.rope1d(key, position_k)
+                else:
+                    raise NotImplementedError
 
-        # the output of sdp = (batch, num_heads, seq_len, head_dim)
-        # TODO: add support for attn.scale when we move to Torch 2.1
-        if self.attention_mode == 'flash':
-            assert attention_mask is None or torch.all(attention_mask.bool()), 'flash-attn do not support attention_mask'
-            with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=True, enable_mem_efficient=False):
-                hidden_states = F.scaled_dot_product_attention(
-                    query, key, value, dropout_p=0.0, is_causal=False
-                )
-        elif self.attention_mode == 'xformers':
-            with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=False, enable_mem_efficient=True):
+            # the output of sdp = (batch, num_heads, seq_len, head_dim)
+            # TODO: add support for attn.scale when we move to Torch 2.1
+            if self.attention_mode == 'flash':
+                assert attention_mask is None or torch.all(attention_mask.bool()), 'flash-attn do not support attention_mask'
+                with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=True, enable_mem_efficient=False):
+                    hidden_states = F.scaled_dot_product_attention(
+                        query, key, value, dropout_p=0.0, is_causal=False
+                    )
+            elif self.attention_mode == 'xformers':
+                with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=False, enable_mem_efficient=True):
+                    hidden_states = F.scaled_dot_product_attention(
+                        query, key, value, attn_mask=attention_mask, dropout_p=0.0, is_causal=False
+                    )
+            elif self.attention_mode == 'math':
                 hidden_states = F.scaled_dot_product_attention(
                     query, key, value, attn_mask=attention_mask, dropout_p=0.0, is_causal=False
                 )
-        elif self.attention_mode == 'math':
-            hidden_states = F.scaled_dot_product_attention(
-                query, key, value, attn_mask=attention_mask, dropout_p=0.0, is_causal=False
-            )
-        else:
-            raise NotImplementedError(f'Found attention_mode: {self.attention_mode}')
-        hidden_states = hidden_states.transpose(1, 2).reshape(batch_size, -1, attn.heads * head_dim)
+            else:
+                raise NotImplementedError(f'Found attention_mode: {self.attention_mode}')
+            hidden_states = hidden_states.transpose(1, 2).reshape(batch_size, -1, attn.heads * head_dim)
         hidden_states = hidden_states.to(query.dtype)
 
         # linear proj

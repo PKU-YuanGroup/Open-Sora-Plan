@@ -2,7 +2,7 @@ import torch
 
 import os
 import json
-
+from opensora.npu_config import npu_config
 from dataclasses import dataclass
 from einops import rearrange, repeat
 from typing import Any, Dict, Optional, Tuple
@@ -275,6 +275,9 @@ class LatteT2V(ModelMixin, ConfigMixin):
             attention_mask = torch.cat([attention_mask_video, attention_mask_image], dim=1)
             attention_mask = rearrange(attention_mask, 'b n l -> (b n) l').contiguous().unsqueeze(1)
             attention_mask = attention_mask.to(self.dtype)
+
+        if npu_config.on_npu and npu_config.enable_FA:
+            attention_mask = attention_mask.repeat(1, attention_mask.size(-1), 1).to(torch.bool)
         return attention_mask
 
     def forward(
@@ -374,6 +377,9 @@ class LatteT2V(ModelMixin, ConfigMixin):
             encoder_attention_mask = torch.cat([encoder_attention_mask_video, encoder_attention_mask_image], dim=1)
             encoder_attention_mask = rearrange(encoder_attention_mask, 'b n l -> (b n) l').contiguous().unsqueeze(1)
             encoder_attention_mask = encoder_attention_mask.to(self.dtype)
+
+        if npu_config.on_npu and npu_config.enable_FA:
+            encoder_attention_mask = encoder_attention_mask.repeat(1, attention_mask.size(-2), 1).to(torch.bool)
 
         # Retrieve lora scale.
         lora_scale = cross_attention_kwargs.get("scale", 1.0) if cross_attention_kwargs is not None else 1.0
