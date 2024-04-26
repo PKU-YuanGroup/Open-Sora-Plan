@@ -12,7 +12,7 @@ class NPUConfig:
     def __init__(self):
         self.on_npu = npu_is_available
         self.profiling = True
-        self.profiling_step = 2
+        self.profiling_step = 5
         self._loss = []
         self.rank = int(os.environ["RANK"])
         if self.on_npu:
@@ -44,6 +44,15 @@ class NPUConfig:
 
     def run_conv3d(self, operator, x, out_dtype):
         return self._run(operator, x, torch.float16, out_dtype, out_nd_format=True)
+
+    def seed_everything(seed=0):
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
 
     def print_with_rank(self, msg, rank=0, save=False):
         if self.rank == rank:
