@@ -1,5 +1,5 @@
 CUDA_VISIBLE_DEVICES=6 python opensora/sample/sample_t2v.py \
-    --model_path /remote-home1/yeyang/sora4.8/Open-Sora-Plan/cache_dir/models--LanguageBind--Open-Sora-Plan-v1.0.0/snapshots/92a849c00ab99ae2c7cd7ff156f2ae02eb25c45d/65x512x512 \
+    --model_path /remote-home1/yeyang/dev/Open-Sora-Plan/debug_mask_loss/checkpoint-500/model \
     --version 65x512x512 \
     --image_size 512 \
     --cache_dir "/remote-home1/yeyang/sora4.8/Open-Sora-Plan/cache_dir" \

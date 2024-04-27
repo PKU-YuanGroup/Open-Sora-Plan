@@ -694,7 +694,7 @@ class GaussianDiffusion_T:
                 img = out["sample"]
 
     def _vb_terms_bpd(
-            self, model, x_start, x_t, t, clip_denoised=True, model_kwargs=None
+            self, model, x_start, x_t, t, clip_denoised=True, model_kwargs=None, mask=1.0, 
     ):
         """
         Get a term for the variational lower-bound.
@@ -704,6 +704,7 @@ class GaussianDiffusion_T:
                  - 'output': a shape [N] tensor of NLLs or KLs.
                  - 'pred_xstart': the x_0 predictions.
         """
+        # import ipdb;ipdb.set_trace()
         true_mean, _, true_log_variance_clipped = self.q_posterior_mean_variance(
             x_start=x_start, x_t=x_t, t=t
         )
@@ -713,13 +714,13 @@ class GaussianDiffusion_T:
         kl = normal_kl(
             true_mean, true_log_variance_clipped, out["mean"], out["log_variance"]
         )
-        kl = mean_flat(kl) / np.log(2.0)
+        kl = mean_flat(kl * mask) / np.log(2.0)
 
         decoder_nll = -discretized_gaussian_log_likelihood(
             x_start, means=out["mean"], log_scales=0.5 * out["log_variance"]
         )
         assert decoder_nll.shape == x_start.shape
-        decoder_nll = mean_flat(decoder_nll) / np.log(2.0)
+        decoder_nll = mean_flat(decoder_nll * mask) / np.log(2.0)
 
         # At the first timestep return the decoder NLL,
         # otherwise return KL(q(x_{t-1}|x_t,x_0) || p(x_{t-1}|x_t))
@@ -740,12 +741,15 @@ class GaussianDiffusion_T:
         """
         if model_kwargs is None:
             model_kwargs = {}
+            mask = 1.0
+        else:
+            mask = model_kwargs['attention_mask'].unsqueeze(1)  # b t h w -> b 1 t h w
+
         if noise is None:
             noise = th.randn_like(x_start)
         x_t = self.q_sample(x_start, t, noise=noise)
 
         terms = {}
-
         if self.loss_type == LossType.KL or self.loss_type == LossType.RESCALED_KL:
             terms["loss"] = self._vb_terms_bpd(
                 model=model,
@@ -786,7 +790,8 @@ class GaussianDiffusion_T:
                     x_start=x_start,
                     x_t=x_t,
                     t=t,
-                    clip_denoised=False,
+                    clip_denoised=False, 
+                    mask=mask
                 )["output"]
                 if self.loss_type == LossType.RESCALED_MSE:
                     # Divide by 1000 for equivalence with initial implementation.
@@ -801,7 +806,8 @@ class GaussianDiffusion_T:
                 ModelMeanType.EPSILON: noise,
             }[self.model_mean_type]
             assert model_output.shape == target.shape == x_start.shape
-            terms["mse"] = mean_flat((target - model_output) ** 2)
+            terms["mse"] = mean_flat(((target - model_output) ** 2) * mask)
+            # import ipdb;ipdb.set_trace()
             if "vb" in terms:
                 terms["loss"] = terms["mse"] + terms["vb"]
             else:
