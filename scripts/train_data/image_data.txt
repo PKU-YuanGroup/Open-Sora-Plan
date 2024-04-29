@@ -1,2 +1,0 @@
-/remote-home1/dataset/picture,/remote-home1/yeyang/gan3d/Open-Sora-Plan/image_114054.json
-/remote-home1/dataset/picture,/remote-home1/yeyang/gan3d/Open-Sora-Plan/image_114054.json
