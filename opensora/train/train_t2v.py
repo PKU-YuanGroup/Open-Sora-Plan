@@ -604,10 +604,8 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=str, required=True)
-    parser.add_argument("--video_data_path", type=str, required=True)
-    parser.add_argument("--video_folder", type=str, default='')
-    parser.add_argument("--image_data_path", type=str, default='')
-    parser.add_argument("--image_folder", type=str, default='')
+    parser.add_argument("--video_data", type=str, required='')
+    parser.add_argument("--image_data", type=str, default='')
     parser.add_argument("--sample_rate", type=int, default=1)
     parser.add_argument("--num_frames", type=int, default=17)
     parser.add_argument("--max_image_size", type=int, default=512)
