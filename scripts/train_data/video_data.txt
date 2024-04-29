@@ -1,2 +1,2 @@
-/remote-home1/dataset/all_mixkit,/remote-home1/yeyang/gan3d/Open-Sora-Plan/video_mixkit_65f_54735.json
-/remote-home1/dataset/all_mixkit,/remote-home1/yeyang/gan3d/Open-Sora-Plan/video_mixkit_65f_54735.json
+/dxyl_data02/mixkit,/dxyl_data02/anno_jsons/video_mixkit_65f_54735.json
+/dxyl_data02/mixkit,/dxyl_data02/anno_jsons/video_mixkit_65f_54735.json

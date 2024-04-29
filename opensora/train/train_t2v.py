@@ -411,7 +411,7 @@ def main(args):
                 attn_mask = attn_mask.to(accelerator.device)  # B L or B 1+num_images L
                 input_ids = input_ids.to(accelerator.device)  # B L or B 1+num_images L
                 cond_mask = cond_mask.to(accelerator.device)  # B L or B 1+num_images L
-                print('x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape', x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape)
+                # print('x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape', x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape)
                 
                 with torch.no_grad():
                     # use for loop to avoid OOM, because T5 is too huge...
