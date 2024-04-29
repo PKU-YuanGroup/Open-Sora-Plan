@@ -1,5 +1,5 @@
 from importlib import import_module
-
+import math
 import numpy as np
 from typing import Any, Dict, Optional, Tuple, Callable, Union
 from diffusers.utils import USE_PEFT_BACKEND, BaseOutput, deprecate, is_xformers_available
@@ -952,13 +952,12 @@ class AttnProcessor2_0:
         key = attn.to_k(encoder_hidden_states, *args)
         value = attn.to_v(encoder_hidden_states, *args)
 
+        inner_dim = key.shape[-1]
+        head_dim = inner_dim // attn.heads
         if npu_config.on_npu and npu_config.enable_FA:
             hidden_states = torch_npu.npu_fusion_attention(query, key, value, atten_mask=attention_mask, input_layout="BSH",
-                                           head_num=attn.heads)[0]
+                                           scale=1/math.sqrt(head_dim), head_num=attn.heads)[0]
         else:
-            inner_dim = key.shape[-1]
-            head_dim = inner_dim // attn.heads
-
             query = query.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
 
             key = key.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)

@@ -16,9 +16,9 @@ def compute_loss_differences(file1, file2):
 
     differences = []
     for loss1, loss2 in zip(losses1, losses2):
-        diff = abs(loss1['train_loss'] - loss2['train_loss'])
+        diff = (loss1['train_loss'] - loss2['train_loss']) / loss1['train_loss']
         differences.append(diff)
-        print(f"Difference: {diff}")
+        print(f"Difference: {diff} {loss1['train_loss']} {loss2['train_loss']}")
 
     return differences
 
