@@ -116,8 +116,6 @@ def generate_timestep_weights(args, num_timesteps):
     return weights
 
 
-
-
 #################################################################################
 #                                  Training Loop                                #
 #################################################################################
@@ -183,9 +181,8 @@ def main(args):
         ae.vae.enable_tiling()
         ae.vae.tile_overlap_factor = args.tile_overlap_factor
         
-    kwargs = {'load_in_8bit': False, 'torch_dtype': weight_dtype}
-    # text_enc = get_text_warpper(args.text_encoder_name)(args, **kwargs).eval()
-    text_enc = get_text_enc(args).eval()
+    kwargs = {'load_in_8bit': args.enable_8bit_t5, 'torch_dtype': weight_dtype, 'low_cpu_mem_usage': True}
+    text_enc = get_text_warpper(args.text_encoder_name)(args, **kwargs).eval()
 
     ae_stride_t, ae_stride_h, ae_stride_w = ae_stride_config[args.ae]
     assert ae_stride_h == ae_stride_w, f"Support only ae_stride_h == ae_stride_w now, but found ae_stride_h ({ae_stride_h}), ae_stride_w ({ae_stride_w})"
@@ -560,7 +557,7 @@ def main(args):
 
                 if args.enable_tracker:
                     validation_prompt = "The majestic beauty of a waterfall cascading down a cliff into a serene lake."
-                    logger.info(f"Running validation... \n"
+                    logger.info(f"Running validation...Using DDPM naive sampling...\n"
                                 f"Generating {args.num_validation_videos} videos with prompt: {validation_prompt}")
                     with torch.no_grad():
                         # create pipeline
@@ -681,6 +678,7 @@ if __name__ == "__main__":
     parser.add_argument("--use_image_num", type=int, default=0)
     parser.add_argument("--model_max_length", type=int, default=300)
 
+    parser.add_argument('--enable_8bit_t5', action='store_true')
     parser.add_argument('--tile_overlap_factor', type=float, default=0.25)
     parser.add_argument('--enable_tiling', action='store_true')
     parser.add_argument("--compress_kv", action="store_true")

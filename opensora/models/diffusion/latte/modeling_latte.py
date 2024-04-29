@@ -256,28 +256,31 @@ class LatteT2V(ModelMixin, ConfigMixin):
         return pos_hw, pos_t
 
     def make_attn_mask(self, attention_mask, frame, dtype):
-        attention_mask = attention_mask.flatten(-2)  # *, h w -> *, hw
-        if attention_mask is not None and attention_mask.ndim == 2:
-            # assume that mask is expressed as:
-            #   (1 = keep,      0 = discard)
-            # convert mask into a bias that can be added to attention scores:
-            #   (keep = +0,     discard = -10000.0)
-            attention_mask = (1 - attention_mask.to(dtype)) * -10000.0
-            attention_mask = attention_mask.unsqueeze(1)
-            attention_mask = repeat(attention_mask, 'b 1 l -> (b f) 1 l', f=frame).contiguous()
-            attention_mask = attention_mask.to(self.dtype)
-        elif attention_mask is not None and attention_mask.ndim == 3:  # ndim == 3 means image joint
-            attention_mask = (1 - attention_mask.to(dtype)) * -10000.0
-            attention_mask_video = attention_mask[:, :1, ...]
-            attention_mask_video = repeat(attention_mask_video, 'b 1 l -> b (1 f) l',
-                                                  f=frame).contiguous()
-            attention_mask_image = attention_mask[:, 1:, ...]
-            attention_mask = torch.cat([attention_mask_video, attention_mask_image], dim=1)
-            attention_mask = rearrange(attention_mask, 'b n l -> (b n) l').contiguous().unsqueeze(1)
-            attention_mask = attention_mask.to(self.dtype)
-
+        attention_mask = rearrange(attention_mask, 'b t h w -> (b t) 1 (h w)')
+        # assume that mask is expressed as:
+        #   (1 = keep,      0 = discard)
+        # convert mask into a bias that can be added to attention scores:
+        #   (keep = +0,     discard = -10000.0)
+        attention_mask = (1 - attention_mask.to(dtype)) * -10000.0
+        attention_mask = attention_mask.to(self.dtype)
         if npu_config.on_npu and npu_config.enable_FA:
             attention_mask = attention_mask.repeat(1, attention_mask.size(-1), 1).to(torch.bool)
+        return attention_mask
+
+    def vae_to_diff_mask(self, attention_mask, use_image_num):
+        dtype = attention_mask.dtype
+        # b, t+use_image_num, h, w, assume t as channel
+        # this version do not use 3d patch embedding
+        attention_mask = F.max_pool2d(attention_mask, kernel_size=(self.patch_size, self.patch_size), stride=(self.patch_size, self.patch_size))
+        attention_mask = attention_mask.bool().to(dtype)
+        return attention_mask
+
+    def vae_to_diff_mask(self, attention_mask, use_image_num):
+        dtype = attention_mask.dtype
+        # b, t+use_image_num, h, w, assume t as channel
+        # this version do not use 3d patch embedding
+        attention_mask = F.max_pool2d(attention_mask, kernel_size=(self.patch_size, self.patch_size), stride=(self.patch_size, self.patch_size))
+        attention_mask = attention_mask.bool().to(dtype)
         return attention_mask
 
     def forward(
@@ -346,16 +349,10 @@ class LatteT2V(ModelMixin, ConfigMixin):
         #   [batch,  heads, query_tokens, key_tokens] (e.g. torch sdp attn)
         #   [batch * heads, query_tokens, key_tokens] (e.g. xformers or classic attn)
         if attention_mask is None:
-            if use_image_num == 0:
-                attention_mask = torch.ones((input_batch_size, h//self.patch_size, w//self.patch_size), device=hidden_states.device, dtype=hidden_states.dtype)
-            else:
-                attention_mask = torch.ones((input_batch_size, 1+use_image_num, h//self.patch_size, w//self.patch_size), device=hidden_states.device, dtype=hidden_states.dtype)
-
+            attention_mask = torch.ones((input_batch_size, frame+use_image_num, h, w), device=hidden_states.device, dtype=hidden_states.dtype)
+        attention_mask = self.vae_to_diff_mask(attention_mask, use_image_num)
         dtype = attention_mask.dtype
-        if use_image_num == 0:
-            attention_mask_compress = F.max_pool2d(attention_mask.unsqueeze(1).float(), kernel_size=self.compress_kv_factor, stride=self.compress_kv_factor).squeeze(1)
-        else:
-            attention_mask_compress = F.max_pool2d(attention_mask.float(), kernel_size=self.compress_kv_factor, stride=self.compress_kv_factor)
+        attention_mask_compress = F.max_pool2d(attention_mask.float(), kernel_size=self.compress_kv_factor, stride=self.compress_kv_factor)
         attention_mask_compress = attention_mask_compress.to(dtype)
 
         attention_mask = self.make_attn_mask(attention_mask, frame, hidden_states.dtype)
