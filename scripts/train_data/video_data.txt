@@ -1,2 +1,2 @@
-/dxyl_data02/mixkit,/dxyl_data02/anno_jsons/video_mixkit_65f_54735.json
-/dxyl_data02/mixkit,/dxyl_data02/anno_jsons/video_mixkit_65f_54735.json
+/dxyl_data02/mixkit,/dxyl_data02/anno_jsons/tmp_video_mixkit_65f_54735.json
+/dxyl_data02/mixkit,/dxyl_data02/anno_jsons/tmp_video_mixkit_65f_54735.json
