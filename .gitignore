@@ -29,3 +29,5 @@ sample_videos/
 debug*
 private*
 caption*
+*deepspeed*
+revised*

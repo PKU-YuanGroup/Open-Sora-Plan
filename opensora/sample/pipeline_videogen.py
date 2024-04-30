@@ -751,9 +751,7 @@ class VideoGenPipeline(DiffusionPipeline):
         return VideoPipelineOutput(video=video)
 
     def decode_latents(self, latents):
-        video = self.vae.decode(latents)
-        # video = self.vae.decode(latents / 0.18215)
-        # video = rearrange(video, 'b c t h w -> b t c h w').contiguous()
+        video = self.vae.decode(latents) # b t c h w
+        # b t c h w -> b t h w c
         video = ((video / 2.0 + 0.5).clamp(0, 1) * 255).to(dtype=torch.uint8).cpu().permute(0, 1, 3, 4, 2).contiguous()
-        # we always cast to float32 as this does not cause significant overhead and is compatible with bfloa16
         return video

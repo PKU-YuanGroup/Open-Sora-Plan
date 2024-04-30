@@ -69,6 +69,7 @@ class T2V_dataset(Dataset):
         video = self.decord_read(video_path, frame_idx)
         video = self.transform(video)  # T C H W -> T C H W
         # video = torch.rand(65, 3, 512, 512)
+
         video = video.transpose(0, 1)  # T C H W -> C T H W
         text = self.vid_cap_list[idx]['cap'][0]
 
@@ -147,6 +148,7 @@ class T2V_dataset(Dataset):
             start_frame_ind, end_frame_ind = int(start_frame_ind), int(end_frame_ind)
         # assert end_frame_ind - start_frame_ind >= self.num_frames
         frame_indice = np.linspace(start_frame_ind, end_frame_ind - 1, self.num_frames, dtype=int)
+        # frame_indice = np.linspace(0, end_frame_ind - 2, self.num_frames, dtype=int)
 
         video_data = decord_vr.get_batch(frame_indice).asnumpy()
         video_data = torch.from_numpy(video_data)
