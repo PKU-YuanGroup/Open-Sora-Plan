@@ -44,19 +44,19 @@ class T2V_dataset(Dataset):
         return len(self.vid_cap_list)
 
     def __getitem__(self, idx):
-        # try:
-        video_data = self.get_video(idx)
-        image_data = {}
-        if self.use_image_num != 0 and self.use_img_from_vid:
-            image_data = self.get_image_from_video(video_data)
-        elif self.use_image_num != 0 and not self.use_img_from_vid:
-            image_data = self.get_image(idx)
-        else:
-            raise NotImplementedError
-        return dict(video_data=video_data, image_data=image_data)
-        # except Exception as e:
-        #     print(f'Error with {e}, {self.vid_cap_list[idx]}')
-        #     return self.__getitem__(random.randint(0, self.__len__() - 1))
+        try:
+            video_data = self.get_video(idx)
+            image_data = {}
+            if self.use_image_num != 0 and self.use_img_from_vid:
+                image_data = self.get_image_from_video(video_data)
+            elif self.use_image_num != 0 and not self.use_img_from_vid:
+                image_data = self.get_image(idx)
+            else:
+                raise NotImplementedError
+            return dict(video_data=video_data, image_data=image_data)
+        except Exception as e:
+            # print(f'Error with {e}, {self.vid_cap_list[idx]}')
+            return self.__getitem__(random.randint(0, self.__len__() - 1))
 
     def get_video(self, idx):
         # video = random.choice([random_video_noise(65, 3, 720, 360) * 255, random_video_noise(65, 3, 1024, 1024), random_video_noise(65, 3, 360, 720)])

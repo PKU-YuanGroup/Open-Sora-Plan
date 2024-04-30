@@ -25,6 +25,7 @@ from copy import deepcopy
 
 import accelerate
 import torch
+
 try:
     import torch_npu
 except:
@@ -66,6 +67,7 @@ class ProgressInfo:
         self.global_step = global_step
         self.train_loss = train_loss
 
+
 def seed_everything(seed=0):
     random.seed(seed)
     np.random.seed(seed)
@@ -74,6 +76,7 @@ def seed_everything(seed=0):
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+
 
 def generate_timestep_weights(args, num_timesteps):
     weights = torch.ones(num_timesteps)
@@ -122,7 +125,7 @@ def generate_timestep_weights(args, num_timesteps):
 
 def main(args):
     logging_dir = Path(args.output_dir, args.logging_dir)
-    seed_everything()
+    # seed_everything()
     accelerator_project_config = ProjectConfiguration(project_dir=args.output_dir, logging_dir=logging_dir)
 
     accelerator = Accelerator(
@@ -164,6 +167,31 @@ def main(args):
         #     repo_id = create_repo(
         #         repo_id=args.hub_model_id or Path(args.output_dir).name, exist_ok=True, token=args.hub_token
         #     ).repo_id
+    ae_stride_t, ae_stride_h, ae_stride_w = ae_stride_config[args.ae]
+    assert ae_stride_h == ae_stride_w, f"Support only ae_stride_h == ae_stride_w now, but found ae_stride_h ({ae_stride_h}), ae_stride_w ({ae_stride_w})"
+    args.ae_stride_t, args.ae_stride_h, args.ae_stride_w = ae_stride_t, ae_stride_h, ae_stride_w
+    args.ae_stride = args.ae_stride_h
+    patch_size = args.model[-3:]
+    patch_size_t, patch_size_h, patch_size_w = int(patch_size[0]), int(patch_size[1]), int(patch_size[2])
+    args.patch_size = patch_size_h
+    args.patch_size_t, args.patch_size_h, args.patch_size_w = patch_size_t, patch_size_h, patch_size_w
+    assert patch_size_h == patch_size_w, f"Support only patch_size_h == patch_size_w now, but found patch_size_h ({patch_size_h}), patch_size_w ({patch_size_w})"
+    # assert args.num_frames % ae_stride_t == 0, f"Num_frames must be divisible by ae_stride_t, but found num_frames ({args.num_frames}), ae_stride_t ({ae_stride_t})."
+    assert args.max_image_size % ae_stride_h == 0, f"Image size must be divisible by ae_stride_h, but found max_image_size ({args.max_image_size}),  ae_stride_h ({ae_stride_h})."
+
+    args.stride_t = ae_stride_t * patch_size_t
+    args.stride = ae_stride_h * patch_size_h
+    latent_size = (args.max_image_size // ae_stride_h, args.max_image_size // ae_stride_w)
+
+    # Setup data:
+    train_dataset = getdataset(args)
+    train_dataloader = torch.utils.data.DataLoader(
+        train_dataset,
+        shuffle=True,
+        collate_fn=Collate(args),
+        batch_size=args.train_batch_size,
+        num_workers=args.dataloader_num_workers,
+    )
 
     # For mixed precision training we cast all non-trainable weigths to half-precision
     # as these weights are only used for inference, keeping weights in full precision is not required.
@@ -180,25 +208,9 @@ def main(args):
     if args.enable_tiling:
         ae.vae.enable_tiling()
         ae.vae.tile_overlap_factor = args.tile_overlap_factor
-        
+
     kwargs = {'load_in_8bit': args.enable_8bit_t5, 'torch_dtype': weight_dtype, 'low_cpu_mem_usage': True}
     text_enc = get_text_warpper(args.text_encoder_name)(args, **kwargs).eval()
-
-    ae_stride_t, ae_stride_h, ae_stride_w = ae_stride_config[args.ae]
-    assert ae_stride_h == ae_stride_w, f"Support only ae_stride_h == ae_stride_w now, but found ae_stride_h ({ae_stride_h}), ae_stride_w ({ae_stride_w})"
-    args.ae_stride_t, args.ae_stride_h, args.ae_stride_w = ae_stride_t, ae_stride_h, ae_stride_w
-    args.ae_stride = args.ae_stride_h
-    patch_size = args.model[-3:]
-    patch_size_t, patch_size_h, patch_size_w = int(patch_size[0]), int(patch_size[1]), int(patch_size[2])
-    args.patch_size = patch_size_h
-    args.patch_size_t, args.patch_size_h, args.patch_size_w = patch_size_t, patch_size_h, patch_size_w
-    assert patch_size_h == patch_size_w, f"Support only patch_size_h == patch_size_w now, but found patch_size_h ({patch_size_h}), patch_size_w ({patch_size_w})"
-    # assert args.num_frames % ae_stride_t == 0, f"Num_frames must be divisible by ae_stride_t, but found num_frames ({args.num_frames}), ae_stride_t ({ae_stride_t})."
-    assert args.max_image_size % ae_stride_h == 0, f"Image size must be divisible by ae_stride_h, but found max_image_size ({args.max_image_size}),  ae_stride_h ({ae_stride_h})."
-
-    args.stride_t = ae_stride_t * patch_size_t
-    args.stride = ae_stride_h * patch_size_h
-    latent_size = (args.max_image_size // ae_stride_h, args.max_image_size // ae_stride_w)
 
     if getae_wrapper(args.ae) == CausalVQVAEModelWrapper or getae_wrapper(args.ae) == CausalVAEModelWrapper:
         args.video_length = video_length = args.num_frames // ae_stride_t + 1
@@ -224,9 +236,9 @@ def main(args):
         attention_type='default',
         video_length=video_length,
         attention_mode=args.attention_mode,
-        compress_kv_factor=args.compress_kv_factor, 
-        use_rope=args.use_rope, 
-        model_max_length=args.model_max_length, 
+        compress_kv_factor=args.compress_kv_factor,
+        use_rope=args.use_rope,
+        model_max_length=args.model_max_length,
     )
     model.gradient_checkpointing = args.gradient_checkpointing
 
@@ -240,14 +252,14 @@ def main(args):
         model_state_dict = model.state_dict()
         missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=False)
         logger.info(f'missing_keys {len(missing_keys)} {missing_keys}, unexpected_keys {len(unexpected_keys)}')
-        logger.info(f'Successfully load {len(model.state_dict()) - len(missing_keys)}/{len(model_state_dict)} keys from {args.pretrained}!')
+        logger.info(
+            f'Successfully load {len(model.state_dict()) - len(missing_keys)}/{len(model_state_dict)} keys from {args.pretrained}!')
 
     # Freeze vae and text encoders.
     ae.requires_grad_(False)
     text_enc.requires_grad_(False)
     # Set model as trainable.
     model.train()
-
 
     # Move unet, vae and text_encoder to device and cast to weight_dtype
     # The VAE is in float32 to avoid NaN losses.
@@ -328,16 +340,6 @@ def main(args):
         betas=(args.adam_beta1, args.adam_beta2),
         weight_decay=args.adam_weight_decay,
         eps=args.adam_epsilon,
-    )
-
-    # Setup data:
-    train_dataset = getdataset(args)
-    train_dataloader = torch.utils.data.DataLoader(
-        train_dataset,
-        shuffle=True,
-        collate_fn=Collate(args),
-        batch_size=args.train_batch_size,
-        num_workers=args.dataloader_num_workers,
     )
 
     # Scheduler and math around the number of training steps.
@@ -431,8 +433,8 @@ def main(args):
             attn_mask = attn_mask.to(accelerator.device)  # B L or B 1+num_images L
             input_ids = input_ids.to(accelerator.device)  # B L or B 1+num_images L
             cond_mask = cond_mask.to(accelerator.device)  # B L or B 1+num_images L
-            print('x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape', x.shape, attn_mask.shape,
-                  input_ids.shape, cond_mask.shape)
+            # print('x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape', x.shape, attn_mask.shape,
+            #       input_ids.shape, cond_mask.shape)
 
             with torch.no_grad():
                 # use for loop to avoid OOM, because T5 is too huge...
@@ -622,7 +624,6 @@ def main(args):
                     torch.cuda.empty_cache()
 
         return False
-
 
     def train_all_epoch(prof_=None):
         for epoch in range(first_epoch, args.num_train_epochs):

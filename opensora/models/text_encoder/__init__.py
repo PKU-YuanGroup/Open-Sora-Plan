@@ -47,8 +47,15 @@ def get_text_enc(args):
     assert text_enc is not None
     return text_enc(args)
 
+
 def get_text_warpper(text_encoder_name):
     """deprecation"""
-    text_enc = text_encoder.get(text_encoder_name, None)
+    encoder_key = None
+    for key in text_encoder.keys():
+        if key in text_encoder_name:
+            encoder_key = key
+            break
+
+    text_enc = text_encoder.get(encoder_key, None)
     assert text_enc is not None
     return text_enc
