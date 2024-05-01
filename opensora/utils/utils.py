@@ -15,6 +15,7 @@ import torch.distributed as dist
 from torch import inf
 from PIL import Image
 from typing import Union, Iterable
+import collections
 from collections import OrderedDict
 from torch.utils.tensorboard import SummaryWriter
 
@@ -31,6 +32,11 @@ if is_ftfy_available():
     import ftfy
 
 _tensor_or_tensors = Union[torch.Tensor, Iterable[torch.Tensor]]
+
+def to_2tuple(x):
+    if isinstance(x, collections.abc.Iterable):
+        return x
+    return (x, x)
 
 def find_model(model_name):
     """
