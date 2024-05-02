@@ -548,7 +548,7 @@ if __name__ == '__main__':
         'use_rope': False, 
         'model_max_length': 300, 
         'max_image_size': 512, 
-        'num_frames': 1, 
+        'num_frames': 17, 
         'use_image_num': 0, 
         'compress_kv_factor': 1
     }
@@ -565,7 +565,7 @@ if __name__ == '__main__':
         args.video_length = video_length = args.num_frames // ae_stride_t
 
     device = torch.device('cuda:0')
-    model = OpenSoraT2V_S_122(in_channels=4, 
+    model = OpenSoraT2V_S_222(in_channels=4, 
                               out_channels=8, 
                               sample_size=latent_size, 
                               sample_size_t=video_length, 
@@ -582,11 +582,16 @@ if __name__ == '__main__':
                             use_linear_projection=False,
                             use_additional_conditions=False).to(device)
     try:
-        import ipdb;ipdb.set_trace()
         path = "/remote-home1/yeyang/dev3d/Open-Sora-Plan/cache_dir/models--PixArt-alpha--PixArt-Sigma-XL-2-512-MS/snapshots/786c445c97ddcc0eb2faa157b131ac71ee1935a2/transformer/diffusion_pytorch_model.safetensors"
         from safetensors.torch import load_file as safe_load
         ckpt = safe_load(path, device="cpu")
-        model.load_state_dict(ckpt)
+        import ipdb;ipdb.set_trace()
+        if ckpt['pos_embed.proj.weight'].shape != model.pos_embed.proj.weight.shape and ckpt['pos_embed.proj.weight'].ndim == 4:
+            repeat = model.pos_embed.proj.weight.shape[2]
+            ckpt['pos_embed.proj.weight'] = ckpt['pos_embed.proj.weight'].unsqueeze(2).repeat(1, 1, repeat, 1, 1) / float(repeat)
+            del ckpt['proj_out.weight'], ckpt['proj_out.bias']
+        msg = model.load_state_dict(ckpt, strict=False)
+        print(msg)
     except Exception as e:
         print(e)
     print(model)

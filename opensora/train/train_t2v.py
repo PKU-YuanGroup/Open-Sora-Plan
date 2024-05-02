@@ -224,10 +224,14 @@ def main(args):
 
     # # use pretrained model?
     if args.pretrained:
-        if 'safetensors' in args.pretrained:
+        if 'safetensors' in args.pretrained:  # pixart series
             from safetensors.torch import load_file as safe_load
             checkpoint = safe_load(args.pretrained, device="cpu")
-        else:
+            if checkpoint['pos_embed.proj.weight'].shape != model.pos_embed.proj.weight.shape and checkpoint['pos_embed.proj.weight'].ndim == 4:
+                repeat = model.pos_embed.proj.weight.shape[2]
+                checkpoint['pos_embed.proj.weight'] = checkpoint['pos_embed.proj.weight'].unsqueeze(2).repeat(1, 1, repeat, 1, 1) / float(repeat)
+            del checkpoint['proj_out.weight'], checkpoint['proj_out.bias']
+        else:  # latest stage training weight
             checkpoint = torch.load(args.pretrained, map_location='cpu')['model']
         model_state_dict = model.state_dict()
         missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=False)

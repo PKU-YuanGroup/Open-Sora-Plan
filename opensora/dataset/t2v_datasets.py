@@ -45,14 +45,16 @@ class T2V_dataset(Dataset):
 
     def __getitem__(self, idx):
         # try:
-        video_data = self.get_video(idx)
-        image_data = {}
-        if self.use_image_num != 0 and self.use_img_from_vid:
-            image_data = self.get_image_from_video(video_data)
-        elif self.use_image_num != 0 and not self.use_img_from_vid:
-            image_data = self.get_image(idx)
+        video_data, image_data = {}, {}
+        if self.num_frames != 1:
+            video_data = self.get_video(idx)
+            if self.use_image_num != 0:
+                if self.use_img_from_vid:
+                    image_data = self.get_image_from_video(video_data)
+                else:
+                    image_data = self.get_image(idx)
         else:
-            raise NotImplementedError
+            video_data = self.get_image(idx)  # 1 frame video as image
         return dict(video_data=video_data, image_data=image_data)
         # except Exception as e:
         #     print(f'Error with {e}, {self.vid_cap_list[idx]}')
