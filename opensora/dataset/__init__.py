@@ -1,7 +1,6 @@
 from torchvision.transforms import Compose
 from transformers import AutoTokenizer
 
-from .feature_datasets import T2V_Feature_dataset, T2V_T5_Feature_dataset
 from torchvision import transforms
 from torchvision.transforms import Lambda
 

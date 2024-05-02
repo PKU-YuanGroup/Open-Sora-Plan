@@ -295,6 +295,7 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
         # this helps to broadcast it as a bias over attention scores, which will be in one of the following shapes:
         #   [batch,  heads, query_tokens, key_tokens] (e.g. torch sdp attn)
         #   [batch * heads, query_tokens, key_tokens] (e.g. xformers or classic attn)
+        attention_mask_vid, attention_mask_img = None, None
         if attention_mask is not None and attention_mask.ndim == 4:
             # assume that mask is expressed as:
             #   (1 = keep,      0 = discard)
@@ -325,6 +326,7 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
                 attention_mask_img = attention_mask_vid
                 attention_mask_vid = None
         # convert encoder_attention_mask to a bias the same way we do for attention_mask
+        # import ipdb;ipdb.set_trace()
         if encoder_attention_mask is not None and encoder_attention_mask.ndim == 3:  
             # b, 1+use_image_num, l -> a video with images
             # b, 1, l -> only images
@@ -523,11 +525,11 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
     
 
 def OpenSoraT2V_S_122(**kwargs):
-    return OpenSoraT2V(num_layers=28, attention_head_dim=64, num_attention_heads=18, patch_size_t=1, patch_size=2,
+    return OpenSoraT2V(num_layers=28, attention_head_dim=72, num_attention_heads=16, patch_size_t=1, patch_size=2,
                        norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=1152, **kwargs)
 
 def OpenSoraT2V_S_222(**kwargs):
-    return OpenSoraT2V(num_layers=28, attention_head_dim=64, num_attention_heads=18, patch_size_t=2, patch_size=2,
+    return OpenSoraT2V(num_layers=28, attention_head_dim=72, num_attention_heads=16, patch_size_t=2, patch_size=2,
                        norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=1152, **kwargs)
 
 OpenSora_models = {
@@ -566,12 +568,27 @@ if __name__ == '__main__':
     model = OpenSoraT2V_S_122(in_channels=4, 
                               out_channels=8, 
                               sample_size=latent_size, 
-                              sample_size_t=video_length).to(device)
-    # try:
-    #     ckpt = torch.load(r"t2v.pt", map_location='cpu')['model']
-    #     model.load_state_dict(ckpt)
-    # except Exception as e:
-    #     print(e)
+                              sample_size_t=video_length, 
+                              activation_fn="gelu-approximate",
+                            attention_bias=True,
+                            attention_type="default",
+                            double_self_attention=False,
+                            norm_elementwise_affine=False,
+                            norm_eps=1e-06,
+                            norm_num_groups=32,
+                            num_vector_embeds=None,
+                            only_cross_attention=False,
+                            upcast_attention=False,
+                            use_linear_projection=False,
+                            use_additional_conditions=False).to(device)
+    try:
+        import ipdb;ipdb.set_trace()
+        path = "/remote-home1/yeyang/dev3d/Open-Sora-Plan/cache_dir/models--PixArt-alpha--PixArt-Sigma-XL-2-512-MS/snapshots/786c445c97ddcc0eb2faa157b131ac71ee1935a2/transformer/diffusion_pytorch_model.safetensors"
+        from safetensors.torch import load_file as safe_load
+        ckpt = safe_load(path, device="cpu")
+        model.load_state_dict(ckpt)
+    except Exception as e:
+        print(e)
     print(model)
 
     x = torch.randn(b, c,  1+(args.num_frames-1)//ae_stride_t+args.use_image_num, args.max_image_size//ae_stride_h, args.max_image_size//ae_stride_w).to(device)

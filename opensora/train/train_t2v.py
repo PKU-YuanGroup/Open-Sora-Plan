@@ -14,14 +14,13 @@ import os
 import shutil
 from pathlib import Path
 from typing import Optional
-
+import gc
 import numpy as np
 from einops import rearrange
 from tqdm import tqdm
 from dataclasses import field, dataclass
 from torch.utils.data import DataLoader
 from copy import deepcopy
-
 import accelerate
 import torch
 from torch.nn import functional as F
@@ -35,7 +34,7 @@ from tqdm.auto import tqdm
 from transformers import HfArgumentParser, TrainingArguments, AutoTokenizer
 
 import diffusers
-from diffusers import DDPMScheduler, PNDMScheduler
+from diffusers import DDPMScheduler, PNDMScheduler, DPMSolverMultistepScheduler
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel, compute_snr
 from diffusers.utils import check_min_version, is_wandb_available
@@ -43,59 +42,71 @@ from diffusers.utils import check_min_version, is_wandb_available
 from opensora.dataset import getdataset, ae_denorm
 from opensora.models.ae import getae, getae_wrapper
 from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModelWrapper
-from opensora.models.diffusion.diffusion import create_diffusion_T as create_diffusion
+from opensora.utils.diffusion import create_diffusion_T as create_diffusion
 from opensora.models.diffusion.latte.modeling_latte import LatteT2V
 from opensora.models.text_encoder import get_text_enc, get_text_warpper
 from opensora.utils.dataset_utils import Collate
 from opensora.models.ae import ae_stride_config, ae_channel_config
 from opensora.models.diffusion import Diffusion_models
+from opensora.sample.pipeline_opensora import OpenSoraPipeline
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 check_min_version("0.24.0")
 logger = get_logger(__name__)
 
 
-def generate_timestep_weights(args, num_timesteps):
-    weights = torch.ones(num_timesteps)
-
-    # Determine the indices to bias
-    num_to_bias = int(args.timestep_bias_portion * num_timesteps)
-
-    if args.timestep_bias_strategy == "later":
-        bias_indices = slice(-num_to_bias, None)
-    elif args.timestep_bias_strategy == "earlier":
-        bias_indices = slice(0, num_to_bias)
-    elif args.timestep_bias_strategy == "range":
-        # Out of the possible 1000 timesteps, we might want to focus on eg. 200-500.
-        range_begin = args.timestep_bias_begin
-        range_end = args.timestep_bias_end
-        if range_begin < 0:
-            raise ValueError(
-                "When using the range strategy for timestep bias, you must provide a beginning timestep greater or equal to zero."
+@torch.inference_mode()
+def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weight_dtype, global_step):
+    validation_prompt = [
+        "A quiet beach at dawn, the waves gently lapping at the shore and the sky painted in pastel hues.", 
+        "The majestic beauty of a waterfall cascading down a cliff into a serene lake."
+    ]
+    logger.info(f"Running validation....\n")
+    model = accelerator.unwrap_model(model)
+    # scheduler = PNDMScheduler()
+    scheduler = DPMSolverMultistepScheduler()
+    videogen_pipeline = OpenSoraPipeline(vae=vae,
+                                         text_encoder=text_encoder,
+                                         tokenizer=tokenizer,
+                                         scheduler=scheduler,
+                                         transformer=model).to(device=accelerator.device)
+    videos = []
+    for prompt in validation_prompt:
+        logger.info('Processing the ({}) prompt'.format(prompt))
+        video = videogen_pipeline(prompt,
+                                video_length=args.num_frames,
+                                height=args.max_image_size,
+                                width=args.max_image_size,
+                                num_inference_steps=args.num_sampling_steps,
+                                guidance_scale=args.guidance_scale,
+                                # enable_temporal_attentions=True,
+                                num_images_per_prompt=1,
+                                mask_feature=True,
+                                ).video
+        videos.append(video[0])
+    # import ipdb;ipdb.set_trace()
+    gc.collect()
+    torch.cuda.empty_cache()
+    videos = torch.stack(videos).numpy()
+    videos = rearrange(videos, 'b t h w c -> b t c h w')
+    for tracker in accelerator.trackers:
+        if tracker.name == "tensorboard":
+            np_videos = np.stack([np.asarray(vid) for vid in videos])
+            tracker.writer.add_video("validation", np_videos, global_step, fps=10)
+        if tracker.name == "wandb":
+            import wandb
+            tracker.log(
+                {
+                    "validation": [
+                        wandb.Video(video, caption=f"{i}: {prompt}", fps=10)
+                        for i, (video, prompt) in enumerate(zip(videos, validation_prompt))
+                    ]
+                }
             )
-        if range_end > num_timesteps:
-            raise ValueError(
-                "When using the range strategy for timestep bias, you must provide an ending timestep smaller than the number of timesteps."
-            )
-        bias_indices = slice(range_begin, range_end)
-    else:  # 'none' or any other string
-        return weights
-    if args.timestep_bias_multiplier <= 0:
-        return ValueError(
-            "The parameter --timestep_bias_multiplier is not intended to be used to disable the training of specific timesteps."
-            " If it was intended to disable timestep bias, use `--timestep_bias_strategy none` instead."
-            " A timestep bias multiplier less than or equal to 0 is not allowed."
-        )
 
-    # Apply the bias
-    weights[bias_indices] *= args.timestep_bias_multiplier
-
-    # Normalize
-    weights /= weights.sum()
-
-    return weights
-
-
+    del videogen_pipeline
+    gc.collect()
+    torch.cuda.empty_cache()
 #################################################################################
 #                                  Training Loop                                #
 #################################################################################
@@ -115,7 +126,6 @@ def main(args):
     if args.report_to == "wandb":
         if not is_wandb_available():
             raise ImportError("Make sure to install wandb if you want to use it for logging during training.")
-        import wandb
 
     # Make one log on every process with the configuration for debugging.
     logging.basicConfig(
@@ -165,6 +175,7 @@ def main(args):
     text_enc = get_text_warpper(args.text_encoder_name)(args, **kwargs).eval()
 
     ae_stride_t, ae_stride_h, ae_stride_w = ae_stride_config[args.ae]
+    ae.vae_scale_factor = (ae_stride_t, ae_stride_h, ae_stride_w)
     assert ae_stride_h == ae_stride_w, f"Support only ae_stride_h == ae_stride_w now, but found ae_stride_h ({ae_stride_h}), ae_stride_w ({ae_stride_w})"
     args.ae_stride_t, args.ae_stride_h, args.ae_stride_w = ae_stride_t, ae_stride_h, ae_stride_w
     args.ae_stride = args.ae_stride_h
@@ -174,16 +185,17 @@ def main(args):
     args.patch_size_t, args.patch_size_h, args.patch_size_w = patch_size_t, patch_size_h, patch_size_w
     assert patch_size_h == patch_size_w, f"Support only patch_size_h == patch_size_w now, but found patch_size_h ({patch_size_h}), patch_size_w ({patch_size_w})"
     # assert args.num_frames % ae_stride_t == 0, f"Num_frames must be divisible by ae_stride_t, but found num_frames ({args.num_frames}), ae_stride_t ({ae_stride_t})."
-    assert args.max_image_size % ae_stride_h == 0, f"Image size must be divisible by ae_stride_h, but found max_image_size ({args.max_image_size}),  ae_stride_h ({ae_stride_h})."
+    assert args.max_image_size % ae_stride_h == 0, f"Image size must be divisible by ae_stride_h, but found max_image_size ({args.max_image_size}), ae_stride_h ({ae_stride_h})."
 
     args.stride_t = ae_stride_t * patch_size_t
     args.stride = ae_stride_h * patch_size_h
     latent_size = (args.max_image_size // ae_stride_h, args.max_image_size // ae_stride_w)
+    ae.latent_size = latent_size
 
-    if getae_wrapper(args.ae) == CausalVQVAEModelWrapper or getae_wrapper(args.ae) == CausalVAEModelWrapper:
-        args.video_length = video_length = args.num_frames // ae_stride_t + 1
+    if args.num_frames % 2 == 1:
+        args.latent_size_t = latent_size_t = (args.num_frames - 1) // ae_stride_t + 1
     else:
-        video_length = args.num_frames // ae_stride_t
+        latent_size_t = args.num_frames // ae_stride_t
     model = Diffusion_models[args.model](
         in_channels=ae_channel_config[args.ae],
         out_channels=ae_channel_config[args.ae] * 2,
@@ -191,6 +203,7 @@ def main(args):
         # cross_attention_dim=1152,
         attention_bias=True,
         sample_size=latent_size,
+        sample_size_t=latent_size_t,
         num_vector_embeds=None,
         activation_fn="gelu-approximate",
         num_embeds_ada_norm=1000,
@@ -202,11 +215,10 @@ def main(args):
         norm_elementwise_affine=False,
         norm_eps=1e-6,
         attention_type='default',
-        video_length=video_length,
         attention_mode=args.attention_mode,
-        compress_kv_factor=args.compress_kv_factor, 
-        use_rope=args.use_rope, 
-        model_max_length=args.model_max_length, 
+        # compress_kv_factor=args.compress_kv_factor, 
+        # use_rope=args.use_rope, 
+        # model_max_length=args.model_max_length, 
     )
     model.gradient_checkpointing = args.gradient_checkpointing
 
@@ -240,7 +252,7 @@ def main(args):
     # Create EMA for the unet.
     if args.use_ema:
         ema_model = deepcopy(model)
-        ema_model = EMAModel(ema_model.parameters(), model_cls=LatteT2V, model_config=ema_model.config)
+        ema_model = EMAModel(ema_model.parameters(), model_cls=Diffusion_models[args.model], model_config=ema_model.config)
 
     # `accelerate` 0.16.0 will have better support for customized saving
     if version.parse(accelerate.__version__) >= version.parse("0.16.0"):
@@ -268,7 +280,7 @@ def main(args):
                 model = models.pop()
 
                 # load diffusers style into model
-                load_model = LatteT2V.from_pretrained(input_dir, subfolder="model")
+                load_model = Diffusion_models[args.model].from_pretrained(input_dir, subfolder="model")
                 model.register_to_config(**load_model.config)
 
                 model.load_state_dict(load_model.state_dict())
@@ -408,20 +420,19 @@ def main(args):
 
                 
                 x = x.to(accelerator.device, dtype=weight_dtype)  # B C T+num_images H W, 16 + 4
-                attn_mask = attn_mask.to(accelerator.device)  # B L or B 1+num_images L
-                input_ids = input_ids.to(accelerator.device)  # B L or B 1+num_images L
-                cond_mask = cond_mask.to(accelerator.device)  # B L or B 1+num_images L
-                print('x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape', x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape)
+                attn_mask = attn_mask.to(accelerator.device)  # B T+num_images L
+                input_ids = input_ids.to(accelerator.device)  # B 1+num_images L
+                cond_mask = cond_mask.to(accelerator.device)  # B 1+num_images L
+                # print('x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape', x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape)
                 
                 with torch.no_grad():
                     # use for loop to avoid OOM, because T5 is too huge...
-                    B, _, _ = input_ids.shape  # B T+num_images L  b 1+4, L
+                    B, _, _ = input_ids.shape  # B 1+num_images L
                     cond = torch.stack([text_enc(input_ids[i], cond_mask[i]) for i in range(B)])  # B 1+num_images L D
                     
                     # Map input images to latent space + normalize latents
                     if args.use_image_num == 0:
                         x = ae.encode(x)  # B C T H W
-                        cond = text_enc(input_ids, cond_mask)  # B L -> B L D
                     else:
                         videos, images = x[:, :, :-args.use_image_num], x[:, :, -args.use_image_num:]
                         videos = ae.encode(videos)  # B C T H W
@@ -534,68 +545,7 @@ def main(args):
                         ema_model.copy_to(model.parameters())
 
                     if args.enable_tracker:
-                        validation_prompt = "The majestic beauty of a waterfall cascading down a cliff into a serene lake."
-                        logger.info(f"Running validation...Using DDPM naive sampling...\n"
-                                    f"Generating {args.num_validation_videos} videos with prompt: {validation_prompt}")
-                        with torch.no_grad():
-                            # create pipeline
-                            ae_ = getae_wrapper(args.ae)(args.ae_path).to(accelerator.device).eval()
-                            if args.enable_tiling:
-                                ae_.vae.enable_tiling()
-                                ae_.vae.tile_overlap_factor = args.tile_overlap_factor
-                            # text_enc_ = get_text_enc(args).to(accelerator.device).eval()
-                            model_ = LatteT2V.from_pretrained(save_path, subfolder="model").to(accelerator.device).eval()
-                            diffusion_ = create_diffusion(str(250))
-                            tokenizer_ = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir='./cache_dir')
-                            videos = []
-                            for idx in range(args.num_validation_videos):
-                                with torch.autocast(device_type='cuda', dtype=weight_dtype):
-                                    z = torch.randn(1, model_.in_channels, video_length,
-                                                    latent_size[0], latent_size[1], device=accelerator.device)
-                                    text_tokens_and_mask = tokenizer_(
-                                        validation_prompt,
-                                        max_length=args.model_max_length,
-                                        padding='max_length',
-                                        truncation=True,
-                                        return_attention_mask=True,
-                                        add_special_tokens=True,
-                                        return_tensors='pt'
-                                    )
-                                    input_ids = text_tokens_and_mask['input_ids'].to(accelerator.device)
-                                    cond_mask = text_tokens_and_mask['attention_mask'].to(accelerator.device)
-                                    # cond = text_enc_(input_ids, cond_mask)  # B L D
-                                    cond = text_enc(input_ids, cond_mask)  # B L D
-                                    model_kwargs = dict(encoder_hidden_states=cond, attention_mask=None, encoder_attention_mask=cond_mask)
-                                    sample_fn = model_.forward
-                                    # Sample images:
-                                    samples = diffusion_.p_sample_loop(
-                                        sample_fn, z.shape, z, clip_denoised=False, model_kwargs=model_kwargs, progress=True,
-                                        device=accelerator.device
-                                    )
-                                    samples = ae_.decode(samples)
-                                    # Save and display images:
-                                    video = (ae_denorm[args.ae](samples[0]) * 255).add_(0.5).clamp_(0, 255).to(
-                                        dtype=torch.uint8).cpu().contiguous()  # t c h w
-                                    videos.append(video)
-
-                        videos = torch.stack(videos).numpy()
-                        for tracker in accelerator.trackers:
-                            if tracker.name == "tensorboard":
-                                np_videos = np.stack([np.asarray(vid) for vid in videos])
-                                tracker.writer.add_video("validation", np_videos, global_step, fps=10)
-                            if tracker.name == "wandb":
-                                tracker.log(
-                                    {
-                                        "validation": [
-                                            wandb.Video(video, caption=f"{i}: {validation_prompt}", fps=10)
-                                            for i, video in enumerate(videos)
-                                        ]
-                                    }
-                                )
-
-                        # del ae_, text_enc_, model_, diffusion_, tokenizer_
-                        del ae_, model_, diffusion_, tokenizer_
-                        torch.cuda.empty_cache()
+                        log_validation(args, model, ae, text_enc.text_enc, train_dataset.tokenizer, accelerator, weight_dtype, global_step)
 
     accelerator.wait_for_everyone()
     accelerator.end_training()
@@ -604,10 +554,8 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=str, required=True)
-    parser.add_argument("--video_data_path", type=str, required=True)
-    parser.add_argument("--video_folder", type=str, default='')
-    parser.add_argument("--image_data_path", type=str, default='')
-    parser.add_argument("--image_folder", type=str, default='')
+    parser.add_argument("--video_data", type=str, required='')
+    parser.add_argument("--image_data", type=str, default='')
     parser.add_argument("--sample_rate", type=int, default=1)
     parser.add_argument("--num_frames", type=int, default=17)
     parser.add_argument("--max_image_size", type=int, default=512)
@@ -630,15 +578,11 @@ if __name__ == "__main__":
     parser.add_argument("--text_encoder_name", type=str, default='DeepFloyd/t5-v1_1-xxl')
     parser.add_argument("--cache_dir", type=str, default='./cache_dir')
 
+    parser.add_argument("--num_sampling_steps", type=int, default=50)
+    parser.add_argument('--guidance_scale', type=float, default=10.0)
     parser.add_argument("--enable_tracker", action="store_true")
     parser.add_argument("--use_deepspeed", action="store_true")
     parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
-    parser.add_argument(
-        "--num_validation_videos",
-        type=int,
-        default=2,
-        help="Number of images that should be generated during validation with `validation_prompt`.",
-    )
     parser.add_argument(
         "--output_dir",
         type=str,
