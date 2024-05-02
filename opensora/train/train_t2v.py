@@ -15,7 +15,7 @@ import shutil
 import time
 from pathlib import Path
 from typing import Optional
-
+import gc
 import numpy as np
 from einops import rearrange
 from tqdm import tqdm
@@ -56,11 +56,64 @@ from opensora.models.text_encoder import get_text_enc, get_text_warpper
 from opensora.utils.dataset_utils import Collate
 from opensora.models.ae import ae_stride_config, ae_channel_config
 from opensora.models.diffusion import Diffusion_models
+from opensora.sample.pipeline_videogen import VideoGenPipeline
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 check_min_version("0.24.0")
 logger = get_logger(__name__)
 
+
+@torch.inference_mode()
+def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weight_dtype, global_step):
+    validation_prompt = [
+        "A quiet beach at dawn, the waves gently lapping at the shore and the sky painted in pastel hues.",
+        "The majestic beauty of a waterfall cascading down a cliff into a serene lake."
+    ]
+    logger.info(f"Running validation....\n")
+    model = accelerator.unwrap_model(model)
+    scheduler = PNDMScheduler()
+    videogen_pipeline = VideoGenPipeline(vae=vae,
+                                         text_encoder=text_encoder,
+                                         tokenizer=tokenizer,
+                                         scheduler=scheduler,
+                                         transformer=model).to(device=accelerator.device)
+    videos = []
+    for prompt in validation_prompt:
+        logger.info('Processing the ({}) prompt'.format(prompt))
+        video = videogen_pipeline(prompt,
+                                video_length=args.video_length,
+                                height=args.max_image_size,
+                                width=args.max_image_size,
+                                num_inference_steps=args.num_sampling_steps,
+                                guidance_scale=args.guidance_scale,
+                                enable_temporal_attentions=True,
+                                num_images_per_prompt=1,
+                                mask_feature=True,
+                                ).video
+        videos.append(video[0])
+    # import ipdb;ipdb.set_trace()
+    gc.collect()
+    torch.cuda.empty_cache()
+    videos = torch.stack(videos).numpy()
+    videos = rearrange(videos, 'b t h w c -> b t c h w')
+    for tracker in accelerator.trackers:
+        if tracker.name == "tensorboard":
+            np_videos = np.stack([np.asarray(vid) for vid in videos])
+            tracker.writer.add_video("validation", np_videos, global_step, fps=10)
+        if tracker.name == "wandb":
+            import wandb
+            tracker.log(
+                {
+                    "validation": [
+                        wandb.Video(video, caption=f"{i}: {prompt}", fps=10)
+                        for i, (video, prompt) in enumerate(zip(videos, validation_prompt))
+                    ]
+                }
+            )
+
+    del videogen_pipeline
+    gc.collect()
+    torch.cuda.empty_cache()
 
 class ProgressInfo:
     def __init__(self, global_step, train_loss=0.0):
@@ -211,6 +264,7 @@ def main(args):
 
     kwargs = {'load_in_8bit': args.enable_8bit_t5, 'torch_dtype': weight_dtype, 'low_cpu_mem_usage': True}
     text_enc = get_text_warpper(args.text_encoder_name)(args, **kwargs).eval()
+    ae.latent_size = latent_size
 
     if getae_wrapper(args.ae) == CausalVQVAEModelWrapper or getae_wrapper(args.ae) == CausalVAEModelWrapper:
         args.video_length = video_length = args.num_frames // ae_stride_t + 1
@@ -558,70 +612,8 @@ def main(args):
                     ema_model.copy_to(model.parameters())
 
                 if args.enable_tracker:
-                    validation_prompt = "The majestic beauty of a waterfall cascading down a cliff into a serene lake."
-                    logger.info(f"Running validation...Using DDPM naive sampling...\n"
-                                f"Generating {args.num_validation_videos} videos with prompt: {validation_prompt}")
-                    with torch.no_grad():
-                        # create pipeline
-                        ae_ = getae_wrapper(args.ae)(args.ae_path).to(accelerator.device).eval()
-                        if args.enable_tiling:
-                            ae_.vae.enable_tiling()
-                            ae_.vae.tile_overlap_factor = args.tile_overlap_factor
-                        # text_enc_ = get_text_enc(args).to(accelerator.device).eval()
-                        model_ = LatteT2V.from_pretrained(save_path, subfolder="model").to(accelerator.device).eval()
-                        diffusion_ = create_diffusion(str(250))
-                        tokenizer_ = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir='./cache_dir')
-                        videos = []
-                        for idx in range(args.num_validation_videos):
-                            with torch.autocast(device_type='cuda', dtype=weight_dtype):
-                                z = torch.randn(1, model_.in_channels, video_length,
-                                                latent_size[0], latent_size[1], device=accelerator.device)
-                                text_tokens_and_mask = tokenizer_(
-                                    validation_prompt,
-                                    max_length=args.model_max_length,
-                                    padding='max_length',
-                                    truncation=True,
-                                    return_attention_mask=True,
-                                    add_special_tokens=True,
-                                    return_tensors='pt'
-                                )
-                                input_ids = text_tokens_and_mask['input_ids'].to(accelerator.device)
-                                cond_mask = text_tokens_and_mask['attention_mask'].to(accelerator.device)
-                                # cond = text_enc_(input_ids, cond_mask)  # B L D
-                                cond = text_enc(input_ids, cond_mask)  # B L D
-                                model_kwargs = dict(encoder_hidden_states=cond, attention_mask=None,
-                                                    encoder_attention_mask=cond_mask)
-                                sample_fn = model_.forward
-                                # Sample images:
-                                samples = diffusion_.p_sample_loop(
-                                    sample_fn, z.shape, z, clip_denoised=False, model_kwargs=model_kwargs,
-                                    progress=True,
-                                    device=accelerator.device
-                                )
-                                samples = ae_.decode(samples)
-                                # Save and display images:
-                                video = (ae_denorm[args.ae](samples[0]) * 255).add_(0.5).clamp_(0, 255).to(
-                                    dtype=torch.uint8).cpu().contiguous()  # t c h w
-                                videos.append(video)
-
-                    videos = torch.stack(videos).numpy()
-                    for tracker in accelerator.trackers:
-                        if tracker.name == "tensorboard":
-                            np_videos = np.stack([np.asarray(vid) for vid in videos])
-                            tracker.writer.add_video("validation", np_videos, progress_info.global_step, fps=10)
-                        if tracker.name == "wandb":
-                            tracker.log(
-                                {
-                                    "validation": [
-                                        wandb.Video(video, caption=f"{i}: {validation_prompt}", fps=10)
-                                        for i, video in enumerate(videos)
-                                    ]
-                                }
-                            )
-
-                    # del ae_, text_enc_, model_, diffusion_, tokenizer_
-                    del ae_, model_, diffusion_, tokenizer_
-                    torch.cuda.empty_cache()
+                    log_validation(args, model, ae, text_enc.text_enc, train_dataset.tokenizer, accelerator,
+                                   weight_dtype, progress_info.global_step)
 
         return False
 
@@ -692,15 +684,11 @@ if __name__ == "__main__":
     parser.add_argument("--text_encoder_name", type=str, default='DeepFloyd/t5-v1_1-xxl')
     parser.add_argument("--cache_dir", type=str, default='./cache_dir')
 
+    parser.add_argument("--num_sampling_steps", type=int, default=50)
+    parser.add_argument('--guidance_scale', type=float, default=10.0)
     parser.add_argument("--enable_tracker", action="store_true")
     parser.add_argument("--use_deepspeed", action="store_true")
     parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
-    parser.add_argument(
-        "--num_validation_videos",
-        type=int,
-        default=2,
-        help="Number of images that should be generated during validation with `validation_prompt`.",
-    )
     parser.add_argument(
         "--output_dir",
         type=str,

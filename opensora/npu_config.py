@@ -15,10 +15,15 @@ class NPUConfig:
         self.profiling_step = 5
         self._loss = []
         self.enable_FA = True
-        self.rank = int(os.environ["RANK"])
+
         if self.on_npu:
             from torch_npu.contrib import transfer_to_npu
             torch_npu.npu.set_compile_mode(jit_compile=False)
+
+        if "RANK" in os.environ:
+            self.rank = int(os.environ["RANK"])
+        else:
+            self.rank = torch.cuda.current_device()
 
         self.print_with_rank(f"The npu_config.on_npu is {self.on_npu}")
 

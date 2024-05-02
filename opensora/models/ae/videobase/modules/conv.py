@@ -97,9 +97,9 @@ class CausalConv3d(nn.Module):
             x_dtype = x.dtype
             x = x.to(torch.float16)
             n, c, d, h, w = x.shape
-            x = x.view(n * c, d, h * w)
+            x = x.reshape(n * c, d, h * w)
             x = self.pad(x)
-            x = x.view(n, c, -1, h, w)
+            x = x.reshape(n, c, -1, h, w)
             return npu_config.run_conv3d(self.conv, x, x_dtype)
         else:
             # 1 + 16   16 as video, 1 as image

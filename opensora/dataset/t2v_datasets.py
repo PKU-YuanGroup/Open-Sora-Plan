@@ -33,6 +33,14 @@ class T2V_dataset(Dataset):
         self.v_decoder = DecordInit()
 
         self.vid_cap_list = self.get_vid_cap_list()
+        # existed_vid_list = []
+        # for item in self.vid_cap_list:
+        #     if os.path.exists(item['path']):
+        #         existed_vid_list.append(item)
+        #     if len(existed_vid_list) > 3000000:
+        #         break
+
+        # self.vid_cap_list = existed_vid_list
         
         self.use_image_num = args.use_image_num
         self.use_img_from_vid = args.use_img_from_vid

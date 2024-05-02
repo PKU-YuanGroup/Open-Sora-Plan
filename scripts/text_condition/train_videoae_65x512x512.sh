@@ -1,22 +1,22 @@
-export WANDB_MODE='offline'
-export ENTITY=""
-export PROJECT="512"
+export WANDB_KEY="e27ca77283738936f40434c3b3bf849c61cda34d"
+export ENTITY="opensora"
+#export WANDB_MODE='offline'
+export PROJECT="512-30"
 WEIGHT_PATH="/home/opensora/shebin/pre_weights/"
-export http_proxy="http://192.168.0.30:8888"
-export https_proxy="http://192.168.0.30:8888"
-export ASCEND_GLOBAL_LOG_LEVEL=3
-export ASCEND_GLOBAL_EVENT_ENABLE=0
-export ASCEND_SLOG_PRINT_TO_STDOUT=0
+
+env
 
 accelerate launch \
-    --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
+    --config_file scripts/accelerate_configs/multi_node_example.yaml \
+    --machine_rank=${MACHINE_RANK} \
+    --main_process_ip=${MAIN_PROCESS_IP_VALUE} \
     opensora/train/train_t2v.py \
     --model LatteT2V-XL/122 \
     --text_encoder_name ${WEIGHT_PATH}/DeepFloyd/t5-v1_1-xxl \
     --cache_dir "../cache_dir" \
     --dataset t2v \
     --ae CausalVAEModel_4x8x8 \
-    --ae_path "${WEIGHT_PATH}/CausalVAEModel_4x8x8_new_version/" \
+    --ae_path "${WEIGHT_PATH}/CausalVAEModel_4x8x8_0430/" \
     --video_data "./scripts/train_data/video_data.txt" \
     --sample_rate 1 \
     --num_frames 65 \
@@ -32,13 +32,12 @@ accelerate launch \
     --lr_warmup_steps=0 \
     --mixed_precision="bf16" \
     --report_to="wandb" \
-    --checkpointing_steps=100 \
-    --output_dir="512" \
+    --checkpointing_steps=500 \
+    --output_dir="512-30" \
     --allow_tf32 \
     --pretrained "${WEIGHT_PATH}/t2v.pt" \
     --use_deepspeed \
     --model_max_length 300 \
     --use_image_num 4 \
     --enable_tiling \
-    --use_img_from_vid \
-    --enable_tracker
+    --use_img_from_vid
