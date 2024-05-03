@@ -214,7 +214,13 @@ class TimeUpsampleRes2x(nn.Module):
         alpha = torch.sigmoid(self.mix_factor)
         if x.size(2) > 1:
             x,x_= x[:,:,:1],x[:,:,1:]
-            x_= F.interpolate(x_, scale_factor=(2,1,1), mode='trilinear')
+            if npu_config.on_npu:
+                x_dtype = x_.dtype
+                x_ = x_.to(torch.float16)
+                x_ = F.interpolate(x_, scale_factor=(2, 1, 1), mode='trilinear')
+                x_ = x_.to(x_dtype)
+            else:
+                x_= F.interpolate(x_, scale_factor=(2,1,1), mode='trilinear')
             x = torch.concat([x, x_], dim=2)
         return alpha * x + (1-alpha) * self.conv(x)
 
@@ -264,7 +270,14 @@ class TimeUpsampleResAdv2x(nn.Module):
     def forward(self, x):
         if x.size(2) > 1:
             x,x_= x[:,:,:1],x[:,:,1:]
-            x_= F.interpolate(x_, scale_factor=(2,1,1), mode='trilinear')
+            if npu_config.on_npu:
+                x_dtype = x_.dtype
+                x_ = x_.to(torch.float16)
+                x_= F.interpolate(x_, scale_factor=(2,1,1), mode='trilinear')
+                x_ = x_.to(x_dtype)
+            else:
+                x_= F.interpolate(x_, scale_factor=(2,1,1), mode='trilinear')
+
             x = torch.concat([x, x_], dim=2)
         alpha = torch.sigmoid(self.mix_factor)
         return alpha * x + (1 - alpha) * self.conv(self.attn(self.res(x)))

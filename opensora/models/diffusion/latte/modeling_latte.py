@@ -271,19 +271,11 @@ class LatteT2V(ModelMixin, ConfigMixin):
         dtype = attention_mask.dtype
         # b, t+use_image_num, h, w, assume t as channel
         # this version do not use 3d patch embedding
-        if not self.training:
+        if attention_mask.dtype == torch.bfloat16:
             attention_mask = attention_mask.to(torch.float16)
 
         attention_mask = F.max_pool2d(attention_mask, kernel_size=(self.patch_size, self.patch_size), stride=(self.patch_size, self.patch_size))
 
-        attention_mask = attention_mask.bool().to(dtype)
-        return attention_mask
-
-    def vae_to_diff_mask(self, attention_mask, use_image_num):
-        dtype = attention_mask.dtype
-        # b, t+use_image_num, h, w, assume t as channel
-        # this version do not use 3d patch embedding
-        attention_mask = F.max_pool2d(attention_mask, kernel_size=(self.patch_size, self.patch_size), stride=(self.patch_size, self.patch_size))
         attention_mask = attention_mask.bool().to(dtype)
         return attention_mask
 
@@ -368,7 +360,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
             encoder_attention_mask = (1 - encoder_attention_mask.to(hidden_states.dtype)) * -10000.0
             encoder_attention_mask = encoder_attention_mask.unsqueeze(1)
             encoder_attention_mask = repeat(encoder_attention_mask, 'b 1 l -> (b f) 1 l', f=frame).contiguous()
-            encoder_attention_mask = encoder_attention_mask.to(self.dtype)
+            encoder_attention_mask = encoder_attention_mask.to(self.dtype).to(torch.bool)
         elif encoder_attention_mask is not None and encoder_attention_mask.ndim == 3:  # ndim == 3 means image joint
             encoder_attention_mask = (1 - encoder_attention_mask.to(hidden_states.dtype)) * -10000.0
             encoder_attention_mask_video = encoder_attention_mask[:, :1, ...]
@@ -377,7 +369,10 @@ class LatteT2V(ModelMixin, ConfigMixin):
             encoder_attention_mask_image = encoder_attention_mask[:, 1:, ...]
             encoder_attention_mask = torch.cat([encoder_attention_mask_video, encoder_attention_mask_image], dim=1)
             encoder_attention_mask = rearrange(encoder_attention_mask, 'b n l -> (b n) l').contiguous().unsqueeze(1)
-            encoder_attention_mask = encoder_attention_mask.to(self.dtype)
+            encoder_attention_mask = encoder_attention_mask.to(self.dtype).to(torch.bool)
+
+        if npu_config.on_npu and npu_config.enable_FA and encoder_attention_mask is not None:
+            encoder_attention_mask = encoder_attention_mask.repeat(1, attention_mask.size(-2), 1).to(torch.bool)
 
         # Retrieve lora scale.
         lora_scale = cross_attention_kwargs.get("scale", 1.0) if cross_attention_kwargs is not None else 1.0

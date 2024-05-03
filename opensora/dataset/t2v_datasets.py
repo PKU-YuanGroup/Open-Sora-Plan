@@ -1,5 +1,8 @@
 import json
 import os, io, csv, math, random
+import glob
+import traceback
+
 import numpy as np
 import torchvision
 from einops import rearrange
@@ -14,12 +17,48 @@ from PIL import Image
 
 from opensora.utils.dataset_utils import DecordInit
 from opensora.utils.utils import text_preprocessing
+from opensora.npu_config import npu_config
 
 
 def random_video_noise(t, c, h, w):
     vid = torch.rand(t, c, h, w) * 255.0
     vid = vid.to(torch.uint8)
     return vid
+
+
+# def filter_json_by_existed_files(directory, data, postfix=".mp4"):
+#     # 递归遍历所有子目录，寻找所有后缀为.mp4的文件
+#     print(f"Running filter_json_by_existed_files for {directory}")
+#     mp4_files = []
+#     for root, dirs, files in os.walk(directory):
+#         for file in files:
+#             if file.endswith(postfix):
+#                 # 根据子目录级别构造相对路径
+#                 relative_path = os.path.abspath(os.path.join(root, file))
+#                 mp4_files.append(relative_path)  # 只保留文件名
+#
+#     mp4_files_set = set(mp4_files)  # 转换成集合以优化搜索效率
+#     print(f"len(local_files) of {directory} = {len(mp4_files)}")
+#
+#     # 过滤条目，只保留path在mp4文件集合中的item
+#     filtered_items = [item for item in data if item['path'] in mp4_files_set]
+#
+#     return filtered_items
+
+
+def filter_json_by_existed_files(directory, data, postfix=".mp4"):
+    # 构建搜索模式，以匹配指定后缀的文件
+    pattern = os.path.join(directory, '**', f'*{postfix}')
+    mp4_files = glob.glob(pattern, recursive=True)  # 使用glob查找所有匹配的文件
+
+    # 使用文件的绝对路径构建集合
+    mp4_files_set = set(os.path.abspath(path) for path in mp4_files)
+
+    # 过滤数据条目，只保留路径在mp4文件集合中的条目
+    filtered_items = [item for item in data if item['path'] in mp4_files_set]
+
+    return filtered_items
+
 
 class T2V_dataset(Dataset):
     def __init__(self, args, transform, temporal_sample, tokenizer):
@@ -32,21 +71,31 @@ class T2V_dataset(Dataset):
         self.model_max_length = args.model_max_length
         self.v_decoder = DecordInit()
 
-        self.vid_cap_list = self.get_vid_cap_list()
+        # self.vid_cap_list, self.local_vid_cap_list = self.get_vid_cap_list()
+        self.vid_cap_list, self.local_vid_cap_list = npu_config.try_load_pickle("vid_cap_list.pkl",
+                                                                                self.get_vid_cap_list)
         # existed_vid_list = []
         # for item in self.vid_cap_list:
         #     if os.path.exists(item['path']):
         #         existed_vid_list.append(item)
-        #     if len(existed_vid_list) > 3000000:
+        #     if len(existed_vid_list) > 100000:
         #         break
+        # subdir_level = 1  # JSON中的path包含一级子目录
+        # with open("/home/opensora/captions/linbin_captions/video_mixkit_65f_54735.json", 'r') as file:
+        #     data = json.load(file)
+        npu_config.print_msg(f"len(self.vid_cap_list) = {len(self.vid_cap_list)}")
+        npu_config.print_msg(f"len(self.local_vid_cap_list) = {len(self.local_vid_cap_list)}")
+        self.vid_cap_list = self.local_vid_cap_list
 
-        # self.vid_cap_list = existed_vid_list
-        
         self.use_image_num = args.use_image_num
         self.use_img_from_vid = args.use_img_from_vid
         if self.use_image_num != 0 and not self.use_img_from_vid:
-            self.img_cap_list = self.get_img_cap_list()
-
+            # self.img_cap_list, self.local_img_cap_lists = self.get_img_cap_list()
+            self.img_cap_list, self.local_img_cap_lists = npu_config.try_load_pickle("img_cap_list.pkl",
+                                                                                     self.get_img_cap_list)
+            npu_config.print_msg(f"len(self.img_cap_list) = {len(self.img_cap_list)}")
+            npu_config.print_msg(f"len(self.local_img_cap_lists) = {len(self.local_img_cap_lists)}")
+            self.img_cap_list = self.local_img_cap_lists
 
     def __len__(self):
         return len(self.vid_cap_list)
@@ -54,32 +103,60 @@ class T2V_dataset(Dataset):
     def __getitem__(self, idx):
         try:
             video_data = self.get_video(idx)
+            # npu_config.print_msg(f"use video data of idx {idx}")
             image_data = {}
             if self.use_image_num != 0 and self.use_img_from_vid:
                 image_data = self.get_image_from_video(video_data)
             elif self.use_image_num != 0 and not self.use_img_from_vid:
                 image_data = self.get_image(idx)
+                # npu_config.print_msg(f"use image data of idx {idx}")
             else:
                 raise NotImplementedError
+
             return dict(video_data=video_data, image_data=image_data)
         except Exception as e:
-            # print(f'Error with {e}, {self.vid_cap_list[idx]}')
+            npu_config.print_msg(f"Caught an exception! {self.vid_cap_list[idx]}")
+            # 打印异常堆栈
+            traceback.print_exc()
+            # 打印当前的调用堆栈
+            npu_config.print_msg("Current stack trace:")
+            traceback.print_stack()
             return self.__getitem__(random.randint(0, self.__len__() - 1))
+
+    def tv_read(self, path, frame_idx=None):
+        vframes, aframes, info = torchvision.io.read_video(filename=path, pts_unit='sec', output_format='TCHW')
+        total_frames = len(vframes)
+        if frame_idx is None:
+            start_frame_ind, end_frame_ind = self.temporal_sample(total_frames)
+        else:
+            start_frame_ind, end_frame_ind = frame_idx.split(':')
+            start_frame_ind, end_frame_ind = int(start_frame_ind), int(end_frame_ind)
+        # assert end_frame_ind - start_frame_ind >= self.num_frames
+        frame_indice = np.linspace(start_frame_ind, end_frame_ind - 1, self.num_frames, dtype=int)
+        frame_indice = np.linspace(0, 63, self.num_frames, dtype=int)
+
+        video = vframes[frame_indice]  # (T, C, H, W)
+
+        return video
 
     def get_video(self, idx):
         # video = random.choice([random_video_noise(65, 3, 720, 360) * 255, random_video_noise(65, 3, 1024, 1024), random_video_noise(65, 3, 360, 720)])
         # # print('random shape', video.shape)
         # input_ids = torch.ones(1, 120).to(torch.long).squeeze(0)
         # cond_mask = torch.cat([torch.ones(1, 60).to(torch.long), torch.ones(1, 60).to(torch.long)], dim=1).squeeze(0)
-        
+
         video_path = self.vid_cap_list[idx]['path']
         frame_idx = self.vid_cap_list[idx]['frame_idx']
         video = self.decord_read(video_path, frame_idx)
+        # npu_config.print_msg(f"Loading video data {video_path}: {frame_idx}")
+        # video = self.tv_read(video_path, frame_idx)
+        # npu_config.print_msg(f"Loaded video data {video_path}: {frame_idx}, finished!")
         video = self.transform(video)  # T C H W -> T C H W
+        # npu_config.print_msg(f"Transform video data {video_path}: {frame_idx}, finished!")
         # video = torch.rand(65, 3, 512, 512)
 
         video = video.transpose(0, 1)  # T C H W -> C T H W
-        text = self.vid_cap_list[idx]['cap'][0]
+        text = self.vid_cap_list[idx]['cap']
 
         text = text_preprocessing(text)
         text_tokens_and_mask = self.tokenizer(
@@ -96,9 +173,9 @@ class T2V_dataset(Dataset):
         return dict(video=video, input_ids=input_ids, cond_mask=cond_mask)
 
     def get_image_from_video(self, video_data):
-        select_image_idx = np.linspace(0, self.num_frames-1, self.use_image_num, dtype=int)
+        select_image_idx = np.linspace(0, self.num_frames - 1, self.use_image_num, dtype=int)
         assert self.num_frames >= self.use_image_num
-        image = [video_data['video'][:, i:i+1] for i in select_image_idx]  # num_img [c, 1, h, w]
+        image = [video_data['video'][:, i:i + 1] for i in select_image_idx]  # num_img [c, 1, h, w]
         input_ids = video_data['input_ids'].repeat(self.use_image_num, 1)  # self.use_image_num, l
         cond_mask = video_data['cond_mask'].repeat(self.use_image_num, 1)  # self.use_image_num, l
         return dict(image=image, input_ids=input_ids, cond_mask=cond_mask)
@@ -106,10 +183,10 @@ class T2V_dataset(Dataset):
     def get_image(self, idx):
         idx = idx % len(self.img_cap_list)  # out of range
         image_data = self.img_cap_list[idx]  # [{'path': path, 'cap': cap}, ...]
-        
-        image = [Image.open(i['path']).convert('RGB') for i in image_data] # num_img [h, w, c]
-        image = [torch.from_numpy(np.array(i)) for i in image] # num_img [h, w, c]
-        image = [rearrange(i, 'h w c -> c h w').unsqueeze(0) for i in image] # num_img [1 c h w]
+
+        image = [Image.open(i['path']).convert('RGB') for i in image_data]  # num_img [h, w, c]
+        image = [torch.from_numpy(np.array(i)) for i in image]  # num_img [h, w, c]
+        image = [rearrange(i, 'h w c -> c h w').unsqueeze(0) for i in image]  # num_img [1 c h w]
         image = [self.transform(i) for i in image]  # num_img [1 C H W] -> num_img [1 C H W]
         image = [i.transpose(0, 1) for i in image]  # num_img [1 C H W] -> num_img [C 1 H W]
 
@@ -132,19 +209,6 @@ class T2V_dataset(Dataset):
         cond_mask = torch.cat(cond_mask)  # self.use_image_num, l
         return dict(image=image, input_ids=input_ids, cond_mask=cond_mask)
 
-    # def tv_read(self, path):
-    #     vframes, aframes, info = torchvision.io.read_video(filename=path, pts_unit='sec', output_format='TCHW')
-    #     total_frames = len(vframes)
-
-    #     # Sampling video frames
-    #     start_frame_ind, end_frame_ind = self.temporal_sample(total_frames)
-    #     # assert end_frame_ind - start_frame_ind >= self.num_frames
-    #     frame_indice = np.linspace(start_frame_ind, end_frame_ind - 1, self.num_frames, dtype=int)
-
-    #     video = vframes[frame_indice]  # (T, C, H, W)
-
-    #     return video
-
     def decord_read(self, path, frame_idx=None):
         decord_vr = self.v_decoder(path)
         total_frames = len(decord_vr)
@@ -163,9 +227,9 @@ class T2V_dataset(Dataset):
         video_data = video_data.permute(0, 3, 1, 2)  # (T, H, W, C) -> (T C H W)
         return video_data
 
-
     def get_vid_cap_list(self):
         vid_cap_lists = []
+        local_vid_cap_lists = []
         with open(self.video_data, 'r') as f:
             folder_anno = [i.strip().split(',') for i in f.readlines() if len(i.strip()) > 0]
             # print(folder_anno)
@@ -175,11 +239,17 @@ class T2V_dataset(Dataset):
             print(f'Building {anno}...')
             for i in tqdm(range(len(vid_cap_list))):
                 vid_cap_list[i]['path'] = opj(folder, vid_cap_list[i]['path'])
+
+            local_vid_cap_list = filter_json_by_existed_files(folder, vid_cap_list)
             vid_cap_lists += vid_cap_list
-        return vid_cap_lists
+            local_vid_cap_lists += local_vid_cap_list
+
+        # print([item['path'] for item in vid_cap_list])
+        return vid_cap_lists, local_vid_cap_lists
 
     def get_img_cap_list(self):
         img_cap_lists = []
+        local_img_cap_lists = []
         with open(self.image_data, 'r') as f:
             folder_anno = [i.strip().split(',') for i in f.readlines() if len(i.strip()) > 0]
         for folder, anno in folder_anno:
@@ -188,6 +258,11 @@ class T2V_dataset(Dataset):
             print(f'Building {anno}...')
             for i in tqdm(range(len(img_cap_list))):
                 img_cap_list[i]['path'] = opj(folder, img_cap_list[i]['path'])
+            local_img_cap_list = filter_json_by_existed_files(folder, img_cap_list, postfix=".jpg")
             img_cap_lists += img_cap_list
-        img_cap_lists = [img_cap_lists[i: i+self.use_image_num] for i in range(0, len(img_cap_lists), self.use_image_num)]
-        return img_cap_lists[:-1]  # drop last to avoid error length
+            local_img_cap_lists += local_img_cap_list
+        img_cap_lists = [img_cap_lists[i: i + self.use_image_num] for i in
+                         range(0, len(img_cap_lists), self.use_image_num)]
+        local_img_cap_lists = [local_img_cap_lists[i: i + self.use_image_num] for i in
+                               range(0, len(local_img_cap_lists), self.use_image_num)]
+        return img_cap_lists[:-1], local_img_cap_lists[:-1]  # drop last to avoid error length

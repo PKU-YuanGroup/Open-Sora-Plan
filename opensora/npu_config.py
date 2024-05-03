@@ -1,8 +1,11 @@
 import os
+import pickle
+
 import torch
 
 try:
     import torch_npu
+
     npu_is_available = True
 except:
     npu_is_available = False
@@ -11,10 +14,14 @@ except:
 class NPUConfig:
     def __init__(self):
         self.on_npu = npu_is_available
+        self.node_world_size = 8
         self.profiling = False
         self.profiling_step = 5
         self._loss = []
         self.enable_FA = True
+        self.work_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        self.pickle_save_path = f"{self.work_path}/pickles"
+        self.load_pickle = True
 
         if self.on_npu:
             from torch_npu.contrib import transfer_to_npu
@@ -24,8 +31,24 @@ class NPUConfig:
             self.rank = int(os.environ["RANK"])
         else:
             self.rank = torch.cuda.current_device()
-
         self.print_with_rank(f"The npu_config.on_npu is {self.on_npu}")
+
+
+    def get_pickle_path(self, file_name):
+        return f"{self.pickle_save_path}/{file_name}_{self.rank}.pkl"
+
+    def try_load_pickle(self, file_name, function):
+        file_name = self.get_pickle_path(file_name)
+        if os.path.exists(file_name) and self.load_pickle:
+            with open(file_name, 'rb') as file:
+                loaded_data = pickle.load(file)
+                return loaded_data
+        else:
+            data = function()
+            os.makedirs(self.pickle_save_path, exist_ok=True)
+            with open(file_name, 'wb') as file:
+                pickle.dump(data, file, pickle.HIGHEST_PROTOCOL)
+            return data
 
     def npu_format_cast(self, x):
         return torch_npu.npu_format_cast(x, 2)
@@ -66,6 +89,10 @@ class NPUConfig:
             if save:
                 self._loss.append(msg)
 
+    def print_msg(self, msg, on=True):
+        if on:
+            print(f"[RANK-{self.rank}]: {msg}", flush=True)
+
     def save_loss(self, filename, rank=0):
         if self.rank == rank:
             import json
@@ -76,6 +103,7 @@ class NPUConfig:
         if self.rank == rank:
             print(name)
             print(tensor.size())
+
             def print_dim(tensor_, indices):
                 if tensor_.dim() == len(indices):
                     print('{0:10.5f}'.format(tensor[tuple(indices)].detach().item()), end=' ')
@@ -84,6 +112,7 @@ class NPUConfig:
                     for x in range(0, tensor_.size(cur_dim), tensor_.size(cur_dim) // dim_print_cnt[cur_dim]):
                         print_dim(tensor_, indices + [x])
                     print()
+
             print_dim(tensor, [])
 
 

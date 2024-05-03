@@ -955,6 +955,7 @@ class AttnProcessor2_0:
         inner_dim = key.shape[-1]
         head_dim = inner_dim // attn.heads
         if npu_config.on_npu and npu_config.enable_FA:
+            # print(f"query: {query.shape}, key: {key.shape}, value: {value.shape}, mas: {attention_mask.shape}", flush=True)
             hidden_states = torch_npu.npu_fusion_attention(query, key, value, atten_mask=attention_mask, input_layout="BSH",
                                            scale=1/math.sqrt(head_dim), head_num=attn.heads)[0]
         else:

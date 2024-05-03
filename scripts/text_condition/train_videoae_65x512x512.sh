@@ -1,7 +1,4 @@
-export WANDB_KEY="e27ca77283738936f40434c3b3bf849c61cda34d"
-export ENTITY="opensora"
-#export WANDB_MODE='offline'
-export PROJECT="512-30"
+export PROJECT="512-48"
 WEIGHT_PATH="/home/opensora/shebin/pre_weights/"
 
 env
@@ -18,6 +15,7 @@ accelerate launch \
     --ae CausalVAEModel_4x8x8 \
     --ae_path "${WEIGHT_PATH}/CausalVAEModel_4x8x8_0430/" \
     --video_data "./scripts/train_data/video_data.txt" \
+    --image_data "./scripts/train_data/image_data.txt" \
     --sample_rate 1 \
     --num_frames 65 \
     --max_image_size 512 \
@@ -33,11 +31,11 @@ accelerate launch \
     --mixed_precision="bf16" \
     --report_to="wandb" \
     --checkpointing_steps=500 \
-    --output_dir="512-30" \
+    --output_dir="512-48" \
     --allow_tf32 \
     --pretrained "${WEIGHT_PATH}/t2v.pt" \
     --use_deepspeed \
     --model_max_length 300 \
     --use_image_num 4 \
     --enable_tiling \
-    --use_img_from_vid
+    --enable_tracker

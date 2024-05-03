@@ -22,6 +22,8 @@ from tqdm import tqdm
 from dataclasses import field, dataclass
 from torch.utils.data import DataLoader
 from copy import deepcopy
+from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
 
 import accelerate
 import torch
@@ -238,9 +240,17 @@ def main(args):
 
     # Setup data:
     train_dataset = getdataset(args)
+    # 在创建 DataLoader 之前,创建 DistributedSampler
+    train_sampler = DistributedSampler(
+        train_dataset,
+        num_replicas=npu_config.node_world_size,  # 每个节点的世界大小
+        rank=accelerator.local_process_index,  # 当前进程在节点内的 rank
+    )
+
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
-        shuffle=True,
+        sampler=train_sampler,
+        # shuffle=True,
         collate_fn=Collate(args),
         batch_size=args.train_batch_size,
         num_workers=args.dataloader_num_workers,
@@ -414,6 +424,7 @@ def main(args):
     model, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
         model, optimizer, train_dataloader, lr_scheduler
     )
+    npu_config.print_msg(f"Process {accelerator.process_index} / {accelerator.num_processes} - Dataset size: {len(train_dataset)}, train_dataloader size: {len(train_dataloader)}")
 
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
@@ -479,17 +490,16 @@ def main(args):
 
     def train_one_step(step_, data_item_):
         x, attn_mask, input_ids, cond_mask = data_item_
+
         start_time = time.time()
         with accelerator.accumulate(model):
             # Sample noise that we'll add to the latents
-
             x = x.to(accelerator.device, dtype=weight_dtype)  # B C T+num_images H W, 16 + 4
             attn_mask = attn_mask.to(accelerator.device)  # B L or B 1+num_images L
             input_ids = input_ids.to(accelerator.device)  # B L or B 1+num_images L
             cond_mask = cond_mask.to(accelerator.device)  # B L or B 1+num_images L
             # print('x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape', x.shape, attn_mask.shape,
             #       input_ids.shape, cond_mask.shape)
-
             with torch.no_grad():
                 # use for loop to avoid OOM, because T5 is too huge...
                 B, _, _ = input_ids.shape  # B T+num_images L  b 1+4, L
@@ -514,29 +524,8 @@ def main(args):
                         array_to_video(x, fps=fps, output_file=output_file)
                         return
 
-                    # videos = ae.decode(videos.to(dtype=weight_dtype))[0]
-                    # videos = videos.transpose(0, 1)
-                    # custom_to_video(videos.to(torch.float32), fps=24, output_file='tmp.mp4')
-                    # sys.exit()
-
                     images = rearrange(images, 'b c t h w -> (b t) c 1 h w')
                     images = ae.encode(images)
-
-                    # import ipdb;ipdb.set_trace()
-                    # images = ae.decode(images.to(dtype=weight_dtype))
-                    # for idx in range(args.use_image_num):
-                    #     x = images[idx, 0, :, :, :].to(torch.float32)
-                    #     x = x.squeeze()
-                    #     x = x.detach().cpu().numpy()
-                    #     x = np.clip(x, -1, 1)
-                    #     x = (x + 1) / 2
-                    #     x = (255 * x).astype(np.uint8)
-                    #     x = x.transpose(1, 2, 0)
-                    #     from PIL import Image
-                    #     image = Image.fromarray(x)
-                    #     image.save(f'tmp{idx}.jpg')
-                    # import sys
-                    # sys.exit()
 
                     images = rearrange(images, '(b t) c 1 h w -> b c t h w', t=args.use_image_num)
                     x = torch.cat([videos, images], dim=2)  # b c 17+4, h, w
@@ -547,6 +536,8 @@ def main(args):
             t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=accelerator.device)
             loss_dict = diffusion.training_losses(model, x, t, model_kwargs)
             loss = loss_dict["loss"].mean()
+
+            npu_config.print_msg(f"Step: [{step_}], Enter: after forward")
 
             # Gather the losses across all processes for logging (if we use distributed training).
             avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
@@ -624,6 +615,9 @@ def main(args):
                 return True
 
             for step, data_item in enumerate(train_dataloader):
+                npu_config.print_msg(
+                    f"Step: [{step}], Process {accelerator.process_index} / {accelerator.num_processes} - Batch size: {data_item[0].size(0)}")
+
                 if train_one_step(step, data_item):
                     break
                 if prof_:
