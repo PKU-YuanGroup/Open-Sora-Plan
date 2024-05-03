@@ -495,6 +495,8 @@ def main(args):
         with accelerator.accumulate(model):
             # Sample noise that we'll add to the latents
             x = x.to(accelerator.device, dtype=weight_dtype)  # B C T+num_images H W, 16 + 4
+            npu_config.print_tensor_stats(x, "input x")
+
             attn_mask = attn_mask.to(accelerator.device)  # B L or B 1+num_images L
             input_ids = input_ids.to(accelerator.device)  # B L or B 1+num_images L
             cond_mask = cond_mask.to(accelerator.device)  # B L or B 1+num_images L
@@ -513,6 +515,7 @@ def main(args):
                     videos, images = x[:, :, :-args.use_image_num], x[:, :, -args.use_image_num:]
                     videos = ae.encode(videos)  # B C T H W
 
+                    npu_config.print_tensor_stats(x, "vae_output_videos")
                     def custom_to_video(x: torch.Tensor, fps: float = 2.0,
                                         output_file: str = 'output_video.mp4') -> None:
                         from examples.rec_imvi_vae import array_to_video
@@ -528,6 +531,7 @@ def main(args):
                     images = ae.encode(images)
 
                     images = rearrange(images, '(b t) c 1 h w -> b c t h w', t=args.use_image_num)
+                    npu_config.print_tensor_stats(x, "vae_output_images")
                     x = torch.cat([videos, images], dim=2)  # b c 17+4, h, w
 
             # print('(x.shape, attn_mask.shape, cond.shape, cond_mask.shape', x.shape, attn_mask.shape, cond.shape, cond_mask.shape)
@@ -548,6 +552,8 @@ def main(args):
             if accelerator.sync_gradients:
                 params_to_clip = model.parameters()
                 accelerator.clip_grad_norm_(params_to_clip, args.max_grad_norm)
+
+            npu_config.print_grad_norm(model)
             optimizer.step()
             lr_scheduler.step()
             optimizer.zero_grad()

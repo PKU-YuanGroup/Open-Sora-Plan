@@ -802,12 +802,13 @@ class Attention(nn.Module):
                 # TODO: re-enable tests/models/test_models_unet_2d_condition.py#test_model_xattn_padding
                 attention_mask = F.pad(attention_mask, (0, target_length), value=0.0)
 
-        # if out_dim == 3:
-        #     if attention_mask.shape[0] < batch_size * head_size:
-        #         attention_mask = attention_mask.repeat_interleave(head_size, dim=0)
-        # elif out_dim == 4:
-        #     attention_mask = attention_mask.unsqueeze(1)
-        #     attention_mask = attention_mask.repeat_interleave(head_size, dim=1)
+        if not npu_config.enable_FA:
+            if out_dim == 3:
+                if attention_mask.shape[0] < batch_size * head_size:
+                    attention_mask = attention_mask.repeat_interleave(head_size, dim=0)
+            elif out_dim == 4:
+                attention_mask = attention_mask.unsqueeze(1)
+                attention_mask = attention_mask.repeat_interleave(head_size, dim=1)
 
         return attention_mask
 
@@ -934,7 +935,10 @@ class AttnProcessor2_0:
             attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length, batch_size)
             # scaled_dot_product_attention expects attention_mask shape to be
             # (batch, heads, source_length, target_length)
-            attention_mask = attention_mask.view(batch_size, 1, -1, attention_mask.shape[-1])
+            if npu_config.enable_FA:
+                attention_mask = attention_mask.view(batch_size, 1, -1, attention_mask.shape[-1])
+            else:
+                attention_mask = attention_mask.view(batch_size, attn.heads, -1, attention_mask.shape[-1])
 
         if attn.group_norm is not None:
             hidden_states = attn.group_norm(hidden_states.transpose(1, 2)).transpose(1, 2)

@@ -125,14 +125,18 @@ class TimeDownsample2x(Block):
         self.kernel_size = kernel_size
         if npu_config.on_npu:
             self.avg_pool = nn.AvgPool2d((kernel_size, 1), stride=(2, 1))
-            self.pad = nn.ReplicationPad3d((0, 0, 0, 0, self.kernel_size - 1, 0))
+            # self.pad = nn.ReplicationPad3d((0, 0, 0, 0, self.kernel_size - 1, 0))
         else:
             self.avg_pool = nn.AvgPool3d((kernel_size, 1, 1), stride=(2, 1, 1))
 
     def forward(self, x):
         if npu_config.on_npu:
             n, c, d, h, w = x.shape
-            x = self.pad(x)
+            # x = self.pad(x)
+            first_frame_pad = x[:, :, :1, :, :].repeat(
+                (1, 1, self.kernel_size - 1, 1, 1)
+            )
+            x = torch.concatenate((first_frame_pad, x), dim=2)
             x = x.view(n * c, -1, h * w)
             pooled = self.avg_pool(x)
             output = pooled.view(n, c, -1, h, w)
@@ -170,7 +174,7 @@ class TimeDownsampleRes2x(nn.Module):
         self.kernel_size = cast_tuple(kernel_size, 3)
         if npu_config.on_npu:
             self.avg_pool = nn.AvgPool2d((kernel_size, 1), stride=(2, 1))
-            self.pad = nn.ReplicationPad3d((0, 0, 0, 0, kernel_size - 1, 0))
+            # self.pad = nn.ReplicationPad3d((0, 0, 0, 0, kernel_size - 1, 0))
         else:
             self.avg_pool = nn.AvgPool3d((kernel_size, 1, 1), stride=(2, 1, 1))
         self.conv = nn.Conv3d(
@@ -183,8 +187,10 @@ class TimeDownsampleRes2x(nn.Module):
         if npu_config.on_npu:
             n, c, d, h, w = x.shape
             x_dtype = x.dtype
-            x = x.to(torch.float16)
-            x = self.pad(x)
+            first_frame_pad = x[:, :, :1, :, :].repeat(
+                (1, 1, self.kernel_size[0] - 1, 1, 1)
+            )
+            x = torch.concatenate((first_frame_pad, x), dim=2)
             pad_x = x.view(n, c, -1, h, w)
             avg_x = self.avg_pool(x.view(n * c, -1, h * w)).view(n, c, -1, h, w)
             conv_x = npu_config.run_conv3d(self.conv, pad_x, x_dtype)
@@ -216,7 +222,7 @@ class TimeUpsampleRes2x(nn.Module):
             x,x_= x[:,:,:1],x[:,:,1:]
             if npu_config.on_npu:
                 x_dtype = x_.dtype
-                x_ = x_.to(torch.float16)
+                x_ = x_.to(torch.float32)
                 x_ = F.interpolate(x_, scale_factor=(2, 1, 1), mode='trilinear')
                 x_ = x_.to(x_dtype)
             else:
@@ -272,7 +278,7 @@ class TimeUpsampleResAdv2x(nn.Module):
             x,x_= x[:,:,:1],x[:,:,1:]
             if npu_config.on_npu:
                 x_dtype = x_.dtype
-                x_ = x_.to(torch.float16)
+                x_ = x_.to(torch.float32)
                 x_= F.interpolate(x_, scale_factor=(2,1,1), mode='trilinear')
                 x_ = x_.to(x_dtype)
             else:

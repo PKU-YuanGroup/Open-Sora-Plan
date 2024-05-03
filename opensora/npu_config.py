@@ -12,20 +12,22 @@ except:
 
 
 class NPUConfig:
+    N_NPU_PER_NODE = 8
+
     def __init__(self):
         self.on_npu = npu_is_available
         self.node_world_size = 8
         self.profiling = False
         self.profiling_step = 5
         self._loss = []
-        self.enable_FA = True
+        self.enable_FA = False
         self.work_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.pickle_save_path = f"{self.work_path}/pickles"
         self.load_pickle = True
 
         if self.on_npu:
             from torch_npu.contrib import transfer_to_npu
-            torch_npu.npu.set_compile_mode(jit_compile=False)
+            torch_npu.npu.set_compile_mode(jit_compile=True)
 
         if "RANK" in os.environ:
             self.rank = int(os.environ["RANK"])
@@ -33,9 +35,8 @@ class NPUConfig:
             self.rank = torch.cuda.current_device()
         self.print_with_rank(f"The npu_config.on_npu is {self.on_npu}")
 
-
     def get_pickle_path(self, file_name):
-        return f"{self.pickle_save_path}/{file_name}_{self.rank}.pkl"
+        return f"{self.pickle_save_path}/{file_name}_{self.rank % self.N_NPU_PER_NODE}.pkl"
 
     def try_load_pickle(self, file_name, function):
         file_name = self.get_pickle_path(file_name)
@@ -52,6 +53,16 @@ class NPUConfig:
 
     def npu_format_cast(self, x):
         return torch_npu.npu_format_cast(x, 2)
+
+    def print_grad_norm(self, model):
+        # 计算并打印梯度范数
+        grad_norm = 0
+        for p in model.parameters():
+            if p.grad is not None:
+                param_norm = p.grad.data.norm(2)
+                grad_norm += param_norm.item() ** 2
+        grad_norm = grad_norm ** (1. / 2)
+        self.print_msg(f'Gradient Norm is : {grad_norm}')
 
     def _run(self, operator, x, tmp_dtype, out_dtype=None, out_nd_format=False):
         if self.on_npu:
@@ -71,8 +82,25 @@ class NPUConfig:
     def run_group_norm(self, operator, x):
         return self._run(operator, x, torch.float32)
 
+    def print_tensor_stats(self, tensor, name="Tensor"):
+        max_val = tensor.max().item()
+        min_val = tensor.min().item()
+        mean_val = tensor.mean().item()
+        median_val = tensor.median().item()
+        std_val = tensor.std().item()
+        shape = tensor.shape
+        self.print_msg(
+            f"{name} - Max: {max_val}, Min: {min_val}, Mean: {mean_val}, Median: {median_val}, Std: {std_val}, Shape: {shape}")
+
     def run_conv3d(self, operator, x, out_dtype):
-        return self._run(operator, x, torch.float16, out_dtype, out_nd_format=True)
+        return self._run(operator, x, torch.float32, out_dtype, out_nd_format=True)
+
+    def run_pad3d(self, operator, x):
+        n, c, d, h, w = x.shape
+        x = x.reshape(n * c, d, h * w)
+        x = operator(x)
+        x = x.reshape(n, c, -1, h, w)
+        return x
 
     def seed_everything(seed=0):
         random.seed(seed)

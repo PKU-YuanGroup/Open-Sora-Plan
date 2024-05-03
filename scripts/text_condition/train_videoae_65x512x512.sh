@@ -1,4 +1,4 @@
-export PROJECT="512-48"
+export PROJECT="512-24"
 WEIGHT_PATH="/home/opensora/shebin/pre_weights/"
 
 env
@@ -30,8 +30,8 @@ accelerate launch \
     --lr_warmup_steps=0 \
     --mixed_precision="bf16" \
     --report_to="wandb" \
-    --checkpointing_steps=500 \
-    --output_dir="512-48" \
+    --checkpointing_steps=20 \
+    --output_dir="512-24" \
     --allow_tf32 \
     --pretrained "${WEIGHT_PATH}/t2v.pt" \
     --use_deepspeed \

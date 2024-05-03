@@ -25,27 +25,6 @@ def random_video_noise(t, c, h, w):
     vid = vid.to(torch.uint8)
     return vid
 
-
-# def filter_json_by_existed_files(directory, data, postfix=".mp4"):
-#     # 递归遍历所有子目录，寻找所有后缀为.mp4的文件
-#     print(f"Running filter_json_by_existed_files for {directory}")
-#     mp4_files = []
-#     for root, dirs, files in os.walk(directory):
-#         for file in files:
-#             if file.endswith(postfix):
-#                 # 根据子目录级别构造相对路径
-#                 relative_path = os.path.abspath(os.path.join(root, file))
-#                 mp4_files.append(relative_path)  # 只保留文件名
-#
-#     mp4_files_set = set(mp4_files)  # 转换成集合以优化搜索效率
-#     print(f"len(local_files) of {directory} = {len(mp4_files)}")
-#
-#     # 过滤条目，只保留path在mp4文件集合中的item
-#     filtered_items = [item for item in data if item['path'] in mp4_files_set]
-#
-#     return filtered_items
-
-
 def filter_json_by_existed_files(directory, data, postfix=".mp4"):
     # 构建搜索模式，以匹配指定后缀的文件
     pattern = os.path.join(directory, '**', f'*{postfix}')
@@ -74,15 +53,6 @@ class T2V_dataset(Dataset):
         # self.vid_cap_list, self.local_vid_cap_list = self.get_vid_cap_list()
         self.vid_cap_list, self.local_vid_cap_list = npu_config.try_load_pickle("vid_cap_list.pkl",
                                                                                 self.get_vid_cap_list)
-        # existed_vid_list = []
-        # for item in self.vid_cap_list:
-        #     if os.path.exists(item['path']):
-        #         existed_vid_list.append(item)
-        #     if len(existed_vid_list) > 100000:
-        #         break
-        # subdir_level = 1  # JSON中的path包含一级子目录
-        # with open("/home/opensora/captions/linbin_captions/video_mixkit_65f_54735.json", 'r') as file:
-        #     data = json.load(file)
         npu_config.print_msg(f"len(self.vid_cap_list) = {len(self.vid_cap_list)}")
         npu_config.print_msg(f"len(self.local_vid_cap_list) = {len(self.local_vid_cap_list)}")
         self.vid_cap_list = self.local_vid_cap_list
@@ -103,13 +73,11 @@ class T2V_dataset(Dataset):
     def __getitem__(self, idx):
         try:
             video_data = self.get_video(idx)
-            # npu_config.print_msg(f"use video data of idx {idx}")
             image_data = {}
             if self.use_image_num != 0 and self.use_img_from_vid:
                 image_data = self.get_image_from_video(video_data)
             elif self.use_image_num != 0 and not self.use_img_from_vid:
                 image_data = self.get_image(idx)
-                # npu_config.print_msg(f"use image data of idx {idx}")
             else:
                 raise NotImplementedError
 
@@ -148,11 +116,7 @@ class T2V_dataset(Dataset):
         video_path = self.vid_cap_list[idx]['path']
         frame_idx = self.vid_cap_list[idx]['frame_idx']
         video = self.decord_read(video_path, frame_idx)
-        # npu_config.print_msg(f"Loading video data {video_path}: {frame_idx}")
-        # video = self.tv_read(video_path, frame_idx)
-        # npu_config.print_msg(f"Loaded video data {video_path}: {frame_idx}, finished!")
         video = self.transform(video)  # T C H W -> T C H W
-        # npu_config.print_msg(f"Transform video data {video_path}: {frame_idx}, finished!")
         # video = torch.rand(65, 3, 512, 512)
 
         video = video.transpose(0, 1)  # T C H W -> C T H W
