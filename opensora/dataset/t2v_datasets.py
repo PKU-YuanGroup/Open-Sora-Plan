@@ -44,19 +44,20 @@ class T2V_dataset(Dataset):
         return len(self.vid_cap_list)
 
     def __getitem__(self, idx):
-        # try:
-        video_data = self.get_video(idx)
-        image_data = {}
-        if self.use_image_num != 0 and self.use_img_from_vid:
-            image_data = self.get_image_from_video(video_data)
-        elif self.use_image_num != 0 and not self.use_img_from_vid:
-            image_data = self.get_image(idx)
-        else:
-            raise NotImplementedError
-        return dict(video_data=video_data, image_data=image_data)
-        # except Exception as e:
-        #     print(f'Error with {e}, {self.vid_cap_list[idx]}')
-        #     return self.__getitem__(random.randint(0, self.__len__() - 1))
+        try:
+        # import ipdb;ipdb.set_trace()
+            video_data = self.get_video(idx)
+            image_data = {}
+            if self.use_image_num != 0 and self.use_img_from_vid:
+                image_data = self.get_image_from_video(video_data)
+            elif self.use_image_num != 0 and not self.use_img_from_vid:
+                image_data = self.get_image(idx)
+            else:
+                raise NotImplementedError
+            return dict(video_data=video_data, image_data=image_data)
+        except Exception as e:
+            print(f'Error with {e}, {self.vid_cap_list[idx]}')
+            return self.__getitem__(random.randint(0, self.__len__() - 1))
 
     def get_video(self, idx):
         # video = random.choice([random_video_noise(65, 3, 720, 360) * 255, random_video_noise(65, 3, 1024, 1024), random_video_noise(65, 3, 360, 720)])
@@ -67,11 +68,12 @@ class T2V_dataset(Dataset):
         video_path = self.vid_cap_list[idx]['path']
         frame_idx = self.vid_cap_list[idx]['frame_idx']
         video = self.decord_read(video_path, frame_idx)
+        # video = self.tv_read(video_path, frame_idx)
         video = self.transform(video)  # T C H W -> T C H W
         # video = torch.rand(65, 3, 512, 512)
 
         video = video.transpose(0, 1)  # T C H W -> C T H W
-        text = self.vid_cap_list[idx]['cap'][0]
+        text = self.vid_cap_list[idx]['cap']
 
         text = text_preprocessing(text)
         text_tokens_and_mask = self.tokenizer(
@@ -124,18 +126,21 @@ class T2V_dataset(Dataset):
         cond_mask = torch.cat(cond_mask)  # self.use_image_num, l
         return dict(image=image, input_ids=input_ids, cond_mask=cond_mask)
 
-    # def tv_read(self, path):
-    #     vframes, aframes, info = torchvision.io.read_video(filename=path, pts_unit='sec', output_format='TCHW')
-    #     total_frames = len(vframes)
+    def tv_read(self, path, frame_idx=None):
+        vframes, aframes, info = torchvision.io.read_video(filename=path, pts_unit='sec', output_format='TCHW')
+        total_frames = len(vframes)
+        if frame_idx is None:
+            start_frame_ind, end_frame_ind = self.temporal_sample(total_frames)
+        else:
+            start_frame_ind, end_frame_ind = frame_idx.split(':')
+            start_frame_ind, end_frame_ind = int(start_frame_ind), int(end_frame_ind)
+        # assert end_frame_ind - start_frame_ind >= self.num_frames
+        frame_indice = np.linspace(start_frame_ind, end_frame_ind - 1, self.num_frames, dtype=int)
+        # frame_indice = np.linspace(0, 63, self.num_frames, dtype=int)
 
-    #     # Sampling video frames
-    #     start_frame_ind, end_frame_ind = self.temporal_sample(total_frames)
-    #     # assert end_frame_ind - start_frame_ind >= self.num_frames
-    #     frame_indice = np.linspace(start_frame_ind, end_frame_ind - 1, self.num_frames, dtype=int)
+        video = vframes[frame_indice]  # (T, C, H, W)
 
-    #     video = vframes[frame_indice]  # (T, C, H, W)
-
-    #     return video
+        return video
 
     def decord_read(self, path, frame_idx=None):
         decord_vr = self.v_decoder(path)
@@ -147,8 +152,8 @@ class T2V_dataset(Dataset):
             start_frame_ind, end_frame_ind = frame_idx.split(':')
             start_frame_ind, end_frame_ind = int(start_frame_ind), int(end_frame_ind)
         # assert end_frame_ind - start_frame_ind >= self.num_frames
-        frame_indice = np.linspace(start_frame_ind, end_frame_ind - 1, self.num_frames, dtype=int)
-        # frame_indice = np.linspace(0, end_frame_ind - 2, self.num_frames, dtype=int)
+        # frame_indice = np.linspace(start_frame_ind, end_frame_ind - 1, self.num_frames, dtype=int)
+        frame_indice = np.linspace(0, 63, self.num_frames, dtype=int)
 
         video_data = decord_vr.get_batch(frame_indice).asnumpy()
         video_data = torch.from_numpy(video_data)

@@ -431,7 +431,6 @@ def main(args):
                     # Map input images to latent space + normalize latents
                     if args.use_image_num == 0:
                         x = ae.encode(x)  # B C T H W
-                        cond = text_enc(input_ids, cond_mask)  # B L -> B L D
                     else:
                         videos, images = x[:, :, :-args.use_image_num], x[:, :, -args.use_image_num:]
                         videos = ae.encode(videos)  # B C T H W
