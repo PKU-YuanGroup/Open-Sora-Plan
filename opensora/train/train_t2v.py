@@ -241,16 +241,16 @@ def main(args):
     # Setup data:
     train_dataset = getdataset(args)
     # 在创建 DataLoader 之前,创建 DistributedSampler
-    train_sampler = DistributedSampler(
-        train_dataset,
-        num_replicas=npu_config.node_world_size,  # 每个节点的世界大小
-        rank=accelerator.local_process_index,  # 当前进程在节点内的 rank
-    )
+    # train_sampler = DistributedSampler(
+    #     train_dataset,
+    #     num_replicas=npu_config.node_world_size,  # 每个节点的世界大小
+    #     rank=accelerator.local_process_index,  # 当前进程在节点内的 rank
+    # )
 
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
-        sampler=train_sampler,
-        # shuffle=True,
+        # sampler=train_sampler,
+        shuffle=True,
         collate_fn=Collate(args),
         batch_size=args.train_batch_size,
         num_workers=args.dataloader_num_workers,
@@ -424,7 +424,7 @@ def main(args):
     model, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
         model, optimizer, train_dataloader, lr_scheduler
     )
-    npu_config.print_msg(f"Process {accelerator.process_index} / {accelerator.num_processes} - Dataset size: {len(train_dataset)}, train_dataloader size: {len(train_dataloader)}")
+    # npu_config.print_msg(f"Process {accelerator.process_index} / {accelerator.num_processes} - Dataset size: {len(train_dataset)}, train_dataloader size: {len(train_dataloader)}")
 
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
@@ -495,7 +495,7 @@ def main(args):
         with accelerator.accumulate(model):
             # Sample noise that we'll add to the latents
             x = x.to(accelerator.device, dtype=weight_dtype)  # B C T+num_images H W, 16 + 4
-            npu_config.print_tensor_stats(x, "input x")
+            # npu_config.print_tensor_stats(x, "input x")
 
             attn_mask = attn_mask.to(accelerator.device)  # B L or B 1+num_images L
             input_ids = input_ids.to(accelerator.device)  # B L or B 1+num_images L
@@ -515,7 +515,7 @@ def main(args):
                     videos, images = x[:, :, :-args.use_image_num], x[:, :, -args.use_image_num:]
                     videos = ae.encode(videos)  # B C T H W
 
-                    npu_config.print_tensor_stats(x, "vae_output_videos")
+                    # npu_config.print_tensor_stats(x, "vae_output_videos")
                     def custom_to_video(x: torch.Tensor, fps: float = 2.0,
                                         output_file: str = 'output_video.mp4') -> None:
                         from examples.rec_imvi_vae import array_to_video
@@ -531,29 +531,32 @@ def main(args):
                     images = ae.encode(images)
 
                     images = rearrange(images, '(b t) c 1 h w -> b c t h w', t=args.use_image_num)
-                    npu_config.print_tensor_stats(x, "vae_output_images")
+                    # npu_config.print_tensor_stats(x, "vae_output_images")
                     x = torch.cat([videos, images], dim=2)  # b c 17+4, h, w
 
-            # print('(x.shape, attn_mask.shape, cond.shape, cond_mask.shape', x.shape, attn_mask.shape, cond.shape, cond_mask.shape)
             model_kwargs = dict(encoder_hidden_states=cond, attention_mask=attn_mask,
                                 encoder_attention_mask=cond_mask, use_image_num=args.use_image_num)
             t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=accelerator.device)
             loss_dict = diffusion.training_losses(model, x, t, model_kwargs)
             loss = loss_dict["loss"].mean()
 
-            npu_config.print_msg(f"Step: [{step_}], Enter: after forward")
+            npu_config.print_msg(f"Step: [{step_}], Enter: after forward", rank=0)
 
             # Gather the losses across all processes for logging (if we use distributed training).
             avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
             progress_info.train_loss += avg_loss.item() / args.gradient_accumulation_steps
 
             # Backpropagate
-            accelerator.backward(loss)
+            # accelerator.backward(loss)
+            accelerator.deepspeed_engine_wrapped.engine.backward(loss)
+            if step_ <= 2:
+                npu_config.print_grad_norm(model)
+            accelerator.deepspeed_engine_wrapped.engine.step()
+
             if accelerator.sync_gradients:
                 params_to_clip = model.parameters()
                 accelerator.clip_grad_norm_(params_to_clip, args.max_grad_norm)
 
-            npu_config.print_grad_norm(model)
             optimizer.step()
             lr_scheduler.step()
             optimizer.zero_grad()
@@ -596,6 +599,7 @@ def main(args):
                     logger.info(f"Saved state to {save_path}")
 
             logs = {"step_loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
+            # npu_config.print_msg(logs)
             progress_bar.set_postfix(**logs)
 
         if progress_info.global_step >= args.max_train_steps:
@@ -621,8 +625,8 @@ def main(args):
                 return True
 
             for step, data_item in enumerate(train_dataloader):
-                npu_config.print_msg(
-                    f"Step: [{step}], Process {accelerator.process_index} / {accelerator.num_processes} - Batch size: {data_item[0].size(0)}")
+                # npu_config.print_msg(
+                #     f"Step: [{step}], Process {accelerator.process_index} / {accelerator.num_processes} - Batch size: {data_item[0].size(0)}")
 
                 if train_one_step(step, data_item):
                     break
@@ -673,7 +677,7 @@ if __name__ == "__main__":
     parser.add_argument('--tile_overlap_factor', type=float, default=0.25)
     parser.add_argument('--enable_tiling', action='store_true')
     parser.add_argument("--compress_kv", action="store_true")
-    parser.add_argument("--attention_mode", type=str, choices=['xformers', 'math', 'flash'], default="xformers")
+    parser.add_argument("--attention_mode", type=str, choices=['xformers', 'math', 'flash', 'unable'], default="xformers")
     parser.add_argument('--use_rope', action='store_true')
     parser.add_argument('--compress_kv_factor', type=int, default=1)
 
@@ -845,7 +849,7 @@ if __name__ == "__main__":
     parser.add_argument("--adam_beta2", type=float, default=0.999, help="The beta2 parameter for the Adam optimizer.")
     parser.add_argument("--adam_weight_decay", type=float, default=1e-2, help="Weight decay to use.")
     parser.add_argument("--adam_epsilon", type=float, default=1e-08, help="Epsilon value for the Adam optimizer")
-    parser.add_argument("--max_grad_norm", default=1.0, type=float, help="Max gradient norm.")
+    parser.add_argument("--max_grad_norm", default=1, type=float, help="Max gradient norm.")
     parser.add_argument("--push_to_hub", action="store_true", help="Whether or not to push the model to the Hub.")
     parser.add_argument("--hub_token", type=str, default=None, help="The token to use to push to the Model Hub.")
     parser.add_argument(

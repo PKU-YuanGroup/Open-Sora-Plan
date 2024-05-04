@@ -25,6 +25,7 @@ def random_video_noise(t, c, h, w):
     vid = vid.to(torch.uint8)
     return vid
 
+
 def filter_json_by_existed_files(directory, data, postfix=".mp4"):
     # 构建搜索模式，以匹配指定后缀的文件
     pattern = os.path.join(directory, '**', f'*{postfix}')
@@ -56,7 +57,12 @@ class T2V_dataset(Dataset):
         npu_config.print_msg(f"len(self.vid_cap_list) = {len(self.vid_cap_list)}")
         npu_config.print_msg(f"len(self.local_vid_cap_list) = {len(self.local_vid_cap_list)}")
         self.vid_cap_list = self.local_vid_cap_list
-
+        self.n_samples = len(self.vid_cap_list)
+        # 生成一个从0到num_elements-1的列表
+        self.elements = list(range(self.n_samples))
+        # 使用random.shuffle随机打乱列表
+        random.shuffle(self.elements)
+        self.n_used_elements = 0
         self.use_image_num = args.use_image_num
         self.use_img_from_vid = args.use_img_from_vid
         if self.use_image_num != 0 and not self.use_img_from_vid:
@@ -72,6 +78,9 @@ class T2V_dataset(Dataset):
 
     def __getitem__(self, idx):
         try:
+            idx = self.elements[self.n_used_elements]
+            self.n_used_elements += 1
+            self.n_used_elements = self.n_used_elements % self.n_samples
             video_data = self.get_video(idx)
             image_data = {}
             if self.use_image_num != 0 and self.use_img_from_vid:
@@ -118,6 +127,7 @@ class T2V_dataset(Dataset):
         video = self.decord_read(video_path, frame_idx)
         video = self.transform(video)  # T C H W -> T C H W
         # video = torch.rand(65, 3, 512, 512)
+        # npu_config.print_tensor_stats(video, "video")
 
         video = video.transpose(0, 1)  # T C H W -> C T H W
         text = self.vid_cap_list[idx]['cap']

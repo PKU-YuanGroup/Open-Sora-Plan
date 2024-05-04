@@ -4,6 +4,7 @@ import decord
 from torch.nn import functional as F
 import torch
 
+from opensora.npu_config import npu_config
 
 IMG_EXTENSIONS = ['.jpg', '.JPG', '.jpeg', '.JPEG', '.png', '.PNG']
 
@@ -114,14 +115,33 @@ class Collate:
         pad_batch_tubes = torch.stack(pad_batch_tubes, dim=0)
 
         # make attention_mask
-        first_channel_first_frame, first_channel_other_frame = pad_batch_tubes[:, :1, :1], pad_batch_tubes[:, :1, 1:]  # first channel to make attention_mask
-        attention_mask_first_frame = F.max_pool3d(first_channel_first_frame, kernel_size=(1, *ae_stride_thw[1:]), stride=(1, *ae_stride_thw[1:]))
-        if first_channel_other_frame.numel() != 0:
-            attention_mask_other_frame = F.max_pool3d(first_channel_other_frame, kernel_size=ae_stride_thw, stride=ae_stride_thw)
-            attention_mask = torch.cat([attention_mask_first_frame, attention_mask_other_frame], dim=2)
-        else:
-            attention_mask = attention_mask_first_frame
-        attention_mask = attention_mask[:, 0].bool().float()  # b t h w, do not channel
+        # first_channel_first_frame, first_channel_other_frame = pad_batch_tubes[:, :1, :1], pad_batch_tubes[:, :1, 1:]  # first channel to make attention_mask
+        # attention_mask_first_frame = F.max_pool3d(first_channel_first_frame, kernel_size=(1, *ae_stride_thw[1:]), stride=(1, *ae_stride_thw[1:]))
+        # if first_channel_other_frame.numel() != 0:
+        #     attention_mask_other_frame = F.max_pool3d(first_channel_other_frame, kernel_size=ae_stride_thw, stride=ae_stride_thw)
+        #     attention_mask = torch.cat([attention_mask_first_frame, attention_mask_other_frame], dim=2)
+        # else:
+        #     attention_mask = attention_mask_first_frame
+        #
+        # attention_mask = attention_mask[:, 0].bool().float()  # b t h w, do not channel
+
+        max_tube_size = [pad_max_t, pad_max_h, pad_max_w]
+        max_latent_size = [
+            ((max_tube_size[0] - 1) // ae_stride_thw[0] + 1) if extra_1 else (max_tube_size[0] // ae_stride_thw[0]),
+            max_tube_size[1] // ae_stride_thw[1],
+            max_tube_size[2] // ae_stride_thw[2]]
+        valid_latent_size = [
+            [int(math.ceil((i[1] - 1) / ae_stride_thw[0])) + 1 if extra_1 else int(math.ceil(i[1] / ae_stride_thw[0])),
+             int(math.ceil(i[2] / ae_stride_thw[1])),
+             int(math.ceil(i[3] / ae_stride_thw[2]))] for i in batch_input_size]
+        attention_mask = [F.pad(torch.ones(i),
+                                (0, max_latent_size[2] - i[2],
+                                 0, max_latent_size[1] - i[1],
+                                 0, max_latent_size[0] - i[0]), value=0) for i in valid_latent_size]
+        attention_mask = torch.stack(attention_mask)  # b t h w
+
+        # attention_mask = torch.ones_like(attention_mask, device=attention_mask.device)
+
         # max_tube_size = [pad_max_t, pad_max_h, pad_max_w]
         # max_latent_size = [((max_tube_size[0]-1) // ae_stride_thw[0] + 1) if extra_1 else (max_tube_size[0] // ae_stride_thw[0]),
         #                    max_tube_size[1] // ae_stride_thw[1],
