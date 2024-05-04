@@ -61,6 +61,7 @@ class Collate:
         self.max_1hw = (1, self.max_image_size, self.max_image_size)
 
     def package(self, batch):
+        # import ipdb;ipdb.set_trace()
         batch_tubes_vid = [i['video_data']['video'] for i in batch]  # b [c t h w]
         input_ids_vid = torch.stack([i['video_data']['input_ids'] for i in batch])  # b 1 l
         cond_mask_vid = torch.stack([i['video_data']['cond_mask'] for i in batch])  # b 1 l
@@ -74,6 +75,7 @@ class Collate:
     def __call__(self, batch):
         batch_tubes_vid, input_ids_vid, cond_mask_vid, batch_tubes_img, input_ids_img, cond_mask_img = self.package(batch)
 
+        # import ipdb;ipdb.set_trace()
         ds_stride = self.ae_stride * self.patch_size
         t_ds_stride = self.ae_stride_t * self.patch_size_t
         if self.use_image_num == 0:
@@ -97,6 +99,7 @@ class Collate:
         return pad_batch_tubes, attention_mask, input_ids, cond_mask
 
     def process(self, batch_tubes, t_ds_stride, ds_stride, max_thw, ae_stride_thw, patch_size_thw, extra_1):
+        
         # pad to max multiple of ds_stride
         batch_input_size = [i.shape for i in batch_tubes]  # [(c t h w), (c t h w)]
         max_t, max_h, max_w = max_thw
@@ -114,14 +117,30 @@ class Collate:
         pad_batch_tubes = torch.stack(pad_batch_tubes, dim=0)
 
         # make attention_mask
-        first_channel_first_frame, first_channel_other_frame = pad_batch_tubes[:, :1, :1], pad_batch_tubes[:, :1, 1:]  # first channel to make attention_mask
-        attention_mask_first_frame = F.max_pool3d(first_channel_first_frame, kernel_size=(1, *ae_stride_thw[1:]), stride=(1, *ae_stride_thw[1:]))
-        if first_channel_other_frame.numel() != 0:
-            attention_mask_other_frame = F.max_pool3d(first_channel_other_frame, kernel_size=ae_stride_thw, stride=ae_stride_thw)
-            attention_mask = torch.cat([attention_mask_first_frame, attention_mask_other_frame], dim=2)
-        else:
-            attention_mask = attention_mask_first_frame
-        attention_mask = attention_mask[:, 0].bool().float()  # b t h w, do not channel
+        # first_channel_first_frame, first_channel_other_frame = pad_batch_tubes[:, :1, :1], pad_batch_tubes[:, :1, 1:]  # first channel to make attention_mask
+        # attention_mask_first_frame = F.max_pool3d(first_channel_first_frame, kernel_size=(1, *ae_stride_thw[1:]), stride=(1, *ae_stride_thw[1:]))
+        # if first_channel_other_frame.numel() != 0:
+        #     attention_mask_other_frame = F.max_pool3d(first_channel_other_frame, kernel_size=ae_stride_thw, stride=ae_stride_thw)
+        #     attention_mask = torch.cat([attention_mask_first_frame, attention_mask_other_frame], dim=2)
+        # else:
+        #     attention_mask = attention_mask_first_frame
+        # attention_mask_ = attention_mask[:, 0].bool().float()  # b t h w, do not channel
+
+        # import ipdb;ipdb.set_trace()
+        max_tube_size = [pad_max_t, pad_max_h, pad_max_w]
+        max_latent_size = [((max_tube_size[0]-1) // ae_stride_thw[0] + 1) if extra_1 else (max_tube_size[0] // ae_stride_thw[0]),
+                           max_tube_size[1] // ae_stride_thw[1],
+                           max_tube_size[2] // ae_stride_thw[2]]
+        valid_latent_size = [[int(math.ceil((i[1]-1) / ae_stride_thw[0])) + 1 if extra_1 else int(math.ceil(i[1] / ae_stride_thw[0])),
+                            int(math.ceil(i[2] / ae_stride_thw[1])),
+                            int(math.ceil(i[3] / ae_stride_thw[2]))] for i in batch_input_size]
+        attention_mask = [F.pad(torch.ones(i),
+                                (0, max_latent_size[2] - i[2],
+                                 0, max_latent_size[1] - i[1],
+                                 0, max_latent_size[0] - i[0]), value=0) for i in valid_latent_size]
+        attention_mask = torch.stack(attention_mask)  # b t h w
+
+
         # max_tube_size = [pad_max_t, pad_max_h, pad_max_w]
         # max_latent_size = [((max_tube_size[0]-1) // ae_stride_thw[0] + 1) if extra_1 else (max_tube_size[0] // ae_stride_thw[0]),
         #                    max_tube_size[1] // ae_stride_thw[1],

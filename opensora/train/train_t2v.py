@@ -49,6 +49,7 @@ from opensora.utils.dataset_utils import Collate
 from opensora.models.ae import ae_stride_config, ae_channel_config
 from opensora.models.diffusion import Diffusion_models
 from opensora.sample.pipeline_videogen import VideoGenPipeline
+from opensora.utils.utils import print_grad_norm
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 check_min_version("0.24.0")
@@ -419,6 +420,7 @@ def main(args):
                 
                 x = x.to(accelerator.device, dtype=weight_dtype)  # B C T+num_images H W, 16 + 4
                 attn_mask = attn_mask.to(accelerator.device)  # B L or B 1+num_images L
+                # assert torch.all(attn_mask != 0), 'attn_mask must all 1'
                 input_ids = input_ids.to(accelerator.device)  # B L or B 1+num_images L
                 cond_mask = cond_mask.to(accelerator.device)  # B L or B 1+num_images L
                 # print('x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape', x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape)
@@ -489,6 +491,12 @@ def main(args):
 
                 # Backpropagate
                 accelerator.backward(loss)
+
+
+                # accelerator.deepspeed_engine_wrapped.engine.backward(loss)
+                # print_grad_norm(model)
+                # accelerator.deepspeed_engine_wrapped.engine.step()
+
                 if accelerator.sync_gradients:
                     params_to_clip = model.parameters()
                     accelerator.clip_grad_norm_(params_to_clip, args.max_grad_norm)

@@ -1,7 +1,7 @@
-export WANDB_KEY=""
+export WANDB_KEY="953e958793b218efb850fa194e85843e2c3bd88b"
 # export WANDB_MODE="offline"
 export ENTITY="linbin"
-export PROJECT="512_10node_bs2_lr2e_4img_"
+export PROJECT="512_10node_bs2_lr5e_4img_"
 export HF_DATASETS_OFFLINE=1 
 export TRANSFORMERS_OFFLINE=1
 # export NCCL_IB_DISABLE=1
@@ -10,7 +10,7 @@ export TRANSFORMERS_OFFLINE=1
 export NCCL_P2P_DISABLE=1
 export PDSH_PATH_TYPE=ssh
 accelerate launch \
-    --config_file scripts/accelerate_configs/multi_node_example.yaml \
+    --config_file scripts/accelerate_configs/multi_node_example_node106.yaml \
     opensora/train/train_t2v.py \
     --model LatteT2V-XL/122 \
     --text_encoder_name DeepFloyd/t5-v1_1-xxl \
@@ -35,10 +35,11 @@ accelerate launch \
     --mixed_precision="bf16" \
     --report_to="wandb" \
     --checkpointing_steps=500 \
-    --output_dir="512_10node_bs2_lr2e-5_4img" \
+    --output_dir="512_10node_bs2_lr5e_4img_" \
     --allow_tf32 \
     --use_deepspeed \
     --model_max_length 300 \
+    --use_img_from_vid \
     --use_image_num 4 \
     --enable_tiling \
     --pretrained t2v.pt \
