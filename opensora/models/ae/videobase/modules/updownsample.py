@@ -132,11 +132,7 @@ class TimeDownsample2x(Block):
     def forward(self, x):
         if npu_config.on_npu:
             n, c, d, h, w = x.shape
-            # x = self.pad(x)
-            first_frame_pad = x[:, :, :1, :, :].repeat(
-                (1, 1, self.kernel_size - 1, 1, 1)
-            )
-            x = torch.concatenate((first_frame_pad, x), dim=2)
+            x = self.pad(x)
             x = x.view(n * c, -1, h * w)
             pooled = self.avg_pool(x)
             output = pooled.view(n, c, -1, h, w)
@@ -188,12 +184,9 @@ class TimeDownsampleRes2x(nn.Module):
             n, c, d, h, w = x.shape
             x_dtype = x.dtype
             x = x.to(torch.float16)
-            first_frame_pad = x[:, :, :1, :, :].repeat(
-                (1, 1, self.kernel_size[0] - 1, 1, 1)
-            )
-            x = torch.concatenate((first_frame_pad, x), dim=2)
+            x = self.pad(x)
             pad_x = x.view(n, c, -1, h, w)
-            avg_x = self.avg_pool(x.view(n * c, -1, h * w)).view(n, c, -1, h, w)
+            avg_x = self.avg_pool(x.view(n * c, -1, h * w)).view(n, c, -1, h, w).to(x_dtype)
             conv_x = npu_config.run_conv3d(self.conv, pad_x, x_dtype)
             return alpha * avg_x + (1 - alpha) * conv_x
         else:

@@ -547,16 +547,10 @@ def main(args):
             progress_info.train_loss += avg_loss.item() / args.gradient_accumulation_steps
 
             # Backpropagate
-            # accelerator.backward(loss)
-            accelerator.deepspeed_engine_wrapped.engine.backward(loss)
-            if step_ <= 2:
-                npu_config.print_grad_norm(model)
-            accelerator.deepspeed_engine_wrapped.engine.step()
-
+            accelerator.backward(loss)
             if accelerator.sync_gradients:
                 params_to_clip = model.parameters()
                 accelerator.clip_grad_norm_(params_to_clip, args.max_grad_norm)
-
             optimizer.step()
             lr_scheduler.step()
             optimizer.zero_grad()

@@ -1,4 +1,4 @@
-export PROJECT="512-final"
+export PROJECT="512-0504"
 WEIGHT_PATH="/home/opensora/shebin/pre_weights/"
 
 env
@@ -21,21 +21,21 @@ accelerate launch \
     --max_image_size 512 \
     --gradient_checkpointing \
     --attention_mode="xformers" \
-    --train_batch_size=2 \
+    --train_batch_size=1 \
     --dataloader_num_workers 10 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
-    --learning_rate=1e-07 \
-    --lr_scheduler="constant" \
-    --lr_warmup_steps=0 \
+    --learning_rate=1e-06 \
+    --lr_scheduler="cosine" \
+    --lr_warmup_steps=200 \
     --mixed_precision="bf16" \
     --report_to="wandb" \
-    --checkpointing_steps=200 \
-    --output_dir="512-final" \
+    --checkpointing_steps=100 \
+    --output_dir="512-0504" \
     --allow_tf32 \
     --pretrained "${WEIGHT_PATH}/t2v.pt" \
     --use_deepspeed \
     --model_max_length 300 \
-    --use_image_num 2 \
+    --use_image_num 4 \
     --enable_tiling \
     --enable_tracker
