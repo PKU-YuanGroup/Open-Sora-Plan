@@ -1,11 +1,11 @@
 export WANDB_KEY="953e958793b218efb850fa194e85843e2c3bd88b"
 export ENTITY="linbin"
-export PROJECT="test_img"
+export PROJECT="512ms_lr2e-5_bs64_4node"
 #export HF_ENDPOINT="https://hf-mirror.com"
 #export HF_DATASETS_OFFLINE=1 
 #export TRANSFORMERS_OFFLINE=1
 accelerate launch \
-    --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
+    --config_file scripts/accelerate_configs/multi_node_example.yaml \
     opensora/train/train_t2v.py \
     --model OpenSoraT2V-S/122 \
     --text_encoder_name DeepFloyd/t5-v1_1-xxl \
@@ -29,7 +29,7 @@ accelerate launch \
     --mixed_precision="bf16" \
     --report_to="wandb" \
     --checkpointing_steps=500 \
-    --output_dir="test_img" \
+    --output_dir="512ms_lr2e-5_bs64_4node" \
     --allow_tf32 \
     --use_deepspeed \
     --model_max_length 300 \
