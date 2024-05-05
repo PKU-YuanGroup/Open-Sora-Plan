@@ -29,3 +29,4 @@ sample_videos/
 debug*
 private*
 caption*
+.deepspeed_env
