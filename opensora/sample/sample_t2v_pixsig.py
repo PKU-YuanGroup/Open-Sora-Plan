@@ -18,12 +18,11 @@ import os, sys
 
 from opensora.models.ae import ae_stride_config, getae, getae_wrapper
 from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModelWrapper
-from opensora.models.diffusion.opensora.modeling_opensora import OpenSoraT2V_S_122
+from opensora.models.diffusion.opensora.modeling_opensora import OpenSoraT2V
 from opensora.models.text_encoder import get_text_enc
 from opensora.utils.utils import save_video_grid
 
-sys.path.append(os.path.split(sys.path[0])[0])
-from pipeline_opensora import OpenSoraPipeline
+from opensora.sample.pipeline_opensora import OpenSoraPipeline
 
 import imageio
 
@@ -32,47 +31,19 @@ def main(args):
     # torch.manual_seed(args.seed)
     weight_dtype = torch.float16
     device = torch.device(args.device)
-    # transformer_model = Transformer2DModel.from_pretrained(
-    #     "PixArt-alpha/PixArt-Sigma-XL-2-512-MS",
-    #     subfolder='transformer', cache_dir=args.cache_dir,
-    #     torch_dtype=weight_dtype,
-    #     use_safetensors=True, low_cpu_mem_usage=True
-    # )
+
     vae = getae_wrapper(args.ae)(args.ae_path).to(dtype=weight_dtype)
     if args.enable_tiling:
         vae.vae.enable_tiling()
         vae.vae.tile_overlap_factor = args.tile_overlap_factor
     vae.vae_scale_factor = ae_stride_config[args.ae]
-    latent_size = (64, 64)
-    latent_size_t = 1
-    transformer_model = OpenSoraT2V_S_122(in_channels=4, 
-                              out_channels=8, 
-                              sample_size=latent_size, 
-                              sample_size_t=latent_size_t, 
-                              activation_fn="gelu-approximate",
-                              attention_bias=True,
-                              attention_type="default",
-                              double_self_attention=False,
-                              norm_elementwise_affine=False,
-                              norm_eps=1e-06,
-                              norm_num_groups=32,
-                              num_vector_embeds=None,
-                              only_cross_attention=False,
-                              upcast_attention=False,
-                              use_linear_projection=False,
-                              use_additional_conditions=False).to(dtype=weight_dtype)
-    # print(2)
-    path = "/remote-home1/yeyang/dev3d/Open-Sora-Plan/test_img/checkpoint-16000/model/diffusion_pytorch_model.safetensors"
-    from safetensors.torch import load_file as safe_load
-    ckpt = safe_load(path, device="cpu")
-    transformer_model.load_state_dict(ckpt)
-    print(args.text_encoder_name)
-    text_encoder = T5EncoderModel.from_pretrained('/remote-home1/yeyang/dev3d/Open-Sora-Plan/cache_dir/models--DeepFloyd--t5-v1_1-xxl/snapshots/c9c625d2ec93667ec579ede125fd3811d1f81d37', low_cpu_mem_usage=True, torch_dtype=weight_dtype)
-    tokenizer = T5Tokenizer.from_pretrained('/remote-home1/yeyang/dev3d/Open-Sora-Plan/cache_dir/models--DeepFloyd--t5-v1_1-xxl/snapshots/c9c625d2ec93667ec579ede125fd3811d1f81d37', cache_dir=args.cache_dir)
-    # print(3)
-    # vae = AutoencoderKL.from_pretrained("/remote-home1/yeyang/dev3d/Open-Sora-Plan/vae", torch_dtype=torch.float16)
+
+    transformer_model = OpenSoraT2V.from_pretrained(args.model_path, low_cpu_mem_usage=True, device_map=None, torch_dtype=weight_dtype)
+    # print(transformer_model)
     
-    # print(1)
+    text_encoder = T5EncoderModel.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir, low_cpu_mem_usage=True, torch_dtype=weight_dtype)
+    tokenizer = T5Tokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
+    
     # set eval mode
     transformer_model.eval()
     vae.eval()
@@ -109,16 +80,18 @@ def main(args):
     
     if not os.path.exists(args.save_img_path):
         os.makedirs(args.save_img_path)
-    prompts = [
-        "A small cactus with a happy face in the Sahara desert.", 
-        "A quiet beach at dawn, the waves gently lapping at the shore and the sky painted in pastel hues.", 
-        "The majestic beauty of a waterfall cascading down a cliff into a serene lake.", 
-    ]
-    for prompt in prompts:
+        
+    if not isinstance(args.text_prompt, list):
+        args.text_prompt = [args.text_prompt]
+    if len(args.text_prompt) == 1 and args.text_prompt[0].endswith('txt'):
+        text_prompt = open(args.text_prompt[0], 'r').readlines()
+        text_prompt = [i.strip() for i in text_prompt]
+
+    for prompt in text_prompt:
         videos = pipeline(prompt,
-                        num_frames=1,
-                        height=512,
-                        width=512,
+                        num_frames=args.num_frames,
+                        height=args.height,
+                        width=args.width,
                         num_inference_steps=args.num_sampling_steps,
                         guidance_scale=args.guidance_scale,
                         num_images_per_prompt=1,
@@ -136,7 +109,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_path", type=str, default='LanguageBind/Open-Sora-Plan-v1.0.0')
     parser.add_argument("--version", type=str, default=None, choices=[None, '65x512x512', '65x256x256', '17x256x256'])
-    parser.add_argument("--image_size", type=int, default=512)
+    parser.add_argument("--num_frames", type=int, default=1)
+    parser.add_argument("--height", type=int, default=512)
+    parser.add_argument("--width", type=int, default=512)
     parser.add_argument("--device", type=str, default='cuda:0')
     parser.add_argument("--cache_dir", type=str, default='./cache_dir')
     parser.add_argument("--ae", type=str, default='CausalVAEModel_4x8x8')
@@ -149,7 +124,6 @@ if __name__ == "__main__":
     parser.add_argument("--fps", type=int, default=24)
     parser.add_argument("--run_time", type=int, default=0)
     parser.add_argument("--text_prompt", nargs='+')
-    parser.add_argument('--force_images', action='store_true')
     parser.add_argument('--tile_overlap_factor', type=float, default=0.25)
     parser.add_argument('--enable_tiling', action='store_true')
     args = parser.parse_args()

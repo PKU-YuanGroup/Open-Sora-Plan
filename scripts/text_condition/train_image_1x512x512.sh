@@ -25,7 +25,7 @@ accelerate launch \
     --max_train_steps=1000000 \
     --learning_rate=2e-05 \
     --lr_scheduler="constant" \
-    --lr_warmup_steps=1000 \
+    --lr_warmup_steps=0 \
     --mixed_precision="bf16" \
     --report_to="wandb" \
     --checkpointing_steps=500 \

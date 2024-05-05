@@ -1,5 +1,5 @@
 CUDA_VISIBLE_DEVICES=0 python opensora/sample/sample_t2v_pixsig.py \
-    --model_path LanguageBind/Open-Sora-Plan-v1.0.0 \
+    --model_path test_img/checkpoint-6000/model \
     --text_encoder_name DeepFloyd/t5-v1_1-xxl \
     --text_prompt examples/prompt_list_0.txt \
     --ae CausalVAEModel_4x8x8 \
@@ -7,8 +7,10 @@ CUDA_VISIBLE_DEVICES=0 python opensora/sample/sample_t2v_pixsig.py \
     --version 65x512x512 \
     --save_img_path "./sample_images/prompt_list_0" \
     --fps 24 \
+    --num_frames 1 \
+    --height 256 \
+    --width 512 \
     --guidance_scale 4.5 \
     --sample_method "DPMSolverMultistep" \
     --num_sampling_steps 50 \
-    --enable_tiling \
-    --force_images
+    --enable_tiling 

@@ -17,7 +17,7 @@ import inspect
 import re
 import urllib.parse as ul
 from typing import Callable, List, Optional, Tuple, Union
-
+import math
 import torch
 from transformers import T5EncoderModel, T5Tokenizer
 
@@ -519,15 +519,15 @@ class OpenSoraPipeline(DiffusionPipeline):
         caption = re.sub(r"^\.\S+$", "", caption)
 
         return caption.strip()
-
+    
     # Copied from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion.StableDiffusionPipeline.prepare_latents
     def prepare_latents(self, batch_size, num_channels_latents, num_frames, height, width, dtype, device, generator, latents=None):
         shape = (
             batch_size,
             num_channels_latents,
-            ((int(num_frames) - 1) // self.vae.vae_scale_factor[0] + 1) if int(num_frames) % 2 == 1 else int(num_frames) // self.vae.vae_scale_factor[0], 
-            int(height) // self.vae.vae_scale_factor[1],
-            int(width) // self.vae.vae_scale_factor[2],
+            (math.ceil((int(num_frames) - 1) / self.vae.vae_scale_factor[0]) + 1) if int(num_frames) % 2 == 1 else math.ceil(int(num_frames) / self.vae.vae_scale_factor[0]), 
+            math.ceil(int(height) / self.vae.vae_scale_factor[1]),
+            math.ceil(int(width) / self.vae.vae_scale_factor[2]),
         )
         if isinstance(generator, list) and len(generator) != batch_size:
             raise ValueError(
@@ -542,6 +542,8 @@ class OpenSoraPipeline(DiffusionPipeline):
 
         # scale the initial noise by the standard deviation required by the scheduler
         latents = latents * self.scheduler.init_noise_sigma
+
+
         return latents
 
     @torch.no_grad()
@@ -650,6 +652,7 @@ class OpenSoraPipeline(DiffusionPipeline):
                 returned where the first element is a list with the generated images
         """
         # 1. Check inputs. Raise error if not correct
+        num_frames = num_frames or self.transformer.config.sample_size_t * self.vae.vae_scale_factor[0]
         height = height or self.transformer.config.sample_size[0] * self.vae.vae_scale_factor[1]
         width = width or self.transformer.config.sample_size[1] * self.vae.vae_scale_factor[2]
 
@@ -755,9 +758,13 @@ class OpenSoraPipeline(DiffusionPipeline):
                     prompt_embeds = prompt_embeds.unsqueeze(1)  # b l d -> b 1 l d
                 if prompt_attention_mask.ndim == 2:
                     prompt_attention_mask = prompt_attention_mask.unsqueeze(1)  # b l -> b 1 l
+                # prepare attention_mask.
+                # b c t h w -> b t h w
+                attention_mask = torch.ones_like(latent_model_input)[:, 0]
                 # predict noise model_output
                 noise_pred = self.transformer(
                     latent_model_input,
+                    attention_mask=attention_mask, 
                     encoder_hidden_states=prompt_embeds,
                     encoder_attention_mask=prompt_attention_mask,
                     timestep=current_timestep,
@@ -788,7 +795,9 @@ class OpenSoraPipeline(DiffusionPipeline):
         # import ipdb;ipdb.set_trace()
         # latents = latents.squeeze(2)
         if not output_type == "latent":
+            # b t h w c
             image = self.decode_latents(latents)
+            image = image[:, :num_frames, :height, :width]
         else:
             image = latents
 
@@ -803,8 +812,6 @@ class OpenSoraPipeline(DiffusionPipeline):
     
     def decode_latents(self, latents):
         video = self.vae.decode(latents)
-        # video = self.vae.decode(latents / 0.18215)
-        # video = rearrange(video, 'b c t h w -> b t c h w').contiguous()
-        video = ((video / 2.0 + 0.5).clamp(0, 1) * 255).to(dtype=torch.uint8).cpu().permute(0, 1, 3, 4, 2).contiguous()
+        video = ((video / 2.0 + 0.5).clamp(0, 1) * 255).to(dtype=torch.uint8).cpu().permute(0, 1, 3, 4, 2).contiguous() # b t h w c
         # we always cast to float32 as this does not cause significant overhead and is compatible with bfloa16
         return video
