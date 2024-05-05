@@ -2,7 +2,7 @@ compute_environment: LOCAL_MACHINE
 distributed_type: DEEPSPEED
 deepspeed_config:
  deepspeed_config_file: scripts/accelerate_configs/zero2.json
- deepspeed_hostfile: /remote-home1/yeyang/Open-Sora-Plan/scripts/accelerate_configs/hostfile
+ deepspeed_hostfile: scripts/accelerate_configs/hostfile
 fsdp_config: {}
 machine_rank: 0
 main_process_ip: 10.10.10.55

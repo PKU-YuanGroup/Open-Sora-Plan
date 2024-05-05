@@ -232,8 +232,8 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
     def forward(
         self,
         hidden_states: torch.Tensor,
-        encoder_hidden_states: Optional[torch.Tensor] = None,
         timestep: Optional[torch.LongTensor] = None,
+        encoder_hidden_states: Optional[torch.Tensor] = None,
         added_cond_kwargs: Dict[str, torch.Tensor] = None,
         class_labels: Optional[torch.LongTensor] = None,
         cross_attention_kwargs: Dict[str, Any] = None,
@@ -303,7 +303,7 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
             #   (keep = +0,     discard = -10000.0)
             # b, frame+use_image_num, h, w -> a video with images
             # b, 1, h, w -> only images
-            attention_mask = attention_mask.to(hidden_states.dtype)
+            attention_mask = attention_mask.to(self.dtype)
             attention_mask_vid = attention_mask[:, :frame]  # b, frame, h, w
             attention_mask_img = attention_mask[:, frame:]  # b, use_image_num, h, w
 
@@ -318,8 +318,8 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
                 attention_mask_img = F.max_pool2d(attention_mask_img, kernel_size=(self.patch_size, self.patch_size), stride=(self.patch_size, self.patch_size))
                 attention_mask_img = rearrange(attention_mask_img, 'b i h w -> (b i) 1 (h w)') 
 
-            attention_mask_vid = (1 - attention_mask_vid.bool().to(hidden_states.dtype)) * -10000.0 if attention_mask_vid.numel() > 0 else None
-            attention_mask_img = (1 - attention_mask_img.bool().to(hidden_states.dtype)) * -10000.0 if attention_mask_img.numel() > 0 else None
+            attention_mask_vid = (1 - attention_mask_vid.bool().to(self.dtype)) * -10000.0 if attention_mask_vid.numel() > 0 else None
+            attention_mask_img = (1 - attention_mask_img.bool().to(self.dtype)) * -10000.0 if attention_mask_img.numel() > 0 else None
 
             # import ipdb;ipdb.set_trace()
             if frame == 1 and use_image_num == 0:
@@ -330,7 +330,7 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
         if encoder_attention_mask is not None and encoder_attention_mask.ndim == 3:  
             # b, 1+use_image_num, l -> a video with images
             # b, 1, l -> only images
-            encoder_attention_mask = (1 - encoder_attention_mask.to(hidden_states.dtype)) * -10000.0
+            encoder_attention_mask = (1 - encoder_attention_mask.to(self.dtype)) * -10000.0
             in_t = encoder_attention_mask.shape[1]
             encoder_attention_mask_vid = encoder_attention_mask[:, :in_t-use_image_num]  # b, 1, l
             encoder_attention_mask_vid = rearrange(encoder_attention_mask_vid, 'b 1 l -> (b 1) 1 l') if encoder_attention_mask_vid.numel() > 0 else None
@@ -453,7 +453,7 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
 
     def _operate_on_patched_inputs(self, hidden_states, encoder_hidden_states, timestep, added_cond_kwargs, batch_size, frame, use_image_num):
         # batch_size = hidden_states.shape[0]
-        hidden_states_vid, hidden_states_img = self.pos_embed(hidden_states, frame)
+        hidden_states_vid, hidden_states_img = self.pos_embed(hidden_states.to(self.dtype), frame)
         timestep_vid, timestep_img = None, None
         embedded_timestep_vid, embedded_timestep_img = None, None
         encoder_hidden_states_vid, encoder_hidden_states_img = None, None
@@ -464,7 +464,7 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
                     "`added_cond_kwargs` cannot be None when using additional conditions for `adaln_single`."
                 )
             timestep, embedded_timestep = self.adaln_single(
-                timestep, added_cond_kwargs, batch_size=batch_size, hidden_dtype=hidden_states.dtype
+                timestep, added_cond_kwargs, batch_size=batch_size, hidden_dtype=self.dtype
             )  # b 6d, b d
             if hidden_states_vid is None:
                 timestep_img = timestep
@@ -496,7 +496,7 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
     ):
         if self.config.norm_type != "ada_norm_single":
             conditioning = self.transformer_blocks[0].norm1.emb(
-                timestep, class_labels, hidden_dtype=hidden_states.dtype
+                timestep, class_labels, hidden_dtype=self.dtype
             )
             shift, scale = self.proj_out_1(F.silu(conditioning)).chunk(2, dim=1)
             hidden_states = self.norm_out(hidden_states) * (1 + scale[:, None]) + shift[:, None]
@@ -533,6 +533,7 @@ def OpenSoraT2V_S_222(**kwargs):
                        norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=1152, **kwargs)
 
 OpenSora_models = {
+    "OpenSoraT2V-S/122": OpenSoraT2V_S_122,
     "OpenSoraT2V-S/222": OpenSoraT2V_S_222,
 }
 

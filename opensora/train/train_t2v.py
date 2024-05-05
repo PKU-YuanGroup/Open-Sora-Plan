@@ -58,6 +58,7 @@ logger = get_logger(__name__)
 @torch.inference_mode()
 def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weight_dtype, global_step):
     validation_prompt = [
+        "A small cactus with a happy face in the Sahara desert.", 
         "A quiet beach at dawn, the waves gently lapping at the shore and the sky painted in pastel hues.", 
         "The majestic beauty of a waterfall cascading down a cliff into a serene lake."
     ]
@@ -65,7 +66,7 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
     model = accelerator.unwrap_model(model)
     # scheduler = PNDMScheduler()
     scheduler = DPMSolverMultistepScheduler()
-    videogen_pipeline = OpenSoraPipeline(vae=vae,
+    opensora_pipeline = OpenSoraPipeline(vae=vae,
                                          text_encoder=text_encoder,
                                          tokenizer=tokenizer,
                                          scheduler=scheduler,
@@ -73,16 +74,16 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
     videos = []
     for prompt in validation_prompt:
         logger.info('Processing the ({}) prompt'.format(prompt))
-        video = videogen_pipeline(prompt,
-                                video_length=args.num_frames,
+        video = opensora_pipeline(prompt,
+                                num_frames=args.num_frames,
                                 height=args.max_image_size,
                                 width=args.max_image_size,
                                 num_inference_steps=args.num_sampling_steps,
                                 guidance_scale=args.guidance_scale,
-                                # enable_temporal_attentions=True,
+                                enable_temporal_attentions=True,
                                 num_images_per_prompt=1,
                                 mask_feature=True,
-                                ).video
+                                ).images
         videos.append(video[0])
     # import ipdb;ipdb.set_trace()
     gc.collect()
@@ -91,20 +92,38 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
     videos = rearrange(videos, 'b t h w c -> b t c h w')
     for tracker in accelerator.trackers:
         if tracker.name == "tensorboard":
-            np_videos = np.stack([np.asarray(vid) for vid in videos])
-            tracker.writer.add_video("validation", np_videos, global_step, fps=10)
+            if videos.shape[1] == 1:
+                assert args.num_frames == 1
+                images = rearrange(videos, 'b 1 c h w -> (b 1) h w c') 
+                np_images = np.stack([np.asarray(img) for img in images])
+                tracker.writer.add_images("validation", np_images, global_step, dataformats="NHWC")
+            else:
+                np_videos = np.stack([np.asarray(vid) for vid in videos])
+                tracker.writer.add_video("validation", np_videos, global_step, fps=10)
         if tracker.name == "wandb":
             import wandb
-            tracker.log(
-                {
-                    "validation": [
-                        wandb.Video(video, caption=f"{i}: {prompt}", fps=10)
-                        for i, (video, prompt) in enumerate(zip(videos, validation_prompt))
-                    ]
-                }
-            )
+            if videos.shape[1] == 1:
+                assert args.num_frames == 1
+                images = rearrange(videos, 'b 1 c h w -> (b 1) h w c') 
+                tracker.log(
+                    {
+                        "validation": [
+                            wandb.Image(image, caption=f"{i}: {prompt}")
+                            for i, (image, prompt) in enumerate(zip(images, validation_prompt))
+                        ]
+                    }
+                )
+            else:
+                tracker.log(
+                    {
+                        "validation": [
+                            wandb.Video(video, caption=f"{i}: {prompt}", fps=10)
+                            for i, (video, prompt) in enumerate(zip(videos, validation_prompt))
+                        ]
+                    }
+                )
 
-    del videogen_pipeline
+    del opensora_pipeline
     gc.collect()
     torch.cuda.empty_cache()
 #################################################################################
@@ -230,7 +249,7 @@ def main(args):
             if checkpoint['pos_embed.proj.weight'].shape != model.pos_embed.proj.weight.shape and checkpoint['pos_embed.proj.weight'].ndim == 4:
                 repeat = model.pos_embed.proj.weight.shape[2]
                 checkpoint['pos_embed.proj.weight'] = checkpoint['pos_embed.proj.weight'].unsqueeze(2).repeat(1, 1, repeat, 1, 1) / float(repeat)
-            del checkpoint['proj_out.weight'], checkpoint['proj_out.bias']
+                del checkpoint['proj_out.weight'], checkpoint['proj_out.bias']
         else:  # latest stage training weight
             checkpoint = torch.load(args.pretrained, map_location='cpu')['model']
         model_state_dict = model.state_dict()
@@ -583,7 +602,7 @@ if __name__ == "__main__":
     parser.add_argument("--cache_dir", type=str, default='./cache_dir')
 
     parser.add_argument("--num_sampling_steps", type=int, default=50)
-    parser.add_argument('--guidance_scale', type=float, default=10.0)
+    parser.add_argument('--guidance_scale', type=float, default=4.5)
     parser.add_argument("--enable_tracker", action="store_true")
     parser.add_argument("--use_deepspeed", action="store_true")
     parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")

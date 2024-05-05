@@ -21,7 +21,6 @@ from typing import Callable, List, Optional, Tuple, Union
 import torch
 from transformers import T5EncoderModel, T5Tokenizer
 
-from diffusers.image_processor import PixArtImageProcessor
 from diffusers.models import AutoencoderKL, Transformer2DModel
 from diffusers.schedulers import DPMSolverMultistepScheduler
 from diffusers.utils import (
@@ -34,7 +33,6 @@ from diffusers.utils import (
 )
 from diffusers.utils.torch_utils import randn_tensor
 from diffusers.pipelines.pipeline_utils import DiffusionPipeline, ImagePipelineOutput
-from diffusers.pipelines.pixart_alpha.pipeline_pixart_sigma import ASPECT_RATIO_256_BIN, ASPECT_RATIO_512_BIN, ASPECT_RATIO_1024_BIN, ASPECT_RATIO_2048_BIN
 
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
@@ -149,7 +147,6 @@ class OpenSoraPipeline(DiffusionPipeline):
         )
 
         # self.vae_scale_factor = 2 ** (len(self.vae.config.block_out_channels) - 1)
-        self.image_processor = PixArtImageProcessor(vae_scale_factor=self.vae.vae_scale_factor[1:])
 
     # Copied from diffusers.pipelines.pixart_alpha.pipeline_pixart_alpha.PixArtAlphaPipeline.encode_prompt
     def encode_prompt(
@@ -199,7 +196,7 @@ class OpenSoraPipeline(DiffusionPipeline):
             deprecate("mask_feature", "1.0.0", deprecation_message, standard_warn=False)
 
         if device is None:
-            device = self._execution_device
+            device = getattr(self, '_execution_device', None) or getattr(self, 'device', None) or torch.device('cuda')
 
         if prompt is not None and isinstance(prompt, str):
             batch_size = 1
@@ -653,21 +650,8 @@ class OpenSoraPipeline(DiffusionPipeline):
                 returned where the first element is a list with the generated images
         """
         # 1. Check inputs. Raise error if not correct
-        height = height or self.transformer.config.sample_size[0] * self.vae_scale_factor[1]
-        width = width or self.transformer.config.sample_size[1] * self.vae_scale_factor[2]
-        if use_resolution_binning:
-            # if self.transformer.config.sample_size == 256:
-            #     aspect_ratio_bin = ASPECT_RATIO_2048_BIN
-            # elif self.transformer.config.sample_size == 128:
-            #     aspect_ratio_bin = ASPECT_RATIO_1024_BIN
-            # elif self.transformer.config.sample_size == 64:
-            aspect_ratio_bin = ASPECT_RATIO_512_BIN
-            # elif self.transformer.config.sample_size == 32:
-            #     aspect_ratio_bin = ASPECT_RATIO_256_BIN
-            # else:
-            #     raise ValueError("Invalid sample size")
-            orig_height, orig_width = height, width
-            height, width = self.image_processor.classify_height_width_bin(height, width, ratios=aspect_ratio_bin)
+        height = height or self.transformer.config.sample_size[0] * self.vae.vae_scale_factor[1]
+        width = width or self.transformer.config.sample_size[1] * self.vae.vae_scale_factor[2]
 
         self.check_inputs(
             prompt,
@@ -689,8 +673,8 @@ class OpenSoraPipeline(DiffusionPipeline):
             batch_size = len(prompt)
         else:
             batch_size = prompt_embeds.shape[0]
-
-        device = self._execution_device
+        # import ipdb;ipdb.set_trace()
+        device = getattr(self, '_execution_device', None) or getattr(self, 'device', None) or torch.device('cuda')
 
         # here `guidance_scale` is defined analog to the guidance weight `w` of equation (2)
         # of the Imagen paper: https://arxiv.org/pdf/2205.11487.pdf . `guidance_scale = 1`
@@ -802,16 +786,11 @@ class OpenSoraPipeline(DiffusionPipeline):
                         step_idx = i // getattr(self.scheduler, "order", 1)
                         callback(step_idx, t, latents)
         # import ipdb;ipdb.set_trace()
-        latents = latents.squeeze(2)
+        # latents = latents.squeeze(2)
         if not output_type == "latent":
-            image = self.vae.decode(latents / self.vae.config.scaling_factor, return_dict=False)[0]
-            if use_resolution_binning:
-                image = self.image_processor.resize_and_crop_tensor(image, orig_width, orig_height)
+            image = self.decode_latents(latents)
         else:
             image = latents
-
-        if not output_type == "latent":
-            image = self.image_processor.postprocess(image, output_type=output_type)
 
         # Offload all models
         self.maybe_free_model_hooks()
@@ -820,3 +799,12 @@ class OpenSoraPipeline(DiffusionPipeline):
             return (image,)
 
         return ImagePipelineOutput(images=image)
+    
+    
+    def decode_latents(self, latents):
+        video = self.vae.decode(latents)
+        # video = self.vae.decode(latents / 0.18215)
+        # video = rearrange(video, 'b c t h w -> b t c h w').contiguous()
+        video = ((video / 2.0 + 0.5).clamp(0, 1) * 255).to(dtype=torch.uint8).cpu().permute(0, 1, 3, 4, 2).contiguous()
+        # we always cast to float32 as this does not cause significant overhead and is compatible with bfloa16
+        return video
