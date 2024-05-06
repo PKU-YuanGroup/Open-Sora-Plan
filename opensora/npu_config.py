@@ -49,7 +49,7 @@ class NPUConfig:
         self.mm.clear()
 
     def __del__(self):
-        self.freeze()
+        self.free_mm()
 
     def try_load_pickle(self, file_name, function):
         file_name = self.get_pickle_path(file_name)
@@ -71,7 +71,7 @@ class NPUConfig:
     def npu_format_cast(self, x):
         return torch_npu.npu_format_cast(x, 2)
 
-    def print_grad_norm(self, model):
+    def calc_grad_norm(self, model):
         # 计算并打印梯度范数
         # model_engine = accelerator.deepspeed_engine_wrapped.engine
         # gradients = model_engine.get_gradients()
@@ -89,8 +89,7 @@ class NPUConfig:
                 n_grad += 1
         grad_norm = (grad_norm / n_grad) ** (1. / 2)
 
-        # self.print_msg('=' * 50)
-        self.print_msg(f'Gradient Norm is : {grad_norm}', rank=0)
+        return grad_norm
 
     def _run(self, operator, x, tmp_dtype, out_dtype=None, out_nd_format=False):
         if self.on_npu:

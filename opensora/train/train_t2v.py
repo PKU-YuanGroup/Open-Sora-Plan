@@ -68,9 +68,13 @@ logger = get_logger(__name__)
 
 @torch.inference_mode()
 def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weight_dtype, global_step):
+    # validation_prompt = [
+    #     "A quiet beach at dawn, the waves gently lapping at the shore and the sky painted in pastel hues.",
+    #     "The majestic beauty of a waterfall cascading down a cliff into a serene lake."
+    # ]
     validation_prompt = [
-        "A quiet beach at dawn, the waves gently lapping at the shore and the sky painted in pastel hues.",
-        "The majestic beauty of a waterfall cascading down a cliff into a serene lake."
+        'The video showcases a serene and picturesque countryside setting, featuring a scenic rural landscape with a winding road stretching into the distance. The sky is consistently filled with fluffy white clouds against a bright blue backdrop throughout the video. In the foreground, there is a grassy field enclosed by a fence, with cows grazing peacefully. The surroundings are lush and green, with trees lining the roadside. As the video progresses, the camera moves slightly forward along the road, offering a slightly varied perspective of the same tranquil countryside scenery.',
+        'The video presents a continuous urban street scene with various elements remaining consistent throughout its duration. It features residential buildings in the background, some with balconies, and a bustling environment with parked vehicles, including a noticeable blue truck with a tarpaulin covering its contents. Near a small kiosk or stall with a blue and white striped awning, suggesting it might be a food vendor or market stall, a group of people is seen standing, engaging in what appears to be casual activities. The scene is dynamic yet largely unchanged, with the exception of a person walking across the foreground, moving from the right side towards the left, introducing a minor change in the movement within the frame. Overall, the video captures a typical urban setting with daily activities taking place.'
     ]
     logger.info(f"Running validation....\n")
     model = accelerator.unwrap_model(model)
@@ -485,7 +489,11 @@ def main(args):
         loss = loss_dict["loss"].mean()
 
         # Backpropagate
-        accelerator.backward(loss)
+        # accelerator.backward(loss)
+        accelerator.deepspeed_engine_wrapped.engine.backward(loss)
+        grad_norm = npu_config.calc_grad_norm(model)
+        accelerator.deepspeed_engine_wrapped.engine.step()
+
         if accelerator.sync_gradients:
             params_to_clip = model.parameters()
             accelerator.clip_grad_norm_(params_to_clip, args.max_grad_norm)
@@ -493,7 +501,7 @@ def main(args):
         lr_scheduler.step()
         optimizer.zero_grad()
 
-        return loss
+        return loss, grad_norm
 
     def train_one_step(step_, data_item_):
         x, attn_mask, input_ids, cond_mask = data_item_
@@ -527,6 +535,7 @@ def main(args):
 
         if get_sequence_parallel_state():
             loss = 0.0
+            grad_norm = 0.0
             # npu_config.print_tensor_stats(attn_mask, "attn_mask before prepare_parallel_data")
             x, cond, attn_mask, cond_mask, use_image_num = prepare_parallel_data(x, cond, attn_mask, cond_mask, args.use_image_num)
             # npu_config.print_tensor_stats(attn_mask, "attn_mask after prepare_parallel_data")
@@ -538,8 +547,10 @@ def main(args):
                     model_kwargs = dict(encoder_hidden_states=cond[st_idx: ed_idx], attention_mask=attn_mask[st_idx: ed_idx],
                                         encoder_attention_mask=cond_mask[st_idx: ed_idx], use_image_num=use_image_num)
 
-                    loss_ = run(x[st_idx: ed_idx], model_kwargs)
+                    loss_, grad_norm_ = run(x[st_idx: ed_idx], model_kwargs)
                     loss += loss_.detach().item() / (
+                                args.train_batch_size * args.sp_size // args.train_sp_batch_size)
+                    grad_norm += grad_norm_ / (
                                 args.train_batch_size * args.sp_size // args.train_sp_batch_size)
                     # Gather the losses across all processes for logging (if we use distributed training).
                     avg_loss = accelerator.gather(loss_.repeat(args.train_sp_batch_size)).mean()
@@ -549,13 +560,13 @@ def main(args):
             with accelerator.accumulate(model):
                 model_kwargs = dict(encoder_hidden_states=cond, attention_mask=attn_mask,
                                     encoder_attention_mask=cond_mask, use_image_num=args.use_image_num)
-                loss_ = run(x, model_kwargs)
+                loss_, grad_norm = run(x, model_kwargs)
                 loss = loss_.detach().item()
                 # Gather the losses across all processes for logging (if we use distributed training).
                 avg_loss = accelerator.gather(loss_.repeat(args.train_batch_size)).mean()
                 progress_info.train_loss += avg_loss.detach().item() / args.gradient_accumulation_steps
 
-        npu_config.print_msg(f"Step: [{step_}], Enter: after forward", rank=0)
+        npu_config.print_msg(f"Step: [{step_}], local_loss={loss}, grad_norm={grad_norm}, avg_loss={avg_loss}, acc_train_loss={progress_info.train_loss}", rank=0)
 
         # Checks if the accelerator has performed an optimization step behind the scenes
         if accelerator.sync_gradients:
@@ -569,7 +580,7 @@ def main(args):
             progress_info.train_loss = 0.0
 
             if args.use_deepspeed or accelerator.is_main_process:
-                if progress_info.global_step % args.checkpointing_steps == 0:
+                if progress_info.global_step % args.checkpointing_steps == 0 and progress_info.global_step > 1:
                     # _before_ saving state, check if this save would set us over the `checkpoints_total_limit`
                     if args.checkpoints_total_limit is not None:
                         checkpoints = os.listdir(args.output_dir)
@@ -600,7 +611,7 @@ def main(args):
         if progress_info.global_step >= args.max_train_steps:
             return True
 
-        if accelerator.is_main_process:
+        if accelerator.is_main_process and progress_info.global_step > 1:
             if progress_info.global_step % args.checkpointing_steps == 0:
                 if args.use_ema:
                     # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
@@ -624,6 +635,8 @@ def main(args):
                     break
                 if prof_:
                     prof.step()
+                if step >= 2:
+                    npu_config.free_mm()
 
     if npu_config.on_npu and npu_config.profiling:
         experimental_config = torch_npu.profiler._ExperimentalConfig(

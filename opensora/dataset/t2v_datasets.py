@@ -80,8 +80,6 @@ class T2V_dataset(Dataset):
         try:
             idx = self.elements[self.n_used_elements]
             self.n_used_elements += 1
-            if self.n_used_elements > 20:
-                npu_config.free_mm()
 
             self.n_used_elements = self.n_used_elements % self.n_samples
             video_data = self.get_video(idx)
