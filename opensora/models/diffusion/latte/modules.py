@@ -31,8 +31,9 @@ if is_xformers_available():
     import xformers.ops
 else:
     xformers = None
-
-
+from opensora.acceleration.parallel_states import get_sequence_parallel_state, hccl_info, lccl_info, enable_LCCL
+from opensora.acceleration.communications import all_to_all_SBH
+import torch_npu
 class CombinedTimestepSizeEmbeddings(nn.Module):
     """
     For PixArt-Alpha.
@@ -868,7 +869,13 @@ class AttnProcessor2_0:
 
         if not hasattr(F, "scaled_dot_product_attention"):
             raise ImportError("AttnProcessor2_0 requires PyTorch 2.0, to use it, please upgrade PyTorch to 2.0.")
-        
+
+        if get_sequence_parallel_state():
+            if enable_LCCL:
+                self.sp_size = lccl_info.world_size
+            else:
+                self.sp_size = hccl_info.world_size
+
 
     def _init_rope(self):
         if self.rope_scaling is None:
@@ -927,9 +934,14 @@ class AttnProcessor2_0:
                 
             encoder_hidden_states = attn.norm(encoder_hidden_states)
 
-        batch_size, sequence_length, _ = (
-            hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
-        )
+        if npu_config.on_npu and get_sequence_parallel_state() and attention_mask == None:
+            sequence_length, batch_size, _ = (
+                hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
+            )
+        else:
+            batch_size, sequence_length, _ = (
+                hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
+            )
 
         if attention_mask is not None:
             attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length, batch_size)
@@ -952,15 +964,38 @@ class AttnProcessor2_0:
         elif attn.norm_cross:
             encoder_hidden_states = attn.norm_encoder_hidden_states(encoder_hidden_states)
 
+
+
         key = attn.to_k(encoder_hidden_states, *args)
         value = attn.to_v(encoder_hidden_states, *args)
 
         inner_dim = key.shape[-1]
         head_dim = inner_dim // attn.heads
         if npu_config.on_npu and npu_config.enable_FA:
-            # print(f"query: {query.shape}, key: {key.shape}, value: {value.shape}, mas: {attention_mask.shape}", flush=True)
-            hidden_states = torch_npu.npu_fusion_attention(query, key, value, atten_mask=attention_mask, input_layout="BSH",
-                                           scale=1/math.sqrt(head_dim), head_num=attn.heads)[0]
+            if get_sequence_parallel_state() and attention_mask == None:
+                query = query.view(-1, attn.heads, head_dim) # [s // sp, b, h * d] -> [s // sp * b, h, d]
+                key = key.view(-1, attn.heads, head_dim)
+                value = value.view(-1, attn.heads, head_dim)
+
+                # apply all_to_all to gather sequence and split attention heads [s // sp * b, h, d] -> [s * b, h // sp, d]
+                query = all_to_all_SBH(query, scatter_dim=1, gather_dim=0).view(-1, batch_size,
+                                                                                               attn.heads // self.sp_size * head_dim)
+                key = all_to_all_SBH(key, scatter_dim=1, gather_dim=0).view(-1, batch_size,
+                                                                                           attn.heads // self.sp_size * head_dim)
+                value = all_to_all_SBH(value, scatter_dim=1, gather_dim=0).view(-1, batch_size,
+                                                                                               attn.heads // self.sp_size * head_dim)
+
+
+                hidden_states = torch_npu.npu_fusion_attention(query, key, value, scale=1/math.sqrt(head_dim),
+                                                               head_num=attn.heads // self.sp_size, input_layout='SBH')[0]
+                hidden_states = hidden_states.view(-1, attn.heads // self.sp_size, head_dim)
+
+                # [s * b, h // sp, d] -> [s // sp * b, h, d] -> [s // sp, b, h * d]
+                hidden_states = all_to_all_SBH(hidden_states, scatter_dim=0, gather_dim=1).view(-1, batch_size,
+                                                                                                            attn.heads * head_dim)
+            else:
+                hidden_states = torch_npu.npu_fusion_attention(query, key, value, atten_mask=attention_mask, input_layout="BSH",
+                                               scale=1/math.sqrt(head_dim), head_num=attn.heads)[0]
         else:
             query = query.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
 
@@ -1295,7 +1330,6 @@ class BasicTransformerBlock_(nn.Module):
     ) -> torch.FloatTensor:
         # Notice that normalization is always applied before the real computation in the following blocks.
         # 0. Self-Attention
-        batch_size = hidden_states.shape[0]
 
         if self.use_ada_layer_norm:
             norm_hidden_states = self.norm1(hidden_states, timestep)
@@ -1306,12 +1340,18 @@ class BasicTransformerBlock_(nn.Module):
         elif self.use_layer_norm:
             norm_hidden_states = self.norm1(hidden_states)
         elif self.use_ada_layer_norm_single:
-            shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
-                    self.scale_shift_table[None] + timestep.reshape(batch_size, 6, -1)
-            ).chunk(6, dim=1)
+            if get_sequence_parallel_state():
+                batch_size = hidden_states.shape[1]
+                shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
+                        self.scale_shift_table[:, None] + timestep.reshape(6, batch_size, -1)
+                ).chunk(6, dim=0)
+            else:
+                batch_size = hidden_states.shape[0]
+                shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
+                        self.scale_shift_table[None] + timestep.reshape(batch_size, 6, -1)
+                ).chunk(6, dim=1)
             norm_hidden_states = self.norm1(hidden_states)
             norm_hidden_states = norm_hidden_states * (1 + scale_msa) + shift_msa
-            norm_hidden_states = norm_hidden_states.squeeze(1)
         else:
             raise ValueError("Incorrect norm used")
 

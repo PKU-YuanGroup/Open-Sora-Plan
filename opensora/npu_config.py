@@ -1,12 +1,13 @@
 import math
+import mmap
 import os
 import pickle
-
+import random
+import numpy as np
 import torch
 
 try:
     import torch_npu
-
     npu_is_available = True
 except:
     npu_is_available = False
@@ -18,14 +19,16 @@ class NPUConfig:
 
     def __init__(self):
         self.on_npu = npu_is_available
-        self.node_world_size = 8
+        self.node_world_size = self.N_NPU_PER_NODE
         self.profiling = False
         self.profiling_step = 5
+        self.enable_FA = True
+        self.load_pickle = True
+
         self._loss = []
-        self.enable_FA = False
         self.work_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.pickle_save_path = f"{self.work_path}/pickles"
-        self.load_pickle = True
+        self.mm = dict()
 
         if self.on_npu:
             from torch_npu.contrib import transfer_to_npu
@@ -38,19 +41,31 @@ class NPUConfig:
         self.print_with_rank(f"The npu_config.on_npu is {self.on_npu}")
 
     def get_pickle_path(self, file_name):
-        return f"{self.pickle_save_path}/{file_name}_{self.rank % self.N_NPU_PER_NODE}.pkl"
+        return f"{self.pickle_save_path}/{file_name}_0.pkl"
+
+    def free_mm(self):
+        for key, value in self.mm.items():
+            value.close()
+        self.mm.clear()
+
+    def __del__(self):
+        self.freeze()
 
     def try_load_pickle(self, file_name, function):
         file_name = self.get_pickle_path(file_name)
         if os.path.exists(file_name) and self.load_pickle:
             with open(file_name, 'rb') as file:
-                loaded_data = pickle.load(file)
+                self.mm[file_name] = mmap.mmap(file.fileno(), 0, access=mmap.ACCESS_READ)
+                # 使用 mmap 进行数据读取
+                loaded_data = pickle.loads(self.mm[file_name][:])
                 return loaded_data
         else:
             data = function()
-            os.makedirs(self.pickle_save_path, exist_ok=True)
-            with open(file_name, 'wb') as file:
-                pickle.dump(data, file, pickle.HIGHEST_PROTOCOL)
+            if self.rank % self.N_NPU_PER_NODE == 0:
+                # 只需要rank0保存文件
+                os.makedirs(self.pickle_save_path, exist_ok=True)
+                with open(file_name, 'wb') as file:
+                    pickle.dump(data, file, pickle.HIGHEST_PROTOCOL)
             return data
 
     def npu_format_cast(self, x):
@@ -119,7 +134,7 @@ class NPUConfig:
     def run_pool_2d(self, operator, x):
         return self._run(operator, x, torch.float16)
 
-    def seed_everything(seed=0):
+    def seed_everything(self, seed=0):
         random.seed(seed)
         np.random.seed(seed)
         torch.manual_seed(seed)
@@ -172,7 +187,6 @@ class NPUConfig:
         if self.rank == rank:
             print(name)
             print(tensor.size())
-
             def print_dim(tensor_, indices):
                 if tensor_.dim() == len(indices):
                     print('{0:10.5f}'.format(tensor[tuple(indices)].detach().item()), end=' ')
@@ -181,7 +195,6 @@ class NPUConfig:
                     for x in range(0, tensor_.size(cur_dim), tensor_.size(cur_dim) // dim_print_cnt[cur_dim]):
                         print_dim(tensor_, indices + [x])
                     print()
-
             print_dim(tensor, [])
 
 

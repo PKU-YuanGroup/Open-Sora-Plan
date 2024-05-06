@@ -52,11 +52,11 @@ class T2V_dataset(Dataset):
         self.v_decoder = DecordInit()
 
         # self.vid_cap_list, self.local_vid_cap_list = self.get_vid_cap_list()
-        self.vid_cap_list, self.local_vid_cap_list = npu_config.try_load_pickle("vid_cap_list.pkl",
-                                                                                self.get_vid_cap_list)
+        self.global_vid_cap_list, self.vid_cap_list = npu_config.try_load_pickle("vid_cap_list.pkl",
+                                                                                 self.get_vid_cap_list)
+        npu_config.print_msg(f"len(self.global_vid_cap_list) = {len(self.global_vid_cap_list)}")
         npu_config.print_msg(f"len(self.vid_cap_list) = {len(self.vid_cap_list)}")
-        npu_config.print_msg(f"len(self.local_vid_cap_list) = {len(self.local_vid_cap_list)}")
-        self.vid_cap_list = self.local_vid_cap_list
+        # self.vid_cap_list = self.local_vid_cap_list
         self.n_samples = len(self.vid_cap_list)
         # 生成一个从0到num_elements-1的列表
         self.elements = list(range(self.n_samples))
@@ -67,19 +67,22 @@ class T2V_dataset(Dataset):
         self.use_img_from_vid = args.use_img_from_vid
         if self.use_image_num != 0 and not self.use_img_from_vid:
             # self.img_cap_list, self.local_img_cap_lists = self.get_img_cap_list()
-            self.img_cap_list, self.local_img_cap_lists = npu_config.try_load_pickle("img_cap_list.pkl",
+            self.global_img_cap_list, self.img_cap_list = npu_config.try_load_pickle("img_cap_list.pkl",
                                                                                      self.get_img_cap_list)
+            npu_config.print_msg(f"len(self.global_img_cap_list) = {len(self.global_img_cap_list)}")
             npu_config.print_msg(f"len(self.img_cap_list) = {len(self.img_cap_list)}")
-            npu_config.print_msg(f"len(self.local_img_cap_lists) = {len(self.local_img_cap_lists)}")
-            self.img_cap_list = self.local_img_cap_lists
+            # self.img_cap_list = self.local_img_cap_lists
 
     def __len__(self):
-        return len(self.vid_cap_list)
+        return len(self.global_vid_cap_list)
 
     def __getitem__(self, idx):
         try:
             idx = self.elements[self.n_used_elements]
             self.n_used_elements += 1
+            if self.n_used_elements > 20:
+                npu_config.free_mm()
+
             self.n_used_elements = self.n_used_elements % self.n_samples
             video_data = self.get_video(idx)
             image_data = {}

@@ -59,7 +59,8 @@ from opensora.utils.dataset_utils import Collate
 from opensora.models.ae import ae_stride_config, ae_channel_config
 from opensora.models.diffusion import Diffusion_models
 from opensora.sample.pipeline_videogen import VideoGenPipeline
-
+from opensora.acceleration.parallel_states import initialize_sequence_parallel_state, destroy_sequence_parallel_group, get_sequence_parallel_state
+from opensora.acceleration.communications import prepare_parallel_data
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 check_min_version("0.24.0")
 logger = get_logger(__name__)
@@ -122,17 +123,6 @@ class ProgressInfo:
         self.global_step = global_step
         self.train_loss = train_loss
 
-
-def seed_everything(seed=0):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-
-
 def generate_timestep_weights(args, num_timesteps):
     weights = torch.ones(num_timesteps)
 
@@ -180,15 +170,19 @@ def generate_timestep_weights(args, num_timesteps):
 
 def main(args):
     logging_dir = Path(args.output_dir, args.logging_dir)
-    # seed_everything()
+    npu_config.seed_everything()
     accelerator_project_config = ProjectConfiguration(project_dir=args.output_dir, logging_dir=logging_dir)
 
     accelerator = Accelerator(
-        gradient_accumulation_steps=args.gradient_accumulation_steps,
+        gradient_accumulation_steps=args.gradient_accumulation_steps * args.train_batch_size // args.train_sp_batch_size if args.sp_size > 1 else args.gradient_accumulation_steps,
         mixed_precision=args.mixed_precision,
         log_with=args.report_to,
         project_config=accelerator_project_config,
     )
+
+    initialize_sequence_parallel_state(args.sp_size)
+    if args.sp_size > 1:
+        assert npu_config.enable_FA == True, "Enable FA when using sequence parallel"
 
     if args.report_to == "wandb":
         if not is_wandb_available():
@@ -240,13 +234,6 @@ def main(args):
 
     # Setup data:
     train_dataset = getdataset(args)
-    # 在创建 DataLoader 之前,创建 DistributedSampler
-    # train_sampler = DistributedSampler(
-    #     train_dataset,
-    #     num_replicas=npu_config.node_world_size,  # 每个节点的世界大小
-    #     rank=accelerator.local_process_index,  # 当前进程在节点内的 rank
-    # )
-
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
         # sampler=train_sampler,
@@ -406,6 +393,9 @@ def main(args):
         eps=args.adam_epsilon,
     )
 
+    # optimizer = torch_optimizer.Lamb(params_to_optimize, lr=1e-7, betas=(0.9, 0.999), eps=1e-08, weight_decay=1e-03,
+    #                                  clamp_value=0.1, adam=False, debias=False)
+
     # Scheduler and math around the number of training steps.
     overrode_max_train_steps = False
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
@@ -436,7 +426,7 @@ def main(args):
     # We need to initialize the trackers we use, and also store our configuration.
     # The trackers initializes automatically on the main process.
     if accelerator.is_main_process:
-        accelerator.init_trackers(args.output_dir, config=vars(args))
+        accelerator.init_trackers(os.path.basename(args.output_dir), config=vars(args))
 
     # Train!
     total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
@@ -488,72 +478,84 @@ def main(args):
     )
     progress_info = ProgressInfo(global_step, train_loss=0.0)
 
+
+    def run(x, model_kwargs):
+        t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=accelerator.device)
+        loss_dict = diffusion.training_losses(model, x, t, model_kwargs)
+        loss = loss_dict["loss"].mean()
+
+        # Backpropagate
+        accelerator.backward(loss)
+        if accelerator.sync_gradients:
+            params_to_clip = model.parameters()
+            accelerator.clip_grad_norm_(params_to_clip, args.max_grad_norm)
+        optimizer.step()
+        lr_scheduler.step()
+        optimizer.zero_grad()
+
+        return loss
+
     def train_one_step(step_, data_item_):
         x, attn_mask, input_ids, cond_mask = data_item_
-
         start_time = time.time()
-        with accelerator.accumulate(model):
-            # Sample noise that we'll add to the latents
-            x = x.to(accelerator.device, dtype=weight_dtype)  # B C T+num_images H W, 16 + 4
-            # npu_config.print_tensor_stats(x, "input x")
+        # Sample noise that we'll add to the latents
+        x = x.to(accelerator.device, dtype=weight_dtype)  # B C T+num_images H W, 16 + 4
+        attn_mask = attn_mask.to(accelerator.device)  # B L or B 1+num_images L
+        input_ids = input_ids.to(accelerator.device)  # B L or B 1+num_images L
+        cond_mask = cond_mask.to(accelerator.device)  # B L or B 1+num_images L
+        # print('x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape', x.shape, attn_mask.shape,
+              # input_ids.shape, cond_mask.shape)
 
-            attn_mask = attn_mask.to(accelerator.device)  # B L or B 1+num_images L
-            input_ids = input_ids.to(accelerator.device)  # B L or B 1+num_images L
-            cond_mask = cond_mask.to(accelerator.device)  # B L or B 1+num_images L
-            # print('x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape', x.shape, attn_mask.shape,
-            #       input_ids.shape, cond_mask.shape)
-            with torch.no_grad():
-                # use for loop to avoid OOM, because T5 is too huge...
-                B, _, _ = input_ids.shape  # B T+num_images L  b 1+4, L
-                cond = torch.stack([text_enc(input_ids[i], cond_mask[i]) for i in range(B)])  # B 1+num_images L D
+        with torch.no_grad():
+            # use for loop to avoid OOM, because T5 is too huge...
+            B, _, _ = input_ids.shape  # B T+num_images L  b 1+4, L
+            cond = torch.stack([text_enc(input_ids[i], cond_mask[i]) for i in range(B)])  # B 1+num_images L D
 
-                # Map input images to latent space + normalize latents
-                if args.use_image_num == 0:
-                    x = ae.encode(x)  # B C T H W
-                    cond = text_enc(input_ids, cond_mask)  # B L -> B L D
-                else:
-                    videos, images = x[:, :, :-args.use_image_num], x[:, :, -args.use_image_num:]
-                    videos = ae.encode(videos)  # B C T H W
+            # Map input images to latent space + normalize latents
+            if args.use_image_num == 0:
+                x = ae.encode(x)  # B C T H W
+                cond = text_enc(input_ids, cond_mask)  # B L -> B L D
+            else:
+                videos, images = x[:, :, :-args.use_image_num], x[:, :, -args.use_image_num:]
+                videos = ae.encode(videos)  # B C T H W
 
-                    # npu_config.print_tensor_stats(x, "vae_output_videos")
-                    def custom_to_video(x: torch.Tensor, fps: float = 2.0,
-                                        output_file: str = 'output_video.mp4') -> None:
-                        from examples.rec_imvi_vae import array_to_video
-                        x = x.detach().cpu()
-                        x = torch.clamp(x, -1, 1)
-                        x = (x + 1) / 2
-                        x = x.permute(1, 2, 3, 0).numpy()
-                        x = (255 * x).astype(np.uint8)
-                        array_to_video(x, fps=fps, output_file=output_file)
-                        return
+                images = rearrange(images, 'b c t h w -> (b t) c 1 h w')
+                images = ae.encode(images)
 
-                    images = rearrange(images, 'b c t h w -> (b t) c 1 h w')
-                    images = ae.encode(images)
+                images = rearrange(images, '(b t) c 1 h w -> b c t h w', t=args.use_image_num)
+                x = torch.cat([videos, images], dim=2)  # b c 17+4, h, w
 
-                    images = rearrange(images, '(b t) c 1 h w -> b c t h w', t=args.use_image_num)
-                    # npu_config.print_tensor_stats(x, "vae_output_images")
-                    x = torch.cat([videos, images], dim=2)  # b c 17+4, h, w
+        if get_sequence_parallel_state():
+            loss = 0.0
+            # npu_config.print_tensor_stats(attn_mask, "attn_mask before prepare_parallel_data")
+            x, cond, attn_mask, cond_mask, use_image_num = prepare_parallel_data(x, cond, attn_mask, cond_mask, args.use_image_num)
+            # npu_config.print_tensor_stats(attn_mask, "attn_mask after prepare_parallel_data")
 
-            model_kwargs = dict(encoder_hidden_states=cond, attention_mask=attn_mask,
-                                encoder_attention_mask=cond_mask, use_image_num=args.use_image_num)
-            t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=accelerator.device)
-            loss_dict = diffusion.training_losses(model, x, t, model_kwargs)
-            loss = loss_dict["loss"].mean()
+            for iter in range(args.train_batch_size * args.sp_size // args.train_sp_batch_size):
+                with accelerator.accumulate(model):
+                    st_idx = iter * args.train_sp_batch_size
+                    ed_idx = (iter + 1) * args.train_sp_batch_size
+                    model_kwargs = dict(encoder_hidden_states=cond[st_idx: ed_idx], attention_mask=attn_mask[st_idx: ed_idx],
+                                        encoder_attention_mask=cond_mask[st_idx: ed_idx], use_image_num=use_image_num)
 
-            npu_config.print_msg(f"Step: [{step_}], Enter: after forward", rank=0)
+                    loss_ = run(x[st_idx: ed_idx], model_kwargs)
+                    loss += loss_.detach().item() / (
+                                args.train_batch_size * args.sp_size // args.train_sp_batch_size)
+                    # Gather the losses across all processes for logging (if we use distributed training).
+                    avg_loss = accelerator.gather(loss_.repeat(args.train_sp_batch_size)).mean()
+                    progress_info.train_loss += avg_loss.detach().item() / (
+                                args.gradient_accumulation_steps * args.train_batch_size * args.sp_size // args.train_sp_batch_size)
+        else:
+            with accelerator.accumulate(model):
+                model_kwargs = dict(encoder_hidden_states=cond, attention_mask=attn_mask,
+                                    encoder_attention_mask=cond_mask, use_image_num=args.use_image_num)
+                loss_ = run(x, model_kwargs)
+                loss = loss_.detach().item()
+                # Gather the losses across all processes for logging (if we use distributed training).
+                avg_loss = accelerator.gather(loss_.repeat(args.train_batch_size)).mean()
+                progress_info.train_loss += avg_loss.detach().item() / args.gradient_accumulation_steps
 
-            # Gather the losses across all processes for logging (if we use distributed training).
-            avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
-            progress_info.train_loss += avg_loss.item() / args.gradient_accumulation_steps
-
-            # Backpropagate
-            accelerator.backward(loss)
-            if accelerator.sync_gradients:
-                params_to_clip = model.parameters()
-                accelerator.clip_grad_norm_(params_to_clip, args.max_grad_norm)
-            optimizer.step()
-            lr_scheduler.step()
-            optimizer.zero_grad()
+        npu_config.print_msg(f"Step: [{step_}], Enter: after forward", rank=0)
 
         # Checks if the accelerator has performed an optimization step behind the scenes
         if accelerator.sync_gradients:
@@ -592,8 +594,7 @@ def main(args):
                     accelerator.save_state(save_path)
                     logger.info(f"Saved state to {save_path}")
 
-            logs = {"step_loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
-            # npu_config.print_msg(logs)
+            logs = {"step_loss": loss, "lr": lr_scheduler.get_last_lr()[0]}
             progress_bar.set_postfix(**logs)
 
         if progress_info.global_step >= args.max_train_steps:
@@ -619,9 +620,6 @@ def main(args):
                 return True
 
             for step, data_item in enumerate(train_dataloader):
-                # npu_config.print_msg(
-                #     f"Step: [{step}], Process {accelerator.process_index} / {accelerator.num_processes} - Batch size: {data_item[0].size(0)}")
-
                 if train_one_step(step, data_item):
                     break
                 if prof_:
@@ -653,6 +651,7 @@ def main(args):
         npu_config.save_loss(args.loss_save_path)
     accelerator.wait_for_everyone()
     accelerator.end_training()
+    destroy_sequence_parallel_group()
 
 
 if __name__ == "__main__":
@@ -843,7 +842,7 @@ if __name__ == "__main__":
     parser.add_argument("--adam_beta2", type=float, default=0.999, help="The beta2 parameter for the Adam optimizer.")
     parser.add_argument("--adam_weight_decay", type=float, default=1e-2, help="Weight decay to use.")
     parser.add_argument("--adam_epsilon", type=float, default=1e-08, help="Epsilon value for the Adam optimizer")
-    parser.add_argument("--max_grad_norm", default=1, type=float, help="Max gradient norm.")
+    parser.add_argument("--max_grad_norm", default=1.0, type=float, help="Max gradient norm.")
     parser.add_argument("--push_to_hub", action="store_true", help="Whether or not to push the model to the Hub.")
     parser.add_argument("--hub_token", type=str, default=None, help="The token to use to push to the Model Hub.")
     parser.add_argument(
@@ -889,7 +888,9 @@ if __name__ == "__main__":
     )
     parser.add_argument("--local_rank", type=int, default=-1, help="For distributed training: local_rank")
     parser.add_argument("--noise_offset", type=float, default=0, help="The scale of noise offset.")
-    parser.add_argument("--loss_save_path", type=str, default=None, help="The path to save loss.")
+    parser.add_argument("--sp_size", type=int, default=1, help="For sequence parallel")
+    parser.add_argument("--train_sp_batch_size", type=int, default=1, help="Batch size for sequence parallel training")
+    parser.add_argument("--loss_save_path", type=str, default=None, help="Path to save loss")
 
     args = parser.parse_args()
     main(args)
