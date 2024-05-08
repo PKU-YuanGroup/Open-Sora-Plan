@@ -245,9 +245,12 @@ class Decoder(nn.Module):
             if hasattr(self.up[i_level], "time_upsample"):
                 h = self.up[i_level].time_upsample(h)
 
-        h = self.norm_out(h)
+        # h = self.norm_out(h)
+        h = npu_config.run_group_norm(self.norm_out, h)
         h = nonlinearity(h)
-        h = self.conv_out(h)
+        # h = self.conv_out(h)
+        h_dtype = h.dtype
+        h = npu_config.run_conv3d(self.conv_out, h, h_dtype)
         return h
 
 

@@ -1,8 +1,5 @@
 compute_environment: LOCAL_MACHINE
-distributed_type: DEEPSPEED
-deepspeed_config:
- deepspeed_config_file: scripts/accelerate_configs/zero2.json
- deepspeed_multinode_launcher: standard
+distributed_type: MULTI_GPU
 fsdp_config: {}
 main_process_port: 29501
 main_training_function: main

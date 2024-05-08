@@ -590,7 +590,7 @@ def main(args):
             accelerator.log({"train_loss": progress_info.train_loss}, step=progress_info.global_step)
             progress_info.train_loss = 0.0
 
-            if args.use_deepspeed or accelerator.is_main_process:
+            if accelerator.is_main_process:
                 if progress_info.global_step % args.checkpointing_steps == 0 and progress_info.global_step > 1:
                     # _before_ saving state, check if this save would set us over the `checkpoints_total_limit`
                     if args.checkpoints_total_limit is not None:
