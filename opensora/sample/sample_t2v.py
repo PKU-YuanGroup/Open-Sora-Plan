@@ -26,12 +26,14 @@ sys.path.append(os.path.split(sys.path[0])[0])
 from pipeline_videogen import VideoGenPipeline
 
 import imageio
+from opensora.acceleration.parallel_states import initialize_sequence_parallel_state
 
 
 def main(args):
     # torch.manual_seed(args.seed)
     torch.set_grad_enabled(False)
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    initialize_sequence_parallel_state(1)
 
     # vae = getae_wrapper(args.ae)(args.model_path, subfolder="vae", cache_dir='cache_dir').to(device, dtype=torch.float16)
     vae = getae_wrapper(args.ae)(args.ae_path).to(device, dtype=torch.float16)

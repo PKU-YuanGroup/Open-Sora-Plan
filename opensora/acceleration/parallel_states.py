@@ -31,6 +31,10 @@ def initialize_sequence_parallel_state(sequence_parallel_size):
     else:
         _SEQUENCE_PARALLEL_STATE = False
 
+def set_sequence_parallel_state(state):
+    global _SEQUENCE_PARALLEL_STATE
+    _SEQUENCE_PARALLEL_STATE = state
+
 def get_sequence_parallel_state():
     return _SEQUENCE_PARALLEL_STATE
 

@@ -158,13 +158,12 @@ class LatteT2V(ModelMixin, ConfigMixin):
             temp_pos_embed = get_1d_sincos_pos_embed(inner_dim, video_length,
                                                      interpolation_scale=interpolation_scale_1d)  # 1152 hidden size
             video_length //= sp_size
-            temp_pos_embed = temp_pos_embed[rank_offset * video_length: (rank_offset + 1) * video_length]
-            temp_pos_embed = torch.from_numpy(temp_pos_embed).float().unsqueeze(1)
+            self.temp_pos_st = rank_offset * video_length
+            self.temp_pos_ed = (rank_offset + 1) * video_length
         else:
             temp_pos_embed = get_1d_sincos_pos_embed(inner_dim, video_length,
                                                      interpolation_scale=interpolation_scale_1d)  # 1152 hidden size
-            temp_pos_embed = torch.from_numpy(temp_pos_embed).float().unsqueeze(0)
-        self.register_buffer("temp_pos_embed", temp_pos_embed, persistent=False)
+        self.register_buffer("temp_pos_embed", torch.from_numpy(temp_pos_embed).float(), persistent=False)
 
         rope_scaling = None
         if self.use_rope:
@@ -435,6 +434,9 @@ class LatteT2V(ModelMixin, ConfigMixin):
         timestep_temp = repeat(timestep, 'b d -> (b p) d', p=num_patches).contiguous()
         if get_sequence_parallel_state():
             timestep_temp = timestep_temp.view(input_batch_size * num_patches, 6, -1).transpose(0, 1).contiguous()
+            temp_pos_embed = self.temp_pos_embed[self.temp_pos_st: self.temp_pos_ed].unsqueeze(1)
+        else:
+            temp_pos_embed = self.temp_pos_embed[:self.video_length].unsqueeze(0)
 
         pos_hw, pos_t = None, None
         if self.use_rope:
@@ -468,7 +470,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
                             hidden_states_image = hidden_states[frame:]
                             hidden_states = hidden_states[:frame]
                         if i == 0:
-                            hidden_states = hidden_states + self.temp_pos_embed
+                            hidden_states = hidden_states + temp_pos_embed
                         hidden_states = torch.utils.checkpoint.checkpoint(
                             temp_block,
                             hidden_states,
@@ -496,7 +498,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
 
                             # if i == 0 and not self.use_rope:
                             if i == 0:
-                                hidden_states_video = hidden_states_video + self.temp_pos_embed
+                                hidden_states_video = hidden_states_video + temp_pos_embed
 
                             hidden_states_video = torch.utils.checkpoint.checkpoint(
                                 temp_block,
@@ -520,7 +522,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
                         else:
                             # if i == 0 and not self.use_rope:
                             if i == 0:
-                                hidden_states = hidden_states + self.temp_pos_embed
+                                hidden_states = hidden_states + temp_pos_embed
 
                             hidden_states = torch.utils.checkpoint.checkpoint(
                                 temp_block,
@@ -561,7 +563,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
                             hidden_states_image = hidden_states[frame:]
                             hidden_states = hidden_states[:frame]
                         if i == 0:
-                            hidden_states = hidden_states + self.temp_pos_embed
+                            hidden_states = hidden_states + temp_pos_embed
                         hidden_states = temp_block(
                             hidden_states,
                             None,  # attention_mask
@@ -609,7 +611,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
                         else:
                             # if i == 0 and not self.use_rope:
                             if i == 0:
-                                hidden_states = hidden_states + self.temp_pos_embed
+                                hidden_states = hidden_states + temp_pos_embed
 
                             hidden_states = temp_block(
                                 hidden_states,

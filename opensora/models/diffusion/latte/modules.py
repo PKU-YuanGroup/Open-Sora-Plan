@@ -994,8 +994,19 @@ class AttnProcessor2_0:
                 hidden_states = all_to_all_SBH(hidden_states, scatter_dim=0, gather_dim=1).view(-1, batch_size,
                                                                                                             attn.heads * head_dim)
             else:
-                hidden_states = torch_npu.npu_fusion_attention(query, key, value, atten_mask=attention_mask, input_layout="BSH",
-                                               scale=1/math.sqrt(head_dim), head_num=attn.heads)[0]
+                if npu_config.enable_FP32:
+                    dtype = query.dtype
+                    hidden_states = torch_npu.npu_fusion_attention(query.to(torch.bfloat16), key.to(torch.bfloat16),
+                                                                   value.to(torch.bfloat16),
+                                                                   atten_mask=attention_mask, input_layout="BSH",
+                                                                   scale=1 / math.sqrt(head_dim),
+                                                                   head_num=attn.heads)[0]
+                    hidden_states = hidden_states.to(dtype)
+                else:
+                    hidden_states = torch_npu.npu_fusion_attention(query, key, value,
+                                                                   atten_mask=attention_mask, input_layout="BSH",
+                                                                   scale=1 / math.sqrt(head_dim),
+                                                                   head_num=attn.heads)[0]
         else:
             query = query.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
 

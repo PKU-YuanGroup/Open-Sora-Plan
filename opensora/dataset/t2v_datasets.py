@@ -42,48 +42,53 @@ def filter_json_by_existed_files(directory, data, postfix=".mp4"):
 
 class T2V_dataset(Dataset):
     def __init__(self, args, transform, temporal_sample, tokenizer):
-        self.image_data = args.image_data
-        self.video_data = args.video_data
+        if npu_config.use_small_dataset:
+            self.video_data = "./scripts/train_data/small_video_data.txt"
+            self.image_data = "./scripts/train_data/small_image_data.txt"
+        else:
+            self.image_data = args.image_data
+            self.video_data = args.video_data
         self.num_frames = args.num_frames
         self.transform = transform
         self.temporal_sample = temporal_sample
         self.tokenizer = tokenizer
         self.model_max_length = args.model_max_length
-        self.v_decoder = DecordInit()
+        self.v_decoder = DecordInit(npu_config.rank % 8)
 
         # self.vid_cap_list, self.local_vid_cap_list = self.get_vid_cap_list()
-        self.global_vid_cap_list, self.vid_cap_list = npu_config.try_load_pickle("vid_cap_list.pkl",
-                                                                                 self.get_vid_cap_list)
-        npu_config.print_msg(f"len(self.global_vid_cap_list) = {len(self.global_vid_cap_list)}")
+        self.global_vid_cap_list, self.vid_cap_list, self.len_global_vid_list = npu_config.try_load_pickle(
+            "vid_cap_list.pkl",
+            self.get_vid_cap_list)
+        npu_config.print_msg(f"len(self.global_vid_cap_list) = {self.len_global_vid_list}")
         npu_config.print_msg(f"len(self.vid_cap_list) = {len(self.vid_cap_list)}")
         # self.vid_cap_list = self.local_vid_cap_list
         self.n_samples = len(self.vid_cap_list)
         # 生成一个从0到num_elements-1的列表
         self.elements = list(range(self.n_samples))
         # 使用random.shuffle随机打乱列表
-        random.shuffle(self.elements)
+        if not npu_config.use_small_dataset:
+            random.shuffle(self.elements)
         self.n_used_elements = 0
         self.use_image_num = args.use_image_num
         self.use_img_from_vid = args.use_img_from_vid
         if self.use_image_num != 0 and not self.use_img_from_vid:
             # self.img_cap_list, self.local_img_cap_lists = self.get_img_cap_list()
-            self.global_img_cap_list, self.img_cap_list = npu_config.try_load_pickle("img_cap_list.pkl",
-                                                                                     self.get_img_cap_list)
-            npu_config.print_msg(f"len(self.global_img_cap_list) = {len(self.global_img_cap_list)}")
+            self.global_img_cap_list, self.img_cap_list, self.len_global_img_list = npu_config.try_load_pickle(
+                "img_cap_list.pkl",
+                self.get_img_cap_list)
+            npu_config.print_msg(f"len(self.global_img_cap_list) = {self.len_global_img_list}")
             npu_config.print_msg(f"len(self.img_cap_list) = {len(self.img_cap_list)}")
             # self.img_cap_list = self.local_img_cap_lists
 
     def __len__(self):
-        return len(self.global_vid_cap_list)
+        return self.len_global_vid_list
 
     def __getitem__(self, idx):
         try:
             idx = self.elements[self.n_used_elements]
             self.n_used_elements += 1
-            if self.n_used_elements > 20:
-                npu_config.free_mm()
-
             self.n_used_elements = self.n_used_elements % self.n_samples
+
             video_data = self.get_video(idx)
             image_data = {}
             if self.use_image_num != 0 and self.use_img_from_vid:
@@ -222,7 +227,7 @@ class T2V_dataset(Dataset):
             local_vid_cap_lists += local_vid_cap_list
 
         # print([item['path'] for item in vid_cap_list])
-        return vid_cap_lists, local_vid_cap_lists
+        return vid_cap_lists, local_vid_cap_lists, len(vid_cap_list)
 
     def get_img_cap_list(self):
         img_cap_lists = []
@@ -242,4 +247,4 @@ class T2V_dataset(Dataset):
                          range(0, len(img_cap_lists), self.use_image_num)]
         local_img_cap_lists = [local_img_cap_lists[i: i + self.use_image_num] for i in
                                range(0, len(local_img_cap_lists), self.use_image_num)]
-        return img_cap_lists[:-1], local_img_cap_lists[:-1]  # drop last to avoid error length
+        return img_cap_lists[:-1], local_img_cap_lists[:-1], len(img_cap_lists[:-1])

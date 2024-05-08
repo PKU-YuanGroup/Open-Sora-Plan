@@ -23,11 +23,15 @@ class NPUConfig:
         self.profiling = False
         self.profiling_step = 5
         self.enable_FA = True
+        self.enable_FP32 = False
         self.load_pickle = True
+        self.use_small_dataset = False
+        if self.use_small_dataset:
+            self.load_pickle = False
 
         self._loss = []
         self.work_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        self.pickle_save_path = f"{self.work_path}/pickles"
+        self.pickle_save_path = "/home/opensora/shebin/Open-Sora-Plan-dev/pickles"
         self.mm = dict()
 
         if self.on_npu:
@@ -40,8 +44,11 @@ class NPUConfig:
             self.rank = torch.cuda.current_device()
         self.print_with_rank(f"The npu_config.on_npu is {self.on_npu}")
 
+    def get_local_rank(self):
+        return self.rank % self.N_NPU_PER_NODE
+
     def get_pickle_path(self, file_name):
-        return f"{self.pickle_save_path}/{file_name}_0.pkl"
+        return f"{self.pickle_save_path}/{file_name}_local.pkl"
 
     def free_mm(self):
         for key, value in self.mm.items():
@@ -49,29 +56,31 @@ class NPUConfig:
         self.mm.clear()
 
     def __del__(self):
-        self.freeze()
+        self.free_mm()
 
     def try_load_pickle(self, file_name, function):
         file_name = self.get_pickle_path(file_name)
         if os.path.exists(file_name) and self.load_pickle:
             with open(file_name, 'rb') as file:
-                self.mm[file_name] = mmap.mmap(file.fileno(), 0, access=mmap.ACCESS_READ)
-                # 使用 mmap 进行数据读取
-                loaded_data = pickle.loads(self.mm[file_name][:])
+                # self.mm[file_name] = mmap.mmap(file.fileno(), 0, access=mmap.ACCESS_READ)
+                # # 使用 mmap 进行数据读取
+                # loaded_data = pickle.loads(self.mm[file_name][:])
+                loaded_data = pickle.load(file)
                 return loaded_data
         else:
             data = function()
-            if self.rank % self.N_NPU_PER_NODE == 0:
-                # 只需要rank0保存文件
-                os.makedirs(self.pickle_save_path, exist_ok=True)
-                with open(file_name, 'wb') as file:
-                    pickle.dump(data, file, pickle.HIGHEST_PROTOCOL)
+            if not self.use_small_dataset:
+                if self.rank % self.N_NPU_PER_NODE == 0:
+                    # 只需要rank0保存文件
+                    os.makedirs(self.pickle_save_path, exist_ok=True)
+                    with open(file_name, 'wb') as file:
+                        pickle.dump(data, file, pickle.HIGHEST_PROTOCOL)
             return data
 
     def npu_format_cast(self, x):
         return torch_npu.npu_format_cast(x, 2)
 
-    def print_grad_norm(self, model):
+    def calc_grad_norm(self, model):
         # 计算并打印梯度范数
         # model_engine = accelerator.deepspeed_engine_wrapped.engine
         # gradients = model_engine.get_gradients()
@@ -89,8 +98,7 @@ class NPUConfig:
                 n_grad += 1
         grad_norm = (grad_norm / n_grad) ** (1. / 2)
 
-        # self.print_msg('=' * 50)
-        self.print_msg(f'Gradient Norm is : {grad_norm}', rank=0)
+        return grad_norm
 
     def _run(self, operator, x, tmp_dtype, out_dtype=None, out_nd_format=False):
         if self.on_npu:
