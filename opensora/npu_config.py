@@ -23,7 +23,11 @@ class NPUConfig:
         self.profiling = False
         self.profiling_step = 5
         self.enable_FA = True
+        self.enable_FP32 = False
         self.load_pickle = True
+        self.use_small_dataset = False
+        if self.use_small_dataset:
+            self.load_pickle = False
 
         self._loss = []
         self.work_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -40,8 +44,11 @@ class NPUConfig:
             self.rank = torch.cuda.current_device()
         self.print_with_rank(f"The npu_config.on_npu is {self.on_npu}")
 
+    def get_local_rank(self):
+        return self.rank % self.N_NPU_PER_NODE
+
     def get_pickle_path(self, file_name):
-        return f"{self.pickle_save_path}/{file_name}_0.pkl"
+        return f"{self.pickle_save_path}/{file_name}_local.pkl"
 
     def free_mm(self):
         for key, value in self.mm.items():
@@ -55,17 +62,19 @@ class NPUConfig:
         file_name = self.get_pickle_path(file_name)
         if os.path.exists(file_name) and self.load_pickle:
             with open(file_name, 'rb') as file:
-                self.mm[file_name] = mmap.mmap(file.fileno(), 0, access=mmap.ACCESS_READ)
-                # 使用 mmap 进行数据读取
-                loaded_data = pickle.loads(self.mm[file_name][:])
+                # self.mm[file_name] = mmap.mmap(file.fileno(), 0, access=mmap.ACCESS_READ)
+                # # 使用 mmap 进行数据读取
+                # loaded_data = pickle.loads(self.mm[file_name][:])
+                loaded_data = pickle.load(file)
                 return loaded_data
         else:
             data = function()
-            if self.rank % self.N_NPU_PER_NODE == 0:
-                # 只需要rank0保存文件
-                os.makedirs(self.pickle_save_path, exist_ok=True)
-                with open(file_name, 'wb') as file:
-                    pickle.dump(data, file, pickle.HIGHEST_PROTOCOL)
+            if not self.use_small_dataset:
+                if self.rank % self.N_NPU_PER_NODE == 0:
+                    # 只需要rank0保存文件
+                    os.makedirs(self.pickle_save_path, exist_ok=True)
+                    with open(file_name, 'wb') as file:
+                        pickle.dump(data, file, pickle.HIGHEST_PROTOCOL)
             return data
 
     def npu_format_cast(self, x):

@@ -59,8 +59,10 @@ from opensora.utils.dataset_utils import Collate
 from opensora.models.ae import ae_stride_config, ae_channel_config
 from opensora.models.diffusion import Diffusion_models
 from opensora.sample.pipeline_videogen import VideoGenPipeline
-from opensora.acceleration.parallel_states import initialize_sequence_parallel_state, destroy_sequence_parallel_group, get_sequence_parallel_state
+from opensora.acceleration.parallel_states import initialize_sequence_parallel_state, destroy_sequence_parallel_group, \
+    get_sequence_parallel_state
 from opensora.acceleration.communications import prepare_parallel_data
+
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 check_min_version("0.24.0")
 logger = get_logger(__name__)
@@ -68,13 +70,17 @@ logger = get_logger(__name__)
 
 @torch.inference_mode()
 def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weight_dtype, global_step):
-    # validation_prompt = [
-    #     "A quiet beach at dawn, the waves gently lapping at the shore and the sky painted in pastel hues.",
-    #     "The majestic beauty of a waterfall cascading down a cliff into a serene lake."
-    # ]
+    rank = npu_config.rank
+
     validation_prompt = [
-        'The video showcases a serene and picturesque countryside setting, featuring a scenic rural landscape with a winding road stretching into the distance. The sky is consistently filled with fluffy white clouds against a bright blue backdrop throughout the video. In the foreground, there is a grassy field enclosed by a fence, with cows grazing peacefully. The surroundings are lush and green, with trees lining the roadside. As the video progresses, the camera moves slightly forward along the road, offering a slightly varied perspective of the same tranquil countryside scenery.',
-        'The video presents a continuous urban street scene with various elements remaining consistent throughout its duration. It features residential buildings in the background, some with balconies, and a bustling environment with parked vehicles, including a noticeable blue truck with a tarpaulin covering its contents. Near a small kiosk or stall with a blue and white striped awning, suggesting it might be a food vendor or market stall, a group of people is seen standing, engaging in what appears to be casual activities. The scene is dynamic yet largely unchanged, with the exception of a person walking across the foreground, moving from the right side towards the left, introducing a minor change in the movement within the frame. Overall, the video captures a typical urban setting with daily activities taking place.'
+        "A quiet beach at dawn, the waves gently lapping at the shore and the sky painted in pastel hues.",
+        "The majestic beauty of a waterfall cascading down a cliff into a serene lake.",
+        # 'The video showcases a serene and picturesque countryside setting, featuring a scenic rural landscape with a winding road stretching into the distance. The sky is consistently filled with fluffy white clouds against a bright blue backdrop throughout the video. In the foreground, there is a grassy field enclosed by a fence, with cows grazing peacefully. The surroundings are lush and green, with trees lining the roadside. As the video progresses, the camera moves slightly forward along the road, offering a slightly varied perspective of the same tranquil countryside scenery.',
+        # 'The video presents a continuous urban street scene with various elements remaining consistent throughout its duration. It features residential buildings in the background, some with balconies, and a bustling environment with parked vehicles, including a noticeable blue truck with a tarpaulin covering its contents. Near a small kiosk or stall with a blue and white striped awning, suggesting it might be a food vendor or market stall, a group of people is seen standing, engaging in what appears to be casual activities. The scene is dynamic yet largely unchanged, with the exception of a person walking across the foreground, moving from the right side towards the left, introducing a minor change in the movement within the frame. Overall, the video captures a typical urban setting with daily activities taking place.',
+        # 'a cat wearing sunglasses and working as a lifeguard at pool.',
+        # 'Slow pan upward of blazing oak fire in an indoor fireplace.',
+        # 'Yellow and black tropical fish dart through the sea.',
+        # 'A snowy forest landscape with a dirt road running through it. The road is flanked by trees covered in snow, and the ground is also covered in snow. The sun is shining, creating a bright and serene atmosphere. The road appears to be empty, and there are no people or animals visible in the video. The style of the video is a natural landscape shot, with a focus on the beauty of the snowy forest and the peacefulness of the road.'
     ]
     logger.info(f"Running validation....\n")
     model = accelerator.unwrap_model(model)
@@ -85,18 +91,20 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
                                          scheduler=scheduler,
                                          transformer=model).to(device=accelerator.device)
     videos = []
-    for prompt in validation_prompt:
-        logger.info('Processing the ({}) prompt'.format(prompt))
+    for index, prompt in enumerate(validation_prompt):
+        # if index % npu_config.N_NPU_PER_NODE != rank:
+        #     continue
+        logger.info(f'Processing the ({prompt}) prompt by rank {rank}')
         video = videogen_pipeline(prompt,
-                                video_length=args.video_length,
-                                height=args.max_image_size,
-                                width=args.max_image_size,
-                                num_inference_steps=args.num_sampling_steps,
-                                guidance_scale=args.guidance_scale,
-                                enable_temporal_attentions=True,
-                                num_images_per_prompt=1,
-                                mask_feature=True,
-                                ).video
+                                  video_length=args.video_length,
+                                  height=args.max_image_size,
+                                  width=args.max_image_size,
+                                  num_inference_steps=args.num_sampling_steps,
+                                  guidance_scale=args.guidance_scale,
+                                  enable_temporal_attentions=True,
+                                  num_images_per_prompt=1,
+                                  mask_feature=True,
+                                  ).video
         videos.append(video[0])
     # import ipdb;ipdb.set_trace()
     gc.collect()
@@ -122,10 +130,12 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
     gc.collect()
     torch.cuda.empty_cache()
 
+
 class ProgressInfo:
     def __init__(self, global_step, train_loss=0.0):
         self.global_step = global_step
         self.train_loss = train_loss
+
 
 def generate_timestep_weights(args, num_timesteps):
     weights = torch.ones(num_timesteps)
@@ -482,7 +492,6 @@ def main(args):
     )
     progress_info = ProgressInfo(global_step, train_loss=0.0)
 
-
     def run(x, model_kwargs):
         t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=accelerator.device)
         loss_dict = diffusion.training_losses(model, x, t, model_kwargs)
@@ -512,7 +521,7 @@ def main(args):
         input_ids = input_ids.to(accelerator.device)  # B L or B 1+num_images L
         cond_mask = cond_mask.to(accelerator.device)  # B L or B 1+num_images L
         # print('x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape', x.shape, attn_mask.shape,
-              # input_ids.shape, cond_mask.shape)
+        # input_ids.shape, cond_mask.shape)
 
         with torch.no_grad():
             # use for loop to avoid OOM, because T5 is too huge...
@@ -537,25 +546,27 @@ def main(args):
             loss = 0.0
             grad_norm = 0.0
             # npu_config.print_tensor_stats(attn_mask, "attn_mask before prepare_parallel_data")
-            x, cond, attn_mask, cond_mask, use_image_num = prepare_parallel_data(x, cond, attn_mask, cond_mask, args.use_image_num)
+            x, cond, attn_mask, cond_mask, use_image_num = prepare_parallel_data(x, cond, attn_mask, cond_mask,
+                                                                                 args.use_image_num)
             # npu_config.print_tensor_stats(attn_mask, "attn_mask after prepare_parallel_data")
 
             for iter in range(args.train_batch_size * args.sp_size // args.train_sp_batch_size):
                 with accelerator.accumulate(model):
                     st_idx = iter * args.train_sp_batch_size
                     ed_idx = (iter + 1) * args.train_sp_batch_size
-                    model_kwargs = dict(encoder_hidden_states=cond[st_idx: ed_idx], attention_mask=attn_mask[st_idx: ed_idx],
+                    model_kwargs = dict(encoder_hidden_states=cond[st_idx: ed_idx],
+                                        attention_mask=attn_mask[st_idx: ed_idx],
                                         encoder_attention_mask=cond_mask[st_idx: ed_idx], use_image_num=use_image_num)
 
                     loss_, grad_norm_ = run(x[st_idx: ed_idx], model_kwargs)
                     loss += loss_.detach().item() / (
-                                args.train_batch_size * args.sp_size // args.train_sp_batch_size)
+                            args.train_batch_size * args.sp_size // args.train_sp_batch_size)
                     grad_norm += grad_norm_ / (
-                                args.train_batch_size * args.sp_size // args.train_sp_batch_size)
+                            args.train_batch_size * args.sp_size // args.train_sp_batch_size)
                     # Gather the losses across all processes for logging (if we use distributed training).
                     avg_loss = accelerator.gather(loss_.repeat(args.train_sp_batch_size)).mean()
                     progress_info.train_loss += avg_loss.detach().item() / (
-                                args.gradient_accumulation_steps * args.train_batch_size * args.sp_size // args.train_sp_batch_size)
+                            args.gradient_accumulation_steps * args.train_batch_size * args.sp_size // args.train_sp_batch_size)
         else:
             with accelerator.accumulate(model):
                 model_kwargs = dict(encoder_hidden_states=cond, attention_mask=attn_mask,
@@ -566,7 +577,9 @@ def main(args):
                 avg_loss = accelerator.gather(loss_.repeat(args.train_batch_size)).mean()
                 progress_info.train_loss += avg_loss.detach().item() / args.gradient_accumulation_steps
 
-        npu_config.print_msg(f"Step: [{step_}], local_loss={loss}, grad_norm={grad_norm}, avg_loss={avg_loss}, acc_train_loss={progress_info.train_loss}", rank=0)
+        npu_config.print_msg(
+            f"Step: [{step_}], local_loss={loss}, grad_norm={grad_norm}, avg_loss={avg_loss}, acc_train_loss={progress_info.train_loss}",
+            rank=0)
 
         # Checks if the accelerator has performed an optimization step behind the scenes
         if accelerator.sync_gradients:
@@ -611,7 +624,7 @@ def main(args):
         if progress_info.global_step >= args.max_train_steps:
             return True
 
-        if accelerator.is_main_process and progress_info.global_step > 1:
+        if accelerator.is_main_process and accelerator.sync_gradients and progress_info.global_step > 1:
             if progress_info.global_step % args.checkpointing_steps == 0:
                 if args.use_ema:
                     # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
@@ -683,7 +696,8 @@ if __name__ == "__main__":
     parser.add_argument('--tile_overlap_factor', type=float, default=0.25)
     parser.add_argument('--enable_tiling', action='store_true')
     parser.add_argument("--compress_kv", action="store_true")
-    parser.add_argument("--attention_mode", type=str, choices=['xformers', 'math', 'flash', 'unable'], default="xformers")
+    parser.add_argument("--attention_mode", type=str, choices=['xformers', 'math', 'flash', 'unable'],
+                        default="xformers")
     parser.add_argument('--use_rope', action='store_true')
     parser.add_argument('--compress_kv_factor', type=int, default=1)
 

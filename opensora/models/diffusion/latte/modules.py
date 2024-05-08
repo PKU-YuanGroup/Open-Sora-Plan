@@ -20,12 +20,15 @@ from diffusers.models.activations import GEGLU, GELU, ApproximateGELU
 
 from dataclasses import dataclass
 
-from opensora.models.diffusion.utils.pos_embed import get_2d_sincos_pos_embed, RoPE1D, RoPE2D, LinearScalingRoPE2D, LinearScalingRoPE1D
+from opensora.models.diffusion.utils.pos_embed import get_2d_sincos_pos_embed, RoPE1D, RoPE2D, LinearScalingRoPE2D, \
+    LinearScalingRoPE1D
+
 try:
     import torch_npu
 except:
     pass
 from opensora.npu_config import npu_config
+
 if is_xformers_available():
     import xformers
     import xformers.ops
@@ -34,6 +37,8 @@ else:
 from opensora.acceleration.parallel_states import get_sequence_parallel_state, hccl_info, lccl_info, enable_LCCL
 from opensora.acceleration.communications import all_to_all_SBH
 import torch_npu
+
+
 class CombinedTimestepSizeEmbeddings(nn.Module):
     """
     For PixArt-Alpha.
@@ -88,6 +93,7 @@ class CombinedTimestepSizeEmbeddings(nn.Module):
 
         return conditioning
 
+
 class CaptionProjection(nn.Module):
     """
     Projects caption embeddings. Also handles dropout for classifier-free guidance.
@@ -100,7 +106,7 @@ class CaptionProjection(nn.Module):
         self.linear_1 = nn.Linear(in_features=in_features, out_features=hidden_size, bias=True)
         self.act_1 = nn.GELU(approximate="tanh")
         self.linear_2 = nn.Linear(in_features=hidden_size, out_features=hidden_size, bias=True)
-        self.register_buffer("y_embedding", nn.Parameter(torch.randn(num_tokens, in_features) / in_features**0.5))
+        self.register_buffer("y_embedding", nn.Parameter(torch.randn(num_tokens, in_features) / in_features ** 0.5))
 
     def forward(self, caption, force_drop_ids=None):
         hidden_states = self.linear_1(caption)
@@ -108,20 +114,21 @@ class CaptionProjection(nn.Module):
         hidden_states = self.linear_2(hidden_states)
         return hidden_states
 
+
 class PatchEmbed(nn.Module):
     """2D Image to Patch Embedding"""
 
     def __init__(
-        self,
-        height=224,
-        width=224,
-        patch_size=16,
-        in_channels=3,
-        embed_dim=768,
-        layer_norm=False,
-        flatten=True,
-        bias=True,
-        interpolation_scale=1,
+            self,
+            height=224,
+            width=224,
+            patch_size=16,
+            in_channels=3,
+            embed_dim=768,
+            layer_norm=False,
+            flatten=True,
+            bias=True,
+            interpolation_scale=1,
     ):
         super().__init__()
 
@@ -145,7 +152,7 @@ class PatchEmbed(nn.Module):
         self.base_size = height // patch_size
         self.interpolation_scale = interpolation_scale
         pos_embed = get_2d_sincos_pos_embed(
-            embed_dim, int(num_patches**0.5), base_size=self.base_size, interpolation_scale=self.interpolation_scale
+            embed_dim, int(num_patches ** 0.5), base_size=self.base_size, interpolation_scale=self.interpolation_scale
         )
         self.register_buffer("pos_embed", torch.from_numpy(pos_embed).float().unsqueeze(0), persistent=False)
 
@@ -227,32 +234,32 @@ class Attention(nn.Module):
     """
 
     def __init__(
-        self,
-        query_dim: int,
-        cross_attention_dim: Optional[int] = None,
-        heads: int = 8,
-        dim_head: int = 64,
-        dropout: float = 0.0,
-        bias: bool = False,
-        upcast_attention: bool = False,
-        upcast_softmax: bool = False,
-        cross_attention_norm: Optional[str] = None,
-        cross_attention_norm_num_groups: int = 32,
-        added_kv_proj_dim: Optional[int] = None,
-        norm_num_groups: Optional[int] = None,
-        spatial_norm_dim: Optional[int] = None,
-        out_bias: bool = True,
-        scale_qk: bool = True,
-        only_cross_attention: bool = False,
-        eps: float = 1e-5,
-        rescale_output_factor: float = 1.0,
-        residual_connection: bool = False,
-        _from_deprecated_attn_block: bool = False,
-        processor: Optional["AttnProcessor"] = None,
-        attention_mode: str = 'xformers',
-        use_rope: bool = False,
-        rope_scaling: Optional[Dict] = None, 
-        compress_kv_factor: Optional[Tuple] = None, 
+            self,
+            query_dim: int,
+            cross_attention_dim: Optional[int] = None,
+            heads: int = 8,
+            dim_head: int = 64,
+            dropout: float = 0.0,
+            bias: bool = False,
+            upcast_attention: bool = False,
+            upcast_softmax: bool = False,
+            cross_attention_norm: Optional[str] = None,
+            cross_attention_norm_num_groups: int = 32,
+            added_kv_proj_dim: Optional[int] = None,
+            norm_num_groups: Optional[int] = None,
+            spatial_norm_dim: Optional[int] = None,
+            out_bias: bool = True,
+            scale_qk: bool = True,
+            only_cross_attention: bool = False,
+            eps: float = 1e-5,
+            rescale_output_factor: float = 1.0,
+            residual_connection: bool = False,
+            _from_deprecated_attn_block: bool = False,
+            processor: Optional["AttnProcessor"] = None,
+            attention_mode: str = 'xformers',
+            use_rope: bool = False,
+            rope_scaling: Optional[Dict] = None,
+            compress_kv_factor: Optional[Tuple] = None,
     ):
         super().__init__()
         self.inner_dim = dim_head * heads
@@ -271,7 +278,7 @@ class Attention(nn.Module):
         self._from_deprecated_attn_block = _from_deprecated_attn_block
 
         self.scale_qk = scale_qk
-        self.scale = dim_head**-0.5 if self.scale_qk else 1.0
+        self.scale = dim_head ** -0.5 if self.scale_qk else 1.0
 
         self.heads = heads
         # for slice_size > 0 the attention score computation
@@ -325,7 +332,8 @@ class Attention(nn.Module):
         else:
             linear_cls = LoRACompatibleLinear
 
-        assert not (self.use_rope and (self.compress_kv_factor is not None)), "Can not both enable compressing kv and using rope"
+        assert not (self.use_rope and (
+                    self.compress_kv_factor is not None)), "Can not both enable compressing kv and using rope"
         if self.compress_kv_factor is not None:
             self._init_compress()
 
@@ -353,12 +361,14 @@ class Attention(nn.Module):
         # but only if it has the default `scale` argument. TODO remove scale_qk check when we move to torch 2.1
         if processor is None:
             processor = (
-                AttnProcessor2_0(self.inner_dim, attention_mode, use_rope, rope_scaling=rope_scaling, compress_kv_factor=compress_kv_factor) if hasattr(F, "scaled_dot_product_attention") and self.scale_qk else AttnProcessor()
+                AttnProcessor2_0(self.inner_dim, attention_mode, use_rope, rope_scaling=rope_scaling,
+                                 compress_kv_factor=compress_kv_factor) if hasattr(F,
+                                                                                   "scaled_dot_product_attention") and self.scale_qk else AttnProcessor()
             )
         self.set_processor(processor)
 
     def set_use_memory_efficient_attention_xformers(
-        self, use_memory_efficient_attention_xformers: bool, attention_op: Optional[Callable] = None
+            self, use_memory_efficient_attention_xformers: bool, attention_op: Optional[Callable] = None
     ) -> None:
         r"""
         Set whether to use memory efficient attention from `xformers` or not.
@@ -545,9 +555,9 @@ class Attention(nn.Module):
         # if current processor is in `self._modules` and if passed `processor` is not, we need to
         # pop `processor` from `self._modules`
         if (
-            hasattr(self, "processor")
-            and isinstance(self.processor, torch.nn.Module)
-            and not isinstance(processor, torch.nn.Module)
+                hasattr(self, "processor")
+                and isinstance(self.processor, torch.nn.Module)
+                and not isinstance(processor, torch.nn.Module)
         ):
             logger.info(f"You are removing possibly trained weights of {self.processor} with {processor}")
             self._modules.pop("processor")
@@ -645,11 +655,11 @@ class Attention(nn.Module):
         return lora_processor
 
     def forward(
-        self,
-        hidden_states: torch.FloatTensor,
-        encoder_hidden_states: Optional[torch.FloatTensor] = None,
-        attention_mask: Optional[Union[torch.FloatTensor, torch.BoolTensor]] = None,
-        **cross_attention_kwargs,
+            self,
+            hidden_states: torch.FloatTensor,
+            encoder_hidden_states: Optional[torch.FloatTensor] = None,
+            attention_mask: Optional[Union[torch.FloatTensor, torch.BoolTensor]] = None,
+            **cross_attention_kwargs,
     ) -> torch.Tensor:
         r"""
         The forward method of the `Attention` class.
@@ -719,7 +729,7 @@ class Attention(nn.Module):
         return tensor
 
     def get_attention_scores(
-        self, query: torch.Tensor, key: torch.Tensor, attention_mask: torch.Tensor = None
+            self, query: torch.Tensor, key: torch.Tensor, attention_mask: torch.Tensor = None
     ) -> torch.Tensor:
         r"""
         Compute the attention scores.
@@ -766,7 +776,7 @@ class Attention(nn.Module):
         return attention_probs
 
     def prepare_attention_mask(
-        self, attention_mask: torch.Tensor, target_length: int, batch_size: int, out_dim: int = 3
+            self, attention_mask: torch.Tensor, target_length: int, batch_size: int, out_dim: int = 3
     ) -> torch.Tensor:
         r"""
         Prepare the attention mask for the attention computation.
@@ -844,14 +854,17 @@ class Attention(nn.Module):
 
     def _init_compress(self):
         if len(self.compress_kv_factor) == 2:
-            self.sr = nn.Conv2d(self.inner_dim, self.inner_dim, groups=self.inner_dim, kernel_size=self.compress_kv_factor, stride=self.compress_kv_factor)
-            self.sr.weight.data.fill_(1/self.compress_kv_factor[0]**2)
+            self.sr = nn.Conv2d(self.inner_dim, self.inner_dim, groups=self.inner_dim,
+                                kernel_size=self.compress_kv_factor, stride=self.compress_kv_factor)
+            self.sr.weight.data.fill_(1 / self.compress_kv_factor[0] ** 2)
         elif len(self.compress_kv_factor) == 1:
             self.kernel_size = self.compress_kv_factor[0]
-            self.sr = nn.Conv1d(self.inner_dim, self.inner_dim, groups=self.inner_dim, kernel_size=self.compress_kv_factor[0], stride=self.compress_kv_factor[0])
-            self.sr.weight.data.fill_(1/self.compress_kv_factor[0])
+            self.sr = nn.Conv1d(self.inner_dim, self.inner_dim, groups=self.inner_dim,
+                                kernel_size=self.compress_kv_factor[0], stride=self.compress_kv_factor[0])
+            self.sr.weight.data.fill_(1 / self.compress_kv_factor[0])
         self.sr.bias.data.zero_()
         self.norm = nn.LayerNorm(self.inner_dim)
+
 
 class AttnProcessor2_0:
     r"""
@@ -876,7 +889,6 @@ class AttnProcessor2_0:
             else:
                 self.sp_size = hccl_info.world_size
 
-
     def _init_rope(self):
         if self.rope_scaling is None:
             self.rope2d = RoPE2D()
@@ -890,18 +902,18 @@ class AttnProcessor2_0:
                 self.rope1d = LinearScalingRoPE1D(scaling_factor=scaling_factor_1d)
             else:
                 raise ValueError(f"Unknown RoPE scaling type {scaling_type}")
-            
+
     def __call__(
-        self,
-        attn: Attention,
-        hidden_states: torch.FloatTensor,
-        encoder_hidden_states: Optional[torch.FloatTensor] = None,
-        attention_mask: Optional[Union[torch.FloatTensor, torch.BoolTensor]] = None,
-        temb: Optional[torch.FloatTensor] = None,
-        scale: float = 1.0,
-        position_q: Optional[torch.LongTensor] = None,
-        position_k: Optional[torch.LongTensor] = None,
-        last_shape: Tuple[int] = None, 
+            self,
+            attn: Attention,
+            hidden_states: torch.FloatTensor,
+            encoder_hidden_states: Optional[torch.FloatTensor] = None,
+            attention_mask: Optional[Union[torch.FloatTensor, torch.BoolTensor]] = None,
+            temb: Optional[torch.FloatTensor] = None,
+            scale: float = 1.0,
+            position_q: Optional[torch.LongTensor] = None,
+            position_k: Optional[torch.LongTensor] = None,
+            last_shape: Tuple[int] = None,
     ) -> torch.FloatTensor:
         residual = hidden_states
 
@@ -916,13 +928,12 @@ class AttnProcessor2_0:
             batch_size, channel, height, width = hidden_states.shape
             hidden_states = hidden_states.view(batch_size, channel, height * width).transpose(1, 2)
 
-
-
         if self.compress_kv_factor is not None:
             batch_size = hidden_states.shape[0]
             if len(last_shape) == 2:
                 encoder_hidden_states = hidden_states.permute(0, 2, 1).reshape(batch_size, self.dim, *last_shape)
-                encoder_hidden_states = attn.sr(encoder_hidden_states).reshape(batch_size, self.dim, -1).permute(0, 2, 1)
+                encoder_hidden_states = attn.sr(encoder_hidden_states).reshape(batch_size, self.dim, -1).permute(0, 2,
+                                                                                                                 1)
             elif len(last_shape) == 1:
                 encoder_hidden_states = hidden_states.permute(0, 2, 1)
                 if last_shape[0] % 2 == 1:
@@ -931,7 +942,7 @@ class AttnProcessor2_0:
                 encoder_hidden_states = attn.sr(encoder_hidden_states).permute(0, 2, 1)
             else:
                 raise NotImplementedError(f'NotImplementedError with last_shape {last_shape}')
-                
+
             encoder_hidden_states = attn.norm(encoder_hidden_states)
 
         if npu_config.on_npu and get_sequence_parallel_state() and attention_mask == None:
@@ -952,7 +963,6 @@ class AttnProcessor2_0:
             else:
                 attention_mask = attention_mask.view(batch_size, attn.heads, -1, attention_mask.shape[-1])
 
-
         if attn.group_norm is not None:
             hidden_states = attn.group_norm(hidden_states.transpose(1, 2)).transpose(1, 2)
 
@@ -964,8 +974,6 @@ class AttnProcessor2_0:
         elif attn.norm_cross:
             encoder_hidden_states = attn.norm_encoder_hidden_states(encoder_hidden_states)
 
-
-
         key = attn.to_k(encoder_hidden_states, *args)
         value = attn.to_v(encoder_hidden_states, *args)
 
@@ -973,29 +981,40 @@ class AttnProcessor2_0:
         head_dim = inner_dim // attn.heads
         if npu_config.on_npu and npu_config.enable_FA:
             if get_sequence_parallel_state() and attention_mask == None:
-                query = query.view(-1, attn.heads, head_dim) # [s // sp, b, h * d] -> [s // sp * b, h, d]
+                query = query.view(-1, attn.heads, head_dim)  # [s // sp, b, h * d] -> [s // sp * b, h, d]
                 key = key.view(-1, attn.heads, head_dim)
                 value = value.view(-1, attn.heads, head_dim)
 
                 # apply all_to_all to gather sequence and split attention heads [s // sp * b, h, d] -> [s * b, h // sp, d]
                 query = all_to_all_SBH(query, scatter_dim=1, gather_dim=0).view(-1, batch_size,
-                                                                                               attn.heads // self.sp_size * head_dim)
+                                                                                attn.heads // self.sp_size * head_dim)
                 key = all_to_all_SBH(key, scatter_dim=1, gather_dim=0).view(-1, batch_size,
-                                                                                           attn.heads // self.sp_size * head_dim)
+                                                                            attn.heads // self.sp_size * head_dim)
                 value = all_to_all_SBH(value, scatter_dim=1, gather_dim=0).view(-1, batch_size,
-                                                                                               attn.heads // self.sp_size * head_dim)
+                                                                                attn.heads // self.sp_size * head_dim)
 
-
-                hidden_states = torch_npu.npu_fusion_attention(query, key, value, scale=1/math.sqrt(head_dim),
-                                                               head_num=attn.heads // self.sp_size, input_layout='SBH')[0]
+                hidden_states = torch_npu.npu_fusion_attention(query, key, value, scale=1 / math.sqrt(head_dim),
+                                                               head_num=attn.heads // self.sp_size, input_layout='SBH')[
+                    0]
                 hidden_states = hidden_states.view(-1, attn.heads // self.sp_size, head_dim)
 
                 # [s * b, h // sp, d] -> [s // sp * b, h, d] -> [s // sp, b, h * d]
                 hidden_states = all_to_all_SBH(hidden_states, scatter_dim=0, gather_dim=1).view(-1, batch_size,
-                                                                                                            attn.heads * head_dim)
+                                                                                                attn.heads * head_dim)
             else:
-                hidden_states = torch_npu.npu_fusion_attention(query, key, value, atten_mask=attention_mask, input_layout="BSH",
-                                               scale=1/math.sqrt(head_dim), head_num=attn.heads)[0]
+                if npu_config.enable_FP32:
+                    dtype = query.dtype
+                    hidden_states = torch_npu.npu_fusion_attention(query.to(torch.bfloat16), key.to(torch.bfloat16),
+                                                                   value.to(torch.bfloat16),
+                                                                   atten_mask=attention_mask, input_layout="BSH",
+                                                                   scale=1 / math.sqrt(head_dim),
+                                                                   head_num=attn.heads)[0]
+                    hidden_states = hidden_states.to(dtype)
+                else:
+                    hidden_states = torch_npu.npu_fusion_attention(query, key, value,
+                                                                   atten_mask=attention_mask, input_layout="BSH",
+                                                                   scale=1 / math.sqrt(head_dim),
+                                                                   head_num=attn.heads)[0]
         else:
             query = query.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
 
@@ -1022,7 +1041,8 @@ class AttnProcessor2_0:
             # the output of sdp = (batch, num_heads, seq_len, head_dim)
             # TODO: add support for attn.scale when we move to Torch 2.1
             if self.attention_mode == 'flash':
-                assert attention_mask is None or torch.all(attention_mask.bool()), 'flash-attn do not support attention_mask'
+                assert attention_mask is None or torch.all(
+                    attention_mask.bool()), 'flash-attn do not support attention_mask'
                 with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=True, enable_mem_efficient=False):
                     hidden_states = F.scaled_dot_product_attention(
                         query, key, value, dropout_p=0.0, is_causal=False
@@ -1060,6 +1080,7 @@ class AttnProcessor2_0:
         hidden_states = hidden_states / attn.rescale_output_factor
 
         return hidden_states
+
 
 @maybe_allow_in_graph
 class GatedSelfAttentionDense(nn.Module):
@@ -1217,9 +1238,9 @@ class BasicTransformerBlock_(nn.Module):
             positional_embeddings: Optional[str] = None,
             num_positional_embeddings: Optional[int] = None,
             attention_mode: str = "xformers",
-            use_rope: bool = False, 
-            rope_scaling: Optional[Dict] = None, 
-            compress_kv_factor: Optional[Tuple] = None, 
+            use_rope: bool = False,
+            rope_scaling: Optional[Dict] = None,
+            compress_kv_factor: Optional[Tuple] = None,
     ):
         super().__init__()
         self.only_cross_attention = only_cross_attention
@@ -1262,10 +1283,10 @@ class BasicTransformerBlock_(nn.Module):
             bias=attention_bias,
             cross_attention_dim=cross_attention_dim if only_cross_attention else None,
             upcast_attention=upcast_attention,
-            attention_mode=attention_mode, 
-            use_rope=use_rope, 
-            rope_scaling=rope_scaling, 
-            compress_kv_factor=compress_kv_factor, 
+            attention_mode=attention_mode,
+            use_rope=use_rope,
+            rope_scaling=rope_scaling,
+            compress_kv_factor=compress_kv_factor,
         )
 
         # # 2. Cross-Attn
@@ -1326,7 +1347,7 @@ class BasicTransformerBlock_(nn.Module):
             class_labels: Optional[torch.LongTensor] = None,
             position_q: Optional[torch.LongTensor] = None,
             position_k: Optional[torch.LongTensor] = None,
-            frame: int = None, 
+            frame: int = None,
     ) -> torch.FloatTensor:
         # Notice that normalization is always applied before the real computation in the following blocks.
         # 0. Self-Attention
@@ -1370,8 +1391,8 @@ class BasicTransformerBlock_(nn.Module):
             encoder_hidden_states=encoder_hidden_states if self.only_cross_attention else None,
             attention_mask=attention_mask,
             position_q=position_q,
-            position_k=position_k, 
-            last_shape=frame, 
+            position_k=position_k,
+            last_shape=frame,
             **cross_attention_kwargs,
         )
         if self.use_ada_layer_norm_zero:
@@ -1490,29 +1511,29 @@ class BasicTransformerBlock(nn.Module):
     """
 
     def __init__(
-        self,
-        dim: int,
-        num_attention_heads: int,
-        attention_head_dim: int,
-        dropout=0.0,
-        cross_attention_dim: Optional[int] = None,
-        activation_fn: str = "geglu",
-        num_embeds_ada_norm: Optional[int] = None,
-        attention_bias: bool = False,
-        only_cross_attention: bool = False,
-        double_self_attention: bool = False,
-        upcast_attention: bool = False,
-        norm_elementwise_affine: bool = True,
-        norm_type: str = "layer_norm",  # 'layer_norm', 'ada_norm', 'ada_norm_zero', 'ada_norm_single'
-        norm_eps: float = 1e-5,
-        final_dropout: bool = False,
-        attention_type: str = "default",
-        positional_embeddings: Optional[str] = None,
-        num_positional_embeddings: Optional[int] = None,
-        attention_mode: str = "xformers", 
-        use_rope: bool = False,
-        rope_scaling: Optional[Dict] = None,
-        compress_kv_factor: Optional[Tuple] = None, 
+            self,
+            dim: int,
+            num_attention_heads: int,
+            attention_head_dim: int,
+            dropout=0.0,
+            cross_attention_dim: Optional[int] = None,
+            activation_fn: str = "geglu",
+            num_embeds_ada_norm: Optional[int] = None,
+            attention_bias: bool = False,
+            only_cross_attention: bool = False,
+            double_self_attention: bool = False,
+            upcast_attention: bool = False,
+            norm_elementwise_affine: bool = True,
+            norm_type: str = "layer_norm",  # 'layer_norm', 'ada_norm', 'ada_norm_zero', 'ada_norm_single'
+            norm_eps: float = 1e-5,
+            final_dropout: bool = False,
+            attention_type: str = "default",
+            positional_embeddings: Optional[str] = None,
+            num_positional_embeddings: Optional[int] = None,
+            attention_mode: str = "xformers",
+            use_rope: bool = False,
+            rope_scaling: Optional[Dict] = None,
+            compress_kv_factor: Optional[Tuple] = None,
     ):
         super().__init__()
         self.only_cross_attention = only_cross_attention
@@ -1555,10 +1576,10 @@ class BasicTransformerBlock(nn.Module):
             bias=attention_bias,
             cross_attention_dim=cross_attention_dim if only_cross_attention else None,
             upcast_attention=upcast_attention,
-            attention_mode=attention_mode, 
-            use_rope=use_rope, 
-            rope_scaling=rope_scaling, 
-            compress_kv_factor=compress_kv_factor, 
+            attention_mode=attention_mode,
+            use_rope=use_rope,
+            rope_scaling=rope_scaling,
+            compress_kv_factor=compress_kv_factor,
         )
 
         # 2. Cross-Attn
@@ -1581,7 +1602,7 @@ class BasicTransformerBlock(nn.Module):
                 upcast_attention=upcast_attention,
                 attention_mode=attention_mode,  # only xformers support attention_mask
                 use_rope=False,  # do not position in cross attention
-                compress_kv_factor=None, 
+                compress_kv_factor=None,
             )  # is self-attn if encoder_hidden_states is none
         else:
             self.norm2 = None
@@ -1604,7 +1625,7 @@ class BasicTransformerBlock(nn.Module):
 
         # 5. Scale-shift for PixArt-Alpha.
         if self.use_ada_layer_norm_single:
-            self.scale_shift_table = nn.Parameter(torch.randn(6, dim) / dim**0.5)
+            self.scale_shift_table = nn.Parameter(torch.randn(6, dim) / dim ** 0.5)
 
         # let chunk size default to None
         self._chunk_size = None
@@ -1616,17 +1637,17 @@ class BasicTransformerBlock(nn.Module):
         self._chunk_dim = dim
 
     def forward(
-        self,
-        hidden_states: torch.FloatTensor,
-        attention_mask: Optional[Union[torch.FloatTensor, torch.BoolTensor]] = None,
-        encoder_hidden_states: Optional[torch.FloatTensor] = None,
-        encoder_attention_mask: Optional[Union[torch.FloatTensor, torch.BoolTensor]] = None,
-        timestep: Optional[torch.LongTensor] = None,
-        cross_attention_kwargs: Dict[str, Any] = None,
-        class_labels: Optional[torch.LongTensor] = None,
-        position_q: Optional[torch.LongTensor] = None,
-        position_k: Optional[torch.LongTensor] = None,
-        hw: Tuple[int, int] = None, 
+            self,
+            hidden_states: torch.FloatTensor,
+            attention_mask: Optional[Union[torch.FloatTensor, torch.BoolTensor]] = None,
+            encoder_hidden_states: Optional[torch.FloatTensor] = None,
+            encoder_attention_mask: Optional[Union[torch.FloatTensor, torch.BoolTensor]] = None,
+            timestep: Optional[torch.LongTensor] = None,
+            cross_attention_kwargs: Dict[str, Any] = None,
+            class_labels: Optional[torch.LongTensor] = None,
+            position_q: Optional[torch.LongTensor] = None,
+            position_k: Optional[torch.LongTensor] = None,
+            hw: Tuple[int, int] = None,
     ) -> torch.FloatTensor:
         # Notice that normalization is always applied before the real computation in the following blocks.
         # 0. Self-Attention
@@ -1642,7 +1663,7 @@ class BasicTransformerBlock(nn.Module):
             norm_hidden_states = self.norm1(hidden_states)
         elif self.use_ada_layer_norm_single:
             shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
-                self.scale_shift_table[None] + timestep.reshape(batch_size, 6, -1)
+                    self.scale_shift_table[None] + timestep.reshape(batch_size, 6, -1)
             ).chunk(6, dim=1)
             norm_hidden_states = self.norm1(hidden_states)
             norm_hidden_states = norm_hidden_states * (1 + scale_msa) + shift_msa
@@ -1666,7 +1687,7 @@ class BasicTransformerBlock(nn.Module):
             attention_mask=attention_mask,
             position_q=position_q,
             position_k=position_k,
-            last_shape=hw, 
+            last_shape=hw,
             **cross_attention_kwargs,
         )
         if self.use_ada_layer_norm_zero:
@@ -1704,7 +1725,7 @@ class BasicTransformerBlock(nn.Module):
                 attention_mask=encoder_attention_mask,
                 position_q=None,  # cross attn do not need relative position
                 position_k=None,
-                last_shape=None, 
+                last_shape=None,
                 **cross_attention_kwargs,
             )
             hidden_states = attn_output + hidden_states
@@ -1738,6 +1759,7 @@ class BasicTransformerBlock(nn.Module):
             hidden_states = hidden_states.squeeze(1)
 
         return hidden_states
+
 
 class AdaLayerNormSingle(nn.Module):
     r"""
