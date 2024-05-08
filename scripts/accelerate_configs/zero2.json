@@ -10,6 +10,7 @@
     "bf16": {
         "enabled": "auto"
     },
+    "communication_data_type": "fp32",
     "train_micro_batch_size_per_gpu": "auto",
     "train_batch_size": "auto",
     "gradient_accumulation_steps": "auto",
@@ -17,8 +18,10 @@
     "zero_optimization": {
         "stage": 2,
         "overlap_comm": true,
+        "round_robin_gradients": false,
         "contiguous_gradients": true,
         "sub_group_size": 1e9,
-        "reduce_bucket_size": 5e8
+        "reduce_bucket_size": 5e9,
+        "allgather_bucket_size": 5e9
     }
 }

@@ -19,13 +19,6 @@ import gc
 import numpy as np
 from einops import rearrange
 from tqdm import tqdm
-from dataclasses import field, dataclass
-from torch.utils.data import DataLoader
-from copy import deepcopy
-from torch.utils.data import DataLoader
-from torch.utils.data.distributed import DistributedSampler
-
-import accelerate
 import torch
 
 try:
@@ -33,6 +26,13 @@ try:
 except:
     pass
 from opensora.npu_config import npu_config
+
+from dataclasses import field, dataclass
+from torch.utils.data import DataLoader
+from copy import deepcopy
+from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
+import accelerate
 from torch.nn import functional as F
 import transformers
 from accelerate import Accelerator
@@ -496,12 +496,11 @@ def main(args):
         t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=accelerator.device)
         loss_dict = diffusion.training_losses(model, x, t, model_kwargs)
         loss = loss_dict["loss"].mean()
-
         # Backpropagate
-        # accelerator.backward(loss)
-        accelerator.deepspeed_engine_wrapped.engine.backward(loss)
-        grad_norm = npu_config.calc_grad_norm(model)
-        accelerator.deepspeed_engine_wrapped.engine.step()
+        accelerator.backward(loss)
+        # accelerator.deepspeed_engine_wrapped.engine.backward(loss)
+        # grad_norm = npu_config.calc_grad_norm(model)
+        # accelerator.deepspeed_engine_wrapped.engine.step()
 
         if accelerator.sync_gradients:
             params_to_clip = model.parameters()
@@ -510,7 +509,7 @@ def main(args):
         lr_scheduler.step()
         optimizer.zero_grad()
 
-        return loss, grad_norm
+        return loss
 
     def train_one_step(step_, data_item_):
         x, attn_mask, input_ids, cond_mask = data_item_
@@ -544,7 +543,6 @@ def main(args):
 
         if get_sequence_parallel_state():
             loss = 0.0
-            grad_norm = 0.0
             # npu_config.print_tensor_stats(attn_mask, "attn_mask before prepare_parallel_data")
             x, cond, attn_mask, cond_mask, use_image_num = prepare_parallel_data(x, cond, attn_mask, cond_mask,
                                                                                  args.use_image_num)
@@ -558,11 +556,11 @@ def main(args):
                                         attention_mask=attn_mask[st_idx: ed_idx],
                                         encoder_attention_mask=cond_mask[st_idx: ed_idx], use_image_num=use_image_num)
 
-                    loss_, grad_norm_ = run(x[st_idx: ed_idx], model_kwargs)
+                    loss_ = run(x[st_idx: ed_idx], model_kwargs)
                     loss += loss_.detach().item() / (
                             args.train_batch_size * args.sp_size // args.train_sp_batch_size)
-                    grad_norm += grad_norm_ / (
-                            args.train_batch_size * args.sp_size // args.train_sp_batch_size)
+                    # grad_norm += grad_norm_ / (
+                    #         args.train_batch_size * args.sp_size // args.train_sp_batch_size)
                     # Gather the losses across all processes for logging (if we use distributed training).
                     avg_loss = accelerator.gather(loss_.repeat(args.train_sp_batch_size)).mean()
                     progress_info.train_loss += avg_loss.detach().item() / (
@@ -571,14 +569,14 @@ def main(args):
             with accelerator.accumulate(model):
                 model_kwargs = dict(encoder_hidden_states=cond, attention_mask=attn_mask,
                                     encoder_attention_mask=cond_mask, use_image_num=args.use_image_num)
-                loss_, grad_norm = run(x, model_kwargs)
+                loss_ = run(x, model_kwargs)
                 loss = loss_.detach().item()
                 # Gather the losses across all processes for logging (if we use distributed training).
                 avg_loss = accelerator.gather(loss_.repeat(args.train_batch_size)).mean()
                 progress_info.train_loss += avg_loss.detach().item() / args.gradient_accumulation_steps
 
         npu_config.print_msg(
-            f"Step: [{step_}], local_loss={loss}, grad_norm={grad_norm}, avg_loss={avg_loss}, acc_train_loss={progress_info.train_loss}",
+            f"Step: [{step_}], local_loss={loss}, avg_loss={avg_loss}, acc_train_loss={progress_info.train_loss}",
             rank=0)
 
         # Checks if the accelerator has performed an optimization step behind the scenes
