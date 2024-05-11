@@ -37,6 +37,7 @@ from diffusers.utils.torch_utils import randn_tensor
 from diffusers.pipelines.pipeline_utils import DiffusionPipeline
 from diffusers.utils import BaseOutput
 from dataclasses import dataclass
+from opensora.acceleration.parallel_states import get_sequence_parallel_state, hccl_info
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
@@ -661,7 +662,7 @@ class VideoGenPipeline(DiffusionPipeline):
         latents = self.prepare_latents(
             batch_size * num_images_per_prompt,
             latent_channels,
-            video_length,
+            (video_length + hccl_info.world_size - 1) // hccl_info.world_size if get_sequence_parallel_state() else video_length,
             height,
             width,
             prompt_embeds.dtype,
@@ -735,6 +736,15 @@ class VideoGenPipeline(DiffusionPipeline):
                     if callback is not None and i % callback_steps == 0:
                         step_idx = i // getattr(self.scheduler, "order", 1)
                         callback(step_idx, t, latents)
+
+        if get_sequence_parallel_state():
+            latents_shape = list(latents.shape)
+            full_shape = [latents_shape[0] * hccl_info.world_size] + latents_shape[1:]
+            all_latents = torch.zeros(full_shape, dtype=latents.dtype, device=latents.device)
+            torch.distributed.all_gather_into_tensor(all_latents, latents)
+            latents_list = list(all_latents.chunk(hccl_info.world_size, dim=0))
+            latents = torch.cat(latents_list, dim=2)[:, :, :video_length]
+        latents = latents[:, :, :video_length]
 
         if not output_type == 'latents':
             video = self.decode_latents(latents)

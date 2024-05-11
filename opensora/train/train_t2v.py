@@ -59,7 +59,7 @@ from opensora.utils.dataset_utils import Collate
 from opensora.models.ae import ae_stride_config, ae_channel_config
 from opensora.models.diffusion import Diffusion_models
 from opensora.sample.pipeline_videogen import VideoGenPipeline
-from opensora.acceleration.parallel_states import initialize_sequence_parallel_state, set_sequence_parallel_state, destroy_sequence_parallel_group, get_sequence_parallel_state
+from opensora.acceleration.parallel_states import initialize_sequence_parallel_state, set_sequence_parallel_state, destroy_sequence_parallel_group, get_sequence_parallel_state, enable_LCCL
 from opensora.acceleration.communications import prepare_parallel_data
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 check_min_version("0.24.0")
@@ -69,7 +69,6 @@ logger = get_logger(__name__)
 @torch.inference_mode()
 def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weight_dtype, global_step):
     rank = npu_config.rank
-    set_sequence_parallel_state(False)
     validation_prompt = [
         "A quiet beach at dawn, the waves gently lapping at the shore and the sky painted in pastel hues.",
         "The majestic beauty of a waterfall cascading down a cliff into a serene lake.",
@@ -123,8 +122,6 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
     del videogen_pipeline
     gc.collect()
     torch.cuda.empty_cache()
-    if args.sp_size > 1:
-        set_sequence_parallel_state(True)
 
 class ProgressInfo:
     def __init__(self, global_step, train_loss=0.0):
@@ -182,7 +179,7 @@ def main(args):
     accelerator_project_config = ProjectConfiguration(project_dir=args.output_dir, logging_dir=logging_dir)
 
     accelerator = Accelerator(
-        gradient_accumulation_steps=args.gradient_accumulation_steps * args.train_batch_size * args.sp_size // args.train_sp_batch_size if args.sp_size > 1 else args.gradient_accumulation_steps,
+        gradient_accumulation_steps=args.gradient_accumulation_steps,
         mixed_precision=args.mixed_precision,
         log_with=args.report_to,
         project_config=accelerator_project_config,
@@ -486,18 +483,67 @@ def main(args):
     )
     progress_info = ProgressInfo(global_step, train_loss=0.0)
 
+    def sync_gradients_info(loss):
+        # Checks if the accelerator has performed an optimization step behind the scenes
+        progress_bar.update(1)
+        progress_info.global_step += 1
+        end_time = time.time()
+        one_step_duration = end_time - start_time
+        accelerator.log({"train_loss": progress_info.train_loss}, step=progress_info.global_step)
+        npu_config.print_msg(
+            f"Step: [{progress_info.global_step}], enable_LCCL={enable_LCCL}, local_loss={loss}, train_loss={progress_info.train_loss}, time_cost={one_step_duration}", rank=0)
+        progress_info.train_loss = 0.0
+
+
+        if accelerator.is_main_process:
+            logs = {"local_loss": loss, "lr": lr_scheduler.get_last_lr()[0]}
+            progress_bar.set_postfix(**logs)
+            if progress_info.global_step % args.checkpointing_steps == 0 and progress_info.global_step > 1:
+                # _before_ saving state, check if this save would set us over the `checkpoints_total_limit`
+                if args.checkpoints_total_limit is not None:
+                    checkpoints = os.listdir(args.output_dir)
+                    checkpoints = [d for d in checkpoints if d.startswith("checkpoint")]
+                    checkpoints = sorted(checkpoints, key=lambda x: int(x.split("-")[1]))
+
+                    # before we save the new checkpoint, we need to have at _most_ `checkpoints_total_limit - 1` checkpoints
+                    if len(checkpoints) >= args.checkpoints_total_limit:
+                        num_to_remove = len(checkpoints) - args.checkpoints_total_limit + 1
+                        removing_checkpoints = checkpoints[0:num_to_remove]
+
+                        logger.info(
+                            f"{len(checkpoints)} checkpoints already exist, removing {len(removing_checkpoints)} checkpoints"
+                        )
+                        logger.info(f"removing checkpoints: {', '.join(removing_checkpoints)}")
+
+                        for removing_checkpoint in removing_checkpoints:
+                            removing_checkpoint = os.path.join(args.output_dir, removing_checkpoint)
+                            shutil.rmtree(removing_checkpoint)
+
+                save_path = os.path.join(args.output_dir, f"checkpoint-{progress_info.global_step}")
+                accelerator.save_state(save_path)
+                logger.info(f"Saved state to {save_path}")
+
+                if args.use_ema:
+                    # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
+                    ema_model.store(model.parameters())
+                    ema_model.copy_to(model.parameters())
+
+                if args.enable_tracker and not get_sequence_parallel_state():
+                    log_validation(args, model, ae, text_enc.text_enc, train_dataset.tokenizer, accelerator,
+                                   weight_dtype, progress_info.global_step)
+
+
 
     def run(x, model_kwargs):
+        global start_time
+        start_time = time.time()
         t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=accelerator.device)
         loss_dict = diffusion.training_losses(model, x, t, model_kwargs)
         loss = loss_dict["loss"].mean()
 
         # Backpropagate
-        # accelerator.backward(loss)
-        accelerator.deepspeed_engine_wrapped.engine.backward(loss)
-        grad_norm = npu_config.calc_grad_norm(model)
-        accelerator.deepspeed_engine_wrapped.engine.step()
-
+        accelerator.backward(loss)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         if accelerator.sync_gradients:
             params_to_clip = model.parameters()
             accelerator.clip_grad_norm_(params_to_clip, args.max_grad_norm)
@@ -505,11 +551,16 @@ def main(args):
         lr_scheduler.step()
         optimizer.zero_grad()
 
-        return loss, grad_norm
+        avg_loss = accelerator.gather(loss.repeat(args.train_sp_batch_size)).mean()
+        progress_info.train_loss += avg_loss.detach().item() / args.gradient_accumulation_steps
+
+        if accelerator.sync_gradients:
+            sync_gradients_info(loss)
+
+        return loss
 
     def train_one_step(step_, data_item_):
         x, attn_mask, input_ids, cond_mask = data_item_
-        start_time = time.time()
         # Sample noise that we'll add to the latents
         x = x.to(accelerator.device, dtype=weight_dtype)  # B C T+num_images H W, 16 + 4
         attn_mask = attn_mask.to(accelerator.device)  # B L or B 1+num_images L
@@ -553,88 +604,19 @@ def main(args):
                                         attention_mask=attn_mask[st_idx: ed_idx],
                                         encoder_attention_mask=cond_mask[st_idx: ed_idx], use_image_num=use_image_num)
 
-                    loss_, grad_norm_ = run(x[st_idx: ed_idx], model_kwargs)
-                    loss += loss_.detach().item() / (
-                            args.train_batch_size * args.sp_size // args.train_sp_batch_size)
-                    grad_norm += grad_norm_ / (
-                            args.train_batch_size * args.sp_size // args.train_sp_batch_size)
-                    # Gather the losses across all processes for logging (if we use distributed training).
-                    avg_loss = accelerator.gather(loss_.repeat(args.train_sp_batch_size)).mean()
-                    progress_info.train_loss += avg_loss.detach().item() / (
-                                args.gradient_accumulation_steps * args.train_batch_size * args.sp_size // args.train_sp_batch_size)
-                    npu_config.print_with_rank({"train_loss": avg_loss.detach().item()}, save=True)
+                    run(x[st_idx: ed_idx], model_kwargs)
+
         else:
             with accelerator.accumulate(model):
                 model_kwargs = dict(encoder_hidden_states=cond, attention_mask=attn_mask,
                                     encoder_attention_mask=cond_mask, use_image_num=args.use_image_num)
-                loss_, grad_norm = run(x, model_kwargs)
-                loss = loss_.detach().item()
-                # Gather the losses across all processes for logging (if we use distributed training).
-                avg_loss = accelerator.gather(loss_.repeat(args.train_batch_size)).mean()
-                progress_info.train_loss += avg_loss.detach().item() / args.gradient_accumulation_steps
-                npu_config.print_with_rank({"train_loss": avg_loss.detach().item()}, save=True)
-                for offset in range(8):
-                    npu_config.print_msg(f"loss: [{loss}]", rank=offset*8)
+                run(x, model_kwargs)
 
-        npu_config.print_msg(
-            f"Step: [{step_}], local_loss={loss}, grad_norm={grad_norm}, avg_loss={avg_loss}, acc_train_loss={progress_info.train_loss}",
-            rank=0)
 
-        # Checks if the accelerator has performed an optimization step behind the scenes
-        if accelerator.sync_gradients:
-            progress_bar.update(1)
-            progress_info.global_step += 1
-            end_time = time.time()
-            one_step_duration = end_time - start_time
-            # npu_config.print_with_rank({"train_loss": progress_info.train_loss, "time_cost(s)": one_step_duration},
-            #                            save=True)
-            accelerator.log({"train_loss": progress_info.train_loss}, step=progress_info.global_step)
-            progress_info.train_loss = 0.0
-
-            if args.use_deepspeed or accelerator.is_main_process:
-                if progress_info.global_step % args.checkpointing_steps == 0 and progress_info.global_step > 1:
-                    # _before_ saving state, check if this save would set us over the `checkpoints_total_limit`
-                    if args.checkpoints_total_limit is not None:
-                        checkpoints = os.listdir(args.output_dir)
-                        checkpoints = [d for d in checkpoints if d.startswith("checkpoint")]
-                        checkpoints = sorted(checkpoints, key=lambda x: int(x.split("-")[1]))
-
-                        # before we save the new checkpoint, we need to have at _most_ `checkpoints_total_limit - 1` checkpoints
-                        if len(checkpoints) >= args.checkpoints_total_limit:
-                            num_to_remove = len(checkpoints) - args.checkpoints_total_limit + 1
-                            removing_checkpoints = checkpoints[0:num_to_remove]
-
-                            logger.info(
-                                f"{len(checkpoints)} checkpoints already exist, removing {len(removing_checkpoints)} checkpoints"
-                            )
-                            logger.info(f"removing checkpoints: {', '.join(removing_checkpoints)}")
-
-                            for removing_checkpoint in removing_checkpoints:
-                                removing_checkpoint = os.path.join(args.output_dir, removing_checkpoint)
-                                shutil.rmtree(removing_checkpoint)
-
-                    save_path = os.path.join(args.output_dir, f"checkpoint-{progress_info.global_step}")
-                    accelerator.save_state(save_path)
-                    logger.info(f"Saved state to {save_path}")
-
-            logs = {"step_loss": loss, "lr": lr_scheduler.get_last_lr()[0]}
-            progress_bar.set_postfix(**logs)
 
         if progress_info.global_step >= args.max_train_steps:
             return True
 
-        if accelerator.is_main_process and accelerator.sync_gradients and progress_info.global_step > 1:
-            if progress_info.global_step % args.checkpointing_steps == 0:
-                if args.use_ema:
-                    # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
-                    ema_model.store(model.parameters())
-                    ema_model.copy_to(model.parameters())
-
-                if args.enable_tracker:
-                    log_validation(args, model, ae, text_enc.text_enc, train_dataset.tokenizer, accelerator,
-                                   weight_dtype, progress_info.global_step)
-
-        accelerator.wait_for_everyone()
         return False
 
     def train_all_epoch(prof_=None):

@@ -42,6 +42,7 @@ def initialize_sequence_parallel_group(sequence_parallel_size):
     """Initialize the sequence parallel group."""
     rank = int(os.getenv('RANK', '0'))
     world_size = int(os.getenv("WORLD_SIZE", '1'))
+    torch_npu.npu.set_device(rank)
     assert world_size % sequence_parallel_size == 0, "world_size must be divisible by sequence_parallel_size"
     # hccl
     hccl_info.world_size = sequence_parallel_size
@@ -57,7 +58,6 @@ def initialize_sequence_parallel_group(sequence_parallel_size):
     if enable_LCCL:
         assert sequence_parallel_size == 8, "sequence_parallel_size should be 8 when enable_LCCL is True"
         rank %= sequence_parallel_size
-        torch_npu.npu.set_device(rank)
         lccl_info.world_size = sequence_parallel_size
         lccl_info._COMM_WORLD = lcal_initialize(rank, sequence_parallel_size)
         lccl_info.rank = rank

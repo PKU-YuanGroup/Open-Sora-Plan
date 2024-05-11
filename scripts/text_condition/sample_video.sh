@@ -1,9 +1,9 @@
 WEIGHT_PATH="/home/opensora/shebin/pre_weights/"
-
 export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$(pwd)"
+export MASTER_PORT=12359
 
-CUDA_VISIBLE_DEVICES=6 python opensora/sample/sample_t2v.py \
-    --model_path 512/checkpoint-3500/model \
+torchrun --nproc_per_node=8 opensora/sample/sample_t2v_sp.py \
+    --model_path /home/image_data/checkpoints/512_based_linbin_lr1e-5_node46_ddp/checkpoint-8500/model/ \
     --version 65x512x512 \
     --image_size 512 \
     --cache_dir "./cache_dir" \

@@ -252,7 +252,8 @@ class Attention(nn.Module):
         attention_mode: str = 'xformers',
         use_rope: bool = False,
         rope_scaling: Optional[Dict] = None, 
-        compress_kv_factor: Optional[Tuple] = None, 
+        compress_kv_factor: Optional[Tuple] = None,
+        layout: Optional[str] = "BSH",
     ):
         super().__init__()
         self.inner_dim = dim_head * heads
@@ -353,7 +354,7 @@ class Attention(nn.Module):
         # but only if it has the default `scale` argument. TODO remove scale_qk check when we move to torch 2.1
         if processor is None:
             processor = (
-                AttnProcessor2_0(self.inner_dim, attention_mode, use_rope, rope_scaling=rope_scaling, compress_kv_factor=compress_kv_factor) if hasattr(F, "scaled_dot_product_attention") and self.scale_qk else AttnProcessor()
+                AttnProcessor2_0(self.inner_dim, attention_mode, use_rope, rope_scaling=rope_scaling, compress_kv_factor=compress_kv_factor, layout=layout) if hasattr(F, "scaled_dot_product_attention") and self.scale_qk else AttnProcessor()
             )
         self.set_processor(processor)
 
@@ -858,12 +859,13 @@ class AttnProcessor2_0:
     Processor for implementing scaled dot-product attention (enabled by default if you're using PyTorch 2.0).
     """
 
-    def __init__(self, dim=1152, attention_mode='xformers', use_rope=False, rope_scaling=None, compress_kv_factor=None):
+    def __init__(self, dim=1152, attention_mode='xformers', use_rope=False, rope_scaling=None, compress_kv_factor=None, layout="BSH"):
         self.dim = dim
         self.attention_mode = attention_mode
         self.use_rope = use_rope
         self.rope_scaling = rope_scaling
         self.compress_kv_factor = compress_kv_factor
+        self.layout = layout
         if self.use_rope:
             self._init_rope()
 
@@ -934,10 +936,11 @@ class AttnProcessor2_0:
                 
             encoder_hidden_states = attn.norm(encoder_hidden_states)
 
-        if npu_config.on_npu and get_sequence_parallel_state() and attention_mask == None:
+        if self.layout == "SBH":
             sequence_length, batch_size, _ = (
                 hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
             )
+            sequence_length *= self.sp_size
         else:
             batch_size, sequence_length, _ = (
                 hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
@@ -972,7 +975,7 @@ class AttnProcessor2_0:
         inner_dim = key.shape[-1]
         head_dim = inner_dim // attn.heads
         if npu_config.on_npu and npu_config.enable_FA:
-            if get_sequence_parallel_state() and attention_mask == None:
+            if self.layout == "SBH":
                 query = query.view(-1, attn.heads, head_dim) # [s // sp, b, h * d] -> [s // sp * b, h, d]
                 key = key.view(-1, attn.heads, head_dim)
                 value = value.view(-1, attn.heads, head_dim)
@@ -984,27 +987,25 @@ class AttnProcessor2_0:
                                                                                            attn.heads // self.sp_size * head_dim)
                 value = all_to_all_SBH(value, scatter_dim=1, gather_dim=0).view(-1, batch_size,
                                                                                                attn.heads // self.sp_size * head_dim)
-
-
-                hidden_states = torch_npu.npu_fusion_attention(query, key, value, scale=1/math.sqrt(head_dim),
-                                                               head_num=attn.heads // self.sp_size, input_layout='SBH')[0]
+                hidden_states = torch_npu.npu_fusion_attention(query, key, value, scale=1/math.sqrt(head_dim), atten_mask=attention_mask,
+                                                               head_num=attn.heads // self.sp_size, input_layout=self.layout)[0]
                 hidden_states = hidden_states.view(-1, attn.heads // self.sp_size, head_dim)
 
                 # [s * b, h // sp, d] -> [s // sp * b, h, d] -> [s // sp, b, h * d]
                 hidden_states = all_to_all_SBH(hidden_states, scatter_dim=0, gather_dim=1).view(-1, batch_size,
                                                                                                             attn.heads * head_dim)
-            else:
+            else: # BSH
                 if npu_config.enable_FP32:
                     dtype = query.dtype
                     hidden_states = torch_npu.npu_fusion_attention(query.to(torch.bfloat16), key.to(torch.bfloat16),
                                                                    value.to(torch.bfloat16),
-                                                                   atten_mask=attention_mask, input_layout="BSH",
+                                                                   atten_mask=attention_mask, input_layout=self.layout,
                                                                    scale=1 / math.sqrt(head_dim),
                                                                    head_num=attn.heads)[0]
                     hidden_states = hidden_states.to(dtype)
                 else:
                     hidden_states = torch_npu.npu_fusion_attention(query, key, value,
-                                                                   atten_mask=attention_mask, input_layout="BSH",
+                                                                   atten_mask=attention_mask, input_layout=self.layout,
                                                                    scale=1 / math.sqrt(head_dim),
                                                                    head_num=attn.heads)[0]
         else:
@@ -1276,7 +1277,8 @@ class BasicTransformerBlock_(nn.Module):
             attention_mode=attention_mode, 
             use_rope=use_rope, 
             rope_scaling=rope_scaling, 
-            compress_kv_factor=compress_kv_factor, 
+            compress_kv_factor=compress_kv_factor,
+            layout="SBH" if get_sequence_parallel_state() else "BSH"
         )
 
         # # 2. Cross-Attn

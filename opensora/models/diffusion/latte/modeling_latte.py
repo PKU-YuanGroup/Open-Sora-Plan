@@ -149,19 +149,19 @@ class LatteT2V(ModelMixin, ConfigMixin):
         interpolation_scale_1d = max(interpolation_scale_1d, 1)
         if get_sequence_parallel_state():
             if enable_LCCL:
-                sp_size = lccl_info.world_size
+                self.sp_size = lccl_info.world_size
                 rank_offset = lccl_info.rank
             else:
-                sp_size = hccl_info.world_size
+                self.sp_size = hccl_info.world_size
                 rank_offset = hccl_info.rank % hccl_info.world_size
-            video_length = (video_length + sp_size - 1) // sp_size * sp_size
+            video_length = (self.video_length + self.sp_size - 1) // self.sp_size * self.sp_size
             temp_pos_embed = get_1d_sincos_pos_embed(inner_dim, video_length,
                                                      interpolation_scale=interpolation_scale_1d)  # 1152 hidden size
-            video_length //= sp_size
+            video_length //= self.sp_size
             self.temp_pos_st = rank_offset * video_length
             self.temp_pos_ed = (rank_offset + 1) * video_length
         else:
-            temp_pos_embed = get_1d_sincos_pos_embed(inner_dim, video_length,
+            temp_pos_embed = get_1d_sincos_pos_embed(inner_dim, self.video_length,
                                                      interpolation_scale=interpolation_scale_1d)  # 1152 hidden size
         self.register_buffer("temp_pos_embed", torch.from_numpy(temp_pos_embed).float(), persistent=False)
 
@@ -435,6 +435,8 @@ class LatteT2V(ModelMixin, ConfigMixin):
         if get_sequence_parallel_state():
             timestep_temp = timestep_temp.view(input_batch_size * num_patches, 6, -1).transpose(0, 1).contiguous()
             temp_pos_embed = self.temp_pos_embed[self.temp_pos_st: self.temp_pos_ed].unsqueeze(1)
+            temp_attention_mask = torch.zeros([input_batch_size * num_patches, frame * self.sp_size, frame * self.sp_size], dtype=torch.bool, device=temp_pos_embed.device)
+            temp_attention_mask[:, :, self.video_length:] = True
         else:
             temp_pos_embed = self.temp_pos_embed[:self.video_length].unsqueeze(0)
 
@@ -474,7 +476,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
                         hidden_states = torch.utils.checkpoint.checkpoint(
                             temp_block,
                             hidden_states,
-                            None,  # attention_mask
+                            temp_attention_mask,  # attention_mask
                             None,  # encoder_hidden_states
                             None,  # encoder_attention_mask
                             timestep_temp,
@@ -566,7 +568,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
                             hidden_states = hidden_states + temp_pos_embed
                         hidden_states = temp_block(
                             hidden_states,
-                            None,  # attention_mask
+                            temp_attention_mask,  # attention_mask
                             None,  # encoder_hidden_states
                             None,  # encoder_attention_mask
                             timestep_temp,

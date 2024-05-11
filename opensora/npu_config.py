@@ -9,9 +9,17 @@ import torch
 try:
     import torch_npu
     npu_is_available = True
+    from torch_npu.contrib import transfer_to_npu
 except:
     npu_is_available = False
-import deepspeed
+
+rank = int(os.environ["RANK"])
+OPTIMIZER_ALLGATHER_TIMER = 'optimizer_allgather'
+OPTIMIZER_GRADIENTS_TIMER = 'optimizer_gradients'
+OPTIMIZER_STEP_TIMER = 'optimizer_step'
+OPTIMIZER_TIMERS = [OPTIMIZER_ALLGATHER_TIMER, OPTIMIZER_GRADIENTS_TIMER, OPTIMIZER_STEP_TIMER]
+
+
 
 
 class NPUConfig:
@@ -35,20 +43,24 @@ class NPUConfig:
         self.mm = dict()
 
         if self.on_npu:
-            from torch_npu.contrib import transfer_to_npu
             torch_npu.npu.set_compile_mode(jit_compile=False)
 
         if "RANK" in os.environ:
             self.rank = int(os.environ["RANK"])
+            self.world_size = int(os.environ["WORLD_SIZE"])
         else:
             self.rank = torch.cuda.current_device()
+            self.world_size = self.N_NPU_PER_NODE
         self.print_with_rank(f"The npu_config.on_npu is {self.on_npu}")
+
+    def get_node_size(self):
+        return self.world_size / self.node_world_size
 
     def get_local_rank(self):
         return self.rank % self.N_NPU_PER_NODE
 
     def get_pickle_path(self, file_name):
-        return f"{self.pickle_save_path}/{file_name}_local.pkl"
+        return f"{self.pickle_save_path}/{file_name}_local_f.pkl"
 
     def free_mm(self):
         for key, value in self.mm.items():
@@ -88,15 +100,15 @@ class NPUConfig:
         # 计算并打印梯度范数
         grad_norm = 0
         n_grad = 0
-        for name, param in model.named_parameters():
-            grad_data = deepspeed.utils.safe_get_full_grad(param)
-            # self.print_tensor_stats(grad_data, name=name)
-
-            if grad_data is not None:
-                param_norm = grad_data.norm(2)
-                grad_norm += param_norm.item() ** 2
-                n_grad += 1
-        grad_norm = (grad_norm / n_grad) ** (1. / 2)
+        # for name, param in model.named_parameters():
+        #     grad_data = deepspeed.utils.safe_get_full_grad(param)
+        #     # self.print_tensor_stats(grad_data, name=name)
+        #
+        #     if grad_data is not None:
+        #         param_norm = grad_data.norm(2)
+        #         grad_norm += param_norm.item() ** 2
+        #         n_grad += 1
+        # grad_norm = (grad_norm / n_grad) ** (1. / 2)
 
         return grad_norm
 
@@ -191,19 +203,20 @@ class NPUConfig:
         attn_weight = torch.dropout(attn_weight, dropout_p, train=True)
         return attn_weight @ value
 
-    def print_tensor_with_rank(self, name, tensor, rank=0, dim_print_cnt=[]):
-        if self.rank == rank:
-            print(name)
-            print(tensor.size())
+    def print_tensor_with_rank(self, name, tensor, rank=[0], dim_print_cnt=[]):
+        if type(rank) is not list:
+            rank = [rank]
+        if self.rank in rank:
             def print_dim(tensor_, indices):
                 if tensor_.dim() == len(indices):
-                    print('{0:10.5f}'.format(tensor[tuple(indices)].detach().item()), end=' ')
+                    return '{0:10.5f} '.format(tensor[tuple(indices)].detach().item())
                 else:
                     cur_dim = len(indices)
+                    ret = ''
                     for x in range(0, tensor_.size(cur_dim), tensor_.size(cur_dim) // dim_print_cnt[cur_dim]):
-                        print_dim(tensor_, indices + [x])
-                    print()
-            print_dim(tensor, [])
+                        ret += print_dim(tensor_, indices + [x])
+                    return ret + '\n'
+            print(name, tensor.size(), self.rank, '\n', print_dim(tensor, []))
 
 
 npu_config = NPUConfig()
