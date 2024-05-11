@@ -13,6 +13,8 @@ import math
 import os
 import shutil
 import time
+import random
+import string
 from pathlib import Path
 from typing import Optional
 import gc
@@ -42,7 +44,6 @@ from huggingface_hub import create_repo
 from packaging import version
 from tqdm.auto import tqdm
 from transformers import HfArgumentParser, TrainingArguments, AutoTokenizer
-import random
 import diffusers
 from diffusers import DDPMScheduler, PNDMScheduler
 from diffusers.optimization import get_scheduler
@@ -184,7 +185,7 @@ def generate_timestep_weights(args, num_timesteps):
 
 def main(args):
     logging_dir = Path(args.output_dir, args.logging_dir)
-    npu_config.seed_everything()
+    # npu_config.seed_everything()
     accelerator_project_config = ProjectConfiguration(project_dir=args.output_dir, logging_dir=logging_dir)
 
     accelerator = Accelerator(
@@ -501,6 +502,8 @@ def main(args):
         # accelerator.deepspeed_engine_wrapped.engine.backward(loss)
         # grad_norm = npu_config.calc_grad_norm(model)
         # accelerator.deepspeed_engine_wrapped.engine.step()
+        # 梯度裁剪
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
 
         if accelerator.sync_gradients:
             params_to_clip = model.parameters()

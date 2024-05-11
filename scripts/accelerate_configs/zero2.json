@@ -14,7 +14,6 @@
     "train_micro_batch_size_per_gpu": "auto",
     "train_batch_size": "auto",
     "gradient_accumulation_steps": "auto",
-    "gradient_clipping": 0.1,
     "zero_optimization": {
         "stage": 2,
         "overlap_comm": true,

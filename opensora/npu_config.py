@@ -9,16 +9,9 @@ import torch
 try:
     import torch_npu
     npu_is_available = True
+    from torch_npu.contrib import transfer_to_npu
 except:
     npu_is_available = False
-
-rank = int(os.environ["RANK"])
-OPTIMIZER_ALLGATHER_TIMER = 'optimizer_allgather'
-OPTIMIZER_GRADIENTS_TIMER = 'optimizer_gradients'
-OPTIMIZER_STEP_TIMER = 'optimizer_step'
-OPTIMIZER_TIMERS = [OPTIMIZER_ALLGATHER_TIMER, OPTIMIZER_GRADIENTS_TIMER, OPTIMIZER_STEP_TIMER]
-
-
 
 
 class NPUConfig:
@@ -51,6 +44,10 @@ class NPUConfig:
             self.rank = torch.cuda.current_device()
             self.world_size = self.N_NPU_PER_NODE
         self.print_with_rank(f"The npu_config.on_npu is {self.on_npu}")
+
+    def get_output_video_path(self, name):
+        os.makedirs(f"{self.work_path}/output_videos", exist_ok=True)
+        return f"{self.work_path}/output_videos/{name}"
 
     def get_node_size(self):
         return self.world_size / self.node_world_size

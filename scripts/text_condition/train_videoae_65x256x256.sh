@@ -2,7 +2,7 @@
 #export LD_LIBRARY_PATH=${LCALIB_PACKAGE_PATH}:$LD_LIBRARY_PATH
 #rm -rf /dev/shm/sem.lccl*
 #rm -rf /tmp/.lccl*
-export PROJECT="256-32"
+export PROJECT="256-from-initial-machine32"
 WEIGHT_PATH="/home/opensora/shebin/pre_weights/"
 
 env
@@ -35,7 +35,7 @@ accelerate launch \
     --mixed_precision="bf16" \
     --report_to="wandb" \
     --checkpointing_steps=500 \
-    --output_dir="/home/image_data/checkpoints/256-32/" \
+    --output_dir="/home/image_data/checkpoints/${PROJECT}/" \
     --allow_tf32 \
     --use_deepspeed \
     --model_max_length 300 \
