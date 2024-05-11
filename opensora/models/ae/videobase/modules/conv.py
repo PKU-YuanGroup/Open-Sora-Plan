@@ -91,9 +91,9 @@ class CausalConv3d(nn.Module):
             
     def forward(self, x):
         # 1 + 16   16 as video, 1 as image
-        first_frame_pad = x[:, :, :1, :, :].repeat(
+        first_frame_pad = x[:, :, :1, :, :].cpu().repeat(
             (1, 1, self.time_kernel_size - 1, 1, 1)
-        )   # b c t h w
+        ).musa()   # b c t h w
         x = torch.concatenate((first_frame_pad, x), dim=2)
         return self.conv(x)
     
