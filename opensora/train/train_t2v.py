@@ -60,8 +60,7 @@ from opensora.utils.dataset_utils import Collate
 from opensora.models.ae import ae_stride_config, ae_channel_config
 from opensora.models.diffusion import Diffusion_models
 from opensora.sample.pipeline_videogen import VideoGenPipeline
-from opensora.acceleration.parallel_states import initialize_sequence_parallel_state, destroy_sequence_parallel_group, \
-    get_sequence_parallel_state
+from opensora.acceleration.parallel_states import initialize_sequence_parallel_state, set_sequence_parallel_state, destroy_sequence_parallel_group, get_sequence_parallel_state, enable_LCCL
 from opensora.acceleration.communications import prepare_parallel_data
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
@@ -72,16 +71,11 @@ logger = get_logger(__name__)
 @torch.inference_mode()
 def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weight_dtype, global_step):
     rank = npu_config.rank
-
     validation_prompt = [
         "A quiet beach at dawn, the waves gently lapping at the shore and the sky painted in pastel hues.",
         "The majestic beauty of a waterfall cascading down a cliff into a serene lake.",
-        # 'The video showcases a serene and picturesque countryside setting, featuring a scenic rural landscape with a winding road stretching into the distance. The sky is consistently filled with fluffy white clouds against a bright blue backdrop throughout the video. In the foreground, there is a grassy field enclosed by a fence, with cows grazing peacefully. The surroundings are lush and green, with trees lining the roadside. As the video progresses, the camera moves slightly forward along the road, offering a slightly varied perspective of the same tranquil countryside scenery.',
-        # 'The video presents a continuous urban street scene with various elements remaining consistent throughout its duration. It features residential buildings in the background, some with balconies, and a bustling environment with parked vehicles, including a noticeable blue truck with a tarpaulin covering its contents. Near a small kiosk or stall with a blue and white striped awning, suggesting it might be a food vendor or market stall, a group of people is seen standing, engaging in what appears to be casual activities. The scene is dynamic yet largely unchanged, with the exception of a person walking across the foreground, moving from the right side towards the left, introducing a minor change in the movement within the frame. Overall, the video captures a typical urban setting with daily activities taking place.',
-        # 'a cat wearing sunglasses and working as a lifeguard at pool.',
-        # 'Slow pan upward of blazing oak fire in an indoor fireplace.',
-        # 'Yellow and black tropical fish dart through the sea.',
-        # 'A snowy forest landscape with a dirt road running through it. The road is flanked by trees covered in snow, and the ground is also covered in snow. The sun is shining, creating a bright and serene atmosphere. The road appears to be empty, and there are no people or animals visible in the video. The style of the video is a natural landscape shot, with a focus on the beauty of the snowy forest and the peacefulness of the road.'
+        "a cat wearing sunglasses and working as a lifeguard at pool.",
+        "Yellow and black tropical fish dart through the sea."
     ]
     logger.info(f"Running validation....\n")
     model = accelerator.unwrap_model(model)
@@ -189,7 +183,7 @@ def main(args):
     accelerator_project_config = ProjectConfiguration(project_dir=args.output_dir, logging_dir=logging_dir)
 
     accelerator = Accelerator(
-        gradient_accumulation_steps=args.gradient_accumulation_steps * args.train_batch_size // args.train_sp_batch_size if args.sp_size > 1 else args.gradient_accumulation_steps,
+        gradient_accumulation_steps=args.gradient_accumulation_steps,
         mixed_precision=args.mixed_precision,
         log_with=args.report_to,
         project_config=accelerator_project_config,
@@ -493,18 +487,67 @@ def main(args):
     )
     progress_info = ProgressInfo(global_step, train_loss=0.0)
 
+    def sync_gradients_info(loss):
+        # Checks if the accelerator has performed an optimization step behind the scenes
+        progress_bar.update(1)
+        progress_info.global_step += 1
+        end_time = time.time()
+        one_step_duration = end_time - start_time
+        accelerator.log({"train_loss": progress_info.train_loss}, step=progress_info.global_step)
+        npu_config.print_msg(
+            f"Step: [{progress_info.global_step}], enable_LCCL={enable_LCCL}, local_loss={loss}, train_loss={progress_info.train_loss}, time_cost={one_step_duration}", rank=0)
+        progress_info.train_loss = 0.0
+
+
+        if accelerator.is_main_process:
+            logs = {"local_loss": loss, "lr": lr_scheduler.get_last_lr()[0]}
+            progress_bar.set_postfix(**logs)
+            if progress_info.global_step % args.checkpointing_steps == 0 and progress_info.global_step > 1:
+                # _before_ saving state, check if this save would set us over the `checkpoints_total_limit`
+                if args.checkpoints_total_limit is not None:
+                    checkpoints = os.listdir(args.output_dir)
+                    checkpoints = [d for d in checkpoints if d.startswith("checkpoint")]
+                    checkpoints = sorted(checkpoints, key=lambda x: int(x.split("-")[1]))
+
+                    # before we save the new checkpoint, we need to have at _most_ `checkpoints_total_limit - 1` checkpoints
+                    if len(checkpoints) >= args.checkpoints_total_limit:
+                        num_to_remove = len(checkpoints) - args.checkpoints_total_limit + 1
+                        removing_checkpoints = checkpoints[0:num_to_remove]
+
+                        logger.info(
+                            f"{len(checkpoints)} checkpoints already exist, removing {len(removing_checkpoints)} checkpoints"
+                        )
+                        logger.info(f"removing checkpoints: {', '.join(removing_checkpoints)}")
+
+                        for removing_checkpoint in removing_checkpoints:
+                            removing_checkpoint = os.path.join(args.output_dir, removing_checkpoint)
+                            shutil.rmtree(removing_checkpoint)
+
+                save_path = os.path.join(args.output_dir, f"checkpoint-{progress_info.global_step}")
+                accelerator.save_state(save_path)
+                logger.info(f"Saved state to {save_path}")
+
+                if args.use_ema:
+                    # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
+                    ema_model.store(model.parameters())
+                    ema_model.copy_to(model.parameters())
+
+                if args.enable_tracker and not get_sequence_parallel_state():
+                    log_validation(args, model, ae, text_enc.text_enc, train_dataset.tokenizer, accelerator,
+                                   weight_dtype, progress_info.global_step)
+
+
+
     def run(x, model_kwargs):
+        global start_time
+        start_time = time.time()
         t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=accelerator.device)
         loss_dict = diffusion.training_losses(model, x, t, model_kwargs)
         loss = loss_dict["loss"].mean()
+
         # Backpropagate
         accelerator.backward(loss)
-        # accelerator.deepspeed_engine_wrapped.engine.backward(loss)
-        # grad_norm = npu_config.calc_grad_norm(model)
-        # accelerator.deepspeed_engine_wrapped.engine.step()
-        # 梯度裁剪
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-
         if accelerator.sync_gradients:
             params_to_clip = model.parameters()
             accelerator.clip_grad_norm_(params_to_clip, args.max_grad_norm)
@@ -512,18 +555,23 @@ def main(args):
         lr_scheduler.step()
         optimizer.zero_grad()
 
+        avg_loss = accelerator.gather(loss.repeat(args.train_sp_batch_size)).mean()
+        progress_info.train_loss += avg_loss.detach().item() / args.gradient_accumulation_steps
+
+        if accelerator.sync_gradients:
+            sync_gradients_info(loss)
+
         return loss
 
     def train_one_step(step_, data_item_):
         x, attn_mask, input_ids, cond_mask = data_item_
-        start_time = time.time()
         # Sample noise that we'll add to the latents
         x = x.to(accelerator.device, dtype=weight_dtype)  # B C T+num_images H W, 16 + 4
         attn_mask = attn_mask.to(accelerator.device)  # B L or B 1+num_images L
         input_ids = input_ids.to(accelerator.device)  # B L or B 1+num_images L
         cond_mask = cond_mask.to(accelerator.device)  # B L or B 1+num_images L
         # print('x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape', x.shape, attn_mask.shape,
-        # input_ids.shape, cond_mask.shape)
+              # input_ids.shape, cond_mask.shape)
 
         with torch.no_grad():
             # use for loop to avoid OOM, because T5 is too huge...
@@ -546,6 +594,7 @@ def main(args):
 
         if get_sequence_parallel_state():
             loss = 0.0
+            grad_norm = 0.0
             # npu_config.print_tensor_stats(attn_mask, "attn_mask before prepare_parallel_data")
             x, cond, attn_mask, cond_mask, use_image_num = prepare_parallel_data(x, cond, attn_mask, cond_mask,
                                                                                  args.use_image_num)
@@ -559,82 +608,18 @@ def main(args):
                                         attention_mask=attn_mask[st_idx: ed_idx],
                                         encoder_attention_mask=cond_mask[st_idx: ed_idx], use_image_num=use_image_num)
 
-                    loss_ = run(x[st_idx: ed_idx], model_kwargs)
-                    loss += loss_.detach().item() / (
-                            args.train_batch_size * args.sp_size // args.train_sp_batch_size)
-                    # grad_norm += grad_norm_ / (
-                    #         args.train_batch_size * args.sp_size // args.train_sp_batch_size)
-                    # Gather the losses across all processes for logging (if we use distributed training).
-                    avg_loss = accelerator.gather(loss_.repeat(args.train_sp_batch_size)).mean()
-                    progress_info.train_loss += avg_loss.detach().item() / (
-                            args.gradient_accumulation_steps * args.train_batch_size * args.sp_size // args.train_sp_batch_size)
+                    run(x[st_idx: ed_idx], model_kwargs)
+
         else:
             with accelerator.accumulate(model):
                 model_kwargs = dict(encoder_hidden_states=cond, attention_mask=attn_mask,
                                     encoder_attention_mask=cond_mask, use_image_num=args.use_image_num)
-                loss_ = run(x, model_kwargs)
-                loss = loss_.detach().item()
-                # Gather the losses across all processes for logging (if we use distributed training).
-                avg_loss = accelerator.gather(loss_.repeat(args.train_batch_size)).mean()
-                progress_info.train_loss += avg_loss.detach().item() / args.gradient_accumulation_steps
+                run(x, model_kwargs)
 
-        npu_config.print_msg(
-            f"Step: [{step_}], local_loss={loss}, avg_loss={avg_loss}, acc_train_loss={progress_info.train_loss}",
-            rank=0)
 
-        # Checks if the accelerator has performed an optimization step behind the scenes
-        if accelerator.sync_gradients:
-            progress_bar.update(1)
-            progress_info.global_step += 1
-            end_time = time.time()
-            one_step_duration = end_time - start_time
-            npu_config.print_with_rank({"train_loss": progress_info.train_loss, "time_cost(s)": one_step_duration},
-                                       save=True)
-            accelerator.log({"train_loss": progress_info.train_loss}, step=progress_info.global_step)
-            progress_info.train_loss = 0.0
-
-            if accelerator.is_main_process:
-                if progress_info.global_step % args.checkpointing_steps == 0 and progress_info.global_step > 1:
-                    # _before_ saving state, check if this save would set us over the `checkpoints_total_limit`
-                    if args.checkpoints_total_limit is not None:
-                        checkpoints = os.listdir(args.output_dir)
-                        checkpoints = [d for d in checkpoints if d.startswith("checkpoint")]
-                        checkpoints = sorted(checkpoints, key=lambda x: int(x.split("-")[1]))
-
-                        # before we save the new checkpoint, we need to have at _most_ `checkpoints_total_limit - 1` checkpoints
-                        if len(checkpoints) >= args.checkpoints_total_limit:
-                            num_to_remove = len(checkpoints) - args.checkpoints_total_limit + 1
-                            removing_checkpoints = checkpoints[0:num_to_remove]
-
-                            logger.info(
-                                f"{len(checkpoints)} checkpoints already exist, removing {len(removing_checkpoints)} checkpoints"
-                            )
-                            logger.info(f"removing checkpoints: {', '.join(removing_checkpoints)}")
-
-                            for removing_checkpoint in removing_checkpoints:
-                                removing_checkpoint = os.path.join(args.output_dir, removing_checkpoint)
-                                shutil.rmtree(removing_checkpoint)
-
-                    save_path = os.path.join(args.output_dir, f"checkpoint-{progress_info.global_step}")
-                    accelerator.save_state(save_path)
-                    logger.info(f"Saved state to {save_path}")
-
-            logs = {"step_loss": loss, "lr": lr_scheduler.get_last_lr()[0]}
-            progress_bar.set_postfix(**logs)
 
         if progress_info.global_step >= args.max_train_steps:
             return True
-
-        if accelerator.is_main_process and accelerator.sync_gradients and progress_info.global_step > 1:
-            if progress_info.global_step % args.checkpointing_steps == 0:
-                if args.use_ema:
-                    # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
-                    ema_model.store(model.parameters())
-                    ema_model.copy_to(model.parameters())
-
-                if args.enable_tracker:
-                    log_validation(args, model, ae, text_enc.text_enc, train_dataset.tokenizer, accelerator,
-                                   weight_dtype, progress_info.global_step)
 
         return False
 
@@ -697,8 +682,7 @@ if __name__ == "__main__":
     parser.add_argument('--tile_overlap_factor', type=float, default=0.25)
     parser.add_argument('--enable_tiling', action='store_true')
     parser.add_argument("--compress_kv", action="store_true")
-    parser.add_argument("--attention_mode", type=str, choices=['xformers', 'math', 'flash', 'unable'],
-                        default="xformers")
+    parser.add_argument("--attention_mode", type=str, choices=['xformers', 'math', 'flash', 'unable'], default="xformers")
     parser.add_argument('--use_rope', action='store_true')
     parser.add_argument('--compress_kv_factor', type=int, default=1)
 

@@ -1,15 +1,11 @@
-#LCALIB_PACKAGE_PATH=$(python -c "import lcalib; print(lcalib.__path__[0])")
-#export LD_LIBRARY_PATH=${LCALIB_PACKAGE_PATH}:$LD_LIBRARY_PATH
-#rm -rf /dev/shm/sem.lccl*
-#rm -rf /tmp/.lccl*
-#export PROJECT="512-pretrain-machine2"
-#export PROJECT="512-pretrain-machine4"
-#export PROJECT="512-from-initial-machine4"
+LCALIB_PACKAGE_PATH=$(python -c "import lcalib; print(lcalib.__path__[0])")
+export LD_LIBRARY_PATH=${LCALIB_PACKAGE_PATH}:$LD_LIBRARY_PATH
+rm -rf /dev/shm/sem.lccl*
+rm -rf /tmp/.lccl*
 export PROJECT=$PROJECT_NAME
 WEIGHT_PATH="/home/opensora/shebin/pre_weights/"
-
 env
-
+export WANDB_MODE='offline'
 accelerate launch \
     --config_file scripts/accelerate_configs/multi_node_example.yaml \
     --machine_rank=${MACHINE_RANK} \

@@ -199,19 +199,20 @@ class NPUConfig:
         attn_weight = torch.dropout(attn_weight, dropout_p, train=True)
         return attn_weight @ value
 
-    def print_tensor_with_rank(self, name, tensor, rank=0, dim_print_cnt=[]):
-        if self.rank == rank:
-            print(name)
-            print(tensor.size())
+    def print_tensor_with_rank(self, name, tensor, rank=[0], dim_print_cnt=[]):
+        if type(rank) is not list:
+            rank = [rank]
+        if self.rank in rank:
             def print_dim(tensor_, indices):
                 if tensor_.dim() == len(indices):
-                    print('{0:10.5f}'.format(tensor[tuple(indices)].detach().item()), end=' ')
+                    return '{0:10.5f} '.format(tensor[tuple(indices)].detach().item())
                 else:
                     cur_dim = len(indices)
+                    ret = ''
                     for x in range(0, tensor_.size(cur_dim), tensor_.size(cur_dim) // dim_print_cnt[cur_dim]):
-                        print_dim(tensor_, indices + [x])
-                    print()
-            print_dim(tensor, [])
+                        ret += print_dim(tensor_, indices + [x])
+                    return ret + '\n'
+            print(name, tensor.size(), self.rank, '\n', print_dim(tensor, []))
 
 
 npu_config = NPUConfig()
