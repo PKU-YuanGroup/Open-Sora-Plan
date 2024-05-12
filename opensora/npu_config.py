@@ -46,6 +46,24 @@ class NPUConfig:
             self.world_size = self.N_NPU_PER_NODE
         self.print_with_rank(f"The npu_config.on_npu is {self.on_npu}")
 
+    def run_fa(self, query, key, value, head_dim, head_num, attention_mask=None, layout='BSH', out_dtype=None):
+        if self.enable_FP32 or query.dtype == torch.float32:
+            if out_dtype is None:
+                out_dtype = query.dtype
+            hidden_states = torch_npu.npu_fusion_attention(query.to(torch.bfloat16), key.to(torch.bfloat16),
+                                                           value.to(torch.bfloat16),
+                                                           atten_mask=attention_mask, input_layout=layout,
+                                                           scale=1 / math.sqrt(head_dim),
+                                                           head_num=head_num)[0]
+            hidden_states = hidden_states.to(out_dtype)
+        else:
+            hidden_states = torch_npu.npu_fusion_attention(query, key, value,
+                                                           atten_mask=attention_mask, input_layout=layout,
+                                                           scale=1 / math.sqrt(head_dim),
+                                                           head_num=head_num)[0]
+
+        return hidden_states
+
     def get_output_video_path(self, name):
         os.makedirs(f"{self.work_path}/output_videos", exist_ok=True)
         return f"{self.work_path}/output_videos/{name}"

@@ -31,7 +31,6 @@ accelerate launch \
     --learning_rate=1e-5 \
     --lr_scheduler="cosine" \
     --lr_warmup_steps=500 \
-    --mixed_precision="bf16" \
     --report_to="wandb" \
     --checkpointing_steps=100 \
     --output_dir="/home/image_data/checkpoints/${PROJECT}/" \

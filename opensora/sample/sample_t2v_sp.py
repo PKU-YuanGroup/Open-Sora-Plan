@@ -53,7 +53,7 @@ def load_t2v_checkpoint(model_path):
                                          scheduler=scheduler,
                                          transformer=transformer_model).to(device=device)
 
-    return videogen_pipeline, video_length, image_size
+    return videogen_pipeline, transformer_model, video_length, image_size
 
 
 def get_latest_path():
@@ -66,7 +66,7 @@ def get_latest_path():
     return path
 
 
-def run_model_and_save_imgages(videogen_pipeline, video_length, image_size, model_path):
+def run_model_and_save_images(videogen_pipeline, transformer_model, video_length, image_size, model_path):
     video_grids = []
     if not isinstance(args.text_prompt, list):
         args.text_prompt = [args.text_prompt]
@@ -75,9 +75,20 @@ def run_model_and_save_imgages(videogen_pipeline, video_length, image_size, mode
         args.text_prompt = [i.strip() for i in text_prompt]
 
     checkpoint_name = f"{os.path.basename(model_path)}"
+    transformer_model = transformer_model.to(torch.float32)
+
     for index, prompt in enumerate(args.text_prompt):
         print('Processing the ({}) prompt'.format(prompt))
-        videos = videogen_pipeline(prompt,
+        latent_channels = transformer_model.config.in_channels
+        shape = (
+            1, latent_channels, video_length, vae.latent_size[0], vae.latent_size[1])
+        latents = torch.randn(shape, device=device, dtype=torch.float32)
+        from opensora.acceleration.parallel_states import set_sequence_parallel_state
+        from opensora.npu_config import npu_config
+        import torch.nn.functional as F
+        latents_pad = F.pad(latents, (0, 0, 0, 0, 0, 7), mode='constant', value=0)
+
+        latents_base = videogen_pipeline(prompt,
                                    video_length=video_length,
                                    height=image_size,
                                    width=image_size,
@@ -86,7 +97,49 @@ def run_model_and_save_imgages(videogen_pipeline, video_length, image_size, mode
                                    enable_temporal_attentions=not args.force_images,
                                    num_images_per_prompt=1,
                                    mask_feature=True,
+                                   latents=latents,
+                                   output_type='latents'
                                    ).video
+
+        latents_sp = videogen_pipeline(prompt,
+                                   video_length=video_length,
+                                   height=image_size,
+                                   width=image_size,
+                                   num_inference_steps=args.num_sampling_steps,
+                                   guidance_scale=args.guidance_scale,
+                                   enable_temporal_attentions=not args.force_images,
+                                   num_images_per_prompt=1,
+                                   mask_feature=True,
+                                   latents=latents_pad,
+                                   output_type='latents'
+                                   ).video
+
+        npu_config.print_tensor_with_rank("latents_sp", latents_sp, 0, [1, 1, latents_sp.size(2), 2, 8])
+        npu_config.print_tensor_with_rank("latents_base", latents_base, 0, [1, 1, latents_base.size(2), 2, 8])
+
+        latents_sp[torch.abs(latents_base) < 1e-2] = 1
+        latents_base[torch.abs(latents_base) < 1e-2] = 1
+        differences = (latents_base - latents_sp) / latents_base
+        npu_config.print_tensor_with_rank("diff", differences, 0, [1, 1, differences.size(2), 2, 8])
+
+        if local_rank == 0:
+            error_count = torch.sum(differences > 0.01)
+            error_ratio = error_count / (4 * differences.size(2) * 64 * 64)
+            print(f"local_rank: {local_rank}, errorCount: {error_count} , errorRatio: {error_ratio}")
+
+            # 扁平化差值张量并获取最大的十个值及其位置
+            values, indices = torch.topk(differences.flatten(), 10)
+
+            import numpy as np
+            # 输出最大差值及其在原张量中的位置
+            print("Top 10 differences:")
+            for value, index in zip(values, indices):
+                idx = np.unravel_index(index.item(), differences.shape)
+                print(f"latents_base: {latents_base[idx]}, latents_sp: {latents_sp[idx]}")
+                print(f"Value: {value.item()}, Position: {idx}")
+
+        return
+
         print(videos.shape)
         if hccl_info.rank <= 0:
             try:
@@ -134,7 +187,7 @@ def run_model_and_save_imgages(videogen_pipeline, video_length, image_size, mode
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_path", type=str, default='LanguageBind/Open-Sora-Plan-v1.0.0')
-    parser.add_argument("--version", type=str, default=None, choices=[None, '65x512x512', '65x256x256', '17x256x256'])
+    parser.add_argument("--version", type=str, default=None, choices=[None, '65x512x512', '65x256x256', '17x256x256', '513x512x512'])
     parser.add_argument("--image_size", type=int, default=512)
     parser.add_argument("--cache_dir", type=str, default='./cache_dir')
     parser.add_argument("--ae", type=str, default='CausalVAEModel_4x8x8')
@@ -217,5 +270,28 @@ if __name__ == "__main__":
         latest_path = cur_path
         npu_config.print_msg(f"The latest_path is {latest_path}")
         full_path = f"{args.model_path}/{latest_path}/model"
-        videogen_pipeline, video_length, image_size = load_t2v_checkpoint(full_path)
-        run_model_and_save_imgages(videogen_pipeline, video_length, image_size, latest_path)
+        videogen_pipeline, transformer_model, video_length, image_size = load_t2v_checkpoint(full_path)
+
+        experimental_config = torch_npu.profiler._ExperimentalConfig(
+            profiler_level=torch_npu.profiler.ProfilerLevel.Level1,
+            aic_metrics=torch_npu.profiler.AiCMetrics.PipeUtilization
+        )
+        profile_output_path = "/home/image_data/shebin/npu_profiling_t2v"
+        os.makedirs(profile_output_path, exist_ok=True)
+
+        with torch_npu.profiler.profile(
+                activities=[torch_npu.profiler.ProfilerActivity.NPU, torch_npu.profiler.ProfilerActivity.CPU],
+                with_stack=True,
+                record_shapes=True,
+                profile_memory=True,
+                experimental_config=experimental_config,
+                schedule=torch_npu.profiler.schedule(wait=0, warmup=0, active=1, repeat=1,
+                                                     skip_first=0),
+                on_trace_ready=torch_npu.profiler.tensorboard_trace_handler(f"{profile_output_path}/")
+        ) as prof:
+            run_model_and_save_images(videogen_pipeline, transformer_model, video_length, image_size, latest_path)
+            prof.step()
+
+        break
+
+

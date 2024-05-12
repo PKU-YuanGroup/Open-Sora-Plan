@@ -1010,7 +1010,7 @@ class AttnProcessor2_0:
                 hidden_states = all_to_all_SBH(hidden_states, scatter_dim=0, gather_dim=1).view(-1, batch_size,
                                                                                                             attn.heads * head_dim)
             else: # BSH
-                if npu_config.enable_FP32:
+                if npu_config.enable_FP32 or query.dtype == torch.float32:
                     dtype = query.dtype
                     hidden_states = torch_npu.npu_fusion_attention(query.to(torch.bfloat16), key.to(torch.bfloat16),
                                                                    value.to(torch.bfloat16),
@@ -1769,7 +1769,6 @@ class BasicTransformerBlock(nn.Module):
             hidden_states = hidden_states.squeeze(1)
 
         return hidden_states
-
 
 
 class AdaLayerNormSingle(nn.Module):

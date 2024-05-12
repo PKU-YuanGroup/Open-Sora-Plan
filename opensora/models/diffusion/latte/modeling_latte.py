@@ -439,6 +439,10 @@ class LatteT2V(ModelMixin, ConfigMixin):
             temp_attention_mask[:, :, self.video_length:] = True
         else:
             temp_pos_embed = self.temp_pos_embed[:self.video_length].unsqueeze(0)
+            if temp_pos_embed.shape[1] != frame:
+                temp_pos_embed = F.pad(temp_pos_embed, (0, 0, 0, frame-temp_pos_embed.shape[1]), mode='constant', value=0)
+            temp_attention_mask = torch.zeros([input_batch_size * num_patches, frame, frame], dtype=torch.bool, device=temp_pos_embed.device)
+            temp_attention_mask[:, :, self.video_length:] = True
 
         pos_hw, pos_t = None, None
         if self.use_rope:
@@ -586,50 +590,24 @@ class LatteT2V(ModelMixin, ConfigMixin):
                         # b c f h w, f = 16 + 4
                         hidden_states = rearrange(hidden_states, '(b f) t d -> (b t) f d', b=input_batch_size).contiguous()
 
-                        if use_image_num != 0 and self.training:
-                            hidden_states_video = hidden_states[:, :frame, ...]
-                            hidden_states_image = hidden_states[:, frame:, ...]
+                        if i == 0:
+                            hidden_states = hidden_states + temp_pos_embed
 
-                            # if i == 0 and not self.use_rope:
-                            #     hidden_states_video = hidden_states_video + self.temp_pos_embed
+                        hidden_states = temp_block(
+                            hidden_states,
+                            temp_attention_mask,  # attention_mask
+                            None,  # encoder_hidden_states
+                            None,  # encoder_attention_mask
+                            timestep_temp,
+                            cross_attention_kwargs,
+                            class_labels,
+                            pos_t,
+                            pos_t,
+                            (frame,),
+                        )
 
-                            hidden_states_video = temp_block(
-                                hidden_states_video,
-                                None,  # attention_mask
-                                None,  # encoder_hidden_states
-                                None,  # encoder_attention_mask
-                                timestep_temp,
-                                cross_attention_kwargs,
-                                class_labels,
-                                pos_t,
-                                pos_t,
-                                (frame, ),
-                            )
-
-                            hidden_states = torch.cat([hidden_states_video, hidden_states_image], dim=1)
-                            hidden_states = rearrange(hidden_states, '(b t) f d -> (b f) t d',
-                                                      b=input_batch_size).contiguous()
-
-                        else:
-                            # if i == 0 and not self.use_rope:
-                            if i == 0:
-                                hidden_states = hidden_states + temp_pos_embed
-
-                            hidden_states = temp_block(
-                                hidden_states,
-                                None,  # attention_mask
-                                None,  # encoder_hidden_states
-                                None,  # encoder_attention_mask
-                                timestep_temp,
-                                cross_attention_kwargs,
-                                class_labels,
-                                pos_t,
-                                pos_t,
-                                (frame, ),
-                            )
-
-                            hidden_states = rearrange(hidden_states, '(b t) f d -> (b f) t d',
-                                                      b=input_batch_size).contiguous()
+                        hidden_states = rearrange(hidden_states, '(b t) f d -> (b f) t d',
+                                                  b=input_batch_size).contiguous()
 
         if self.is_input_patches:
             if self.config.norm_type != "ada_norm_single":
