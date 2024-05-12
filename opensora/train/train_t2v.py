@@ -60,7 +60,7 @@ from opensora.utils.dataset_utils import Collate
 from opensora.models.ae import ae_stride_config, ae_channel_config
 from opensora.models.diffusion import Diffusion_models
 from opensora.sample.pipeline_videogen import VideoGenPipeline
-from opensora.acceleration.parallel_states import initialize_sequence_parallel_state, set_sequence_parallel_state, destroy_sequence_parallel_group, get_sequence_parallel_state, enable_LCCL
+from opensora.acceleration.parallel_states import initialize_sequence_parallel_state, destroy_sequence_parallel_group, get_sequence_parallel_state, enable_LCCL
 from opensora.acceleration.communications import prepare_parallel_data
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.

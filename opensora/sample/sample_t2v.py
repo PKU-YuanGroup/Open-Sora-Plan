@@ -133,7 +133,7 @@ def run_model_and_save_imgages(videogen_pipeline, video_length, image_size, mode
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_path", type=str, default='LanguageBind/Open-Sora-Plan-v1.0.0')
-    parser.add_argument("--version", type=str, default=None, choices=[None, '65x512x512', '65x256x256', '17x256x256'])
+    parser.add_argument("--version", type=str, default=None, choices=[None, '65x512x512', '65x256x256', '17x256x256', '513x512x512'])
     parser.add_argument("--image_size", type=int, default=512)
     parser.add_argument("--cache_dir", type=str, default='./cache_dir')
     parser.add_argument("--ae", type=str, default='CausalVAEModel_4x8x8')

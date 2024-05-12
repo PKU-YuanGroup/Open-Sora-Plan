@@ -39,6 +39,10 @@ def filter_json_by_existed_files(directory, data, postfix=".mp4"):
 
     return filtered_items
 
+def chunk_list(lst, n):
+    k, m = divmod(len(lst), n)
+    return [lst[i*k + min(i, m):(i + 1)*k + min(i + 1, m)] for i in range(n)]
+
 
 class T2V_dataset(Dataset):
     def __init__(self, args, transform, temporal_sample, tokenizer):
@@ -57,14 +61,16 @@ class T2V_dataset(Dataset):
 
         # self.vid_cap_list, self.local_vid_cap_list = self.get_vid_cap_list()
         self.global_vid_cap_list, self.vid_cap_list, self.len_global_vid_list = npu_config.try_load_pickle(
-            "vid_cap_list.pkl",
+            f"vid_cap_list_{self.num_frames}.pkl",
             self.get_vid_cap_list)
         npu_config.print_msg(f"len(self.global_vid_cap_list) = {self.len_global_vid_list}")
         npu_config.print_msg(f"len(self.vid_cap_list) = {len(self.vid_cap_list)}")
         # self.vid_cap_list = self.local_vid_cap_list
         self.n_samples = len(self.vid_cap_list)
         # 生成一个从0到num_elements-1的列表
-        self.elements = list(range(self.n_samples))
+        self.all_elements = list(range(self.n_samples))
+        chunks = chunk_list(self.all_elements, npu_config.N_NPU_PER_NODE)
+        self.elements = chunks[npu_config.get_local_rank()]
         # 使用random.shuffle随机打乱列表
         if not npu_config.use_small_dataset:
             random.shuffle(self.elements)
@@ -87,7 +93,7 @@ class T2V_dataset(Dataset):
         try:
             idx = self.elements[self.n_used_elements]
             self.n_used_elements += 1
-            self.n_used_elements = self.n_used_elements % self.n_samples
+            self.n_used_elements = self.n_used_elements % len(self.elements)
 
             video_data = self.get_video(idx)
             image_data = {}
@@ -163,7 +169,7 @@ class T2V_dataset(Dataset):
         return dict(image=image, input_ids=input_ids, cond_mask=cond_mask)
 
     def get_image(self, idx):
-        idx = idx % len(self.img_cap_list)  # out of range
+        idx = (idx * random.randint(1, 20)) % len(self.img_cap_list)  # out of range
         image_data = self.img_cap_list[idx]  # [{'path': path, 'cap': cap}, ...]
 
         image = [Image.open(i['path']).convert('RGB') for i in image_data]  # num_img [h, w, c]

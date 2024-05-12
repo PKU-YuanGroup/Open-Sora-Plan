@@ -40,6 +40,7 @@ class NPUConfig:
         if "RANK" in os.environ:
             self.rank = int(os.environ["RANK"])
             self.world_size = int(os.environ["WORLD_SIZE"])
+            torch_npu.npu.set_device(self.get_local_rank())
         else:
             self.rank = torch.cuda.current_device()
             self.world_size = self.N_NPU_PER_NODE

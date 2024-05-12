@@ -22,18 +22,17 @@ accelerate launch \
     --sample_rate 1 \
     --num_frames 65 \
     --max_image_size 512 \
-    --gradient_checkpointing \
     --attention_mode="xformers" \
     --train_batch_size=1 \
-    --dataloader_num_workers 6 \
+    --dataloader_num_workers 7 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
-    --learning_rate=1e-5 \
+    --learning_rate=4e-6 \
     --lr_scheduler="cosine" \
-    --lr_warmup_steps=500 \
+    --lr_warmup_steps=1000 \
     --mixed_precision="bf16" \
     --report_to="wandb" \
-    --checkpointing_steps=500 \
+    --checkpointing_steps=1000 \
     --output_dir="/home/image_data/checkpoints/${PROJECT}/" \
     --allow_tf32 \
     --num_sampling_steps=50 \
@@ -41,6 +40,6 @@ accelerate launch \
     --model_max_length 300 \
     --use_image_num 4 \
     --enable_tiling \
-    --sp_size 1 \
+    --sp_size 8 \
     --resume_from_checkpoint="latest" \
     --train_sp_batch_size 1
