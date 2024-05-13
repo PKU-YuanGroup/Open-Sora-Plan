@@ -75,14 +75,14 @@ def run_model_and_save_images(videogen_pipeline, transformer_model, video_length
         args.text_prompt = [i.strip() for i in text_prompt]
 
     checkpoint_name = f"{os.path.basename(model_path)}"
-    transformer_model = transformer_model.to(torch.float32)
+    transformer_model = transformer_model.to(torch.float16)
 
     for index, prompt in enumerate(args.text_prompt):
         print('Processing the ({}) prompt'.format(prompt))
         latent_channels = transformer_model.config.in_channels
         shape = (
             1, latent_channels, video_length, vae.latent_size[0], vae.latent_size[1])
-        latents = torch.randn(shape, device=device, dtype=torch.float32)
+        latents = torch.randn(shape, device=device, dtype=torch.float16)
         from opensora.acceleration.parallel_states import set_sequence_parallel_state
         from opensora.npu_config import npu_config
         import torch.nn.functional as F

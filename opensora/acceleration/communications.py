@@ -30,9 +30,6 @@ def _single_all_to_all(
         gather_dim: int,
         enable_HCCL=False,
 ):
-    x_dtype = input_.dtype
-    input_ = input_.to(torch.float16)
-
     if enable_LCCL:
         sp_size = lccl_info.world_size
     else:
@@ -64,7 +61,7 @@ def _single_all_to_all(
 
     output = output.reshape(
         inp_shape[: gather_dim] + [inp_shape[gather_dim] * sp_size, ] + inp_shape[gather_dim + 1:])
-    return output.to(x_dtype)
+    return output
 
 
 class _AllToAll(torch.autograd.Function):

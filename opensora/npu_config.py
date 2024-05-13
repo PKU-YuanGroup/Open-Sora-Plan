@@ -13,6 +13,22 @@ try:
 except:
     npu_is_available = False
 
+from contextlib import contextmanager
+
+@contextmanager
+def set_run_dtype(x, dtype=None):
+    # 保存原始环境变量的值（如果存在）
+    npu_config.original_run_dtype = x.dtype
+    # 设置环境变量为指定的值
+    npu_config.current_run_dtype = dtype
+    try:
+        # Yield control back to the body of the `with` statement
+        yield
+    finally:
+        # 恢复原始的环境变量值
+        npu_config.current_run_dtype = None
+        npu_config.original_run_dtype = None
+
 
 class NPUConfig:
     N_NPU_PER_NODE = 8
@@ -26,6 +42,9 @@ class NPUConfig:
         self.enable_FP32 = False
         self.load_pickle = True
         self.use_small_dataset = False
+        self.current_run_dtype = None
+        self.original_run_dtype = None
+
         if self.use_small_dataset:
             self.load_pickle = False
 
@@ -46,23 +65,16 @@ class NPUConfig:
             self.world_size = self.N_NPU_PER_NODE
         self.print_with_rank(f"The npu_config.on_npu is {self.on_npu}")
 
-    def run_fa(self, query, key, value, head_dim, head_num, attention_mask=None, layout='BSH', out_dtype=None):
-        if self.enable_FP32 or query.dtype == torch.float32:
-            if out_dtype is None:
-                out_dtype = query.dtype
-            hidden_states = torch_npu.npu_fusion_attention(query.to(torch.bfloat16), key.to(torch.bfloat16),
-                                                           value.to(torch.bfloat16),
-                                                           atten_mask=attention_mask, input_layout=layout,
-                                                           scale=1 / math.sqrt(head_dim),
-                                                           head_num=head_num)[0]
-            hidden_states = hidden_states.to(out_dtype)
-        else:
-            hidden_states = torch_npu.npu_fusion_attention(query, key, value,
-                                                           atten_mask=attention_mask, input_layout=layout,
-                                                           scale=1 / math.sqrt(head_dim),
-                                                           head_num=head_num)[0]
+    def set_current_run_dtype(self, variables):
+        if variables[0].dtype != self.current_run_dtype and self.current_run_dtype is not None:
+            for index, var in enumerate(variables):
+                variables[index] = var.to(self.current_run_dtype)
+        return tuple(variables)
 
-        return hidden_states
+    def restore_dtype(self, x):
+        if x.dtype != self.original_run_dtype and self.original_run_dtype is not None:
+            x = x.to(self.original_run_dtype)
+        return x
 
     def get_output_video_path(self, name):
         os.makedirs(f"{self.work_path}/output_videos", exist_ok=True)

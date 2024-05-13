@@ -23,13 +23,11 @@ from dataclasses import dataclass
 from opensora.models.diffusion.utils.pos_embed import get_2d_sincos_pos_embed, RoPE1D, RoPE2D, LinearScalingRoPE2D, \
     LinearScalingRoPE1D
 
-
 try:
     import torch_npu
 except:
     pass
-from opensora.npu_config import npu_config
-
+from opensora.npu_config import npu_config, set_run_dtype
 
 if is_xformers_available():
     import xformers
@@ -39,8 +37,6 @@ else:
 from opensora.acceleration.parallel_states import get_sequence_parallel_state, hccl_info, lccl_info, enable_LCCL
 from opensora.acceleration.communications import all_to_all_SBH
 import torch_npu
-
-
 
 
 class CombinedTimestepSizeEmbeddings(nn.Module):
@@ -98,7 +94,6 @@ class CombinedTimestepSizeEmbeddings(nn.Module):
         return conditioning
 
 
-
 class CaptionProjection(nn.Module):
     """
     Projects caption embeddings. Also handles dropout for classifier-free guidance.
@@ -118,7 +113,6 @@ class CaptionProjection(nn.Module):
         hidden_states = self.act_1(hidden_states)
         hidden_states = self.linear_2(hidden_states)
         return hidden_states
-
 
 
 class PatchEmbed(nn.Module):
@@ -340,7 +334,7 @@ class Attention(nn.Module):
             linear_cls = LoRACompatibleLinear
 
         assert not (self.use_rope and (
-                    self.compress_kv_factor is not None)), "Can not both enable compressing kv and using rope"
+                self.compress_kv_factor is not None)), "Can not both enable compressing kv and using rope"
         if self.compress_kv_factor is not None:
             self._init_compress()
 
@@ -873,13 +867,13 @@ class Attention(nn.Module):
         self.norm = nn.LayerNorm(self.inner_dim)
 
 
-
 class AttnProcessor2_0:
     r"""
     Processor for implementing scaled dot-product attention (enabled by default if you're using PyTorch 2.0).
     """
 
-    def __init__(self, dim=1152, attention_mode='xformers', use_rope=False, rope_scaling=None, compress_kv_factor=None, layout="BSH"):
+    def __init__(self, dim=1152, attention_mode='xformers', use_rope=False, rope_scaling=None, compress_kv_factor=None,
+                 layout="BSH"):
         self.dim = dim
         self.attention_mode = attention_mode
         self.use_rope = use_rope
@@ -991,38 +985,44 @@ class AttnProcessor2_0:
         head_dim = inner_dim // attn.heads
         if npu_config.on_npu and npu_config.enable_FA:
             if self.layout == "SBH":
-                query = query.view(-1, attn.heads, head_dim) # [s // sp, b, h * d] -> [s // sp * b, h, d]
+                query = query.view(-1, attn.heads, head_dim)  # [s // sp, b, h * d] -> [s // sp * b, h, d]
                 key = key.view(-1, attn.heads, head_dim)
                 value = value.view(-1, attn.heads, head_dim)
 
-                # apply all_to_all to gather sequence and split attention heads [s // sp * b, h, d] -> [s * b, h // sp, d]
-                query = all_to_all_SBH(query, scatter_dim=1, gather_dim=0).view(-1, batch_size,
-                                                                                attn.heads // self.sp_size * head_dim)
-                key = all_to_all_SBH(key, scatter_dim=1, gather_dim=0).view(-1, batch_size,
-                                                                            attn.heads // self.sp_size * head_dim)
-                value = all_to_all_SBH(value, scatter_dim=1, gather_dim=0).view(-1, batch_size,
-                                                                                               attn.heads // self.sp_size * head_dim)
-                hidden_states = torch_npu.npu_fusion_attention(query, key, value, scale=1/math.sqrt(head_dim), atten_mask=attention_mask,
-                                                               head_num=attn.heads // self.sp_size, input_layout=self.layout)[0]
-                hidden_states = hidden_states.view(-1, attn.heads // self.sp_size, head_dim)
+                with set_run_dtype(query, torch.float16):
+                    query, key, value = npu_config.set_current_run_dtype([query, key, value])
 
-                # [s * b, h // sp, d] -> [s // sp * b, h, d] -> [s // sp, b, h * d]
-                hidden_states = all_to_all_SBH(hidden_states, scatter_dim=0, gather_dim=1).view(-1, batch_size,
-                                                                                                            attn.heads * head_dim)
-            else: # BSH
+                    # apply all_to_all to gather sequence and split attention heads [s // sp * b, h, d] -> [s * b, h // sp, d]
+                    query = all_to_all_SBH(query, scatter_dim=1, gather_dim=0).view(-1, batch_size,
+                                                                                    attn.heads // self.sp_size * head_dim)
+                    key = all_to_all_SBH(key, scatter_dim=1, gather_dim=0).view(-1, batch_size,
+                                                                                attn.heads // self.sp_size * head_dim)
+                    value = all_to_all_SBH(value, scatter_dim=1, gather_dim=0).view(-1, batch_size,
+                                                                                    attn.heads // self.sp_size * head_dim)
+                    hidden_states = torch_npu.npu_fusion_attention(query, key, value, scale=1 / math.sqrt(head_dim),
+                                                                   atten_mask=attention_mask,
+                                                                   head_num=attn.heads // self.sp_size,
+                                                                   input_layout=self.layout)[0]
+                    hidden_states = hidden_states.view(-1, attn.heads // self.sp_size, head_dim)
+
+                    # [s * b, h // sp, d] -> [s // sp * b, h, d] -> [s // sp, b, h * d]
+                    hidden_states = all_to_all_SBH(hidden_states, scatter_dim=0, gather_dim=1).view(-1, batch_size,
+                                                                                                    attn.heads * head_dim)
+                    hidden_states = npu_config.restore_dtype(hidden_states)
+
+            else:  # BSH
                 if npu_config.enable_FP32 or query.dtype == torch.float32:
-                    dtype = query.dtype
-                    hidden_states = torch_npu.npu_fusion_attention(query.to(torch.bfloat16), key.to(torch.bfloat16),
-                                                                   value.to(torch.bfloat16),
-                                                                   atten_mask=attention_mask, input_layout=self.layout,
-                                                                   scale=1 / math.sqrt(head_dim),
-                                                                   head_num=attn.heads)[0]
-                    hidden_states = hidden_states.to(dtype)
+                    dtype = torch.float16
                 else:
+                    dtype = query.dtype
+
+                with set_run_dtype(query, dtype):
+                    query, key, value = npu_config.set_current_run_dtype([query, key, value])
                     hidden_states = torch_npu.npu_fusion_attention(query, key, value,
                                                                    atten_mask=attention_mask, input_layout=self.layout,
                                                                    scale=1 / math.sqrt(head_dim),
                                                                    head_num=attn.heads)[0]
+                    hidden_states = npu_config.restore_dtype(hidden_states)
         else:
             query = query.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
 
@@ -1088,7 +1088,6 @@ class AttnProcessor2_0:
         hidden_states = hidden_states / attn.rescale_output_factor
 
         return hidden_states
-
 
 
 @maybe_allow_in_graph

@@ -36,7 +36,7 @@ accelerate launch \
     --output_dir="/home/image_data/checkpoints/${PROJECT}/" \
     --allow_tf32 \
     --num_sampling_steps=50 \
-    --pretrained "/home/image_data/checkpoints/linbin_0512_checkpoint/diffusion_pytorch_model.safetensors" \
+    --pretrained "/home/image_data/checkpoints/linbin_0512_checkpoint/diffusion_pytorch_model.safetensors" \q
     --model_max_length 300 \
     --use_image_num 4 \
     --enable_tiling \

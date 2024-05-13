@@ -737,6 +737,8 @@ class VideoGenPipeline(DiffusionPipeline):
                         step_idx = i // getattr(self.scheduler, "order", 1)
                         callback(step_idx, t, latents)
 
+                break
+
         if get_sequence_parallel_state():
             latents_shape = list(latents.shape)
             full_shape = [latents_shape[0] * hccl_info.world_size] + latents_shape[1:]
