@@ -1,6 +1,7 @@
 import math
 import os
 import torch
+import torch_musa
 import argparse
 import torchvision
 
@@ -26,12 +27,15 @@ sys.path.append(os.path.split(sys.path[0])[0])
 from pipeline_videogen import VideoGenPipeline
 
 import imageio
+import faulthandler
 
+faulthandler.enable()
 
 def main(args):
     # torch.manual_seed(args.seed)
     torch.set_grad_enabled(False)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    # device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = 'musa'
 
     vae = getae_wrapper(args.ae)(args.model_path, subfolder="vae", cache_dir='cache_dir').to(device, dtype=torch.float16)
     if args.enable_tiling:
@@ -39,7 +43,9 @@ def main(args):
         vae.vae.tile_overlap_factor = args.tile_overlap_factor
 
     # Load model:
-    transformer_model = LatteT2V.from_pretrained(args.model_path, subfolder=args.version, cache_dir="cache_dir", torch_dtype=torch.float16).to(device)
+    # transformer_model = LatteT2V.from_pretrained(args.model_path, subfolder=args.version, cache_dir="cache_dir", torch_dtype=torch.float16).to(device)
+    #using math atten
+    transformer_model = LatteT2V.from_pretrained(args.model_path, subfolder=args.version, cache_dir="cache_dir", torch_dtype=torch.float16, attention_mode="math").to(device)
     transformer_model.force_images = args.force_images
     tokenizer = T5Tokenizer.from_pretrained(args.text_encoder_name, cache_dir="cache_dir")
     text_encoder = T5EncoderModel.from_pretrained(args.text_encoder_name, cache_dir="cache_dir", torch_dtype=torch.float16).to(device)
@@ -52,7 +58,7 @@ def main(args):
         ext = 'jpg'
     else:
         ext = 'mp4'
-
+    # video_length = 51
     # set eval mode
     transformer_model.eval()
     vae.eval()
@@ -79,6 +85,7 @@ def main(args):
     elif args.sample_method == 'KDPM2AncestralDiscrete':  #########
         scheduler = KDPM2AncestralDiscreteScheduler()
     print('videogen_pipeline', device)
+    print(transformer_model.attention_mode)
     videogen_pipeline = VideoGenPipeline(vae=vae,
                                          text_encoder=text_encoder,
                                          tokenizer=tokenizer,
@@ -106,15 +113,18 @@ def main(args):
                                    enable_temporal_attentions=not args.force_images,
                                    num_images_per_prompt=1,
                                    mask_feature=True,
+                                #    output_type="latent",
                                    ).video
+        print("video done")
         try:
             if args.force_images:
                 videos = videos[:, 0].permute(0, 3, 1, 2)  # b t h w c -> b c h w
                 save_image(videos / 255.0, os.path.join(args.save_img_path,
                                                      prompt.replace(' ', '_')[:100] + f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}.{ext}'),
                            nrow=1, normalize=True, value_range=(0, 1))  # t c h w
-
+                
             else:
+                print("start save")
                 imageio.mimwrite(
                     os.path.join(
                         args.save_img_path,
@@ -149,7 +159,7 @@ if __name__ == "__main__":
     parser.add_argument("--save_img_path", type=str, default="./sample_videos/t2v")
     parser.add_argument("--guidance_scale", type=float, default=7.5)
     parser.add_argument("--sample_method", type=str, default="PNDM")
-    parser.add_argument("--num_sampling_steps", type=int, default=50)
+    parser.add_argument("--num_sampling_steps", type=int, default=10)
     parser.add_argument("--fps", type=int, default=24)
     parser.add_argument("--run_time", type=int, default=0)
     parser.add_argument("--text_prompt", nargs='+')

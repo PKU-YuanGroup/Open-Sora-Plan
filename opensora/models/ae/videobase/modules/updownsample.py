@@ -134,7 +134,7 @@ class TimeUpsample2x(Block):
     def forward(self, x):
         if x.size(2) > 1:
             x,x_= x[:,:,:1],x[:,:,1:]
-            x_= F.interpolate(x_, scale_factor=(2,1,1), mode='trilinear')
+            x_= F.interpolate(x_.cpu().float(), scale_factor=(2,1,1), mode='trilinear').musa().half()
             x = torch.concat([x, x_], dim=2)
         return x
     
