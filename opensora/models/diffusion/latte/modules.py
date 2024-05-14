@@ -989,7 +989,7 @@ class AttnProcessor2_0:
                 key = key.view(-1, attn.heads, head_dim)
                 value = value.view(-1, attn.heads, head_dim)
 
-                with set_run_dtype(query, torch.float16):
+                with set_run_dtype(query, torch.bfloat16):
                     query, key, value = npu_config.set_current_run_dtype([query, key, value])
 
                     # apply all_to_all to gather sequence and split attention heads [s // sp * b, h, d] -> [s * b, h // sp, d]
@@ -1012,7 +1012,7 @@ class AttnProcessor2_0:
 
             else:  # BSH
                 if npu_config.enable_FP32 or query.dtype == torch.float32:
-                    dtype = torch.float16
+                    dtype = torch.bfloat16
                 else:
                     dtype = query.dtype
 

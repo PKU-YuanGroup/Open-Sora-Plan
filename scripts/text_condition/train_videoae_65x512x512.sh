@@ -22,21 +22,21 @@ accelerate launch \
     --sample_rate 1 \
     --num_frames 65 \
     --max_image_size 512 \
+    --gradient_checkpointing \
     --attention_mode="xformers" \
     --train_batch_size=1 \
-    --dataloader_num_workers 7 \
+    --dataloader_num_workers 10 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
-    --learning_rate=4e-6 \
+    --learning_rate=5e-7 \
     --lr_scheduler="cosine" \
-    --lr_warmup_steps=1000 \
-    --mixed_precision="bf16" \
+    --lr_warmup_steps=500 \
     --report_to="wandb" \
-    --checkpointing_steps=1000 \
+    --checkpointing_steps=100 \
     --output_dir="/home/image_data/checkpoints/${PROJECT}/" \
     --allow_tf32 \
     --num_sampling_steps=50 \
-    --pretrained "/home/image_data/checkpoints/linbin_0508_checkpoint/diffusion_pytorch_model.safetensors" \
+    --pretrained "/home/image_data/checkpoints/512_based_linbin_lr1e-5_node46_ddp/checkpoint-23000/model/diffusion_pytorch_model.safetensors" \
     --model_max_length 300 \
     --use_image_num 4 \
     --enable_tiling \

@@ -5,7 +5,7 @@ import pickle
 import random
 import numpy as np
 import torch
-
+import subprocess
 try:
     import torch_npu
     npu_is_available = True
@@ -14,6 +14,20 @@ except:
     npu_is_available = False
 
 from contextlib import contextmanager
+
+def compress_video(input_file, output_file, out_size):
+    """使用 ffmpeg 压缩视频文件。"""
+    command = [
+        'ffmpeg',
+        '-i', input_file,
+        '-vf', f"scale='min({out_size},iw)':'min({out_size},ih)':force_original_aspect_ratio=decrease",
+        '-c:v', 'libx264',
+        '-crf', '18',
+        '-preset', 'slow',
+        '-c:a', 'copy',
+        output_file
+    ]
+    subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 @contextmanager
 def set_run_dtype(x, dtype=None):
@@ -39,7 +53,7 @@ class NPUConfig:
         self.profiling = False
         self.profiling_step = 5
         self.enable_FA = True
-        self.enable_FP32 = False
+        self.enable_FP32 = True
         self.load_pickle = True
         self.use_small_dataset = False
         self.current_run_dtype = None
@@ -115,6 +129,13 @@ class NPUConfig:
                     with open(file_name, 'wb') as file:
                         pickle.dump(data, file, pickle.HIGHEST_PROTOCOL)
             return data
+
+    def try_get_vid_path(self, file, out_size=1024):
+        output_file = file.rsplit(".", 1)[0] + f"_resize{out_size}.mp4"
+        if not os.path.exists(output_file):
+            return file
+        #     compress_video(file, output_file, out_size)
+        return output_file
 
     def npu_format_cast(self, x):
         return torch_npu.npu_format_cast(x, 2)

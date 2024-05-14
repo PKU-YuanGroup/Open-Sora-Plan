@@ -75,20 +75,12 @@ def run_model_and_save_images(videogen_pipeline, transformer_model, video_length
         args.text_prompt = [i.strip() for i in text_prompt]
 
     checkpoint_name = f"{os.path.basename(model_path)}"
-    transformer_model = transformer_model.to(torch.float16)
+    transformer_model = transformer_model.to(torch.float32)
 
     for index, prompt in enumerate(args.text_prompt):
         print('Processing the ({}) prompt'.format(prompt))
         latent_channels = transformer_model.config.in_channels
-        shape = (
-            1, latent_channels, video_length, vae.latent_size[0], vae.latent_size[1])
-        latents = torch.randn(shape, device=device, dtype=torch.float16)
-        from opensora.acceleration.parallel_states import set_sequence_parallel_state
-        from opensora.npu_config import npu_config
-        import torch.nn.functional as F
-        latents_pad = F.pad(latents, (0, 0, 0, 0, 0, 7), mode='constant', value=0)
-
-        latents_base = videogen_pipeline(prompt,
+        videos = videogen_pipeline(prompt,
                                    video_length=video_length,
                                    height=image_size,
                                    width=image_size,
@@ -97,48 +89,7 @@ def run_model_and_save_images(videogen_pipeline, transformer_model, video_length
                                    enable_temporal_attentions=not args.force_images,
                                    num_images_per_prompt=1,
                                    mask_feature=True,
-                                   latents=latents,
-                                   output_type='latents'
                                    ).video
-
-        latents_sp = videogen_pipeline(prompt,
-                                   video_length=video_length,
-                                   height=image_size,
-                                   width=image_size,
-                                   num_inference_steps=args.num_sampling_steps,
-                                   guidance_scale=args.guidance_scale,
-                                   enable_temporal_attentions=not args.force_images,
-                                   num_images_per_prompt=1,
-                                   mask_feature=True,
-                                   latents=latents_pad,
-                                   output_type='latents'
-                                   ).video
-
-        npu_config.print_tensor_with_rank("latents_sp", latents_sp, 0, [1, 1, latents_sp.size(2), 2, 8])
-        npu_config.print_tensor_with_rank("latents_base", latents_base, 0, [1, 1, latents_base.size(2), 2, 8])
-
-        latents_sp[torch.abs(latents_base) < 1e-2] = 1
-        latents_base[torch.abs(latents_base) < 1e-2] = 1
-        differences = (latents_base - latents_sp) / latents_base
-        npu_config.print_tensor_with_rank("diff", differences, 0, [1, 1, differences.size(2), 2, 8])
-
-        if local_rank == 0:
-            error_count = torch.sum(differences > 0.01)
-            error_ratio = error_count / (4 * differences.size(2) * 64 * 64)
-            print(f"local_rank: {local_rank}, errorCount: {error_count} , errorRatio: {error_ratio}")
-
-            # 扁平化差值张量并获取最大的十个值及其位置
-            values, indices = torch.topk(differences.flatten(), 10)
-
-            import numpy as np
-            # 输出最大差值及其在原张量中的位置
-            print("Top 10 differences:")
-            for value, index in zip(values, indices):
-                idx = np.unravel_index(index.item(), differences.shape)
-                print(f"latents_base: {latents_base[idx]}, latents_sp: {latents_sp[idx]}")
-                print(f"Value: {value.item()}, Position: {idx}")
-
-        return
 
         print(videos.shape)
         if hccl_info.rank <= 0:
@@ -161,12 +112,7 @@ def run_model_and_save_images(videogen_pipeline, transformer_model, video_length
             video_grids.append(videos)
 
     if hccl_info.rank <= 0:
-        video_grids = torch.cat(video_grids, dim=0).cuda()
-        shape = list(video_grids.shape)
-        shape[0] *= world_size
-        gathered_tensor = torch.zeros(shape, dtype=video_grids.dtype, device=device)
-        dist.all_gather_into_tensor(gathered_tensor, video_grids)
-        video_grids = gathered_tensor.cpu()
+        video_grids = torch.cat(video_grids, dim=0).cpu()
 
         # torch.distributed.all_gather(tensor_list, tensor, group=None)
         # torchvision.io.write_video(args.save_img_path + '_%04d' % args.run_time + '-.mp4', video_grids, fps=6)
@@ -285,13 +231,10 @@ if __name__ == "__main__":
                 record_shapes=True,
                 profile_memory=True,
                 experimental_config=experimental_config,
-                schedule=torch_npu.profiler.schedule(wait=0, warmup=0, active=1, repeat=1,
+                schedule=torch_npu.profiler.schedule(wait=10000, warmup=0, active=1, repeat=1,
                                                      skip_first=0),
                 on_trace_ready=torch_npu.profiler.tensorboard_trace_handler(f"{profile_output_path}/")
         ) as prof:
-            run_model_and_save_images(videogen_pipeline, transformer_model, video_length, image_size, latest_path)
             prof.step()
-
-        break
 
 

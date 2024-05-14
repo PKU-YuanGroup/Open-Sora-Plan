@@ -137,6 +137,7 @@ class T2V_dataset(Dataset):
         # cond_mask = torch.cat([torch.ones(1, 60).to(torch.long), torch.ones(1, 60).to(torch.long)], dim=1).squeeze(0)
 
         video_path = self.vid_cap_list[idx]['path']
+        video_path = npu_config.try_get_vid_path(video_path)
         frame_idx = self.vid_cap_list[idx]['frame_idx']
         video = self.decord_read(video_path, frame_idx)
         video = self.transform(video)  # T C H W -> T C H W

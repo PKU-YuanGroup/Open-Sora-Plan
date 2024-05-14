@@ -46,7 +46,6 @@ def load_t2v_checkpoint(model_path):
     latent_size = (image_size // ae_stride_config[args.ae][1], image_size // ae_stride_config[args.ae][2])
     vae.latent_size = latent_size
 
-
     # set eval mode
     transformer_model.eval()
     videogen_pipeline = VideoGenPipeline(vae=vae,
@@ -55,7 +54,8 @@ def load_t2v_checkpoint(model_path):
                                          scheduler=scheduler,
                                          transformer=transformer_model).to(device=device)
 
-    return videogen_pipeline, video_length, image_size
+    return videogen_pipeline, transformer_model, video_length, image_size
+
 
 def get_latest_path():
     # Get the most recent checkpoint
@@ -67,7 +67,7 @@ def get_latest_path():
     return path
 
 
-def run_model_and_save_imgages(videogen_pipeline, video_length, image_size, model_path):
+def run_model_and_save_images(videogen_pipeline, transformer_model, video_length, image_size, model_path):
     video_grids = []
     if not isinstance(args.text_prompt, list):
         args.text_prompt = [args.text_prompt]
@@ -76,6 +76,8 @@ def run_model_and_save_imgages(videogen_pipeline, video_length, image_size, mode
         args.text_prompt = [i.strip() for i in text_prompt]
 
     checkpoint_name = f"{os.path.basename(model_path)}"
+    transformer_model = transformer_model.to(torch.float32)
+
     for index, prompt in enumerate(args.text_prompt):
         if index % npu_config.N_NPU_PER_NODE != local_rank:
             continue
@@ -103,7 +105,7 @@ def run_model_and_save_imgages(videogen_pipeline, video_length, image_size, mode
                     os.path.join(
                         args.save_img_path, f'{args.sample_method}_{index}_{checkpoint_name}__gs{args.guidance_scale}_s{args.num_sampling_steps}.{ext}'
                     ), videos[0],
-                    fps=args.fps, quality=9)  # highest quality is 10, lowest is 0
+                    fps=args.fps, quality=9, codec='libx264', output_params=['-threads', '20'])  # highest quality is 10, lowest is 0
         except:
             print('Error when saving {}'.format(prompt))
         video_grids.append(videos)
@@ -175,7 +177,6 @@ if __name__ == "__main__":
     vae.eval()
     text_encoder.eval()
 
-
     if args.sample_method == 'DDIM':  #########
         scheduler = DDIMScheduler()
     elif args.sample_method == 'EulerDiscrete':
@@ -219,5 +220,26 @@ if __name__ == "__main__":
         latest_path = cur_path
         npu_config.print_msg(f"The latest_path is {latest_path}")
         full_path = f"{args.model_path}/{latest_path}/model"
-        videogen_pipeline, video_length, image_size = load_t2v_checkpoint(full_path)
-        run_model_and_save_imgages(videogen_pipeline, video_length, image_size, latest_path)
+        videogen_pipeline, transformer_model, video_length, image_size = load_t2v_checkpoint(full_path)
+
+        experimental_config = torch_npu.profiler._ExperimentalConfig(
+            profiler_level=torch_npu.profiler.ProfilerLevel.Level1,
+            aic_metrics=torch_npu.profiler.AiCMetrics.PipeUtilization
+        )
+        profile_output_path = "/home/image_data/shebin/npu_profiling_t2v"
+        os.makedirs(profile_output_path, exist_ok=True)
+
+        with torch_npu.profiler.profile(
+                activities=[torch_npu.profiler.ProfilerActivity.NPU, torch_npu.profiler.ProfilerActivity.CPU],
+                with_stack=True,
+                record_shapes=True,
+                profile_memory=True,
+                experimental_config=experimental_config,
+                schedule=torch_npu.profiler.schedule(wait=10000, warmup=0, active=1, repeat=1,
+                                                     skip_first=0),
+                on_trace_ready=torch_npu.profiler.tensorboard_trace_handler(f"{profile_output_path}/")
+        ) as prof:
+            run_model_and_save_images(videogen_pipeline, transformer_model, video_length, image_size, latest_path)
+            prof.step()
+
+

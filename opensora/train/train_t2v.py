@@ -259,6 +259,7 @@ def main(args):
         weight_dtype = torch.float16
     elif accelerator.mixed_precision == "bf16":
         weight_dtype = torch.bfloat16
+    weight_dtype = torch.bfloat16
 
     # Create model:
     diffusion = create_diffusion(timestep_respacing="")  # default: 1000 steps, linear noise schedule
@@ -538,7 +539,7 @@ def main(args):
 
 
 
-    def run(x, model_kwargs):
+    def run(x, model_kwargs, prof):
         global start_time
         start_time = time.time()
         t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=accelerator.device)
@@ -547,13 +548,15 @@ def main(args):
 
         # Backpropagate
         accelerator.backward(loss)
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.1)
         if accelerator.sync_gradients:
             params_to_clip = model.parameters()
             accelerator.clip_grad_norm_(params_to_clip, args.max_grad_norm)
         optimizer.step()
         lr_scheduler.step()
         optimizer.zero_grad()
+        if prof is not None:
+            prof.step()
 
         avg_loss = accelerator.gather(loss.repeat(args.train_sp_batch_size)).mean()
         progress_info.train_loss += avg_loss.detach().item() / args.gradient_accumulation_steps
@@ -563,7 +566,7 @@ def main(args):
 
         return loss
 
-    def train_one_step(step_, data_item_):
+    def train_one_step(step_, data_item_, prof_=None):
         x, attn_mask, input_ids, cond_mask = data_item_
         # Sample noise that we'll add to the latents
         x = x.to(accelerator.device, dtype=weight_dtype)  # B C T+num_images H W, 16 + 4
@@ -600,6 +603,10 @@ def main(args):
                                                                                  args.use_image_num)
             # npu_config.print_tensor_stats(attn_mask, "attn_mask after prepare_parallel_data")
 
+            if npu_config.on_npu and npu_config.enable_FP32:
+                x = x.to(torch.float32)
+                cond = cond.to(torch.float32)
+
             for iter in range(args.train_batch_size * args.sp_size // args.train_sp_batch_size):
                 with accelerator.accumulate(model):
                     st_idx = iter * args.train_sp_batch_size
@@ -608,13 +615,13 @@ def main(args):
                                         attention_mask=attn_mask[st_idx: ed_idx],
                                         encoder_attention_mask=cond_mask[st_idx: ed_idx], use_image_num=use_image_num)
 
-                    run(x[st_idx: ed_idx], model_kwargs)
+                    run(x[st_idx: ed_idx], model_kwargs, prof_)
 
         else:
             with accelerator.accumulate(model):
                 model_kwargs = dict(encoder_hidden_states=cond, attention_mask=attn_mask,
                                     encoder_attention_mask=cond_mask, use_image_num=args.use_image_num)
-                run(x, model_kwargs)
+                run(x, model_kwargs, prof_)
 
 
 
@@ -630,10 +637,9 @@ def main(args):
                 return True
 
             for step, data_item in enumerate(train_dataloader):
-                if train_one_step(step, data_item):
+                if train_one_step(step, data_item, prof_):
                     break
-                if prof_:
-                    prof.step()
+
                 if step >= 2:
                     npu_config.free_mm()
 
@@ -642,7 +648,7 @@ def main(args):
             profiler_level=torch_npu.profiler.ProfilerLevel.Level1,
             aic_metrics=torch_npu.profiler.AiCMetrics.PipeUtilization
         )
-        profile_output_path = "./npu_profiling_t2v"
+        profile_output_path = f"/home/image_data/shebin/npu_profiling_t2v/{os.getenv('PROJECT_NAME', 'local')}"
         os.makedirs(profile_output_path, exist_ok=True)
 
         with torch_npu.profiler.profile(
@@ -653,7 +659,7 @@ def main(args):
                 experimental_config=experimental_config,
                 schedule=torch_npu.profiler.schedule(wait=npu_config.profiling_step, warmup=0, active=1, repeat=1,
                                                      skip_first=0),
-                on_trace_ready=torch_npu.profiler.tensorboard_trace_handler(f"./{profile_output_path}/")
+                on_trace_ready=torch_npu.profiler.tensorboard_trace_handler(f"{profile_output_path}/")
         ) as prof:
             train_all_epoch(prof)
     else:

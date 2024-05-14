@@ -25,10 +25,10 @@ accelerate launch \
     --gradient_checkpointing \
     --attention_mode="xformers" \
     --train_batch_size=1 \
-    --dataloader_num_workers 2 \
+    --dataloader_num_workers 10 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
-    --learning_rate=1e-5 \
+    --learning_rate=5e-7 \
     --lr_scheduler="cosine" \
     --lr_warmup_steps=500 \
     --report_to="wandb" \
@@ -36,10 +36,10 @@ accelerate launch \
     --output_dir="/home/image_data/checkpoints/${PROJECT}/" \
     --allow_tf32 \
     --num_sampling_steps=50 \
-    --pretrained "/home/image_data/checkpoints/linbin_0512_checkpoint/diffusion_pytorch_model.safetensors" \q
+    --pretrained "/home/image_data/checkpoints/512_based_linbin_lr1e-5_node46_ddp/checkpoint-23000/model/diffusion_pytorch_model.safetensors" \
     --model_max_length 300 \
     --use_image_num 4 \
     --enable_tiling \
-    --sp_size 1 \
+    --sp_size 8 \
     --resume_from_checkpoint="latest" \
     --train_sp_batch_size 1
