@@ -1,5 +1,5 @@
-LCALIB_PACKAGE_PATH=$(python -c "import lcalib; print(lcalib.__path__[0])")
-export LD_LIBRARY_PATH=${LCALIB_PACKAGE_PATH}:$LD_LIBRARY_PATH
+#LCALIB_PACKAGE_PATH=$(python -c "import lcalib; print(lcalib.__path__[0])")
+#export LD_LIBRARY_PATH=${LCALIB_PACKAGE_PATH}:$LD_LIBRARY_PATH
 rm -rf /dev/shm/sem.lccl*
 rm -rf /tmp/.lccl*
 export PROJECT=$PROJECT_NAME

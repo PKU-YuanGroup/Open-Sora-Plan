@@ -278,9 +278,9 @@ class LatteT2V(ModelMixin, ConfigMixin):
         #   (keep = +0,     discard = -10000.0)
         attention_mask = (1 - attention_mask.to(dtype)) * -10000.0
         attention_mask = attention_mask.to(self.dtype)
-
-        if npu_config.on_npu and npu_config.enable_FA:
-            attention_mask = attention_mask.repeat(1, attention_mask.size(-1), 1).to(torch.bool)
+        attention_mask = attention_mask.repeat(1, attention_mask.size(-1), 1)
+        if npu_config.enable_FA:
+            attention_mask = attention_mask.to(torch.bool)
         return attention_mask
 
     def vae_to_diff_mask(self, attention_mask, use_image_num):
@@ -390,8 +390,10 @@ class LatteT2V(ModelMixin, ConfigMixin):
             encoder_attention_mask = rearrange(encoder_attention_mask, 'b n l -> (b n) l').contiguous().unsqueeze(1)
             encoder_attention_mask = encoder_attention_mask.to(self.dtype)
 
-        if npu_config.on_npu and npu_config.enable_FA and encoder_attention_mask is not None:
-            encoder_attention_mask = encoder_attention_mask.repeat(1, attention_mask.size(-2), 1).to(torch.bool)
+        if encoder_attention_mask is not None:
+            encoder_attention_mask = encoder_attention_mask.repeat(1, attention_mask.size(-2), 1)
+            if npu_config.enable_FA:
+                encoder_attention_mask = encoder_attention_mask.to(torch.bool)
 
         # Retrieve lora scale.
         lora_scale = cross_attention_kwargs.get("scale", 1.0) if cross_attention_kwargs is not None else 1.0

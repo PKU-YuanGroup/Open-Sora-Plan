@@ -190,8 +190,6 @@ def main(args):
     )
 
     initialize_sequence_parallel_state(args.sp_size)
-    if args.sp_size > 1:
-        assert npu_config.enable_FA == True, "Enable FA when using sequence parallel"
 
     if args.report_to == "wandb":
         if not is_wandb_available():
@@ -496,7 +494,7 @@ def main(args):
         one_step_duration = end_time - start_time
         accelerator.log({"train_loss": progress_info.train_loss}, step=progress_info.global_step)
         npu_config.print_msg(
-            f"Step: [{progress_info.global_step}], enable_LCCL={enable_LCCL}, local_loss={loss}, train_loss={progress_info.train_loss}, time_cost={one_step_duration}", rank=0)
+            f"Step: [{progress_info.global_step}], enable_LCCL={enable_LCCL}, local_loss={loss.detach().item()}, train_loss={progress_info.train_loss}, time_cost={one_step_duration}", rank=0)
         progress_info.train_loss = 0.0
 
 

@@ -6,14 +6,18 @@ import random
 import numpy as np
 import torch
 import subprocess
+
 try:
     import torch_npu
+
     npu_is_available = True
     from torch_npu.contrib import transfer_to_npu
 except:
     npu_is_available = False
 
 from contextlib import contextmanager
+from opensora.acceleration.parallel_states import enable_LCCL, hccl_info, lccl_info
+
 
 def compress_video(input_file, output_file, out_size):
     """使用 ffmpeg 压缩视频文件。"""
@@ -28,6 +32,7 @@ def compress_video(input_file, output_file, out_size):
         output_file
     ]
     subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
 
 @contextmanager
 def set_run_dtype(x, dtype=None):
@@ -50,9 +55,9 @@ class NPUConfig:
     def __init__(self):
         self.on_npu = npu_is_available
         self.node_world_size = self.N_NPU_PER_NODE
-        self.profiling = False
+        self.profiling = True
         self.profiling_step = 5
-        self.enable_FA = True
+        self.enable_FA = False
         self.enable_FP32 = True
         self.load_pickle = True
         self.use_small_dataset = False
@@ -89,6 +94,13 @@ class NPUConfig:
         if x.dtype != self.original_run_dtype and self.original_run_dtype is not None:
             x = x.to(self.original_run_dtype)
         return x
+
+    def get_sp_size(self):
+        if enable_LCCL:
+            sp_size = lccl_info.world_size
+        else:
+            sp_size = hccl_info.world_size
+        return sp_size
 
     def get_output_video_path(self, name):
         os.makedirs(f"{self.work_path}/output_videos", exist_ok=True)
@@ -228,28 +240,63 @@ class NPUConfig:
             with open(filename, 'w') as file:
                 json.dump(self._loss, file, indent=4)
 
-    def scaled_dot_product_attention(self, query, key, value, attn_mask=None, dropout_p=0.0, is_causal=False,
-                                     scale=None) -> torch.Tensor:
+    def run_attention(self, query, key, value, atten_mask, input_layout, head_dim, head_num):
+        if self.enable_FA:
+            hidden_states = torch_npu.npu_fusion_attention(query, key, value,
+                                                           atten_mask=atten_mask,
+                                                           input_layout=input_layout,
+                                                           scale=1 / math.sqrt(head_dim),
+                                                           head_num=head_num)[0]
+        else:
+            hidden_states = self.scaled_dot_product_attention(query, key, value,
+                                                              atten_mask=atten_mask,
+                                                              input_layout=input_layout,
+                                                              scale=1 / math.sqrt(head_dim),
+                                                              head_num=head_num)
+        return hidden_states
+
+    def scaled_dot_product_attention(self, query, key, value, input_layout, head_num=None,
+                                     atten_mask=None, scale=None, dropout_p=0.0, is_causal=False) -> torch.Tensor:
         # L, S = query.size(-2), key.size(-2)
-        scale_factor = 1 / math.sqrt(query.size(-1)) if scale is None else scale
-        attn_weight = query @ key.transpose(-2, -1) * scale_factor
+        def trans_tensor_shape(x, layout, head_num):
+            if layout == "BSH":
+                batch = x.shape[0]
+                x = x.view(batch, -1, head_num, x.shape[-1] // head_num).transpose(1, 2).contiguous()
+            elif layout == "SBH":
+                batch = x.shape[1]
+                x = x.view(-1, batch * head_num, x.shape[-1] // head_num).transpose(0, 1).contiguous()
+                x = x.view(batch, head_num, -1, x.shape[-1])
+            return x
+
+        query = trans_tensor_shape(query, input_layout, head_num)
+        key = trans_tensor_shape(key, input_layout, head_num)
+        value = trans_tensor_shape(value, input_layout, head_num)
+
+        attn_weight = query @ key.transpose(-2, -1) * scale
         attn_bias = torch.zeros_like(attn_weight, dtype=query.dtype, device=query.device)
         if is_causal:
-            assert attn_mask is None
+            assert atten_mask is None
             temp_mask = torch.zeros_like(attn_weight, dtype=torch.bool, device=query.device).tril(diagonal=0)
             attn_bias.masked_fill_(temp_mask.logical_not(), float("-10000.0"))
             attn_bias.to(query.dtype)
 
-        if attn_mask is not None:
-            if attn_mask.dtype == torch.bool:
-                attn_bias.masked_fill_(attn_mask.logical_not(), float("-10000.0"))
+        if atten_mask is not None:
+            if atten_mask.dtype == torch.bool:
+                attn_bias.masked_fill_(atten_mask.logical_not(), float("-10000.0"))
             else:
-                attn_bias += attn_mask
+                # BNSS += BN1S
+                attn_bias += atten_mask
 
         attn_weight += attn_bias
         attn_weight = torch.softmax(attn_weight, dim=-1)
         attn_weight = torch.dropout(attn_weight, dropout_p, train=True)
-        return attn_weight @ value
+        output = attn_weight @ value
+        if input_layout == "BSH":
+            output = output.transpose(1, 2).contiguous().view(output.shape[0], -1, head_num * output.shape[-1])
+        else:
+            output = output.view(output.shape[0] * head_num, -1, output.shape[-1]).transpose(0, 1).contiguous()
+            output = output.view(output.shape[0], -1, head_num * output.shape[-1])
+        return output
 
     def print_tensor_with_rank(self, name, tensor, rank=[0], dim_print_cnt=[]):
         if type(rank) is not list:
@@ -264,6 +311,7 @@ class NPUConfig:
                     for x in range(0, tensor_.size(cur_dim), tensor_.size(cur_dim) // dim_print_cnt[cur_dim]):
                         ret += print_dim(tensor_, indices + [x])
                     return ret + '\n'
+
             print(name, tensor.size(), self.rank, '\n', print_dim(tensor, []))
 
 

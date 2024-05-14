@@ -273,6 +273,7 @@ class Attention(nn.Module):
         self.use_rope = use_rope
         self.rope_scaling = rope_scaling
         self.compress_kv_factor = compress_kv_factor
+        self.layout = layout
 
         # we make use of this private variable to know whether this class is loaded
         # with an deprecated state dict so that we can convert it on the fly
@@ -814,13 +815,15 @@ class Attention(nn.Module):
                 # TODO: re-enable tests/models/test_models_unet_2d_condition.py#test_model_xattn_padding
                 attention_mask = F.pad(attention_mask, (0, target_length), value=0.0)
 
-        if not npu_config.enable_FA:
-            if out_dim == 3:
-                if attention_mask.shape[0] < batch_size * head_size:
-                    attention_mask = attention_mask.repeat_interleave(head_size, dim=0)
-            elif out_dim == 4:
-                attention_mask = attention_mask.unsqueeze(1)
-                attention_mask = attention_mask.repeat_interleave(head_size, dim=1)
+        # if not npu_config.enable_FA:
+        #     if self.layout == "SBH":
+        #         head_size //= npu_config.get_sp_size()
+        #     if out_dim == 3:
+        #         if attention_mask.shape[0] < batch_size * head_size:
+        #             attention_mask = attention_mask.repeat_interleave(head_size, dim=0)
+        #     elif out_dim == 4:
+        #         attention_mask = attention_mask.unsqueeze(1)
+        #         attention_mask = attention_mask.repeat_interleave(head_size, dim=1)
 
         return attention_mask
 
@@ -962,10 +965,15 @@ class AttnProcessor2_0:
             attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length, batch_size)
             # scaled_dot_product_attention expects attention_mask shape to be
             # (batch, heads, source_length, target_length)
-            if npu_config.enable_FA:
-                attention_mask = attention_mask.view(batch_size, 1, -1, attention_mask.shape[-1])
-            else:
-                attention_mask = attention_mask.view(batch_size, attn.heads, -1, attention_mask.shape[-1])
+            attention_mask = attention_mask.view(batch_size, 1, -1, attention_mask.shape[-1])
+            # if npu_config.enable_FA:
+            #
+            # else:
+            #     if self.layout == "SBH":
+            #         attention_mask = attention_mask.view(batch_size, attn.heads // npu_config.get_sp_size(), -1,
+            #                                              attention_mask.shape[-1])
+            #     else:
+            #         attention_mask = attention_mask.view(batch_size, attn.heads, -1, attention_mask.shape[-1])
 
         if attn.group_norm is not None:
             hidden_states = attn.group_norm(hidden_states.transpose(1, 2)).transpose(1, 2)
@@ -983,46 +991,38 @@ class AttnProcessor2_0:
 
         inner_dim = key.shape[-1]
         head_dim = inner_dim // attn.heads
-        if npu_config.on_npu and npu_config.enable_FA:
-            if self.layout == "SBH":
-                query = query.view(-1, attn.heads, head_dim)  # [s // sp, b, h * d] -> [s // sp * b, h, d]
-                key = key.view(-1, attn.heads, head_dim)
-                value = value.view(-1, attn.heads, head_dim)
 
-                with set_run_dtype(query, torch.bfloat16):
-                    query, key, value = npu_config.set_current_run_dtype([query, key, value])
+        if npu_config.on_npu:
+            if npu_config.enable_FA and query.dtype == torch.float32:
+                dtype = torch.bfloat16
+            else:
+                dtype = None
 
+            with set_run_dtype(query, dtype):
+                query, key, value = npu_config.set_current_run_dtype([query, key, value])
+                if self.layout == "SBH":
+                    query = query.view(-1, attn.heads, head_dim)  # [s // sp, b, h * d] -> [s // sp * b, h, d]
+                    key = key.view(-1, attn.heads, head_dim)
+                    value = value.view(-1, attn.heads, head_dim)
+                    h_size = attn.heads * head_dim
+                    h_size_sp = h_size // self.sp_size
                     # apply all_to_all to gather sequence and split attention heads [s // sp * b, h, d] -> [s * b, h // sp, d]
-                    query = all_to_all_SBH(query, scatter_dim=1, gather_dim=0).view(-1, batch_size,
-                                                                                    attn.heads // self.sp_size * head_dim)
-                    key = all_to_all_SBH(key, scatter_dim=1, gather_dim=0).view(-1, batch_size,
-                                                                                attn.heads // self.sp_size * head_dim)
-                    value = all_to_all_SBH(value, scatter_dim=1, gather_dim=0).view(-1, batch_size,
-                                                                                    attn.heads // self.sp_size * head_dim)
-                    hidden_states = torch_npu.npu_fusion_attention(query, key, value, scale=1 / math.sqrt(head_dim),
-                                                                   atten_mask=attention_mask,
-                                                                   head_num=attn.heads // self.sp_size,
-                                                                   input_layout=self.layout)[0]
+                    query = all_to_all_SBH(query, scatter_dim=1, gather_dim=0).view(-1, batch_size, h_size_sp)
+                    key = all_to_all_SBH(key, scatter_dim=1, gather_dim=0).view(-1, batch_size, h_size_sp)
+                    value = all_to_all_SBH(value, scatter_dim=1, gather_dim=0).view(-1, batch_size, h_size_sp)
+
+                    hidden_states = npu_config.run_attention(query, key, value, attention_mask, self.layout,
+                                                             head_dim, attn.heads // self.sp_size)
+
                     hidden_states = hidden_states.view(-1, attn.heads // self.sp_size, head_dim)
 
                     # [s * b, h // sp, d] -> [s // sp * b, h, d] -> [s // sp, b, h * d]
-                    hidden_states = all_to_all_SBH(hidden_states, scatter_dim=0, gather_dim=1).view(-1, batch_size,
-                                                                                                    attn.heads * head_dim)
-                    hidden_states = npu_config.restore_dtype(hidden_states)
+                    hidden_states = all_to_all_SBH(hidden_states, scatter_dim=0, gather_dim=1).view(-1, batch_size, h_size)
+                else:  # BSH
+                    hidden_states = npu_config.run_attention(query, key, value, attention_mask, self.layout,
+                                                             head_dim, attn.heads)
 
-            else:  # BSH
-                if npu_config.enable_FP32 or query.dtype == torch.float32:
-                    dtype = torch.bfloat16
-                else:
-                    dtype = query.dtype
-
-                with set_run_dtype(query, dtype):
-                    query, key, value = npu_config.set_current_run_dtype([query, key, value])
-                    hidden_states = torch_npu.npu_fusion_attention(query, key, value,
-                                                                   atten_mask=attention_mask, input_layout=self.layout,
-                                                                   scale=1 / math.sqrt(head_dim),
-                                                                   head_num=attn.heads)[0]
-                    hidden_states = npu_config.restore_dtype(hidden_states)
+                hidden_states = npu_config.restore_dtype(hidden_states)
         else:
             query = query.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
 
