@@ -5,7 +5,7 @@ import torchvision
 from einops import rearrange
 from decord import VideoReader
 from os.path import join as opj
-
+import gc
 import torch
 import torchvision.transforms as transforms
 from torch.utils.data.dataset import Dataset
@@ -54,9 +54,13 @@ class T2V_dataset(Dataset):
                 image_data = self.get_image(idx)
             else:
                 raise NotImplementedError
+            gc.collect()
             return dict(video_data=video_data, image_data=image_data)
         except Exception as e:
-            print(f'Error with {e}, {self.vid_cap_list[idx]}')
+            # print(f'Error with {e}, {self.vid_cap_list[idx]}')
+            if os.path.exists(self.vid_cap_list[idx]['path']) and '_resize_1080p' in self.vid_cap_list[idx]['path']:
+                os.remove(self.vid_cap_list[idx]['path'])
+                print('remove:', self.vid_cap_list[idx]['path'])
             return self.__getitem__(random.randint(0, self.__len__() - 1))
 
     def get_video(self, idx):
@@ -67,11 +71,15 @@ class T2V_dataset(Dataset):
         
         video_path = self.vid_cap_list[idx]['path']
         frame_idx = self.vid_cap_list[idx]['frame_idx']
+        #print('before decord')
         video = self.decord_read(video_path, frame_idx)
         # video = self.tv_read(video_path, frame_idx)
+        #print('after decord')
         video = self.transform(video)  # T C H W -> T C H W
+        # del raw_video
+        # gc.collect()
         # video = torch.rand(65, 3, 512, 512)
-
+        #print('after transform')
         video = video.transpose(0, 1)  # T C H W -> C T H W
         text = self.vid_cap_list[idx]['cap']
 
@@ -151,6 +159,7 @@ class T2V_dataset(Dataset):
         else:
             start_frame_ind, end_frame_ind = frame_idx.split(':')
             start_frame_ind, end_frame_ind = int(start_frame_ind), int(end_frame_ind)
+            start_frame_ind, end_frame_ind = int(start_frame_ind), int(start_frame_ind) + self.num_frames
         # assert end_frame_ind - start_frame_ind >= self.num_frames
         frame_indice = np.linspace(start_frame_ind, end_frame_ind - 1, self.num_frames, dtype=int)
         # frame_indice = np.linspace(0, 63, self.num_frames, dtype=int)
@@ -171,7 +180,11 @@ class T2V_dataset(Dataset):
                 vid_cap_list = json.load(f)
             print(f'Building {anno}...')
             for i in tqdm(range(len(vid_cap_list))):
-                vid_cap_list[i]['path'] = opj(folder, vid_cap_list[i]['path'])
+                path = opj(folder, vid_cap_list[i]['path'])
+                if os.path.exists(path.replace('.mp4', '_resize_1080p.mp4')):
+                    path = path.replace('.mp4', '_resize_1080p.mp4')
+                vid_cap_list[i]['path'] = path
+
             vid_cap_lists += vid_cap_list
         return vid_cap_lists
 

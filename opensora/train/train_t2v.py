@@ -326,6 +326,8 @@ def main(args):
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
         shuffle=True,
+        pin_memory=True,
+        # prefetch_factor=1, 
         collate_fn=Collate(args),
         batch_size=args.train_batch_size,
         num_workers=args.dataloader_num_workers,
@@ -416,13 +418,14 @@ def main(args):
         for step, (x, attn_mask, input_ids, cond_mask) in enumerate(train_dataloader):
             with accelerator.accumulate(model):
                 # Sample noise that we'll add to the latents
-
+                if not args.multi_scale:
+                    assert torch.all(attn_mask)
                 
-                x = x.to(accelerator.device, dtype=weight_dtype)  # B C T+num_images H W, 16 + 4
-                attn_mask = attn_mask.to(accelerator.device)  # B L or B 1+num_images L
+                x = x.to(accelerator.device, dtype=weight_dtype, non_blocking=True)  # B C T+num_images H W, 16 + 4
+                attn_mask = attn_mask.to(accelerator.device, non_blocking=True)  # B L or B 1+num_images L
                 # assert torch.all(attn_mask != 0), 'attn_mask must all 1'
-                input_ids = input_ids.to(accelerator.device)  # B L or B 1+num_images L
-                cond_mask = cond_mask.to(accelerator.device)  # B L or B 1+num_images L
+                input_ids = input_ids.to(accelerator.device, non_blocking=True)  # B L or B 1+num_images L
+                cond_mask = cond_mask.to(accelerator.device, non_blocking=True)  # B L or B 1+num_images L
                 # print('x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape', x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape)
                 
                 with torch.no_grad():
@@ -586,6 +589,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--num_sampling_steps", type=int, default=50)
     parser.add_argument('--guidance_scale', type=float, default=10.0)
+    parser.add_argument("--multi_scale", action="store_true")
     parser.add_argument("--enable_tracker", action="store_true")
     parser.add_argument("--use_deepspeed", action="store_true")
     parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")

@@ -29,7 +29,7 @@ import imageio
 
 
 def main(args):
-    # torch.manual_seed(args.seed)
+    # torch.manual_seed(args.seed) 
     torch.set_grad_enabled(False)
     device = "cuda" if torch.cuda.is_available() else "cpu"
 

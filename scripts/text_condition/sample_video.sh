@@ -1,5 +1,5 @@
-CUDA_VISIBLE_DEVICES=6 python opensora/sample/sample_t2v.py \
-    --model_path 512/checkpoint-20/model \
+CUDA_VISIBLE_DEVICES=1 python opensora/sample/sample_t2v.py \
+    --model_path 512_10node_bs2_lr2e-5_4img/checkpoint-94000/model \
     --version 65x512x512 \
     --image_size 512 \
     --cache_dir "./cache_dir" \
@@ -7,8 +7,8 @@ CUDA_VISIBLE_DEVICES=6 python opensora/sample/sample_t2v.py \
     --text_prompt examples/prompt_list_0.txt \
     --ae CausalVAEModel_4x8x8 \
     --ae_path "/dxyl_data02/CausalVAEModel_4x8x8/" \
-    --save_img_path "./sample_videos" \
+    --save_img_path "./sample_videos_94k_7.5_150s" \
     --fps 24 \
-    --guidance_scale 10.0 \
-    --num_sampling_steps 50 \
+    --guidance_scale 7.5 \
+    --num_sampling_steps 150 \
     --enable_tiling
