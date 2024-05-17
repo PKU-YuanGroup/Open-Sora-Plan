@@ -20,26 +20,27 @@ accelerate launch \
     --video_data "./scripts/train_data/video_data.txt" \
     --image_data "./scripts/train_data/image_data.txt" \
     --sample_rate 1 \
-    --num_frames 513 \
+    --num_frames ${NUM_FRAME} \
     --max_image_size 512 \
     --gradient_checkpointing \
     --attention_mode="xformers" \
+    --mixed_precision="bf16" \
     --train_batch_size=1 \
     --dataloader_num_workers 10 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
-    --learning_rate=5e-7 \
+    --learning_rate=1e-5 \
     --lr_scheduler="cosine" \
     --lr_warmup_steps=500 \
     --report_to="wandb" \
-    --checkpointing_steps=100 \
+    --checkpointing_steps=250 \
     --output_dir="/home/image_data/checkpoints/${PROJECT}/" \
     --allow_tf32 \
     --num_sampling_steps=50 \
     --pretrained "/home/image_data/checkpoints/512_based_linbin_lr1e-5_node46_ddp/checkpoint-23000/model/diffusion_pytorch_model.safetensors" \
     --model_max_length 300 \
-    --use_image_num 4 \
+    --use_image_num 2 \
     --enable_tiling \
-    --sp_size 8 \
+    --sp_size 1 \
     --resume_from_checkpoint="latest" \
     --train_sp_batch_size 1

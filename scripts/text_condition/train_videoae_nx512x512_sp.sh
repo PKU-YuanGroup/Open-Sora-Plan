@@ -1,5 +1,5 @@
-#LCALIB_PACKAGE_PATH=$(python -c "import lcalib; print(lcalib.__path__[0])")
-#export LD_LIBRARY_PATH=${LCALIB_PACKAGE_PATH}:$LD_LIBRARY_PATH
+LCALIB_PACKAGE_PATH=$(python -c "import lcalib; print(lcalib.__path__[0])")
+export LD_LIBRARY_PATH=${LCALIB_PACKAGE_PATH}:$LD_LIBRARY_PATH
 rm -rf /dev/shm/sem.lccl*
 rm -rf /tmp/.lccl*
 export PROJECT=$PROJECT_NAME
@@ -20,15 +20,16 @@ accelerate launch \
     --video_data "./scripts/train_data/video_data.txt" \
     --image_data "./scripts/train_data/image_data.txt" \
     --sample_rate 1 \
-    --num_frames 65 \
+    --num_frames ${NUM_FRAME} \
     --max_image_size 512 \
     --gradient_checkpointing \
     --attention_mode="xformers" \
+    --mixed_precision="bf16" \
     --train_batch_size=1 \
     --dataloader_num_workers 10 \
-    --gradient_accumulation_steps=1 \
+    --gradient_accumulation_steps=4 \
     --max_train_steps=1000000 \
-    --learning_rate=5e-7 \
+    --learning_rate=1e-6 \
     --lr_scheduler="cosine" \
     --lr_warmup_steps=500 \
     --report_to="wandb" \
@@ -38,7 +39,7 @@ accelerate launch \
     --num_sampling_steps=50 \
     --pretrained "/home/image_data/checkpoints/512_based_linbin_lr1e-5_node46_ddp/checkpoint-23000/model/diffusion_pytorch_model.safetensors" \
     --model_max_length 300 \
-    --use_image_num 4 \
+    --use_image_num 8 \
     --enable_tiling \
     --sp_size 8 \
     --resume_from_checkpoint="latest" \

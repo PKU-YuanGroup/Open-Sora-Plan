@@ -814,7 +814,7 @@ class Attention(nn.Module):
                 #       remaining_length: int = target_length - current_length
                 # TODO: re-enable tests/models/test_models_unet_2d_condition.py#test_model_xattn_padding
                 attention_mask = F.pad(attention_mask, (0, target_length), value=0.0)
-
+        # BNSS BN1S, BNSS
         # if not npu_config.enable_FA:
         #     if self.layout == "SBH":
         #         head_size //= npu_config.get_sp_size()

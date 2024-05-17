@@ -47,21 +47,21 @@ def getdataset(args):
     temporal_sample = TemporalRandomCrop(args.num_frames * args.sample_rate)  # 16 x
     norm_fun = ae_norm[args.ae]
     if args.dataset == 't2v':
-        transform = transforms.Compose([
-            ToTensorVideo(),
-            LongSideResizeVideo(args.max_image_size, skip_low_resolution=True),
-            SpatialStrideCropVideo(args.stride),
-            # RandomHorizontalFlipVideo(p=0.5),  # in case their caption have position decription
-            norm_fun
-        ])
         # transform = transforms.Compose([
         #     ToTensorVideo(),
-        #     # LongSideResizeVideo(args.max_image_size, skip_low_resolution=True),
-        #     # SpatialStrideCropVideo(args.stride),
-        #     CenterCropResizeVideo(args.max_image_size),
+        #     LongSideResizeVideo(args.max_image_size, skip_low_resolution=True),
+        #     SpatialStrideCropVideo(args.stride),
         #     # RandomHorizontalFlipVideo(p=0.5),  # in case their caption have position decription
         #     norm_fun
         # ])
+        transform = transforms.Compose([
+            ToTensorVideo(),
+            # LongSideResizeVideo(args.max_image_size, skip_low_resolution=True),
+            # SpatialStrideCropVideo(args.stride),
+            CenterCropResizeVideo(args.max_image_size),
+            # RandomHorizontalFlipVideo(p=0.5),  # in case their caption have position decription
+            norm_fun
+        ])
         tokenizer = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
         return T2V_dataset(args, transform=transform, temporal_sample=temporal_sample, tokenizer=tokenizer)
     raise NotImplementedError(args.dataset)

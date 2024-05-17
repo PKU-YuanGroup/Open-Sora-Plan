@@ -60,8 +60,9 @@ from opensora.utils.dataset_utils import Collate
 from opensora.models.ae import ae_stride_config, ae_channel_config
 from opensora.models.diffusion import Diffusion_models
 from opensora.sample.pipeline_videogen import VideoGenPipeline
-from opensora.acceleration.parallel_states import initialize_sequence_parallel_state, destroy_sequence_parallel_group, get_sequence_parallel_state, enable_LCCL
-from opensora.acceleration.communications import prepare_parallel_data
+from opensora.acceleration.parallel_states import initialize_sequence_parallel_state, destroy_sequence_parallel_group, \
+    get_sequence_parallel_state, enable_LCCL
+from opensora.acceleration.communications import prepare_parallel_data, broadcast
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 check_min_version("0.24.0")
@@ -179,6 +180,8 @@ def generate_timestep_weights(args, num_timesteps):
 
 def main(args):
     logging_dir = Path(args.output_dir, args.logging_dir)
+
+    npu_config.print_msg(args)
     # npu_config.seed_everything()
     accelerator_project_config = ProjectConfiguration(project_dir=args.output_dir, logging_dir=logging_dir)
 
@@ -494,12 +497,12 @@ def main(args):
         one_step_duration = end_time - start_time
         accelerator.log({"train_loss": progress_info.train_loss}, step=progress_info.global_step)
         npu_config.print_msg(
-            f"Step: [{progress_info.global_step}], enable_LCCL={enable_LCCL}, local_loss={loss.detach().item()}, train_loss={progress_info.train_loss}, time_cost={one_step_duration}", rank=0)
+            f"Step: [{progress_info.global_step}], enable_LCCL={enable_LCCL}, local_loss={loss.detach().item()}, train_loss={progress_info.train_loss}, time_cost={one_step_duration}",
+            rank=0)
         progress_info.train_loss = 0.0
 
-
         if accelerator.is_main_process:
-            logs = {"local_loss": loss, "lr": lr_scheduler.get_last_lr()[0]}
+            logs = {"local_loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
             progress_bar.set_postfix(**logs)
             if progress_info.global_step % args.checkpointing_steps == 0 and progress_info.global_step > 1:
                 # _before_ saving state, check if this save would set us over the `checkpoints_total_limit`
@@ -535,18 +538,21 @@ def main(args):
                     log_validation(args, model, ae, text_enc.text_enc, train_dataset.tokenizer, accelerator,
                                    weight_dtype, progress_info.global_step)
 
-
-
     def run(x, model_kwargs, prof):
         global start_time
         start_time = time.time()
+
         t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=accelerator.device)
+        if get_sequence_parallel_state():
+            broadcast(t)
+        # npu_config.print_msg(t, f"TimeStep: after broadcast")
+
         loss_dict = diffusion.training_losses(model, x, t, model_kwargs)
         loss = loss_dict["loss"].mean()
 
         # Backpropagate
         accelerator.backward(loss)
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.1)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1)
         if accelerator.sync_gradients:
             params_to_clip = model.parameters()
             accelerator.clip_grad_norm_(params_to_clip, args.max_grad_norm)
@@ -572,9 +578,12 @@ def main(args):
         input_ids = input_ids.to(accelerator.device)  # B L or B 1+num_images L
         cond_mask = cond_mask.to(accelerator.device)  # B L or B 1+num_images L
         # print('x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape', x.shape, attn_mask.shape,
-              # input_ids.shape, cond_mask.shape)
+        # input_ids.shape, cond_mask.shape)
 
         with torch.no_grad():
+            ae.to(accelerator.device, dtype=weight_dtype)
+            # ae.to(accelerator.device)
+            text_enc.to(accelerator.device, dtype=weight_dtype)
             # use for loop to avoid OOM, because T5 is too huge...
             B, _, _ = input_ids.shape  # B T+num_images L  b 1+4, L
             cond = torch.stack([text_enc(input_ids[i], cond_mask[i]) for i in range(B)])  # B 1+num_images L D
@@ -593,12 +602,25 @@ def main(args):
                 images = rearrange(images, '(b t) c 1 h w -> b c t h w', t=args.use_image_num)
                 x = torch.cat([videos, images], dim=2)  # b c 17+4, h, w
 
+        # ae.to('cpu', dtype=weight_dtype)
+        # # ae.to(accelerator.device)
+        # text_enc.to('cpu', dtype=weight_dtype)
+        # x = torch.randn([1, 4, 21, 64, 64], dtype=weight_dtype, device=accelerator.device)
+        # cond = torch.ones([1, 5, 4096], dtype=weight_dtype, device=accelerator.device)
+        # attn_mask = torch.ones([1, 21, 64, 64], dtype=weight_dtype, device=accelerator.device)
+
+        # npu_config.print_tensor_stats(x, "x")
+        # npu_config.print_tensor_stats(cond, "cond")
+        # npu_config.print_tensor_stats(attn_mask, "attn_mask")
+        # npu_config.print_tensor_stats(cond_mask, "cond_mask")
+
         if get_sequence_parallel_state():
             loss = 0.0
             grad_norm = 0.0
             # npu_config.print_tensor_stats(attn_mask, "attn_mask before prepare_parallel_data")
             x, cond, attn_mask, cond_mask, use_image_num = prepare_parallel_data(x, cond, attn_mask, cond_mask,
                                                                                  args.use_image_num)
+            assert torch.all(attn_mask), "unable multi-scale"
             # npu_config.print_tensor_stats(attn_mask, "attn_mask after prepare_parallel_data")
 
             if npu_config.on_npu and npu_config.enable_FP32:
@@ -621,8 +643,6 @@ def main(args):
                                     encoder_attention_mask=cond_mask, use_image_num=args.use_image_num)
                 run(x, model_kwargs, prof_)
 
-
-
         if progress_info.global_step >= args.max_train_steps:
             return True
 
@@ -635,6 +655,7 @@ def main(args):
                 return True
 
             for step, data_item in enumerate(train_dataloader):
+
                 if train_one_step(step, data_item, prof_):
                     break
 
@@ -686,7 +707,8 @@ if __name__ == "__main__":
     parser.add_argument('--tile_overlap_factor', type=float, default=0.25)
     parser.add_argument('--enable_tiling', action='store_true')
     parser.add_argument("--compress_kv", action="store_true")
-    parser.add_argument("--attention_mode", type=str, choices=['xformers', 'math', 'flash', 'unable'], default="xformers")
+    parser.add_argument("--attention_mode", type=str, choices=['xformers', 'math', 'flash', 'unable'],
+                        default="xformers")
     parser.add_argument('--use_rope', action='store_true')
     parser.add_argument('--compress_kv_factor', type=int, default=1)
 

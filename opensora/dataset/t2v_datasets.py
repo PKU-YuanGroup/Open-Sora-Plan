@@ -60,10 +60,11 @@ class T2V_dataset(Dataset):
         self.v_decoder = DecordInit(npu_config.rank % 8)
 
         # self.vid_cap_list, self.local_vid_cap_list = self.get_vid_cap_list()
-        self.global_vid_cap_list, self.vid_cap_list, self.len_global_vid_list = npu_config.try_load_pickle(
-            f"vid_cap_list_{self.num_frames}.pkl",
+        self.global_vid_cap_list, self.vid_cap_list, _ = npu_config.try_load_pickle(
+            f"vid_cap_list_{self.num_frames}_local.pkl",
             self.get_vid_cap_list)
-        npu_config.print_msg(f"len(self.global_vid_cap_list) = {self.len_global_vid_list}")
+        self.len_global_vid_list = len(self.global_vid_cap_list)
+        npu_config.print_msg(f"len(self.global_vid_cap_list) = {len(self.global_vid_cap_list)}")
         npu_config.print_msg(f"len(self.vid_cap_list) = {len(self.vid_cap_list)}")
         # self.vid_cap_list = self.local_vid_cap_list
         self.n_samples = len(self.vid_cap_list)
@@ -79,9 +80,7 @@ class T2V_dataset(Dataset):
         self.use_img_from_vid = args.use_img_from_vid
         if self.use_image_num != 0 and not self.use_img_from_vid:
             # self.img_cap_list, self.local_img_cap_lists = self.get_img_cap_list()
-            self.global_img_cap_list, self.img_cap_list, self.len_global_img_list = npu_config.try_load_pickle(
-                "img_cap_list.pkl",
-                self.get_img_cap_list)
+            self.global_img_cap_list, self.img_cap_list, self.len_global_img_list = self.get_img_cap_list()
             npu_config.print_msg(f"len(self.global_img_cap_list) = {self.len_global_img_list}")
             npu_config.print_msg(f"len(self.img_cap_list) = {len(self.img_cap_list)}")
             # self.img_cap_list = self.local_img_cap_lists
@@ -114,22 +113,6 @@ class T2V_dataset(Dataset):
             traceback.print_stack()
             return self.__getitem__(random.randint(0, self.__len__() - 1))
 
-    def tv_read(self, path, frame_idx=None):
-        vframes, aframes, info = torchvision.io.read_video(filename=path, pts_unit='sec', output_format='TCHW')
-        total_frames = len(vframes)
-        if frame_idx is None:
-            start_frame_ind, end_frame_ind = self.temporal_sample(total_frames)
-        else:
-            start_frame_ind, end_frame_ind = frame_idx.split(':')
-            start_frame_ind, end_frame_ind = int(start_frame_ind), int(end_frame_ind)
-        # assert end_frame_ind - start_frame_ind >= self.num_frames
-        frame_indice = np.linspace(start_frame_ind, end_frame_ind - 1, self.num_frames, dtype=int)
-        frame_indice = np.linspace(0, 63, self.num_frames, dtype=int)
-
-        video = vframes[frame_indice]  # (T, C, H, W)
-
-        return video
-
     def get_video(self, idx):
         # video = random.choice([random_video_noise(65, 3, 720, 360) * 255, random_video_noise(65, 3, 1024, 1024), random_video_noise(65, 3, 360, 720)])
         # # print('random shape', video.shape)
@@ -137,12 +120,24 @@ class T2V_dataset(Dataset):
         # cond_mask = torch.cat([torch.ones(1, 60).to(torch.long), torch.ones(1, 60).to(torch.long)], dim=1).squeeze(0)
 
         video_path = self.vid_cap_list[idx]['path']
-        video_path = npu_config.try_get_vid_path(video_path)
+        small_video_path = npu_config.try_get_vid_path(video_path)
         frame_idx = self.vid_cap_list[idx]['frame_idx']
-        video = self.decord_read(video_path, frame_idx)
+        try:
+            if os.path.exists(small_video_path) and os.path.getsize(small_video_path) > 100:
+                video = self.decord_read(small_video_path, frame_idx)
+            else:
+                raise RuntimeError(f"Read small video file failed! it's path is {small_video_path}")
+        except:
+            if os.path.exists(video_path) and os.path.getsize(video_path) < 1024*1024*1024:
+                video = self.decord_read(video_path, frame_idx)
+            else:
+                raise RuntimeError(f"Skip video reading of file {video_path}")
+
         video = self.transform(video)  # T C H W -> T C H W
+        video = video[:self.num_frames, :, :, :]
+
         # video = torch.rand(65, 3, 512, 512)
-        # npu_config.print_tensor_stats(video, "video")
+        # npu_config.print_tensor_stats(video, "video in get_video")
 
         video = video.transpose(0, 1)  # T C H W -> C T H W
         text = self.vid_cap_list[idx]['cap']
@@ -236,7 +231,7 @@ class T2V_dataset(Dataset):
         # print([item['path'] for item in vid_cap_list])
         return vid_cap_lists, local_vid_cap_lists, len(vid_cap_list)
 
-    def get_img_cap_list(self):
+    def read_images(self):
         img_cap_lists = []
         local_img_cap_lists = []
         with open(self.image_data, 'r') as f:
@@ -250,6 +245,11 @@ class T2V_dataset(Dataset):
             local_img_cap_list = filter_json_by_existed_files(folder, img_cap_list, postfix=".jpg")
             img_cap_lists += img_cap_list
             local_img_cap_lists += local_img_cap_list
+        return img_cap_lists, local_img_cap_lists
+
+    def get_img_cap_list(self):
+        img_cap_lists, local_img_cap_lists = npu_config.try_load_pickle("img_cap_lists_local.pkl", self.read_images)
+
         img_cap_lists = [img_cap_lists[i: i + self.use_image_num] for i in
                          range(0, len(img_cap_lists), self.use_image_num)]
         local_img_cap_lists = [local_img_cap_lists[i: i + self.use_image_num] for i in

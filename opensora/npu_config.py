@@ -55,14 +55,19 @@ class NPUConfig:
     def __init__(self):
         self.on_npu = npu_is_available
         self.node_world_size = self.N_NPU_PER_NODE
-        self.profiling = True
+        self.profiling = False
         self.profiling_step = 5
-        self.enable_FA = False
-        self.enable_FP32 = True
+        self.enable_FA = True
+        self.enable_FP32 = False
         self.load_pickle = True
         self.use_small_dataset = False
         self.current_run_dtype = None
         self.original_run_dtype = None
+
+        if self.enable_FA and self.enable_FP32:
+            self.inf_float = -10000.0
+        else:
+            self.inf_float = -10000.0
 
         if self.use_small_dataset:
             self.load_pickle = False
@@ -190,7 +195,10 @@ class NPUConfig:
     def run_group_norm(self, operator, x):
         return self._run(operator, x, torch.float32)
 
-    def print_tensor_stats(self, tensor, name="Tensor"):
+    def print_tensor_stats(self, tensor, name="Tensor", rank=None):
+        if rank and rank != self.rank:
+            return
+
         if tensor is None:
             self.print_msg(f"Tensor {name} is None.")
             return
@@ -277,15 +285,12 @@ class NPUConfig:
         if is_causal:
             assert atten_mask is None
             temp_mask = torch.zeros_like(attn_weight, dtype=torch.bool, device=query.device).tril(diagonal=0)
-            attn_bias.masked_fill_(temp_mask.logical_not(), float("-10000.0"))
+            attn_bias.masked_fill_(temp_mask.logical_not(), npu_config.inf_float)
             attn_bias.to(query.dtype)
 
         if atten_mask is not None:
-            if atten_mask.dtype == torch.bool:
-                attn_bias.masked_fill_(atten_mask.logical_not(), float("-10000.0"))
-            else:
-                # BNSS += BN1S
-                attn_bias += atten_mask
+            assert (not self.enable_FA) and atten_mask.dtype != torch.bool, \
+                "attention_mask must not be bool type when use this function"
 
         attn_weight += attn_bias
         attn_weight = torch.softmax(attn_weight, dim=-1)

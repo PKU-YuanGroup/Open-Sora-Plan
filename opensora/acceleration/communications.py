@@ -2,6 +2,7 @@ import torch
 import torch.distributed as dist
 import torch.nn.functional as F
 from opensora.acceleration.parallel_states import hccl_info, lccl_info, enable_LCCL
+from opensora.npu_config import npu_config
 
 try:
     from lcalib.functional import lcal_all2allvc
@@ -22,6 +23,18 @@ def _all_to_all(
     output_list = [torch.empty_like(input_list[0]) for _ in range(sp_size)]
     dist.all_to_all(output_list, input_list, group=group)
     return torch.cat(output_list, dim=gather_dim).contiguous()
+
+
+def broadcast(input_: torch.Tensor):
+    if enable_LCCL:
+        sp_size = lccl_info.world_size
+    else:
+        sp_size = hccl_info.world_size
+
+    src = npu_config.rank // sp_size * sp_size
+    # npu_config.print_msg(f"Start broadcasting, src rank is {src}...")
+    dist.broadcast(input_, src=src, group=hccl_info.group)
+    # npu_config.print_msg(f"Finished broadcasting, src rank is {src}...")
 
 
 def _single_all_to_all(
@@ -141,19 +154,32 @@ def prepare_parallel_data(hidden_states, encoder_hidden_states, attention_mask, 
                                                                      :-use_image_num], encoder_attention_mask[:,
                                                                                        -use_image_num:]
         padding_needed = (sp_size - video_states.size(2) % sp_size) % sp_size
-        video_states = F.pad(video_states, (0, 0, 0, 0, 0, padding_needed), mode='constant', value=0)
-        video_attention_mask = F.pad(video_attention_mask, (0, 0, 0, 0, 0, padding_needed), mode='constant', value=0)
+        if padding_needed > 0:
+            print("Doing video padding")
+            # B, C, T, H, W -> B, C, T', H, W
+            video_states = F.pad(video_states, (0, 0, 0, 0, 0, padding_needed), mode='constant', value=0)
+            # B, T, H, W -> B, T', H, W
+            video_attention_mask = F.pad(video_attention_mask, (0, 0, 0, 0, 0, padding_needed), mode='constant',
+                                         value=0)
+
+        # mask: 1, T', H, W -> 8, T'/8, H, W
         video_states, video_encoder_states, video_attention_mask, video_encoder_attention_mask = all_to_all(
             video_states,
             video_encoder_states.repeat(1, sp_size, 1, 1),
             video_attention_mask,
             video_encoder_attention_mask.repeat(1, sp_size, 1))
         padding_needed = (sp_size - image_states.size(2) % sp_size) % sp_size
-        image_states = F.pad(image_states, (0, 0, 0, 0, 0, padding_needed), mode='constant', value=0)
-        image_encoder_states = F.pad(image_encoder_states, (0, 0, 0, 0, 0, padding_needed), mode='constant', value=0)
-        image_attention_mask = F.pad(image_attention_mask, (0, 0, 0, 0, 0, padding_needed), mode='constant', value=0)
-        image_encoder_attention_mask = F.pad(image_encoder_attention_mask, (0, 0, 0, padding_needed), mode='constant',
-                                             value=0)
+        if padding_needed > 0:
+            print("Doing image padding")
+            image_states = F.pad(image_states, (0, 0, 0, 0, 0, padding_needed), mode='constant', value=0)
+            image_encoder_states = F.pad(image_encoder_states, (0, 0, 0, 0, 0, padding_needed), mode='constant',
+                                         value=0)
+            image_attention_mask = F.pad(image_attention_mask, (0, 0, 0, 0, 0, padding_needed), mode='constant',
+                                         value=0)
+            image_encoder_attention_mask = F.pad(image_encoder_attention_mask, (0, 0, 0, padding_needed),
+                                                 mode='constant',
+                                                 value=0)
+
         image_states, image_encoder_states, image_attention_mask, image_encoder_attention_mask = all_to_all(
             image_states,
             image_encoder_states,

@@ -276,7 +276,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
         #   (1 = keep,      0 = discard)
         # convert mask into a bias that can be added to attention scores:
         #   (keep = +0,     discard = -10000.0)
-        attention_mask = (1 - attention_mask.to(dtype)) * -10000.0
+        attention_mask = (1 - attention_mask.to(dtype)) * npu_config.inf_float
         attention_mask = attention_mask.to(self.dtype)
         attention_mask = attention_mask.repeat(1, attention_mask.size(-1), 1)
         if npu_config.enable_FA:
@@ -376,12 +376,12 @@ class LatteT2V(ModelMixin, ConfigMixin):
         # 1 + 4, 1 -> video condition, 4 -> image condition
         # convert encoder_attention_mask to a bias the same way we do for attention_mask
         if encoder_attention_mask is not None and encoder_attention_mask.ndim == 2:  # ndim == 2 means no image joint
-            encoder_attention_mask = (1 - encoder_attention_mask.to(hidden_states.dtype)) * -10000.0
+            encoder_attention_mask = (1 - encoder_attention_mask.to(hidden_states.dtype)) * npu_config.inf_float
             encoder_attention_mask = encoder_attention_mask.unsqueeze(1)
             encoder_attention_mask = repeat(encoder_attention_mask, 'b 1 l -> (b f) 1 l', f=frame).contiguous()
             encoder_attention_mask = encoder_attention_mask.to(self.dtype)
         elif encoder_attention_mask is not None and encoder_attention_mask.ndim == 3:  # ndim == 3 means image joint
-            encoder_attention_mask = (1 - encoder_attention_mask.to(hidden_states.dtype)) * -10000.0
+            encoder_attention_mask = (1 - encoder_attention_mask.to(hidden_states.dtype)) * npu_config.inf_float
             encoder_attention_mask_video = encoder_attention_mask[:, :1, ...]
             encoder_attention_mask_video = repeat(encoder_attention_mask_video, 'b 1 l -> b (1 f) l',
                                                   f=frame).contiguous()
@@ -396,7 +396,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
                 encoder_attention_mask = encoder_attention_mask.to(torch.bool)
 
         # Retrieve lora scale.
-        lora_scale = cross_attention_kwargs.get("scale", 1.0) if cross_attention_kwargs is not None else 1.0
+        # lora_scale = cross_attention_kwargs.get("scale", 1.0) if cross_attention_kwargs is not None else 1.0
 
         # 1. Input
         if self.is_input_patches:  # here
@@ -434,17 +434,31 @@ class LatteT2V(ModelMixin, ConfigMixin):
         # prepare timesteps for spatial and temporal block
         timestep_spatial = repeat(timestep, 'b d -> (b f) d', f=frame + use_image_num).contiguous()
         timestep_temp = repeat(timestep, 'b d -> (b p) d', p=num_patches).contiguous()
+        # BS H -> S B H
         if get_sequence_parallel_state():
             timestep_temp = timestep_temp.view(input_batch_size * num_patches, 6, -1).transpose(0, 1).contiguous()
+            # f, h -> f, 1, h
             temp_pos_embed = self.temp_pos_embed[self.temp_pos_st: self.temp_pos_ed].unsqueeze(1)
-            temp_attention_mask = torch.zeros([input_batch_size * num_patches, frame * self.sp_size, frame * self.sp_size], dtype=torch.bool, device=temp_pos_embed.device)
-            temp_attention_mask[:, :, self.video_length:] = True
+            seq_len = frame * self.sp_size
+            temp_attention_mask = torch.ones([input_batch_size * num_patches, 1, seq_len, seq_len],
+                                             dtype=hidden_states.dtype, device=hidden_states.device)
         else:
             temp_pos_embed = self.temp_pos_embed[:self.video_length].unsqueeze(0)
             if temp_pos_embed.shape[1] != frame:
                 temp_pos_embed = F.pad(temp_pos_embed, (0, 0, 0, frame-temp_pos_embed.shape[1]), mode='constant', value=0)
-            temp_attention_mask = torch.zeros([input_batch_size * num_patches, frame, frame], dtype=torch.bool, device=temp_pos_embed.device)
-            temp_attention_mask[:, :, self.video_length:] = True
+            temp_attention_mask = torch.ones([input_batch_size * num_patches, 1, frame, frame],
+                                             dtype=hidden_states.dtype, device=hidden_states.device)
+
+        # assert self.video_length == 17, "`video_length` must be equal to 17"
+        # assert temp_attention_mask.shape[-1] == 24, "line 452"
+        # assert temp_attention_mask.shape[-1] == 24, "line 453"
+        # temp_attention_mask[:, :, :, self.video_length:] = False
+        # temp_attention_mask[:, :, self.video_length:] = False
+        #
+        # temp_attention_mask = (1 - temp_attention_mask.to(hidden_states.dtype)) * -10000.0
+        # if npu_config.enable_FA:
+        #     temp_attention_mask = temp_attention_mask.to(torch.bool)
+        temp_attention_mask = None
 
         pos_hw, pos_t = None, None
         if self.use_rope:
@@ -574,7 +588,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
                             hidden_states = hidden_states + temp_pos_embed
                         hidden_states = temp_block(
                             hidden_states,
-                            temp_attention_mask,  # attention_mask
+                            None,  # attention_mask
                             None,  # encoder_hidden_states
                             None,  # encoder_attention_mask
                             timestep_temp,
@@ -597,7 +611,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
 
                         hidden_states = temp_block(
                             hidden_states,
-                            temp_attention_mask,  # attention_mask
+                            None,  # attention_mask
                             None,  # encoder_hidden_states
                             None,  # encoder_attention_mask
                             timestep_temp,

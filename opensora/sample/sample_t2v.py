@@ -40,6 +40,7 @@ def load_t2v_checkpoint(model_path):
     # transformer_model = LatteT2V.from_pretrained(args.model_path, subfolder=args.version, cache_dir=args.cache_dir, torch_dtype=torch.float16).to(device)
     transformer_model = LatteT2V.from_pretrained(model_path, low_cpu_mem_usage=False, device_map=None,
                                                  torch_dtype=torch.float16).to(device)
+    # transformer_model = transformer_model.to(torch.float32)
     print(transformer_model.config)
     transformer_model.force_images = args.force_images
     video_length, image_size = transformer_model.config.video_length, args.image_size
@@ -76,7 +77,6 @@ def run_model_and_save_images(videogen_pipeline, transformer_model, video_length
         args.text_prompt = [i.strip() for i in text_prompt]
 
     checkpoint_name = f"{os.path.basename(model_path)}"
-    transformer_model = transformer_model.to(torch.float32)
 
     for index, prompt in enumerate(args.text_prompt):
         if index % npu_config.N_NPU_PER_NODE != local_rank:
@@ -135,7 +135,7 @@ def run_model_and_save_images(videogen_pipeline, transformer_model, video_length
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_path", type=str, default='LanguageBind/Open-Sora-Plan-v1.0.0')
-    parser.add_argument("--version", type=str, default=None, choices=[None, '65x512x512', '65x256x256', '17x256x256', '513x512x512'])
+    parser.add_argument("--version", type=str, default=None)
     parser.add_argument("--image_size", type=int, default=512)
     parser.add_argument("--cache_dir", type=str, default='./cache_dir')
     parser.add_argument("--ae", type=str, default='CausalVAEModel_4x8x8')
@@ -152,6 +152,8 @@ if __name__ == "__main__":
     parser.add_argument('--tile_overlap_factor', type=float, default=0.25)
     parser.add_argument('--enable_tiling', action='store_true')
     args = parser.parse_args()
+
+    npu_config.print_msg(args)
 
     # 初始化分布式环境
     local_rank = int(os.getenv('RANK', 0))
@@ -215,8 +217,10 @@ if __name__ == "__main__":
     while True:
         cur_path = get_latest_path()
         if cur_path == latest_path:
-            time.sleep(100)
+            time.sleep(80)
             continue
+
+        time.sleep(60)
         latest_path = cur_path
         npu_config.print_msg(f"The latest_path is {latest_path}")
         full_path = f"{args.model_path}/{latest_path}/model"
