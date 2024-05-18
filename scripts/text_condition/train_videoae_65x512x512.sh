@@ -17,7 +17,7 @@ accelerate launch \
     --gradient_checkpointing \
     --attention_mode xformers \
     --train_batch_size=2 \
-    --dataloader_num_workers 10 \
+    --dataloader_num_workers 1 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
     --learning_rate=2e-05 \
