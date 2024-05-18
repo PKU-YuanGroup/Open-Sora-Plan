@@ -130,7 +130,7 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
     def _init_patched_inputs(self, norm_type):
         assert self.config.sample_size_t is not None, "Transformer3DModel over patched input must provide sample_size_t"
         assert self.config.sample_size is not None, "Transformer3DModel over patched input must provide sample_size"
-        assert not (self.config.sample_size_t == 1 and self.config.patch_size_t == 2), "Image do not need patchfy in t-dim"
+        #assert not (self.config.sample_size_t == 1 and self.config.patch_size_t == 2), "Image do not need patchfy in t-dim"
 
         self.num_frames = self.config.sample_size_t
         
@@ -524,17 +524,65 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
         return output
     
 
+# def OpenSoraT2V_S_122(**kwargs):
+#     return OpenSoraT2V(num_layers=28, attention_head_dim=72, num_attention_heads=16, patch_size_t=1, patch_size=2,
+#                        norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=1152, **kwargs)
+
 def OpenSoraT2V_S_122(**kwargs):
-    return OpenSoraT2V(num_layers=28, attention_head_dim=72, num_attention_heads=16, patch_size_t=1, patch_size=2,
-                       norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=1152, **kwargs)
+    return OpenSoraT2V(num_layers=24, attention_head_dim=64, num_attention_heads=16, patch_size_t=1, patch_size=2,
+                       norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=1024, **kwargs)
+
+def OpenSoraT2V_B_122(**kwargs):
+    return OpenSoraT2V(num_layers=24, attention_head_dim=128, num_attention_heads=16, patch_size_t=1, patch_size=2,
+                       norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=2048, **kwargs)
+
+def OpenSoraT2V_L_122(**kwargs):
+    return OpenSoraT2V(num_layers=40, attention_head_dim=128, num_attention_heads=20, patch_size_t=1, patch_size=2,
+                       norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=2560, **kwargs)
+
+def OpenSoraT2V_XL_122(**kwargs):
+    return OpenSoraT2V(num_layers=32, attention_head_dim=128, num_attention_heads=32, patch_size_t=1, patch_size=2,
+                       norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=4096, **kwargs)
+
+def OpenSoraT2V_XXL_122(**kwargs):
+    return OpenSoraT2V(num_layers=40, attention_head_dim=128, num_attention_heads=40, patch_size_t=1, patch_size=2,
+                       norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=5120, **kwargs)
+
+# def OpenSoraT2V_S_222(**kwargs):
+#     return OpenSoraT2V(num_layers=28, attention_head_dim=72, num_attention_heads=16, patch_size_t=2, patch_size=2,
+#                        norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=1152, **kwargs)
 
 def OpenSoraT2V_S_222(**kwargs):
-    return OpenSoraT2V(num_layers=28, attention_head_dim=72, num_attention_heads=16, patch_size_t=2, patch_size=2,
-                       norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=1152, **kwargs)
+    return OpenSoraT2V(num_layers=24, attention_head_dim=64, num_attention_heads=16, patch_size_t=2, patch_size=2,
+                       norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=1024, **kwargs)
+
+def OpenSoraT2V_B_222(**kwargs):
+    return OpenSoraT2V(num_layers=24, attention_head_dim=128, num_attention_heads=16, patch_size_t=2, patch_size=2,
+                       norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=2048, **kwargs)
+
+def OpenSoraT2V_L_222(**kwargs):
+    return OpenSoraT2V(num_layers=40, attention_head_dim=128, num_attention_heads=20, patch_size_t=2, patch_size=2,
+                       norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=2560, **kwargs)
+
+def OpenSoraT2V_XL_222(**kwargs):
+    return OpenSoraT2V(num_layers=32, attention_head_dim=128, num_attention_heads=32, patch_size_t=2, patch_size=2,
+                       norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=4096, **kwargs)
+
+def OpenSoraT2V_XXL_222(**kwargs):
+    return OpenSoraT2V(num_layers=40, attention_head_dim=128, num_attention_heads=40, patch_size_t=2, patch_size=2,
+                       norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=5120, **kwargs)
 
 OpenSora_models = {
     "OpenSoraT2V-S/122": OpenSoraT2V_S_122,
+    "OpenSoraT2V-B/122": OpenSoraT2V_B_122,
+    "OpenSoraT2V-L/122": OpenSoraT2V_L_122,
+    "OpenSoraT2V-XL/122": OpenSoraT2V_XL_122,
+    "OpenSoraT2V-XXL/122": OpenSoraT2V_XXL_122,
     "OpenSoraT2V-S/222": OpenSoraT2V_S_222,
+    "OpenSoraT2V-B/222": OpenSoraT2V_B_222,
+    "OpenSoraT2V-L/222": OpenSoraT2V_L_222,
+    "OpenSoraT2V-XL/222": OpenSoraT2V_XL_222,
+    "OpenSoraT2V-XXL/222": OpenSoraT2V_XXL_222,
 }
 
 if __name__ == '__main__':

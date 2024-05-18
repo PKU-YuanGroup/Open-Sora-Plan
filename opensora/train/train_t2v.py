@@ -452,7 +452,8 @@ def main(args):
             with accelerator.accumulate(model):
                 # Sample noise that we'll add to the latents
 
-                
+                if not args.multi_scale:
+                    assert torch.all(attn_mask)
                 x = x.to(accelerator.device, dtype=weight_dtype)  # B C T+num_images H W, 16 + 4
                 attn_mask = attn_mask.to(accelerator.device)  # B T+num_images L
                 input_ids = input_ids.to(accelerator.device)  # B 1+num_images L
@@ -612,8 +613,9 @@ if __name__ == "__main__":
     parser.add_argument("--text_encoder_name", type=str, default='DeepFloyd/t5-v1_1-xxl')
     parser.add_argument("--cache_dir", type=str, default='./cache_dir')
 
-    parser.add_argument("--num_sampling_steps", type=int, default=50)
-    parser.add_argument('--guidance_scale', type=float, default=4.5)
+    parser.add_argument("--num_sampling_steps", type=int, default=20)
+    parser.add_argument('--guidance_scale', type=float, default=2.5)
+    parser.add_argument("--multi_scale", action="store_true")
     parser.add_argument("--enable_tracker", action="store_true")
     parser.add_argument("--use_deepspeed", action="store_true")
     parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")

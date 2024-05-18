@@ -30,3 +30,6 @@ debug*
 private*
 caption*
 .deepspeed_env
+256*
+sample*
+taming*

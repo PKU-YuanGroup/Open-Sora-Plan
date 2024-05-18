@@ -63,7 +63,7 @@ class T2V_dataset(Dataset):
                 image_data = self.get_image(idx)  # 1 frame video as image
             return dict(video_data=video_data, image_data=image_data)
         except Exception as e:
-            print(f'Error with {e}, {self.vid_cap_list[idx]}')
+            print(f'Error with {e}')
             return self.__getitem__(random.randint(0, self.__len__() - 1))
 
     def get_video(self, idx):
