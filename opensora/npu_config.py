@@ -118,7 +118,7 @@ class NPUConfig:
         return self.rank % self.N_NPU_PER_NODE
 
     def get_pickle_path(self, file_name):
-        return f"{self.pickle_save_path}/{file_name}_local.pkl"
+        return f"{self.pickle_save_path}/{file_name}_local_n63"
 
     def free_mm(self):
         for key, value in self.mm.items():

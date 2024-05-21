@@ -61,7 +61,7 @@ class T2V_dataset(Dataset):
 
         # self.vid_cap_list, self.local_vid_cap_list = self.get_vid_cap_list()
         self.global_vid_cap_list, self.vid_cap_list, _ = npu_config.try_load_pickle(
-            f"vid_cap_list_{self.num_frames}_local.pkl",
+            f"vid_cap_list_{self.num_frames}",
             self.get_vid_cap_list)
         self.len_global_vid_list = len(self.global_vid_cap_list)
         npu_config.print_msg(f"len(self.global_vid_cap_list) = {len(self.global_vid_cap_list)}")
@@ -248,7 +248,7 @@ class T2V_dataset(Dataset):
         return img_cap_lists, local_img_cap_lists
 
     def get_img_cap_list(self):
-        img_cap_lists, local_img_cap_lists = npu_config.try_load_pickle("img_cap_lists_local.pkl", self.read_images)
+        img_cap_lists, local_img_cap_lists = npu_config.try_load_pickle("img_cap_lists", self.read_images)
 
         img_cap_lists = [img_cap_lists[i: i + self.use_image_num] for i in
                          range(0, len(img_cap_lists), self.use_image_num)]

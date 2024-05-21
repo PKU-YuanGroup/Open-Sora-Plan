@@ -204,7 +204,7 @@ if __name__ == "__main__":
     # videogen_pipeline.enable_xformers_memory_efficient_attention()
 
     if not os.path.exists(args.save_img_path):
-        os.makedirs(args.save_img_path)
+        os.makedirs(args.save_img_path, exist_ok=True)
 
     if args.force_images:
         video_length = 1

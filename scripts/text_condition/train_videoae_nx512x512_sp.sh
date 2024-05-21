@@ -27,7 +27,7 @@ accelerate launch \
     --mixed_precision="bf16" \
     --train_batch_size=1 \
     --dataloader_num_workers 10 \
-    --gradient_accumulation_steps=4 \
+    --gradient_accumulation_steps=2 \
     --max_train_steps=1000000 \
     --learning_rate=1e-6 \
     --lr_scheduler="cosine" \

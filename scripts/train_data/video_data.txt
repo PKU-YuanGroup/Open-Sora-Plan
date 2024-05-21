@@ -1,3 +1,3 @@
-/home/local_dataset/video_data_obs/pexel,/home/opensora/captions/linbin_captions/video_pexels_513f_271782.json
-/home/local_dataset/video_data_obs/pixabay_v2,/home/opensora/captions/linbin_captions/video_pixabay_513f_51483.json
-/home/local_dataset/video_data_obs/mixkit,/home/opensora/captions/linbin_captions/video_mixkit_513f_1997.json
+/home/local_dataset_n63/video_data_obs/pexel,/home/opensora/captions/linbin_captions/video_pexels_513f_271782.json
+/home/local_dataset_n63/video_data_obs/pixabay_v2,/home/opensora/captions/linbin_captions/video_pixabay_513f_51483.json
+/home/local_dataset_n63/video_data_obs/mixkit_resize1024/mixkit/,/home/opensora/captions/linbin_captions/video_mixkit_513f_1997.json

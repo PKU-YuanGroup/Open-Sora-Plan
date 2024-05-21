@@ -15,6 +15,6 @@ torchrun --nproc_per_node=8 opensora/sample/sample_t2v.py \
     --save_img_path "/home/image_data/shebin/sample_videos/${PROJECT_NAME}/num_sampling_steps_150" \
     --fps 24 \
     --sample_method "PNDM" \
-    --guidance_scale 10.0 \
+    --guidance_scale 10 \
     --num_sampling_steps 50 \
     --enable_tiling
