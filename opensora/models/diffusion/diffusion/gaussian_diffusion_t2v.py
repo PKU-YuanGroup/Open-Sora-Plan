@@ -19,6 +19,12 @@ def mean_flat(tensor):
     """
     return tensor.mean(dim=list(range(1, len(tensor.shape))))
 
+def mean_flat_reweight(tensor, weights):
+    """
+    Take the mean over all non-batch dimensions.
+    """
+    return tensor.mean(dim=list(range(1, len(tensor.shape)))) * weights
+
 
 class ModelMeanType(enum.Enum):
     """
@@ -726,7 +732,7 @@ class GaussianDiffusion_T:
         output = th.where((t == 0), decoder_nll, kl)
         return {"output": output, "pred_xstart": out["pred_xstart"]}
 
-    def training_losses(self, model, x_start, t, model_kwargs=None, noise=None):
+    def training_losses(self, model, x_start, t, model_kwargs=None, noise=None, mse_loss_weights=None):
         """
         Compute training losses for a single timestep.
         :param model: the model to evaluate loss on.
@@ -801,7 +807,10 @@ class GaussianDiffusion_T:
                 ModelMeanType.EPSILON: noise,
             }[self.model_mean_type]
             assert model_output.shape == target.shape == x_start.shape
-            terms["mse"] = mean_flat((target - model_output) ** 2)
+            if mse_loss_weights is not None:
+                terms["mse"] = mean_flat_reweight((target - model_output) ** 2, mse_loss_weights)
+            else:
+                terms["mse"] = mean_flat((target - model_output) ** 2)
             if "vb" in terms:
                 terms["loss"] = terms["mse"] + terms["vb"]
             else:

@@ -98,6 +98,30 @@ def generate_timestep_weights(args, num_timesteps):
 
     return weights
 
+def compute_snr(timesteps, alphas_cumprod):
+    """
+    Computes SNR as per https://github.com/TiankaiHang/Min-SNR-Diffusion-Training/blob/521b624bd70c67cee4bdf49225915f5945a872e3/guided_diffusion/gaussian_diffusion.py#L847-L849
+    """
+
+    sqrt_alphas_cumprod = alphas_cumprod**0.5
+    sqrt_one_minus_alphas_cumprod = (1.0 - alphas_cumprod) ** 0.5
+
+    # Expand the tensors.
+    # Adapted from https://github.com/TiankaiHang/Min-SNR-Diffusion-Training/blob/521b624bd70c67cee4bdf49225915f5945a872e3/guided_diffusion/gaussian_diffusion.py#L1026
+    sqrt_alphas_cumprod = sqrt_alphas_cumprod.to(device=timesteps.device)[timesteps].float()
+    while len(sqrt_alphas_cumprod.shape) < len(timesteps.shape):
+        sqrt_alphas_cumprod = sqrt_alphas_cumprod[..., None]
+    alpha = sqrt_alphas_cumprod.expand(timesteps.shape)
+
+    sqrt_one_minus_alphas_cumprod = sqrt_one_minus_alphas_cumprod.to(device=timesteps.device)[timesteps].float()
+    while len(sqrt_one_minus_alphas_cumprod.shape) < len(timesteps.shape):
+        sqrt_one_minus_alphas_cumprod = sqrt_one_minus_alphas_cumprod[..., None]
+    sigma = sqrt_one_minus_alphas_cumprod.expand(timesteps.shape)
+
+    # Compute SNR.
+    snr = (alpha / sigma) ** 2
+    return snr
+
 
 #################################################################################
 #                                  Training Loop                                #
@@ -456,7 +480,16 @@ def main(args):
                 model_kwargs = dict(encoder_hidden_states=cond, attention_mask=attn_mask,
                                     encoder_attention_mask=cond_mask, use_image_num=args.use_image_num)
                 t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=accelerator.device)
-                loss_dict = diffusion.training_losses(model, x, t, model_kwargs)
+                if args.snr_gamma is not None:
+                    snr = compute_snr(t, diffusion.alphas_cumprod)
+                    mse_loss_weights = (
+                        torch.stack([snr, args.snr_gamma * torch.ones_like(t)], dim=1).min(dim=1)[0] / snr
+                    )
+
+                    loss_dict = diffusion.training_losses(model, x, t, model_kwargs, mse_loss_weights=mse_loss_weights)
+                else:
+                    loss_dict = diffusion.training_losses(model, x, t, model_kwargs)
+
                 loss = loss_dict["loss"].mean()
 
                 # Gather the losses across all processes for logging (if we use distributed training).
@@ -746,7 +779,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--snr_gamma",
         type=float,
-        default=None,
+        default=5.0,
         help="SNR weighting gamma to be used if rebalancing the loss. Recommended value is 5.0. "
              "More details here: https://arxiv.org/abs/2303.09556.",
     )
