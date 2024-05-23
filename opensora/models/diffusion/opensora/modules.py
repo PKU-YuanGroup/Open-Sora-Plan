@@ -91,6 +91,22 @@ def get_2d_sincos_pos_embed_from_grid(embed_dim, grid):
     emb = np.concatenate([emb_h, emb_w], axis=1)  # (H*W, D)
     return emb
 
+def get_1d_sincos_pos_embed(
+    embed_dim, grid_size, cls_token=False, extra_tokens=0, interpolation_scale=1.0, base_size=16, 
+):
+    """
+    grid_size: int of the grid return: pos_embed: [grid_size, embed_dim] or
+    [1+grid_size, embed_dim] (w/ or w/o cls_token)
+    """
+    # if isinstance(grid_size, int):
+    #     grid_size = (grid_size, grid_size)
+
+    grid = np.arange(grid_size, dtype=np.float32) / (grid_size / base_size) / interpolation_scale
+    pos_embed = get_1d_sincos_pos_embed_from_grid(embed_dim, grid)  # (H*W, D/2)
+    if cls_token and extra_tokens > 0:
+        pos_embed = np.concatenate([np.zeros([extra_tokens, embed_dim]), pos_embed], axis=0)
+    return pos_embed
+
 def get_1d_sincos_pos_embed_from_grid(embed_dim, pos):
     """
     embed_dim: output dimension for each position pos: a list of positions to be encoded: size (M,) out: (M, D)
@@ -151,12 +167,17 @@ class PatchEmbed2D(nn.Module):
         self.height, self.width = height // patch_size, width // patch_size
         self.base_size = (height // patch_size, width // patch_size)
         self.interpolation_scale = (interpolation_scale[0], interpolation_scale[1])
-        # import ipdb;ipdb.set_trace()
         pos_embed = get_2d_sincos_pos_embed(
             embed_dim, (self.height, self.width), base_size=self.base_size, interpolation_scale=self.interpolation_scale
         )
         self.register_buffer("pos_embed", torch.from_numpy(pos_embed).float().unsqueeze(0), persistent=False)
 
+        self.num_frames = (num_frames - 1) // patch_size_t + 1 if num_frames % 2 == 1 else num_frames // patch_size_t
+        self.base_size_t = (num_frames - 1) // patch_size_t + 1 if num_frames % 2 == 1 else num_frames // patch_size_t
+        self.interpolation_scale_t = interpolation_scale_t
+        temp_embed = get_1d_sincos_pos_embed(embed_dim, self.num_frames, base_size=self.base_size_t, interpolation_scale=self.interpolation_scale_t)
+        self.register_buffer("temp_embed", torch.from_numpy(temp_embed).float().unsqueeze(0), persistent=False)
+        self.temp_embed_gate = nn.Parameter(torch.tensor([0.0]))
 
     def forward(self, latent, num_frames):
         b, _, _, _, _ = latent.shape
@@ -187,12 +208,36 @@ class PatchEmbed2D(nn.Module):
             pos_embed = pos_embed.float().unsqueeze(0).to(latent.device)
         else:
             pos_embed = self.pos_embed
+
+
+        if self.num_frames != num_frames:
+            # import ipdb;ipdb.set_trace()
+            raise NotImplementedError
+            temp_embed = get_1d_sincos_pos_embed(
+                embed_dim=self.temp_embed.shape[-1],
+                grid_size=num_frames,
+                base_size=self.base_size_t,
+                interpolation_scale=self.interpolation_scale_t,
+            )
+            temp_embed = torch.from_numpy(temp_embed)
+            temp_embed = temp_embed.float().unsqueeze(0).to(latent.device)
+        else:
+            temp_embed = self.temp_embed
+
         latent = (latent + pos_embed).to(latent.dtype)
         
         latent = rearrange(latent, '(b t) n c -> b t n c', b=b)
         video_latent, image_latent = latent[:, :num_frames], latent[:, num_frames:]
-        video_latent = rearrange(video_latent, 'b t n c -> b (t n) c') if video_latent.numel() > 0 else None
-        image_latent = rearrange(image_latent, 'b t n c -> (b t) n c') if image_latent.numel() > 0 else None
+
+        # import ipdb;ipdb.set_trace()
+        temp_embed = temp_embed.unsqueeze(2) * self.temp_embed_gate.tanh()
+        # print('raw value:', self.temp_embed_gate, 'tanh:', self.temp_embed_gate.tanh())
+        video_latent = (video_latent + temp_embed).to(video_latent.dtype) if video_latent is not None and video_latent.numel() > 0 else None
+        image_latent = (image_latent + temp_embed[:, :1]).to(image_latent.dtype) if image_latent is not None and image_latent.numel() > 0 else None
+
+
+        video_latent = rearrange(video_latent, 'b t n c -> b (t n) c') if video_latent is not None and video_latent.numel() > 0 else None
+        image_latent = rearrange(image_latent, 'b t n c -> (b t) n c') if image_latent is not None and image_latent.numel() > 0 else None
         return video_latent, image_latent
     
 

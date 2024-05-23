@@ -58,8 +58,8 @@ logger = get_logger(__name__)
 @torch.inference_mode()
 def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weight_dtype, global_step):
     validation_prompt = [
-        "A small cactus with a happy face in the Sahara desert.", 
-        # "A quiet beach at dawn, the waves gently lapping at the shore and the sky painted in pastel hues.", 
+        # "A small cactus with a happy face in the Sahara desert.", 
+        "A quiet beach at dawn, the waves gently lapping at the shore and the sky painted in pastel hues.", 
         "The majestic beauty of a waterfall cascading down a cliff into a serene lake.", 
         # "Over the shoulder game perspective, game screen of Diablo 4, Inside the gorgeous palace is the wet ground, The necromancer knelt before the king, and a horde of skeletons he summoned stood at his side, cinematic light.", 
         # "Lego model, future rocket station, intricate details, high resolution, unreal engine, UHD", 
@@ -119,23 +119,23 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
                 # assert args.num_frames == 1
                 images = rearrange(videos, 'b 1 c h w -> (b 1) h w c') 
                 # import ipdb;ipdb.set_trace()
-                tracker.log(
-                    {
+                logs = {
                         "validation": [
                             wandb.Image(image, caption=f"{i}: {prompt}")
                             for i, (image, prompt) in enumerate(zip(images, validation_prompt))
                         ]
                     }
-                )
             else:
-                tracker.log(
-                    {
+                logs = {
                         "validation": [
                             wandb.Video(video, caption=f"{i}: {prompt}", fps=10)
                             for i, (video, prompt) in enumerate(zip(videos, validation_prompt))
                         ]
                     }
-                )
+            # import ipdb;ipdb.set_trace()
+            # if hasattr(model.pos_embed, 'temp_embed_gate'):
+            #     logs.update({'temp_embed_gate (tanh)': float(model.pos_embed.temp_embed_gate.tanh().item())})
+            tracker.log(logs)
 
     del opensora_pipeline
     gc.collect()
@@ -585,6 +585,14 @@ def main(args):
                 break
 
             if accelerator.is_main_process:
+
+                for tracker in accelerator.trackers:
+                    if tracker.name == "wandb":
+                        if hasattr(model, 'module') and hasattr(model.module.pos_embed, 'temp_embed_gate'):
+                            tracker.log({'temp_embed_gate (tanh)': float(model.module.pos_embed.temp_embed_gate.tanh().item())})
+                        elif hasattr(model, 'pos_embed') and hasattr(model.pos_embed, 'temp_embed_gate'):
+                            tracker.log({'temp_embed_gate (tanh)': float(model.pos_embed.temp_embed_gate.tanh().item())})
+
                 if global_step % args.checkpointing_steps == 0:
                     if args.use_ema:
                         # Store the UNet parameters temporarily and load the EMA parameters to perform inference.

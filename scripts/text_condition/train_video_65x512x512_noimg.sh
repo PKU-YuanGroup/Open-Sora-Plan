@@ -1,12 +1,12 @@
 export WANDB_KEY="953e958793b218efb850fa194e85843e2c3bd88b"
-export WANDB_MODE="offline"
+# export WANDB_MODE="offline"
 export ENTITY="linbin"
-export PROJECT="65x256x256_bs2x32_0img_lr1e-4_488vae_3dattn_xformers"
+export PROJECT="65x256x256_bs2x8_0img_lr1e-4_488vae_3dattn_xformers"
 export NCCL_SOCKET_IFNAME=ibp25s0
 export NCCL_P2P_DISABLE=1
 export PDSH_PATH_TYPE=ssh
 accelerate launch \
-    --config_file scripts/accelerate_configs/multi_node_example1.yaml \
+    --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
     opensora/train/train_t2v.py \
     --model OpenSoraT2V-S/122 \
     --text_encoder_name DeepFloyd/t5-v1_1-xxl \
@@ -29,13 +29,14 @@ accelerate launch \
     --lr_scheduler="constant" \
     --lr_warmup_steps=0 \
     --mixed_precision="bf16" \
-    --report_to="tensorboard" \
+    --report_to="wandb" \
     --checkpointing_steps=500 \
-    --output_dir="65x256x256_bs2x32_0img_lr1e-4_488vae_3dattn_xformers" \
+    --output_dir="65x256x256_bs2x8_0img_lr1e-4_488vae_3dattn_xformers" \
     --allow_tf32 \
     --use_deepspeed \
-    --model_max_length 300 \
+    --model_max_length 150 \
     --use_image_num 0 \
     --enable_tiling \
     --pretrained PixArt-Alpha-XL-2-256.safetensors \
-    --enable_tracker 
+    --enable_tracker \
+    --resume_from_checkpoint "latest"
