@@ -8,7 +8,7 @@ accelerate launch \
     --text_encoder_name DeepFloyd/t5-v1_1-xxl \
     --dataset t2v \
     --ae CausalVAEModel_4x8x8 \
-    --ae_path CausalVAEModel_4x8x8 \
+    --ae_path ./Latte/vae \
     --data_path "./videos/captions.json" \
     --video_folder "./videos" \
     --sample_rate 1 \
