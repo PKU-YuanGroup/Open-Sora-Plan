@@ -12,20 +12,25 @@ class HFVAEWrapper(nn.Module):
         if x.ndim == 5:
             b, c, t, h, w = x.shape
             x = rearrange(x, 'b c t h w -> (b t) c h w').contiguous()
-        x = self.vae.encode(x).latent_dist.sample().mul_(0.18215)
+        x = self.vae.encode(x).latent_dist.sample().mul_(getattr(self.vae.config, 'scaling_factor', 0.18215))
         if t != 0:
             x = rearrange(x, '(b t) c h w -> b c t h w', t=t).contiguous()
         return x
     def decode(self, x):
         t = 0
+        # import ipdb;ipdb.set_trace()
         if x.ndim == 5:
             b, c, t, h, w = x.shape
             x = rearrange(x, 'b c t h w -> (b t) c h w').contiguous()
-        x = self.vae.decode(x / 0.18215).sample
+        x = self.vae.decode(x / getattr(self.vae.config, 'scaling_factor', 0.18215)).sample
         if t != 0:
             x = rearrange(x, '(b t) c h w -> b t c h w', t=t).contiguous()
         return x
 
+    def dtype(self):
+        return self.vae.dtype
+
+        
 class SDVAEWrapper(nn.Module):
     def __init__(self):
         super(SDVAEWrapper, self).__init__()

@@ -2,10 +2,11 @@ from .vae.vae import HFVAEWrapper
 from .vae.vae import SDVAEWrapper
 from .vqvae.vqvae import SDVQVAEWrapper
 
-vae = ['stabilityai/sd-vae-ft-mse', 'stabilityai/sd-vae-ft-ema']
+vae = ['stabilityai/sdxl-vae', 'stabilityai/sd-vae-ft-mse', 'stabilityai/sd-vae-ft-ema']
 vqvae = ['vqgan_imagenet_f16_1024', 'vqgan_imagenet_f16_16384', 'vqgan_gumbel_f8']
 
 imagebase_ae_stride = {
+    'stabilityai/sdxl-vae': [1, 8, 8],
     'stabilityai/sd-vae-ft-mse': [1, 8, 8],
     'stabilityai/sd-vae-ft-ema': [1, 8, 8],
     'vqgan_imagenet_f16_1024': [1, 16, 16],
@@ -14,6 +15,7 @@ imagebase_ae_stride = {
 }
 
 imagebase_ae_channel = {
+    'stabilityai/sdxl-vae': 4,
     'stabilityai/sd-vae-ft-mse': 4,
     'stabilityai/sd-vae-ft-ema': 4,
     'vqgan_imagenet_f16_1024': -1,
@@ -22,6 +24,7 @@ imagebase_ae_channel = {
 }
 
 imagebase_ae = {
+    'stabilityai/sdxl-vae': HFVAEWrapper,
     'stabilityai/sd-vae-ft-mse': HFVAEWrapper,
     'stabilityai/sd-vae-ft-ema': HFVAEWrapper,
     'vqgan_imagenet_f16_1024': SDVQVAEWrapper,

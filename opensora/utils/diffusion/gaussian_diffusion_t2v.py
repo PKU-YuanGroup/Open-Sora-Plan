@@ -777,7 +777,7 @@ class GaussianDiffusion_T:
                 #the output shape of uncondition or class condition latte is not the same as the latte_t2v
                 #BFCHW vs BCFHW 
                 B, C, F = x_t.shape[:3]
-                assert model_output[0].shape == (B, C * 2, F, *x_t.shape[3:])
+                assert model_output[0].shape == (B, C * 2, F, *x_t.shape[3:]), f"{model_output[0].shape} != ({B}, {C} * 2, {F}, {x_t.shape[3:]})"
                 #model_output, model_var_values = th.split(model_output, C, dim=2)
                 model_output, model_var_values = th.split(model_output[0], C, dim=1)
                 

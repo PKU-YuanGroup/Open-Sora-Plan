@@ -1,4 +1,0 @@
-/remote-home1/dataset/human_images,/remote-home1/dataset/anno_jsons/human_images_162094.json
-/remote-home1/dataset/sam,/remote-home1/dataset/anno_jsons/sam_image_11185255.json
-/remote-home1/dataset/anytext3m,/remote-home1/dataset/anno_jsons/anytext_en_1886137.json
-/remote-home1/dataset/tuzhan_mj,/remote-home1/dataset/anno_jsons/tuzhan_mj_1712571.json

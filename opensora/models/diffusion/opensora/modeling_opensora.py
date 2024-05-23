@@ -133,45 +133,43 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
         #assert not (self.config.sample_size_t == 1 and self.config.patch_size_t == 2), "Image do not need patchfy in t-dim"
 
         self.num_frames = self.config.sample_size_t
-        
         self.config.sample_size = to_2tuple(self.config.sample_size)
         self.height = self.config.sample_size[0]
         self.width = self.config.sample_size[1]
         self.patch_size_t = self.config.patch_size_t
         self.patch_size = self.config.patch_size
-        sample_size_t = ((self.config.sample_size_t - 1) // 16 + 1) if self.config.sample_size_t % 2 == 1 else self.config.sample_size_t // 16
+        sample_size_t = ((self.config.sample_size_t - 1) // 16 + 1) if self.config.sample_size_t % 2 == 1 else self.config.sample_size_t / 16
         interpolation_scale_t = (
-            self.config.interpolation_scale_t if self.config.interpolation_scale_t is not None else max(sample_size_t, 1)
+            self.config.interpolation_scale_t if self.config.interpolation_scale_t is not None else sample_size_t
         )
         interpolation_scale = (
-            self.config.interpolation_scale if self.config.interpolation_scale is not None else max(self.config.sample_size[0] // 64, 1), 
-            self.config.interpolation_scale if self.config.interpolation_scale is not None else max(self.config.sample_size[1] // 64, 1), 
+            self.config.interpolation_scale if self.config.interpolation_scale is not None else self.config.sample_size[0] / 32, 
+            self.config.interpolation_scale if self.config.interpolation_scale is not None else self.config.sample_size[1] / 32, 
         )
-
-        if self.config.sample_size_t > 1:
-            self.pos_embed = PatchEmbed3D(
-                num_frames=self.config.sample_size_t,
-                height=self.config.sample_size[0],
-                width=self.config.sample_size[1],
-                patch_size_t=self.config.patch_size_t,
-                patch_size=self.config.patch_size,
-                in_channels=self.in_channels,
-                embed_dim=self.inner_dim,
-                interpolation_scale=interpolation_scale, 
-                interpolation_scale_t=interpolation_scale_t,
-            )
-        else:
-            self.pos_embed = PatchEmbed2D(
-                num_frames=self.config.sample_size_t,
-                height=self.config.sample_size[0],
-                width=self.config.sample_size[1],
-                patch_size_t=self.config.patch_size_t,
-                patch_size=self.config.patch_size,
-                in_channels=self.in_channels,
-                embed_dim=self.inner_dim,
-                interpolation_scale=interpolation_scale, 
-                interpolation_scale_t=interpolation_scale_t,
-            )
+        # if self.config.sample_size_t > 1:
+        #     self.pos_embed = PatchEmbed3D(
+        #         num_frames=self.config.sample_size_t,
+        #         height=self.config.sample_size[0],
+        #         width=self.config.sample_size[1],
+        #         patch_size_t=self.config.patch_size_t,
+        #         patch_size=self.config.patch_size,
+        #         in_channels=self.in_channels,
+        #         embed_dim=self.inner_dim,
+        #         interpolation_scale=interpolation_scale, 
+        #         interpolation_scale_t=interpolation_scale_t,
+        #     )
+        # else:
+        self.pos_embed = PatchEmbed2D(
+            num_frames=self.config.sample_size_t,
+            height=self.config.sample_size[0],
+            width=self.config.sample_size[1],
+            patch_size_t=self.config.patch_size_t,
+            patch_size=self.config.patch_size,
+            in_channels=self.in_channels,
+            embed_dim=self.inner_dim,
+            interpolation_scale=interpolation_scale, 
+            interpolation_scale_t=interpolation_scale_t,
+        )
 
         self.transformer_blocks = nn.ModuleList(
             [
@@ -280,6 +278,7 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
             If `return_dict` is True, an [`~models.transformer_2d.Transformer2DModelOutput`] is returned, otherwise a
             `tuple` where the first element is the sample tensor.
         """
+        # import ipdb;ipdb.set_trace()
         batch_size, c, frame, h, w = hidden_states.shape
         frame = frame - use_image_num  # 21-4=17
         if cross_attention_kwargs is not None:
@@ -296,6 +295,7 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
         #   [batch,  heads, query_tokens, key_tokens] (e.g. torch sdp attn)
         #   [batch * heads, query_tokens, key_tokens] (e.g. xformers or classic attn)
         attention_mask_vid, attention_mask_img = None, None
+        # import ipdb;ipdb.set_trace()
         if attention_mask is not None and attention_mask.ndim == 4:
             # assume that mask is expressed as:
             #   (1 = keep,      0 = discard)
@@ -321,7 +321,6 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
             attention_mask_vid = (1 - attention_mask_vid.bool().to(self.dtype)) * -10000.0 if attention_mask_vid.numel() > 0 else None
             attention_mask_img = (1 - attention_mask_img.bool().to(self.dtype)) * -10000.0 if attention_mask_img.numel() > 0 else None
 
-            # import ipdb;ipdb.set_trace()
             if frame == 1 and use_image_num == 0:
                 attention_mask_img = attention_mask_vid
                 attention_mask_vid = None
@@ -353,6 +352,7 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
         frame = ((frame - 1) // self.patch_size_t + 1) if frame % 2 == 1 else frame // self.patch_size_t  # patchfy
         # 2. Blocks
         
+        # import ipdb;ipdb.set_trace()
         for block in self.transformer_blocks:
             if self.training and self.gradient_checkpointing:
 
@@ -366,7 +366,7 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
                     return custom_forward
 
                 ckpt_kwargs: Dict[str, Any] = {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
-
+                # import ipdb;ipdb.set_trace()
                 if hidden_states_vid is not None:
                     hidden_states_vid = torch.utils.checkpoint.checkpoint(
                         create_custom_forward(block),
@@ -379,6 +379,7 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
                         class_labels,
                         **ckpt_kwargs,
                     )
+                # import ipdb;ipdb.set_trace()
                 if hidden_states_img is not None:
                     hidden_states_img = torch.utils.checkpoint.checkpoint(
                         create_custom_forward(block),
@@ -453,6 +454,7 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
 
     def _operate_on_patched_inputs(self, hidden_states, encoder_hidden_states, timestep, added_cond_kwargs, batch_size, frame, use_image_num):
         # batch_size = hidden_states.shape[0]
+        # import ipdb;ipdb.set_trace()
         hidden_states_vid, hidden_states_img = self.pos_embed(hidden_states.to(self.dtype), frame)
         timestep_vid, timestep_img = None, None
         embedded_timestep_vid, embedded_timestep_img = None, None
@@ -478,7 +480,6 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
 
         if self.caption_projection is not None:
             encoder_hidden_states = self.caption_projection(encoder_hidden_states)  # b, 1+use_image_num, l, d or b, 1, l, d
-            # import ipdb;ipdb.set_trace()
             if hidden_states_vid is None:
                 encoder_hidden_states_img = rearrange(encoder_hidden_states, 'b 1 l d -> (b 1) l d')
             else:
@@ -493,7 +494,8 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
     
     def _get_output_for_patched_inputs(
         self, hidden_states, timestep, class_labels, embedded_timestep, num_frames, height=None, width=None
-    ):
+    ):  
+        # import ipdb;ipdb.set_trace()
         if self.config.norm_type != "ada_norm_single":
             conditioning = self.transformer_blocks[0].norm1.emb(
                 timestep, class_labels, hidden_dtype=self.dtype
@@ -519,42 +521,20 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
         output = hidden_states.reshape(
             shape=(-1, self.out_channels, num_frames * self.patch_size_t, height * self.patch_size, width * self.patch_size)
         )
-        if output.shape[2] > 1:
+        # import ipdb;ipdb.set_trace()
+        if output.shape[2] % 2 == 0:
             output = output[:, :, 1:]
         return output
     
 
-# def OpenSoraT2V_S_122(**kwargs):
-#     return OpenSoraT2V(num_layers=28, attention_head_dim=72, num_attention_heads=16, patch_size_t=1, patch_size=2,
-#                        norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=1152, **kwargs)
-
 def OpenSoraT2V_S_122(**kwargs):
-    return OpenSoraT2V(num_layers=24, attention_head_dim=64, num_attention_heads=16, patch_size_t=1, patch_size=2,
-                       norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=1024, **kwargs)
-
-def OpenSoraT2V_B_122(**kwargs):
-    return OpenSoraT2V(num_layers=24, attention_head_dim=128, num_attention_heads=16, patch_size_t=1, patch_size=2,
-                       norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=2048, **kwargs)
-
-def OpenSoraT2V_L_122(**kwargs):
-    return OpenSoraT2V(num_layers=40, attention_head_dim=128, num_attention_heads=20, patch_size_t=1, patch_size=2,
-                       norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=2560, **kwargs)
-
-def OpenSoraT2V_XL_122(**kwargs):
-    return OpenSoraT2V(num_layers=32, attention_head_dim=128, num_attention_heads=32, patch_size_t=1, patch_size=2,
-                       norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=4096, **kwargs)
-
-def OpenSoraT2V_XXL_122(**kwargs):
-    return OpenSoraT2V(num_layers=40, attention_head_dim=128, num_attention_heads=40, patch_size_t=1, patch_size=2,
-                       norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=5120, **kwargs)
-
-# def OpenSoraT2V_S_222(**kwargs):
-#     return OpenSoraT2V(num_layers=28, attention_head_dim=72, num_attention_heads=16, patch_size_t=2, patch_size=2,
-#                        norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=1152, **kwargs)
+    return OpenSoraT2V(num_layers=28, attention_head_dim=72, num_attention_heads=16, patch_size_t=1, patch_size=2,
+                       norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=1152, **kwargs)
 
 def OpenSoraT2V_S_222(**kwargs):
-    return OpenSoraT2V(num_layers=24, attention_head_dim=64, num_attention_heads=16, patch_size_t=2, patch_size=2,
-                       norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=1024, **kwargs)
+    return OpenSoraT2V(num_layers=28, attention_head_dim=72, num_attention_heads=16, patch_size_t=2, patch_size=2,
+                       norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=1152, **kwargs)
+
 
 def OpenSoraT2V_B_222(**kwargs):
     return OpenSoraT2V(num_layers=24, attention_head_dim=128, num_attention_heads=16, patch_size_t=2, patch_size=2,
@@ -574,10 +554,10 @@ def OpenSoraT2V_XXL_222(**kwargs):
 
 OpenSora_models = {
     "OpenSoraT2V-S/122": OpenSoraT2V_S_122,
-    "OpenSoraT2V-B/122": OpenSoraT2V_B_122,
-    "OpenSoraT2V-L/122": OpenSoraT2V_L_122,
-    "OpenSoraT2V-XL/122": OpenSoraT2V_XL_122,
-    "OpenSoraT2V-XXL/122": OpenSoraT2V_XXL_122,
+    # "OpenSoraT2V-B/122": OpenSoraT2V_B_122,
+    # "OpenSoraT2V-L/122": OpenSoraT2V_L_122,
+    # "OpenSoraT2V-XL/122": OpenSoraT2V_XL_122,
+    # "OpenSoraT2V-XXL/122": OpenSoraT2V_XXL_122,
     "OpenSoraT2V-S/222": OpenSoraT2V_S_222,
     "OpenSoraT2V-B/222": OpenSoraT2V_B_222,
     "OpenSoraT2V-L/222": OpenSoraT2V_L_222,
@@ -634,7 +614,7 @@ if __name__ == '__main__':
         path = "/remote-home1/yeyang/dev3d/Open-Sora-Plan/cache_dir/models--PixArt-alpha--PixArt-Sigma-XL-2-512-MS/snapshots/786c445c97ddcc0eb2faa157b131ac71ee1935a2/transformer/diffusion_pytorch_model.safetensors"
         from safetensors.torch import load_file as safe_load
         ckpt = safe_load(path, device="cpu")
-        import ipdb;ipdb.set_trace()
+        # import ipdb;ipdb.set_trace()
         if ckpt['pos_embed.proj.weight'].shape != model.pos_embed.proj.weight.shape and ckpt['pos_embed.proj.weight'].ndim == 4:
             repeat = model.pos_embed.proj.weight.shape[2]
             ckpt['pos_embed.proj.weight'] = ckpt['pos_embed.proj.weight'].unsqueeze(2).repeat(1, 1, repeat, 1, 1) / float(repeat)

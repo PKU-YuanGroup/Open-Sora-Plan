@@ -32,20 +32,20 @@ def main(args):
     # torch.manual_seed(args.seed)
     torch.set_grad_enabled(False)
     device = "cuda" if torch.cuda.is_available() else "cpu"
-
-    # vae = getae_wrapper(args.ae)(args.model_path, subfolder="vae", cache_dir='cache_dir').to(device, dtype=torch.float16)
-    vae = getae_wrapper(args.ae)(args.ae_path).to(device, dtype=torch.float16)
+    dtype = torch.float16
+    # vae = getae_wrapper(args.ae)(args.model_path, subfolder="vae", cache_dir='cache_dir').to(device, dtype=dtype)
+    vae = getae_wrapper(args.ae)(args.ae_path).to(device, dtype=dtype)
     if args.enable_tiling:
         vae.vae.enable_tiling()
         vae.vae.tile_overlap_factor = args.tile_overlap_factor
 
     # Load model:
-    # transformer_model = LatteT2V.from_pretrained(args.model_path, subfolder=args.version, cache_dir=args.cache_dir, torch_dtype=torch.float16).to(device)
-    transformer_model = LatteT2V.from_pretrained(args.model_path, low_cpu_mem_usage=False, device_map=None, torch_dtype=torch.float16).to(device)
+    # transformer_model = LatteT2V.from_pretrained(args.model_path, subfolder=args.version, cache_dir=args.cache_dir, torch_dtype=dtype).to(device)
+    transformer_model = LatteT2V.from_pretrained(args.model_path, low_cpu_mem_usage=False, device_map=None, torch_dtype=dtype).to(device)
     print(transformer_model.config)
     transformer_model.force_images = args.force_images
     tokenizer = T5Tokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
-    text_encoder = T5EncoderModel.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir, torch_dtype=torch.float16).to(device)
+    text_encoder = T5EncoderModel.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir, torch_dtype=dtype).to(device)
 
     video_length, image_size = transformer_model.config.video_length, args.image_size
     latent_size = (image_size // ae_stride_config[args.ae][1], image_size // ae_stride_config[args.ae][2])
@@ -86,7 +86,7 @@ def main(args):
                                          text_encoder=text_encoder,
                                          tokenizer=tokenizer,
                                          scheduler=scheduler,
-                                         transformer=transformer_model).to(device=device)
+                                         transformer=transformer_model).to(device=device, dtype=dtype)
     # videogen_pipeline.enable_xformers_memory_efficient_attention()
 
     if not os.path.exists(args.save_img_path):

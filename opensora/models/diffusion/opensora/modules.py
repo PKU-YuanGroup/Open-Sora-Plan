@@ -131,7 +131,7 @@ class PatchEmbed2D(nn.Module):
         interpolation_scale_t=1,
     ):
         super().__init__()
-        assert num_frames == 1
+        # assert num_frames == 1
         self.flatten = flatten
         self.layer_norm = layer_norm
 
@@ -151,6 +151,7 @@ class PatchEmbed2D(nn.Module):
         self.height, self.width = height // patch_size, width // patch_size
         self.base_size = (height // patch_size, width // patch_size)
         self.interpolation_scale = (interpolation_scale[0], interpolation_scale[1])
+        # import ipdb;ipdb.set_trace()
         pos_embed = get_2d_sincos_pos_embed(
             embed_dim, (self.height, self.width), base_size=self.base_size, interpolation_scale=self.interpolation_scale
         )
@@ -158,24 +159,24 @@ class PatchEmbed2D(nn.Module):
 
 
     def forward(self, latent, num_frames):
-        # import ipdb;ipdb.set_trace()
-        video_latent = None
+        b, _, _, _, _ = latent.shape
+        video_latent, image_latent = None, None
         # b c 1 h w
-        assert latent.shape[-3] == 1 and num_frames == 1
+        # assert latent.shape[-3] == 1 and num_frames == 1
         height, width = latent.shape[-2] // self.patch_size, latent.shape[-1] // self.patch_size
-        
-        
-        latent = latent.squeeze(2)  # b c 1 h w -> b c h w
+        latent = rearrange(latent, 'b c t h w -> (b t) c h w')
         latent = self.proj(latent)
 
         if self.flatten:
-            latent = latent.flatten(2).transpose(1, 2)  # BCHW -> BNC
+            latent = latent.flatten(2).transpose(1, 2)  # BT C H W -> BT N C
         if self.layer_norm:
             latent = self.norm(latent)
 
         # Interpolate positional embeddings if needed.
         # (For PixArt-Alpha: https://github.com/PixArt-alpha/PixArt-alpha/blob/0f55e922376d8b797edd44d25d0e7464b260dcab/diffusion/model/nets/PixArtMS.py#L162C151-L162C160)
         if self.height != height or self.width != width:
+            # import ipdb;ipdb.set_trace()
+            raise NotImplementedError
             pos_embed = get_2d_sincos_pos_embed(
                 embed_dim=self.pos_embed.shape[-1],
                 grid_size=(height, width),
@@ -186,7 +187,12 @@ class PatchEmbed2D(nn.Module):
             pos_embed = pos_embed.float().unsqueeze(0).to(latent.device)
         else:
             pos_embed = self.pos_embed
-        image_latent = (latent + pos_embed).to(latent.dtype)
+        latent = (latent + pos_embed).to(latent.dtype)
+        
+        latent = rearrange(latent, '(b t) n c -> b t n c', b=b)
+        video_latent, image_latent = latent[:, :num_frames], latent[:, num_frames:]
+        video_latent = rearrange(video_latent, 'b t n c -> b (t n) c') if video_latent.numel() > 0 else None
+        image_latent = rearrange(image_latent, 'b t n c -> (b t) n c') if image_latent.numel() > 0 else None
         return video_latent, image_latent
     
 
@@ -261,7 +267,7 @@ class PatchEmbed3D(nn.Module):
         video_latent = self.proj(video_latent)
 
         if image_latent.numel() > 0:
-            image_latent = image_latent.repeat_interleave(self.patch_size, dim=2)  # b c i h w -> b c 2i h w
+            image_latent = image_latent.repeat_interleave(self.patch_size_t, dim=2)  # b c i h w -> b c 2i h w
             image_latent = self.proj(image_latent)  # b c 2i h w -> b c i h w
 
         if self.flatten:
@@ -376,8 +382,12 @@ class AttnProcessor2_0:
         key = key.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
         value = value.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
 
+        if attention_mask is None or not torch.all(attention_mask.bool()):  # 0 mean visible
+            attention_mask = None
         # the output of sdp = (batch, num_heads, seq_len, head_dim)
         # TODO: add support for attn.scale when we move to Torch 2.1
+        # import ipdb;ipdb.set_trace()
+        # print(query.shape)
         if self.attention_mode == 'flash':
             assert attention_mask is None or torch.all(attention_mask.bool()), 'flash-attn do not support attention_mask'
             with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=True, enable_mem_efficient=False):
@@ -635,6 +645,7 @@ class BasicTransformerBlock(nn.Module):
         # 0. Self-Attention
         batch_size = hidden_states.shape[0]
 
+        # import ipdb;ipdb.set_trace()
         if self.norm_type == "ada_norm":
             norm_hidden_states = self.norm1(hidden_states, timestep)
         elif self.norm_type == "ada_norm_zero":
@@ -646,6 +657,7 @@ class BasicTransformerBlock(nn.Module):
         elif self.norm_type == "ada_norm_continuous":
             norm_hidden_states = self.norm1(hidden_states, added_cond_kwargs["pooled_text_emb"])
         elif self.norm_type == "ada_norm_single":
+            # import ipdb;ipdb.set_trace()
             shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
                 self.scale_shift_table[None] + timestep.reshape(batch_size, 6, -1)
             ).chunk(6, dim=1)

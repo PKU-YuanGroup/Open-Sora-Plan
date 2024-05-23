@@ -177,7 +177,10 @@ class T2V_dataset(Dataset):
                 vid_cap_list = json.load(f)
             print(f'Building {anno}...')
             for i in tqdm(range(len(vid_cap_list))):
-                vid_cap_list[i]['path'] = opj(folder, vid_cap_list[i]['path'])
+                path = opj(folder, vid_cap_list[i]['path'])
+                if os.path.exists(path.replace('.mp4', '_resize_1080p.mp4')):
+                    path = path.replace('.mp4', '_resize_1080p.mp4')
+                vid_cap_list[i]['path'] = path
             vid_cap_lists += vid_cap_list
         return vid_cap_lists
 

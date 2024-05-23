@@ -59,19 +59,19 @@ logger = get_logger(__name__)
 def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weight_dtype, global_step):
     validation_prompt = [
         "A small cactus with a happy face in the Sahara desert.", 
-        "A quiet beach at dawn, the waves gently lapping at the shore and the sky painted in pastel hues.", 
+        # "A quiet beach at dawn, the waves gently lapping at the shore and the sky painted in pastel hues.", 
         "The majestic beauty of a waterfall cascading down a cliff into a serene lake.", 
-        "Over the shoulder game perspective, game screen of Diablo 4, Inside the gorgeous palace is the wet ground, The necromancer knelt before the king, and a horde of skeletons he summoned stood at his side, cinematic light.", 
-        "Lego model, future rocket station, intricate details, high resolution, unreal engine, UHD", 
-        "A litter of golden retriever puppies playing in the snow. Their heads pop out of the snow, covered in.", 
-        "Close-up photos of models, hazy light and shadow, laser metal hair accessories, soft and beautiful, light gold pupils, white eyelashes, low saturation, real skin details, clear pores and fine lines, light reflection and refraction, ultra-clear, cinematography, award-winning works.", 
-        "Full body shot, a French woman, Photography, French Streets background, backlighting, rim light, Fujifilm.", 
-        "Over the shoulder game perspective, game screen of Diablo 4, Inside the gorgeous palace is the wet ground, The necromancer knelt before the king, and a horde of skeletons he summoned stood at his side, cinematic light.", 
-        "Modern luxury contemporary luxury home interiors house, in the style of mimicking ruined materials, ray tracing, haunting houses, and stone, capture the essence of nature, gray and bronze, dynamic outdoor shots.", 
-        "One giant, sharp, metal square mirror in the center of the frame, four young people on the foreground, background sunny palm oil planation, tropical, realistic style, photography, nostalgic, green tone, mysterious, dreamy, bright color.", 
-        "A gorgeously rendered papercraft world of a coral reef, rife with colorful fish and sea creatures.", 
-        "Eiffel Tower was Made up of more than 2 million translucent straws to look like a cloud, with the bell tower at the top of the building, Michel installed huge foam-making machines in the forest to blow huge amounts of unpredictable wet clouds in the building's classic architecture.", 
-        "A curvy timber house near a sea, designed by Zaha Hadid, represent the image of a cold, modern architecture, at night, white lighting, highly detailed.", 
+        # "Over the shoulder game perspective, game screen of Diablo 4, Inside the gorgeous palace is the wet ground, The necromancer knelt before the king, and a horde of skeletons he summoned stood at his side, cinematic light.", 
+        # "Lego model, future rocket station, intricate details, high resolution, unreal engine, UHD", 
+        # "A litter of golden retriever puppies playing in the snow. Their heads pop out of the snow, covered in.", 
+        # "Close-up photos of models, hazy light and shadow, laser metal hair accessories, soft and beautiful, light gold pupils, white eyelashes, low saturation, real skin details, clear pores and fine lines, light reflection and refraction, ultra-clear, cinematography, award-winning works.", 
+        # "Full body shot, a French woman, Photography, French Streets background, backlighting, rim light, Fujifilm.", 
+        # "Over the shoulder game perspective, game screen of Diablo 4, Inside the gorgeous palace is the wet ground, The necromancer knelt before the king, and a horde of skeletons he summoned stood at his side, cinematic light.", 
+        # "Modern luxury contemporary luxury home interiors house, in the style of mimicking ruined materials, ray tracing, haunting houses, and stone, capture the essence of nature, gray and bronze, dynamic outdoor shots.", 
+        # "One giant, sharp, metal square mirror in the center of the frame, four young people on the foreground, background sunny palm oil planation, tropical, realistic style, photography, nostalgic, green tone, mysterious, dreamy, bright color.", 
+        # "A gorgeously rendered papercraft world of a coral reef, rife with colorful fish and sea creatures.", 
+        # "Eiffel Tower was Made up of more than 2 million translucent straws to look like a cloud, with the bell tower at the top of the building, Michel installed huge foam-making machines in the forest to blow huge amounts of unpredictable wet clouds in the building's classic architecture.", 
+        # "A curvy timber house near a sea, designed by Zaha Hadid, represent the image of a cold, modern architecture, at night, white lighting, highly detailed.", 
     ]
     logger.info(f"Running validation....\n")
     model = accelerator.unwrap_model(model)
@@ -87,6 +87,7 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
         logger.info('Processing the ({}) prompt'.format(prompt))
         video = opensora_pipeline(prompt,
                                 num_frames=args.num_frames,
+                                # num_frames=1,
                                 height=args.max_image_size,
                                 width=args.max_image_size,
                                 num_inference_steps=args.num_sampling_steps,
@@ -94,6 +95,7 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
                                 enable_temporal_attentions=True,
                                 num_images_per_prompt=1,
                                 mask_feature=True,
+                                max_sequence_length=50, 
                                 ).images
         videos.append(video[0])
     # import ipdb;ipdb.set_trace()
@@ -114,8 +116,9 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
         if tracker.name == "wandb":
             import wandb
             if videos.shape[1] == 1:
-                assert args.num_frames == 1
+                # assert args.num_frames == 1
                 images = rearrange(videos, 'b 1 c h w -> (b 1) h w c') 
+                # import ipdb;ipdb.set_trace()
                 tracker.log(
                     {
                         "validation": [
@@ -256,11 +259,13 @@ def main(args):
     if args.pretrained:
         if 'safetensors' in args.pretrained:  # pixart series
             from safetensors.torch import load_file as safe_load
+            # import ipdb;ipdb.set_trace()
             checkpoint = safe_load(args.pretrained, device="cpu")
             if checkpoint['pos_embed.proj.weight'].shape != model.pos_embed.proj.weight.shape and checkpoint['pos_embed.proj.weight'].ndim == 4:
+                logger.info(f"Resize pos_embed, {checkpoint['pos_embed.proj.weight'].shape} -> {model.pos_embed.proj.weight.shape}")
                 repeat = model.pos_embed.proj.weight.shape[2]
                 checkpoint['pos_embed.proj.weight'] = checkpoint['pos_embed.proj.weight'].unsqueeze(2).repeat(1, 1, repeat, 1, 1) / float(repeat)
-                del checkpoint['proj_out.weight'], checkpoint['proj_out.bias']
+                # del checkpoint['proj_out.weight'], checkpoint['proj_out.bias']
         else:  # latest stage training weight
             checkpoint = torch.load(args.pretrained, map_location='cpu')['model']
         model_state_dict = model.state_dict()
@@ -461,9 +466,16 @@ def main(args):
                 # print('x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape', x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape)
                 
                 with torch.no_grad():
+                    # import ipdb;ipdb.set_trace()
                     # use for loop to avoid OOM, because T5 is too huge...
-                    B, _, _ = input_ids.shape  # B 1+num_images L
-                    cond = torch.stack([text_enc(input_ids[i], cond_mask[i]) for i in range(B)])  # B 1+num_images L D
+                    B, N, L = input_ids.shape  # B 1+num_images L
+                    # cond_ = torch.stack([text_enc(input_ids[i], cond_mask[i]) for i in range(B)])  # B 1+num_images L D
+
+                    # use batch inference
+                    input_ids_ = input_ids.reshape(-1, L)
+                    cond_mask_ = cond_mask.reshape(-1, L)
+                    cond = text_enc(input_ids_, cond_mask_)  # B 1+num_images L D
+                    cond = cond.reshape(B, N, L, -1)
                     
                     # Map input images to latent space + normalize latents
                     if args.use_image_num == 0:
@@ -614,7 +626,7 @@ if __name__ == "__main__":
     parser.add_argument("--cache_dir", type=str, default='./cache_dir')
 
     parser.add_argument("--num_sampling_steps", type=int, default=20)
-    parser.add_argument('--guidance_scale', type=float, default=2.5)
+    parser.add_argument('--guidance_scale', type=float, default=2.0)
     parser.add_argument("--multi_scale", action="store_true")
     parser.add_argument("--enable_tracker", action="store_true")
     parser.add_argument("--use_deepspeed", action="store_true")

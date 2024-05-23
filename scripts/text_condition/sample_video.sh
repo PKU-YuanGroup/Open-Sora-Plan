@@ -1,14 +1,16 @@
-CUDA_VISIBLE_DEVICES=6 python opensora/sample/sample_t2v.py \
-    --model_path /remote-home1/yeyang/dev/Open-Sora-Plan/debug_mask_loss/checkpoint-500/model \
+CUDA_VISIBLE_DEVICES=6 python opensora/sample/sample_t2v_pixsig.py \
+    --model_path image_test_ckpt \
     --version 65x512x512 \
-    --image_size 512 \
-    --cache_dir "/remote-home1/yeyang/sora4.8/Open-Sora-Plan/cache_dir" \
+    --num_frames 1 \
+    --height 256 \
+    --width 256 \
+    --cache_dir "cache_dir" \
     --text_encoder_name DeepFloyd/t5-v1_1-xxl \
     --text_prompt examples/prompt_list_0.txt \
     --ae CausalVAEModel_4x8x8 \
-    --ae_path "/remote-home1/yeyang/sora4.8/Open-Sora-Plan/CausalVAEModel_4x8x8/" \
+    --ae_path "/dxyl_data02/CausalVAEModel_4x8x8/" \
     --save_img_path "./sample_videos" \
     --fps 24 \
-    --guidance_scale 10.0 \
-    --num_sampling_steps 50 \
-    --enable_tiling
+    --guidance_scale 2.0 \
+    --num_sampling_steps 20 \
+    --enable_tiling 
