@@ -17,7 +17,7 @@ accelerate launch \
     --gradient_checkpointing \
     --attention_mode xformers \
     --train_batch_size=2 \
-    --dataloader_num_workers 10 \
+    --dataloader_num_workers 1 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
     --learning_rate=2e-05 \
@@ -26,7 +26,7 @@ accelerate launch \
     --mixed_precision="bf16" \
     --report_to="wandb" \
     --checkpointing_steps=500 \
-    --output_dir="t2v-f65-512-img16-videovae488-bf16-ckpt-xformers-bs4-lr2e-5-t5" \
+    --output_dir="./Latte" \
     --allow_tf32 \
     --pretrained t2v.pt \
     --use_deepspeed \
