@@ -8,7 +8,7 @@ accelerate launch \
     --text_encoder_name DeepFloyd/t5-v1_1-xxl \
     --dataset t2v \
     --ae CausalVAEModel_4x8x8 \
-    --ae_path "LanguageBind/Open-Sora-Plan-v1.0.0/vae/diffusion_pytorch_model.safetensors" \
+    --ae_path CausalVAEModel_4x8x8 \
     --data_path /remote-home1/dataset/sharegpt4v_path_cap_.json \
     --video_folder /remote-home1/dataset/data_split_tt \
     --sample_rate 1 \
@@ -28,7 +28,7 @@ accelerate launch \
     --checkpointing_steps=500 \
     --output_dir="t2v-f65-512-img16-videovae488-bf16-ckpt-xformers-bs4-lr2e-5-t5" \
     --allow_tf32 \
-    --pretrained "LanguageBind/Open-Sora-Plan-v1.0.0/vae/diffusion_pytorch_model.safetensors" \
+    --pretrained "./t2v.pt" \
     --use_deepspeed \
     --model_max_length 300 \
     --use_image_num 16 \
