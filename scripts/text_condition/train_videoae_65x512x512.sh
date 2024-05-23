@@ -7,7 +7,7 @@ accelerate launch \
     --model LatteT2V-XL/122 \
     --text_encoder_name DeepFloyd/t5-v1_1-xxl \
     --dataset t2v \
-    --ae CausalVAEModel_4x8x8 \
+    --ae t2v \
     --ae_path ./Latte/vae \
     --data_path "./videos/captions.json" \
     --video_folder "./videos" \
