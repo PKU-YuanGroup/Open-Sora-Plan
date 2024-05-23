@@ -28,9 +28,11 @@ accelerate launch \
     --checkpointing_steps=500 \
     --output_dir="t2v-f65-512-img16-videovae488-bf16-ckpt-xformers-bs4-lr2e-5-t5" \
     --allow_tf32 \
-    --pretrained t2v-f65-256-img4-videovae488-bf16-ckpt-xformers-bs4-lr2e-5-t5/checkpoint-15000/model/diffusion_pytorch_model.safetensors \
+    --pretrained t2v.pt \
     --use_deepspeed \
     --model_max_length 300 \
     --use_image_num 16 \
     --use_img_from_vid \
     --enable_tiling
+
+    # SAVE FOR LATER: --pretrained t2v-f65-256-img4-videovae488-bf16-ckpt-xformers-bs4-lr2e-5-t5/checkpoint-15000/model/diffusion_pytorch_model.safetensors \
