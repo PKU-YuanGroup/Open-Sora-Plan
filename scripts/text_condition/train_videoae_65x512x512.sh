@@ -26,9 +26,9 @@ accelerate launch \
     --mixed_precision="bf16" \
     --report_to="wandb" \
     --checkpointing_steps=500 \
-    --output_dir="./Latte" \
+    --output_dir="t2v-f65-512-img16-videovae488-bf16-ckpt-xformers-bs4-lr2e-5-t5" \
     --allow_tf32 \
-    --pretrained t2v.pt \
+    --pretrained Latte \
     --use_deepspeed \
     --model_max_length 300 \
     --use_image_num 16 \
