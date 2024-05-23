@@ -9,8 +9,8 @@ accelerate launch \
     --dataset t2v \
     --ae CausalVAEModel_4x8x8 \
     --ae_path CausalVAEModel_4x8x8 \
-    --data_path /remote-home1/dataset/sharegpt4v_path_cap_.json \
-    --video_folder /remote-home1/dataset/data_split_tt \
+    --data_path "./videos/captions.json" \
+    --video_folder "./videos" \
     --sample_rate 1 \
     --num_frames 65 \
     --max_image_size 512 \
