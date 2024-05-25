@@ -58,21 +58,9 @@ logger = get_logger(__name__)
 @torch.inference_mode()
 def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weight_dtype, global_step):
     validation_prompt = [
-        # "A small cactus with a happy face in the Sahara desert.", 
-        "A quiet beach at dawn, the waves gently lapping at the shore and the sky painted in pastel hues.", 
-        "The majestic beauty of a waterfall cascading down a cliff into a serene lake.", 
-        # "Over the shoulder game perspective, game screen of Diablo 4, Inside the gorgeous palace is the wet ground, The necromancer knelt before the king, and a horde of skeletons he summoned stood at his side, cinematic light.", 
-        # "Lego model, future rocket station, intricate details, high resolution, unreal engine, UHD", 
-        # "A litter of golden retriever puppies playing in the snow. Their heads pop out of the snow, covered in.", 
-        # "Close-up photos of models, hazy light and shadow, laser metal hair accessories, soft and beautiful, light gold pupils, white eyelashes, low saturation, real skin details, clear pores and fine lines, light reflection and refraction, ultra-clear, cinematography, award-winning works.", 
-        # "Full body shot, a French woman, Photography, French Streets background, backlighting, rim light, Fujifilm.", 
-        # "Over the shoulder game perspective, game screen of Diablo 4, Inside the gorgeous palace is the wet ground, The necromancer knelt before the king, and a horde of skeletons he summoned stood at his side, cinematic light.", 
-        # "Modern luxury contemporary luxury home interiors house, in the style of mimicking ruined materials, ray tracing, haunting houses, and stone, capture the essence of nature, gray and bronze, dynamic outdoor shots.", 
-        # "One giant, sharp, metal square mirror in the center of the frame, four young people on the foreground, background sunny palm oil planation, tropical, realistic style, photography, nostalgic, green tone, mysterious, dreamy, bright color.", 
-        # "A gorgeously rendered papercraft world of a coral reef, rife with colorful fish and sea creatures.", 
-        # "Eiffel Tower was Made up of more than 2 million translucent straws to look like a cloud, with the bell tower at the top of the building, Michel installed huge foam-making machines in the forest to blow huge amounts of unpredictable wet clouds in the building's classic architecture.", 
-        # "A curvy timber house near a sea, designed by Zaha Hadid, represent the image of a cold, modern architecture, at night, white lighting, highly detailed.", 
-    ]
+        "a cat wearing sunglasses and working as a lifeguard at pool.",
+        "A serene underwater scene featuring a sea turtle swimming through a coral reef. The turtle, with its greenish-brown shell, is the main focus of the video, swimming gracefully towards the right side of the frame. The coral reef, teeming with life, is visible in the background, providing a vibrant and colorful backdrop to the turtle's journey. Several small fish, darting around the turtle, add a sense of movement and dynamism to the scene."
+        ]
     logger.info(f"Running validation....\n")
     model = accelerator.unwrap_model(model)
     # scheduler = PNDMScheduler()
@@ -133,8 +121,8 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
                         ]
                     }
             # import ipdb;ipdb.set_trace()
-            # if hasattr(model.pos_embed, 'temp_embed_gate'):
-            #     logs.update({'temp_embed_gate (tanh)': float(model.pos_embed.temp_embed_gate.tanh().item())})
+            if hasattr(model.pos_embed, 'temp_embed_gate'):
+                logs.update({'temp_embed_gate (tanh)': float(model.pos_embed.temp_embed_gate.tanh().item())})
             tracker.log(logs)
 
     del opensora_pipeline
@@ -588,10 +576,11 @@ def main(args):
 
                 for tracker in accelerator.trackers:
                     if tracker.name == "wandb":
-                        if hasattr(model, 'module') and hasattr(model.module.pos_embed, 'temp_embed_gate'):
-                            tracker.log({'temp_embed_gate (tanh)': float(model.module.pos_embed.temp_embed_gate.tanh().item())})
-                        elif hasattr(model, 'pos_embed') and hasattr(model.pos_embed, 'temp_embed_gate'):
-                            tracker.log({'temp_embed_gate (tanh)': float(model.pos_embed.temp_embed_gate.tanh().item())})
+                        if global_step % args.checkpointing_steps != 0:
+                            if hasattr(model, 'module') and hasattr(model.module.pos_embed, 'temp_embed_gate'):
+                                tracker.log({'temp_embed_gate (tanh)': float(model.module.pos_embed.temp_embed_gate.tanh().item())})
+                            elif hasattr(model, 'pos_embed') and hasattr(model.pos_embed, 'temp_embed_gate'):
+                                tracker.log({'temp_embed_gate (tanh)': float(model.pos_embed.temp_embed_gate.tanh().item())})
 
                 if global_step % args.checkpointing_steps == 0:
                     if args.use_ema:
@@ -633,8 +622,8 @@ if __name__ == "__main__":
     parser.add_argument("--text_encoder_name", type=str, default='DeepFloyd/t5-v1_1-xxl')
     parser.add_argument("--cache_dir", type=str, default='./cache_dir')
 
-    parser.add_argument("--num_sampling_steps", type=int, default=20)
-    parser.add_argument('--guidance_scale', type=float, default=2.0)
+    parser.add_argument("--num_sampling_steps", type=int, default=50)
+    parser.add_argument('--guidance_scale', type=float, default=7.5)
     parser.add_argument("--multi_scale", action="store_true")
     parser.add_argument("--enable_tracker", action="store_true")
     parser.add_argument("--use_deepspeed", action="store_true")

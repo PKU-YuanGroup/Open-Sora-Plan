@@ -156,7 +156,8 @@ class T2V_dataset(Dataset):
             start_frame_ind, end_frame_ind = self.temporal_sample(total_frames)
         else:
             start_frame_ind, end_frame_ind = frame_idx.split(':')
-            start_frame_ind, end_frame_ind = int(start_frame_ind), int(end_frame_ind)
+            # start_frame_ind, end_frame_ind = int(start_frame_ind), int(end_frame_ind)
+            start_frame_ind, end_frame_ind = int(start_frame_ind), int(start_frame_ind) + self.num_frames
         # assert end_frame_ind - start_frame_ind >= self.num_frames
         frame_indice = np.linspace(start_frame_ind, end_frame_ind - 1, self.num_frames, dtype=int)
         # frame_indice = np.linspace(0, 63, self.num_frames, dtype=int)

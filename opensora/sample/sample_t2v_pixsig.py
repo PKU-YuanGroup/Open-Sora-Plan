@@ -38,7 +38,7 @@ def main(args):
     #     vae.vae.tile_overlap_factor = args.tile_overlap_factor
     vae.vae_scale_factor = ae_stride_config[args.ae]
 
-    transformer_model = OpenSoraT2V.from_pretrained(args.model_path, low_cpu_mem_usage=True, device_map=None, torch_dtype=weight_dtype)
+    transformer_model = OpenSoraT2V.from_pretrained(args.model_path, low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
 
     # ckpt = transformer_model.state_dict()
     # from safetensors.torch import load_file
@@ -113,7 +113,7 @@ def main(args):
                         num_images_per_prompt=1,
                         mask_feature=True,
                         device=args.device, 
-                        max_sequence_length=50, 
+                        max_sequence_length=100, 
                         ).images
         try:
             if args.num_frames == 1:

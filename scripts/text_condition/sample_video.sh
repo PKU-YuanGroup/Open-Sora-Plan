@@ -1,16 +1,16 @@
 CUDA_VISIBLE_DEVICES=6 python opensora/sample/sample_t2v_pixsig.py \
-    --model_path image_test_ckpt \
+    --model_path image_test_ckpt512 \
     --version 65x512x512 \
     --num_frames 1 \
-    --height 256 \
-    --width 256 \
+    --height 320 \
+    --width 240 \
     --cache_dir "cache_dir" \
     --text_encoder_name DeepFloyd/t5-v1_1-xxl \
     --text_prompt examples/prompt_list_0.txt \
-    --ae CausalVAEModel_4x8x8 \
-    --ae_path "/dxyl_data02/CausalVAEModel_4x8x8/" \
-    --save_img_path "./sample_videos" \
+    --ae stabilityai/sd-vae-ft-mse \
+    --ae_path "alpha_vae" \
+    --save_img_path "./sample_videos320_240" \
     --fps 24 \
-    --guidance_scale 2.0 \
-    --num_sampling_steps 20 \
+    --guidance_scale 4.0 \
+    --num_sampling_steps 50 \
     --enable_tiling 

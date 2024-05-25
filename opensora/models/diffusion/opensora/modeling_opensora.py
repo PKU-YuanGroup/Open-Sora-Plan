@@ -143,8 +143,8 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
             self.config.interpolation_scale_t if self.config.interpolation_scale_t is not None else sample_size_t
         )
         interpolation_scale = (
-            self.config.interpolation_scale if self.config.interpolation_scale is not None else self.config.sample_size[0] / 32, 
-            self.config.interpolation_scale if self.config.interpolation_scale is not None else self.config.sample_size[1] / 32, 
+            self.config.interpolation_scale if self.config.interpolation_scale is not None else self.config.sample_size[0] / 64, 
+            self.config.interpolation_scale if self.config.interpolation_scale is not None else self.config.sample_size[1] / 64, 
         )
         # if self.config.sample_size_t > 1:
         #     self.pos_embed = PatchEmbed3D(

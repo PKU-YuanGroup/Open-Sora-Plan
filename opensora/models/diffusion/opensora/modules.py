@@ -193,11 +193,11 @@ class PatchEmbed2D(nn.Module):
         if self.layer_norm:
             latent = self.norm(latent)
 
+        # import ipdb;ipdb.set_trace()
         # Interpolate positional embeddings if needed.
         # (For PixArt-Alpha: https://github.com/PixArt-alpha/PixArt-alpha/blob/0f55e922376d8b797edd44d25d0e7464b260dcab/diffusion/model/nets/PixArtMS.py#L162C151-L162C160)
         if self.height != height or self.width != width:
-            # import ipdb;ipdb.set_trace()
-            raise NotImplementedError
+            # raise NotImplementedError
             pos_embed = get_2d_sincos_pos_embed(
                 embed_dim=self.pos_embed.shape[-1],
                 grid_size=(height, width),
@@ -212,7 +212,7 @@ class PatchEmbed2D(nn.Module):
 
         if self.num_frames != num_frames:
             # import ipdb;ipdb.set_trace()
-            raise NotImplementedError
+            # raise NotImplementedError
             temp_embed = get_1d_sincos_pos_embed(
                 embed_dim=self.temp_embed.shape[-1],
                 grid_size=num_frames,
