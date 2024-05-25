@@ -8,8 +8,8 @@ machine_rank: 0
 main_process_ip: 10.0.10.100
 main_process_port: 29502
 main_training_function: main
-num_machines: 10
-num_processes: 80
+num_machines: 9
+num_processes: 72
 rdzv_backend: static
 same_network: true
 tpu_env: []

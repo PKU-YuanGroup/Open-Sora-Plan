@@ -1,7 +1,7 @@
 export WANDB_KEY=""
-# export WANDB_MODE="offline"
+export WANDB_MODE="offline"
 export ENTITY="linbin"
-export PROJECT="513f_512_10node_bs1_lr2e-5_2img"
+export PROJECT="513f_512_9node_bs1_lr2e-5_4img"
 export HF_DATASETS_OFFLINE=1 
 export TRANSFORMERS_OFFLINE=1
 # export NCCL_IB_DISABLE=1
@@ -26,21 +26,21 @@ accelerate launch \
     --gradient_checkpointing \
     --attention_mode xformers \
     --train_batch_size=1 \
-    --dataloader_num_workers 4 \
+    --dataloader_num_workers 8 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
     --learning_rate=2e-05 \
     --lr_scheduler="constant" \
     --lr_warmup_steps=0 \
     --mixed_precision="bf16" \
-    --report_to="tensorboard" \
-    --checkpointing_steps=500 \
-    --output_dir="513f_512_10node_bs1_lr2e-5_2img" \
+    --report_to="wandb" \
+    --checkpointing_steps=250 \
+    --output_dir="513f_512_9node_bs1_lr2e-5_4img" \
     --allow_tf32 \
     --use_deepspeed \
     --model_max_length 300 \
-    --use_image_num 2 \
+    --use_image_num 4 \
     --enable_tiling \
-    --pretrained 512_10node_bs2_lr2e-5_4img/checkpoint-101500/model/diffusion_pytorch_model.safetensors \
+    --pretrained /dxyl_code02/dev/Open-Sora-Plan/hw_65/model/diffusion_pytorch_model.safetensors \
     --enable_tracker \
     --resume_from_checkpoint "latest"

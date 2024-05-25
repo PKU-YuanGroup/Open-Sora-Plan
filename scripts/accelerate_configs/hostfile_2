@@ -1,9 +1,5 @@
-node117 slots=8  # your server name  and  GPU in total
-node100 slots=8
-node118 slots=8
-node119 slots=8
-node120 slots=8
 node121 slots=8
 node104 slots=8
 node106 slots=8
 node99 slots=8
+node122 slots=8

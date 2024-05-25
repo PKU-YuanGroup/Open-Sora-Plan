@@ -2,14 +2,14 @@ compute_environment: LOCAL_MACHINE
 distributed_type: DEEPSPEED
 deepspeed_config:
  deepspeed_config_file: scripts/accelerate_configs/zero2.json
- deepspeed_hostfile: scripts/accelerate_configs/hostfile
+ deepspeed_hostfile: scripts/accelerate_configs/hostfile_2
 fsdp_config: {}
 machine_rank: 0
-main_process_ip: 10.0.10.100
-main_process_port: 29502
+main_process_ip: 10.0.10.104
+main_process_port: 29503
 main_training_function: main
-num_machines: 10
-num_processes: 80
+num_machines: 5
+num_processes: 40
 rdzv_backend: static
 same_network: true
 tpu_env: []

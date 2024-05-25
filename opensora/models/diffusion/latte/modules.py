@@ -155,7 +155,7 @@ class PatchEmbed(nn.Module):
         # Interpolate positional embeddings if needed.
         # (For PixArt-Alpha: https://github.com/PixArt-alpha/PixArt-alpha/blob/0f55e922376d8b797edd44d25d0e7464b260dcab/diffusion/model/nets/PixArtMS.py#L162C151-L162C160)
         if self.height != height or self.width != width:
-            raise ValueError
+            # raise ValueError
             pos_embed = get_2d_sincos_pos_embed(
                 embed_dim=self.pos_embed.shape[-1],
                 grid_size=(height, width),

@@ -5,7 +5,7 @@ export PROJECT="512_10node_bs2_lr2e_4img_"
 export HF_DATASETS_OFFLINE=1 
 export TRANSFORMERS_OFFLINE=1
 # export NCCL_IB_DISABLE=1
-# export NCCL_DEBUG=INFO
+export NCCL_DEBUG=INFO
 # export NCCL_SOCKET_IFNAME=ibp25s0
 export NCCL_P2P_DISABLE=1
 export PDSH_PATH_TYPE=ssh
@@ -34,7 +34,7 @@ accelerate launch \
     --lr_warmup_steps=0 \
     --mixed_precision="bf16" \
     --report_to="wandb" \
-    --checkpointing_steps=200 \
+    --checkpointing_steps=500 \
     --output_dir="512_10node_bs2_lr2e-5_4img" \
     --allow_tf32 \
     --use_deepspeed \

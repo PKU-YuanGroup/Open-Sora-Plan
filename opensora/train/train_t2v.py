@@ -74,7 +74,7 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
     for prompt in validation_prompt:
         logger.info('Processing the ({}) prompt'.format(prompt))
         video = videogen_pipeline(prompt,
-                                video_length=args.video_length,
+                                num_frames=args.num_frames,
                                 height=args.max_image_size,
                                 width=args.max_image_size,
                                 num_inference_steps=args.num_sampling_steps,
@@ -92,13 +92,13 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
     for tracker in accelerator.trackers:
         if tracker.name == "tensorboard":
             np_videos = np.stack([np.asarray(vid) for vid in videos])
-            tracker.writer.add_video("validation", np_videos, global_step, fps=10)
+            tracker.writer.add_video("validation", np_videos, global_step, fps=24)
         if tracker.name == "wandb":
             import wandb
             tracker.log(
                 {
                     "validation": [
-                        wandb.Video(video, caption=f"{i}: {prompt}", fps=10)
+                        wandb.Video(video, caption=f"{i}: {prompt}", fps=24)
                         for i, (video, prompt) in enumerate(zip(videos, validation_prompt))
                     ]
                 }
@@ -175,6 +175,7 @@ def main(args):
     text_enc = get_text_warpper(args.text_encoder_name)(args, **kwargs).eval()
 
     ae_stride_t, ae_stride_h, ae_stride_w = ae_stride_config[args.ae]
+    ae.vae_scale_factor = ae_stride_config[args.ae]
     assert ae_stride_h == ae_stride_w, f"Support only ae_stride_h == ae_stride_w now, but found ae_stride_h ({ae_stride_h}), ae_stride_w ({ae_stride_w})"
     args.ae_stride_t, args.ae_stride_h, args.ae_stride_w = ae_stride_t, ae_stride_h, ae_stride_w
     args.ae_stride = args.ae_stride_h
@@ -326,8 +327,6 @@ def main(args):
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
         shuffle=True,
-        pin_memory=True,
-        # prefetch_factor=1, 
         collate_fn=Collate(args),
         batch_size=args.train_batch_size,
         num_workers=args.dataloader_num_workers,
@@ -421,11 +420,11 @@ def main(args):
                 if not args.multi_scale:
                     assert torch.all(attn_mask)
                 
-                x = x.to(accelerator.device, dtype=weight_dtype, non_blocking=True)  # B C T+num_images H W, 16 + 4
-                attn_mask = attn_mask.to(accelerator.device, non_blocking=True)  # B L or B 1+num_images L
+                x = x.to(accelerator.device, dtype=weight_dtype)  # B C T+num_images H W, 16 + 4
+                attn_mask = attn_mask.to(accelerator.device)  # B L or B 1+num_images L
                 # assert torch.all(attn_mask != 0), 'attn_mask must all 1'
-                input_ids = input_ids.to(accelerator.device, non_blocking=True)  # B L or B 1+num_images L
-                cond_mask = cond_mask.to(accelerator.device, non_blocking=True)  # B L or B 1+num_images L
+                input_ids = input_ids.to(accelerator.device)  # B L or B 1+num_images L
+                cond_mask = cond_mask.to(accelerator.device)  # B L or B 1+num_images L
                 # print('x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape', x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape)
                 
                 with torch.no_grad():
@@ -588,7 +587,7 @@ if __name__ == "__main__":
     parser.add_argument("--cache_dir", type=str, default='./cache_dir')
 
     parser.add_argument("--num_sampling_steps", type=int, default=50)
-    parser.add_argument('--guidance_scale', type=float, default=10.0)
+    parser.add_argument('--guidance_scale', type=float, default=5.5)
     parser.add_argument("--multi_scale", action="store_true")
     parser.add_argument("--enable_tracker", action="store_true")
     parser.add_argument("--use_deepspeed", action="store_true")

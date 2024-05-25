@@ -38,20 +38,19 @@ def main(args):
     if args.enable_tiling:
         vae.vae.enable_tiling()
         vae.vae.tile_overlap_factor = args.tile_overlap_factor
-
+    vae.vae_scale_factor = ae_stride_config[args.ae]
     # Load model:
     # transformer_model = LatteT2V.from_pretrained(args.model_path, subfolder=args.version, cache_dir=args.cache_dir, torch_dtype=torch.float16).to(device)
     transformer_model = LatteT2V.from_pretrained(args.model_path, low_cpu_mem_usage=False, device_map=None, torch_dtype=torch.float16).to(device)
-    print(transformer_model.config)
+    
     transformer_model.force_images = args.force_images
     tokenizer = T5Tokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
     text_encoder = T5EncoderModel.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir, torch_dtype=torch.float16).to(device)
 
-    video_length, image_size = transformer_model.config.video_length, args.image_size
-    latent_size = (image_size // ae_stride_config[args.ae][1], image_size // ae_stride_config[args.ae][2])
-    vae.latent_size = latent_size
+    # video_length, image_size = transformer_model.config.video_length, args.image_size
+    # latent_size = (image_size // ae_stride_config[args.ae][1], image_size // ae_stride_config[args.ae][2])
+    # vae.latent_size = latent_size
     if args.force_images:
-        video_length = 1
         ext = 'jpg'
     else:
         ext = 'mp4'
@@ -101,9 +100,9 @@ def main(args):
     for prompt in args.text_prompt:
         print('Processing the ({}) prompt'.format(prompt))
         videos = videogen_pipeline(prompt,
-                                   video_length=video_length,
-                                   height=image_size,
-                                   width=image_size,
+                                   num_frames=args.num_frames,
+                                   height=args.height,
+                                   width=args.width,
                                    num_inference_steps=args.num_sampling_steps,
                                    guidance_scale=args.guidance_scale,
                                    enable_temporal_attentions=not args.force_images,
@@ -148,7 +147,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_path", type=str, default='LanguageBind/Open-Sora-Plan-v1.0.0')
     parser.add_argument("--version", type=str, default=None, choices=[None, '65x512x512', '65x256x256', '17x256x256'])
-    parser.add_argument("--image_size", type=int, default=512)
+    parser.add_argument("--num_frames", type=int, default=1)
+    parser.add_argument("--height", type=int, default=512)
+    parser.add_argument("--width", type=int, default=512)
     parser.add_argument("--cache_dir", type=str, default='./cache_dir')
     parser.add_argument("--ae", type=str, default='CausalVAEModel_4x8x8')
     parser.add_argument("--ae_path", type=str, default='CausalVAEModel_4x8x8')
