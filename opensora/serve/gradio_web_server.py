@@ -33,7 +33,7 @@ def generate_img(prompt, sample_steps, scale, seed=0, randomize_seed=False, forc
     height, width = int(args.version.split('x')[1]), int(args.version.split('x')[2])
     num_frames = 1 if video_length == 1 else int(args.version.split('x')[0])
     videos = videogen_pipeline(prompt,
-                               video_length=video_length,
+                               num_frames=num_frames,
                                height=height,
                                width=width,
                                num_inference_steps=sample_steps,
@@ -54,7 +54,7 @@ if __name__ == '__main__':
     args = type('args', (), {
         'ae': 'CausalVAEModel_4x8x8',
         'force_images': False,
-        'model_path': 'LanguageBind/Open-Sora-Plan-v1.0.0',
+        'model_path': 'LanguageBind/Open-Sora-Plan-v1.1.0',
         'text_encoder_name': 'DeepFloyd/t5-v1_1-xxl',
         'version': '65x512x512'
     })
@@ -66,9 +66,7 @@ if __name__ == '__main__':
     vae = getae_wrapper(args.ae)(args.model_path, subfolder="vae", cache_dir='cache_dir').to(device)
     vae = vae.half()
     vae.vae.enable_tiling()
-    image_size = int(args.version.split('x')[1])
-    latent_size = (image_size // ae_stride_config[args.ae][1], image_size // ae_stride_config[args.ae][2])
-    vae.latent_size = latent_size
+    vae.vae_scale_factor = ae_stride_config[args.ae]
     transformer_model.force_images = args.force_images
     tokenizer = T5Tokenizer.from_pretrained(args.text_encoder_name, cache_dir="cache_dir")
     text_encoder = T5EncoderModel.from_pretrained(args.text_encoder_name, cache_dir="cache_dir",
