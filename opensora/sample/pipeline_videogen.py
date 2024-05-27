@@ -705,6 +705,10 @@ class VideoGenPipeline(DiffusionPipeline):
                 # broadcast to batch dimension in a way that's compatible with ONNX/Core ML
                 current_timestep = current_timestep.expand(latent_model_input.shape[0])
 
+                if prompt_embeds.ndim == 3:
+                    prompt_embeds = prompt_embeds.unsqueeze(1)  # b l d -> b 1 l d
+                # if prompt_attention_mask.ndim == 2:
+                #     prompt_attention_mask = prompt_attention_mask.unsqueeze(1)  # b l -> b 1 l
                 # predict noise model_output
                 noise_pred = self.transformer(
                     latent_model_input,
