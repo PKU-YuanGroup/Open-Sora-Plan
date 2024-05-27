@@ -33,7 +33,7 @@ We are thrilled to present **Open-Sora-Plan v1.1.0**, which significantly enhanc
 
 Thanks to **HUAWEI Ascend Team** for supporting us. In the second stage, we used Huawei Ascend computing power for training. This stage's training and inference were fully supported by Huawei. Models trained on Huawei Ascend can also be loaded into GPUs and generate videos of the same quality.
 
-目前已支持国产AI芯片(华为昇腾，期待更多国产算力芯片)进行完整地训练推理。在第二阶段，我们采用华为昇腾算力进行训练。该阶段的训练、推理完全由国产芯片支持。我们基于华为昇腾组建的512卡集群上训练的模型，也能够在GPU上加载，并且生成一样质量的视频。具体可参考昇腾分支[hw branch](https://github.com/PKU-YuanGroup/Open-Sora-Plan/tree/hw). 
+目前已经支持使用国产AI芯片(华为昇腾，期待更多国产算力芯片)进行完整的训练和推理。在项目第二阶段，所有训练和推理任务完全由华为昇腾芯片支持。此外，基于华为昇腾的512卡集群训练出的模型，也可以无缝地在GPU上运行，并保持相同的视频质量。详细信息请参考我们的[hw branch](https://github.com/PKU-YuanGroup/Open-Sora-Plan/tree/hw). 
 
 
 ### 221×512×512 Text-to-Video Generation
@@ -62,6 +62,7 @@ Thanks to **HUAWEI Ascend Team** for supporting us. In the second stage, we used
 | A robot dog trots down a deserted alley at night, its metallic paws clinking softly ... |   A lone surfer rides a massive wave, skillfully maneuvering through the surf. The water ... |  A solitary cheetah sprints across the savannah, its powerful muscles propelling it ... |
 | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/3964dfcd-d1b4-406b-916c-d4a702184a27" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/34c1dda6-e420-4edd-bbcd-38ff8e542ec6" width=224>  |<img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/c82b822b-cadd-4f11-bcc3-29e3651c02c0" width=224> |
 | A solitary astronaut plants a flag on an alien planet covered in crystal formations ... | A person clad in a space suit with a helmet and equipped with a chest light and arm ... |  A wise old elephant painting abstract art with its trunk, each stroke a burst of color ... |
+
 ### 65×512×512 Video Editing
 
 | generated 65×512×512 (2.7s) | edited 65×512×512 (2.7s) |
