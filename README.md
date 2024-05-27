@@ -33,7 +33,7 @@ We are thrilled to present **Open-Sora-Plan v1.1.0**, which significantly enhanc
 
 Thanks to **HUAWEI Ascend Team** for supporting us. In the second stage, we used Huawei Ascend computing power for training. This stage's training and inference were fully supported by Huawei. Models trained on Huawei Ascend can also be loaded into GPUs and generate videos of the same quality.
 
-目前已支持国产AI芯片(华为昇腾，期待更多国产算力芯片)进行完整地训练推理。在第二阶段，我们采用华为昇腾算力进行训练。该阶段的训练、推理完全由国产芯片支持。在华为昇腾芯片上训练的模型，也能够在GPU上加载，并且生成一样质量的视频。具体可参考昇腾分支[hw branch](https://github.com/PKU-YuanGroup/Open-Sora-Plan/tree/hw). 
+目前已支持国产AI芯片(华为昇腾，期待更多国产算力芯片)进行完整地训练推理。在第二阶段，我们采用华为昇腾算力进行训练。该阶段的训练、推理完全由国产芯片支持。我们基于华为昇腾组建的512卡集群上训练的模型，也能够在GPU上加载，并且生成一样质量的视频。具体可参考昇腾分支[hw branch](https://github.com/PKU-YuanGroup/Open-Sora-Plan/tree/hw). 
 
 
 ### 221×512×512 Text-to-Video Generation
