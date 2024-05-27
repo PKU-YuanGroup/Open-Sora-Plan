@@ -421,12 +421,12 @@ def main(args):
                     assert torch.all(attn_mask)
                 
                 x = x.to(accelerator.device, dtype=weight_dtype)  # B C T+num_images H W, 16 + 4
-                attn_mask = attn_mask.to(accelerator.device)  # B L or B T+num_images L
+                attn_mask = attn_mask.to(accelerator.device)  # B L or B 1+num_images L
                 # assert torch.all(attn_mask != 0), 'attn_mask must all 1'
-                input_ids = input_ids.to(accelerator.device)  # B 1+num_images L
-                cond_mask = cond_mask.to(accelerator.device)  # B 1+num_images L
+                input_ids = input_ids.to(accelerator.device)  # B L or B 1+num_images L
+                cond_mask = cond_mask.to(accelerator.device)  # B L or B 1+num_images L
                 # print('x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape', x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape)
-                # import ipdb;ipdb.set_trace()
+                
                 with torch.no_grad():
                     # use for loop to avoid OOM, because T5 is too huge...
                     B, _, _ = input_ids.shape  # B T+num_images L  b 1+4, L
