@@ -38,10 +38,14 @@ Thanks to **HUAWEI Ascend NPU Team** for supporting us.
 
 ### 221×512×512 Text-to-Video Generation
 
-| 221×512×512 (9.2s) | 221×512×512 (9.2s) | 221×512×512 (9.2s) | 221×512×512 (9.2s) |
-| --- | --- | --- | --- |
+<!--
+
 | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/6d18f344-f7da-44eb-9e07-77813f6b5e90" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/71f75e72-e9ee-4ce7-b8ea-d2d45a6f367e" width=224>  | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/80430eae-a3b4-4f24-b448-0db2919327d6" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/dc217894-a8c8-4174-a42c-acd2811f61f5" width=224> |
 | This close-up shot of a Victoria crowned pigeon showcases its striking blue plumage ... |  a cat wearing sunglasses and working as a lifeguard at pool. |  Photorealistic closeup video of two pirate ships battling each other as they sail ... | A movie trailer featuring the adventures ofthe 30 year old spacemanwearing a redwool ...  |
+-->
+
+| 221×512×512 (9.2s) | 221×512×512 (9.2s) | 221×512×512 (9.2s) | 221×512×512 (9.2s) |
+| --- | --- | --- | --- |
 | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/f9c5823f-aa03-40ee-8335-684684f5c842" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/f207d798-8988-45b0-b836-347e499ee000" width=224>  | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/d40c38dc-9f26-4591-8163-c7089e1553e3" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/67b40ce1-135d-4ae2-a1ee-5a0866461eb2" width=224> |
 | A snowy forest landscape with a dirt road running through it. The road is flanked by ... |  Drone shot along the Hawaii jungle coastline, sunny day. Kayaks in the water. | Alpacas wearing knit wool sweaters, graffiti background, sunglasses.  | The camera rotates around a large stack of vintage televisions all showing different ...  |
 | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/42542b4e-b1b8-49b8-ada4-7bcfde8e1453" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/4eee2619-a5ca-4a32-b350-e65d6220c8f7" width=224>  | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/e6152c93-4edf-4569-8d17-1effd87a7780" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/ec78d855-07c7-4421-896a-3c46a83ec129" width=224> |
@@ -59,10 +63,13 @@ Thanks to **HUAWEI Ascend NPU Team** for supporting us.
 | A robot dog trots down a deserted alley at night, its metallic paws clinking softly ... | A solitary spider weaves its web in a quiet corner. The web shimmers and glows with ...  |  A lone surfer rides a massive wave, skillfully maneuvering through the surf. The water ... |  A solitary cheetah sprints across the savannah, its powerful muscles propelling it ... |
 | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/3964dfcd-d1b4-406b-916c-d4a702184a27" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/2a5fd1c0-9304-46e4-af35-5ffcc718bf08" width=224>  | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/73e1304a-6241-4e19-9dde-f2b1032edefd" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/c82b822b-cadd-4f11-bcc3-29e3651c02c0" width=224> |
 | A solitary astronaut plants a flag on an alien planet covered in crystal formations ... |  At dawn's first light, a spaceship slowly exits the edge of the galaxy against a ...|  A dapper puppy in a miniature suit, basking in the afternoon sun, adjusting his tie ... |  A wise old elephant painting abstract art with its trunk, each stroke a burst of color ... |
-| <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/8edfa249-272c-4773-8728-12686527771e" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/33338d8e-5ea7-4b57-9e94-97f3ee404033" width=224>  | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/227fa6b6-801b-438b-9b30-cd3a4e0a7f2f" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/b5d5ebee-ab13-4e32-8b79-e6cb8f08d4a0" width=224> |
-| In an ornate, historical hall, a massive tidal wave peaks and begins to crash. Two ... | A Shiba Inu dog wearing a beret and black turtleneck.  | A painting of a boat on water comes to life, with waves crashing and the boat becoming ...  | Many spotted jellyfish pulsating under water. Their bodies are transparent and glowing ...  |
-| <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/fe8e9450-5a80-435d-b050-6b2fe11cdf53" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/7d9335df-817d-479d-9ea7-615cb50c66b8" width=224>  | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/34c1dda6-e420-4edd-bbcd-38ff8e542ec6" width=224> |  |
-| An animated hedgehog with distinctive spiky hair and large eyes is seen exploring a ... | An animated rabbit in a playful pink snowboarding outfit is carving its way down a ...  | A person clad in a space suit with a helmet and equipped with a chest light and arm ...  |   |
+| <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/8edfa249-272c-4773-8728-12686527771e" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/33338d8e-5ea7-4b57-9e94-97f3ee404033" width=224>  | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/227fa6b6-801b-438b-9b30-cd3a4e0a7f2f" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/34c1dda6-e420-4edd-bbcd-38ff8e542ec6" width=224>  |
+| In an ornate, historical hall, a massive tidal wave peaks and begins to crash. Two ... | A Shiba Inu dog wearing a beret and black turtleneck.  |A person clad in a space suit with a helmet and equipped with a chest light and arm ... |
+
+<!--
+| <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/fe8e9450-5a80-435d-b050-6b2fe11cdf53" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/7d9335df-817d-479d-9ea7-615cb50c66b8" width=224>  | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/b5d5ebee-ab13-4e32-8b79-e6cb8f08d4a0" width=224>|  |
+| An animated hedgehog with distinctive spiky hair and large eyes is seen exploring a ... | An animated rabbit in a playful pink snowboarding outfit is carving its way down a ...  |   A painting of a boat on water comes to life, with waves crashing and the boat becoming ...  | Many spotted jellyfish pulsating under water. Their bodies are transparent and glowing ...  |   |
+-->
 
 ### 65×512×512 Video Editing
 
