@@ -38,11 +38,7 @@ Thanks to **HUAWEI Ascend NPU Team** for supporting us.
 
 ### 221×512×512 Text-to-Video Generation
 
-<!--
 
-| <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/6d18f344-f7da-44eb-9e07-77813f6b5e90" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/71f75e72-e9ee-4ce7-b8ea-d2d45a6f367e" width=224>  | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/80430eae-a3b4-4f24-b448-0db2919327d6" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/dc217894-a8c8-4174-a42c-acd2811f61f5" width=224> |
-| This close-up shot of a Victoria crowned pigeon showcases its striking blue plumage ... |  a cat wearing sunglasses and working as a lifeguard at pool. |  Photorealistic closeup video of two pirate ships battling each other as they sail ... | A movie trailer featuring the adventures ofthe 30 year old spacemanwearing a redwool ...  |
--->
 
 | 221×512×512 (9.2s) | 221×512×512 (9.2s) | 221×512×512 (9.2s) | 221×512×512 (9.2s) |
 | --- | --- | --- | --- |
@@ -64,12 +60,7 @@ Thanks to **HUAWEI Ascend NPU Team** for supporting us.
 | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/3964dfcd-d1b4-406b-916c-d4a702184a27" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/2a5fd1c0-9304-46e4-af35-5ffcc718bf08" width=224>  | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/73e1304a-6241-4e19-9dde-f2b1032edefd" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/c82b822b-cadd-4f11-bcc3-29e3651c02c0" width=224> |
 | A solitary astronaut plants a flag on an alien planet covered in crystal formations ... |  At dawn's first light, a spaceship slowly exits the edge of the galaxy against a ...|  A dapper puppy in a miniature suit, basking in the afternoon sun, adjusting his tie ... |  A wise old elephant painting abstract art with its trunk, each stroke a burst of color ... |
 | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/8edfa249-272c-4773-8728-12686527771e" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/33338d8e-5ea7-4b57-9e94-97f3ee404033" width=224>  | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/227fa6b6-801b-438b-9b30-cd3a4e0a7f2f" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/34c1dda6-e420-4edd-bbcd-38ff8e542ec6" width=224>  |
-| In an ornate, historical hall, a massive tidal wave peaks and begins to crash. Two ... | A Shiba Inu dog wearing a beret and black turtleneck.  |A person clad in a space suit with a helmet and equipped with a chest light and arm ... |
-
-<!--
-| <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/fe8e9450-5a80-435d-b050-6b2fe11cdf53" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/7d9335df-817d-479d-9ea7-615cb50c66b8" width=224>  | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/b5d5ebee-ab13-4e32-8b79-e6cb8f08d4a0" width=224>|  |
-| An animated hedgehog with distinctive spiky hair and large eyes is seen exploring a ... | An animated rabbit in a playful pink snowboarding outfit is carving its way down a ...  |   A painting of a boat on water comes to life, with waves crashing and the boat becoming ...  | Many spotted jellyfish pulsating under water. Their bodies are transparent and glowing ...  |   |
--->
+| In an ornate, historical hall, a massive tidal wave peaks and begins to crash. Two ... | A Shiba Inu dog wearing a beret and black turtleneck.  |   A painting of a boat on water comes to life, with waves crashing and the boat becoming ...  |A person clad in a space suit with a helmet and equipped with a chest light and arm ... |
 
 ### 65×512×512 Video Editing
 
@@ -83,31 +74,6 @@ Thanks to **HUAWEI Ascend NPU Team** for supporting us.
 
 <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/e44b7f8a-5da2-49c2-87c4-52ea680ad43b" width=512> 
 
-
-<details>
-<summary>v1.0.0 gallery</summary>
-  
-We are thrilled to present **Open-Sora-Plan v1.0.0**, which significantly enhances video generation quality and text control capabilities. See our [report](docs/Report-v1.0.0.md). We are training for higher resolution (>1024) as well as longer duration (>10s) videos, here is a preview of the next release. We show compressed .gif on GitHub, which loses some quality.
-
-Thanks to **HUAWEI Ascend NPU Team** for supporting us.
-
-目前已支持国产AI芯片(华为昇腾，期待更多国产算力芯片)进行推理，下一步将支持国产算力训练，具体可参考昇腾分支[hw branch](https://github.com/PKU-YuanGroup/Open-Sora-Plan/tree/hw).
-
-  
-| 257×512×512 (10s) | 65×1024×1024 (2.7s) | 65×1024×1024 (2.7s) | 
-| --- | --- | --- |
-| <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/88202804/37c29fcb-47ba-4c6e-9ce8-612f0eab6634" width=224> |  <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/88202804/6362c3ad-b1c4-4c36-8737-ad8a1e1dbed4" width=448> |<img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/88202804/d90dd228-611b-44b7-93f4-fa99e224bd11" width=448>  |  
-| Time-lapse of a coastal landscape transitioning from sunrise to nightfall...  |  A quiet beach at dawn, the waves gently lapping at the shore and the sky painted in pastel hues....|Sunset over the sea.  | 
-
-
-| 65×512×512 (2.7s) | 65×512×512 (2.7s) | 65×512×512 (2.7s) |
-| --- | --- | --- |
-| <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/88202804/deca421b-dbc5-4d16-a80b-89c1d8b4fce7" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/88202804/7cddd996-7c17-4d8e-a47d-e57c0930a91d" width=224>  | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/88202804/029ed424-e977-470b-a39d-ebc2d3e61c1c" width=224> |
-| A serene underwater scene featuring a sea turtle swimming... | Yellow and black tropical fish dart through the sea.  | a dynamic interaction between the ocean and a large rock...  |
-| <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/88202804/900e7293-9c7c-4844-b7e7-c0b0b9f7e055" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/88202804/a710d498-5f43-4553-be12-e80f9d5b442e" width=224>  | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/88202804/1d350503-98f6-4e88-8802-2dd915357726" width=224> |
-| The dynamic movement of tall, wispy grasses swaying in the wind... | Slow pan upward of blazing oak fire in an indoor fireplace.  | A serene waterfall cascading down moss-covered rocks...  |
-
-</details>
 
 
 
