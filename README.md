@@ -3,13 +3,12 @@
 [[Project Page]](https://pku-yuangroup.github.io/Open-Sora-Plan/) [[中文主页]](https://pku-yuangroup.github.io/Open-Sora-Plan/blog_cn.html)
 -->
 
+
 [![slack badge](https://img.shields.io/badge/Discord-join-blueviolet?logo=discord&amp)](https://discord.gg/vqGmpjkSaz)
 [![WeChat badge](https://img.shields.io/badge/微信-加入-green?logo=wechat&amp)](https://github.com/PKU-YuanGroup/Open-Sora-Plan/issues/53#issuecomment-1987226516)
+[![hf_space](https://img.shields.io/badge/🤗-Open%20In%20Spaces-blue.svg)](https://huggingface.co/spaces/LanguageBind/Open-Sora-Plan-v1.1.0)
 [![Twitter](https://img.shields.io/badge/-Twitter@LinBin46984-black?logo=twitter&logoColor=1D9BF0)](https://x.com/LinBin46984/status/1763476690385424554?s=20) <br>
-[![hf_space](https://img.shields.io/badge/🤗-Open%20In%20Spaces-blue.svg)](https://huggingface.co/spaces/LanguageBind/Open-Sora-Plan-v1.0.0)
-[![hf_space](https://img.shields.io/badge/🤗-Open%20In%20Spaces-blue.svg)](https://huggingface.co/spaces/fffiloni/Open-Sora-Plan-v1-0-0)
-[![Replicate demo and cloud API](https://replicate.com/camenduru/open-sora-plan-512x512/badge)](https://replicate.com/camenduru/open-sora-plan-512x512)
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/camenduru/Open-Sora-Plan-jupyter/blob/main/Open_Sora_Plan_jupyter.ipynb) <br>
+[![hf_space](https://img.shields.io/badge/🤗-Open%20In%20Spaces-blue.svg)](https://huggingface.co/spaces/LanguageBind/Open-Sora-Plan-v1.1.0)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](https://github.com/PKU-YuanGroup/Open-Sora-Plan/blob/main/LICENSE) 
 [![GitHub repo contributors](https://img.shields.io/github/contributors-anon/PKU-YuanGroup/Open-Sora-Plan?style=flat&label=Contributors)](https://github.com/PKU-YuanGroup/Open-Sora-Plan/graphs/contributors) 
 [![GitHub Commit](https://img.shields.io/github/commit-activity/m/PKU-YuanGroup/Open-Sora-Plan?label=Commit)](https://github.com/PKU-YuanGroup/Open-Sora-Plan/commits/main/)
@@ -21,12 +20,72 @@
 [![GitHub repo watchers](https://img.shields.io/github/watchers/PKU-YuanGroup/Open-Sora-Plan?style=flat&logo=github&logoColor=whitesmoke&label=Watchers)](https://github.com/PKU-YuanGroup/Open-Sora-Plan/watchers)&#160;
 [![GitHub repo size](https://img.shields.io/github/repo-size/PKU-YuanGroup/Open-Sora-Plan?style=flat&logo=github&logoColor=whitesmoke&label=Repo%20Size)](https://github.com/PKU-YuanGroup/Open-Sora-Plan/archive/refs/heads/main.zip)
 
+<details>
+<summary>v1.0.0 badge</summary>
+[![Twitter](https://img.shields.io/badge/-Twitter@LinBin46984-black?logo=twitter&logoColor=1D9BF0)](https://x.com/LinBin46984/status/1763476690385424554?s=20) <br>
+[![hf_space](https://img.shields.io/badge/🤗-Open%20In%20Spaces-blue.svg)](https://huggingface.co/spaces/LanguageBind/Open-Sora-Plan-v1.0.0)
+[![hf_space](https://img.shields.io/badge/🤗-Open%20In%20Spaces-blue.svg)](https://huggingface.co/spaces/fffiloni/Open-Sora-Plan-v1-0-0)
+[![Replicate demo and cloud API](https://replicate.com/camenduru/open-sora-plan-512x512/badge)](https://replicate.com/camenduru/open-sora-plan-512x512)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/camenduru/Open-Sora-Plan-jupyter/blob/main/Open_Sora_Plan_jupyter.ipynb) <br>
+</details>
+
+We are thrilled to present **Open-Sora-Plan v1.1.0**, which significantly enhances video generation quality and text control capabilities. See our [report](docs/Report-v1.1.0.md). We show compressed .gif on GitHub, which loses some quality.
+
+Thanks to **HUAWEI Ascend NPU Team** for supporting us.
+
+目前已支持国产AI芯片(华为昇腾，期待更多国产算力芯片)进行完整地训练推理，具体可参考昇腾分支[hw branch](https://github.com/PKU-YuanGroup/Open-Sora-Plan/tree/hw). 
+
+
+### 221×512×512 Text-to-Video Generation
+
+| 221×512×512 (9.2s) | 221×512×512 (9.2s) | 221×512×512 (9.2s) | 221×512×512 (9.2s) |
+| --- | --- | --- | --- |
+| <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/6d18f344-f7da-44eb-9e07-77813f6b5e90" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/71f75e72-e9ee-4ce7-b8ea-d2d45a6f367e" width=224>  | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/80430eae-a3b4-4f24-b448-0db2919327d6" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/dc217894-a8c8-4174-a42c-acd2811f61f5" width=224> |
+| This close-up shot of a Victoria crowned pigeon showcases its striking blue plumage ... |  a cat wearing sunglasses and working as a lifeguard at pool. |  Photorealistic closeup video of two pirate ships battling each other as they sail ... | A movie trailer featuring the adventures ofthe 30 year old spacemanwearing a redwool ...  |
+| <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/f9c5823f-aa03-40ee-8335-684684f5c842" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/f207d798-8988-45b0-b836-347e499ee000" width=224>  | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/d40c38dc-9f26-4591-8163-c7089e1553e3" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/67b40ce1-135d-4ae2-a1ee-5a0866461eb2" width=224> |
+| A snowy forest landscape with a dirt road running through it. The road is flanked by ... |  Drone shot along the Hawaii jungle coastline, sunny day. Kayaks in the water. | Alpacas wearing knit wool sweaters, graffiti background, sunglasses.  | The camera rotates around a large stack of vintage televisions all showing different ...  |
+| <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/42542b4e-b1b8-49b8-ada4-7bcfde8e1453" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/4eee2619-a5ca-4a32-b350-e65d6220c8f7" width=224>  | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/e6152c93-4edf-4569-8d17-1effd87a7780" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/ec78d855-07c7-4421-896a-3c46a83ec129" width=224> |
+| A drone camera circles around a beautiful historic church built on a rocky outcropping ... | Aerial view of Santorini during the blue hour, showcasing the stunning architecture ...  |  A robot dog explores the surface of Mars, kicking up red dust as it investigates  ... | An aerial shot of a lighthouse standing tall on a rocky cliff, its beacon cutting ...  |
+| <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/98897215-eae9-49f3-8fdb-df1d4b74d435" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/10e0f93d-925f-4b38-8205-7d89f49195f1" width=224>  | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/5453cf37-29ac-423d-9fb2-05f23416ca3e" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/77928824-6705-4d83-a7b4-43fdb74790bf" width=224> |
+| 3D animation of a small, round, fluffy creature with big, expressive eyes explores ... |  A corgi vlogging itself in tropical Maui. |  A single drop of liquid metal falls from a floating orb, landing on a mirror-like ... | The video presents an abstract composition centered around a hexagonal shape adorned ...  |
+
+### 65×512×512 Text-to-Video Generation
+
+| 65×512×512 (2.7s) | 65×512×512 (2.7s) | 65×512×512 (2.7s) | 65×512×512 (2.7s) |
+| --- | --- | --- | --- |
+| <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/a0601f20-579c-4e2e-832c-5763546718cc" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/55229eca-de3a-476b-930b-13a35eb5db30" width=224>  | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/74b9e7a1-0fa4-4f0d-8faf-0c84d97b11b5" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/66b06822-2652-453e-80fb-dd2988b730ce" width=224> |
+| Extreme close-up of chicken and green pepper kebabs grilling on a barbeque with flames. | 3D animation of a small, round, fluffy creature with big, expressive eyes explores a ...   |  A corgi vlogging itself in tropical Maui. |  In a studio, there is a painting depicting a ship sailing through the rough sea. |
+| <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/4d27ff13-e725-4602-bf17-90df2c0d8005" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/049fd4db-f2fe-4633-ab62-1dda8268e090" width=224>  | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/aba01259-60f2-49ef-aa33-e738dc8c9a49" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/98178397-61b0-4200-9ab9-9bef2728ed98" width=224> |
+| A robot dog trots down a deserted alley at night, its metallic paws clinking softly ... | A solitary spider weaves its web in a quiet corner. The web shimmers and glows with ...  |  A lone surfer rides a massive wave, skillfully maneuvering through the surf. The water ... |  A solitary cheetah sprints across the savannah, its powerful muscles propelling it ... |
+| <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/3964dfcd-d1b4-406b-916c-d4a702184a27" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/2a5fd1c0-9304-46e4-af35-5ffcc718bf08" width=224>  | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/73e1304a-6241-4e19-9dde-f2b1032edefd" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/c82b822b-cadd-4f11-bcc3-29e3651c02c0" width=224> |
+| A solitary astronaut plants a flag on an alien planet covered in crystal formations ... |  At dawn's first light, a spaceship slowly exits the edge of the galaxy against a ...|  A dapper puppy in a miniature suit, basking in the afternoon sun, adjusting his tie ... |  A wise old elephant painting abstract art with its trunk, each stroke a burst of color ... |
+| <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/8edfa249-272c-4773-8728-12686527771e" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/33338d8e-5ea7-4b57-9e94-97f3ee404033" width=224>  | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/227fa6b6-801b-438b-9b30-cd3a4e0a7f2f" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/b5d5ebee-ab13-4e32-8b79-e6cb8f08d4a0" width=224> |
+| In an ornate, historical hall, a massive tidal wave peaks and begins to crash. Two ... | A Shiba Inu dog wearing a beret and black turtleneck.  | A painting of a boat on water comes to life, with waves crashing and the boat becoming ...  | Many spotted jellyfish pulsating under water. Their bodies are transparent and glowing ...  |
+| <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/fe8e9450-5a80-435d-b050-6b2fe11cdf53" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/7d9335df-817d-479d-9ea7-615cb50c66b8" width=224>  | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/34c1dda6-e420-4edd-bbcd-38ff8e542ec6" width=224> |  |
+| An animated hedgehog with distinctive spiky hair and large eyes is seen exploring a ... | An animated rabbit in a playful pink snowboarding outfit is carving its way down a ...  | A person clad in a space suit with a helmet and equipped with a chest light and arm ...  |   |
+
+### 65×512×512 Video Editing
+
+| generated 65×512×512 (2.7s) | edited 65×512×512 (2.7s) |
+| --- | --- |
+| <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/edb8e8c2-5eef-4c90-85fb-6adb035067c3" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/32d93845-8904-4f8f-832e-37eba2ceb542" width=224>  |
+| <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/a70d0d91-0d61-4aa4-9520-6e4a6c477f12" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/7913e06f-1e0b-4d06-8233-72c882c6abfe" width=224>  |
+| <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/0e614ec0-fba0-4f42-a343-d4607966dd40" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/c531d930-410c-4614-890d-bae8013f33c2" width=224>  |
+
+### 512×512 Text-to-Image Generation
+
+ <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/e44b7f8a-5da2-49c2-87c4-52ea680ad43b" width=512> 
+
+<details>
+<summary>v1.0.0 gallery</summary>
+  
 We are thrilled to present **Open-Sora-Plan v1.0.0**, which significantly enhances video generation quality and text control capabilities. See our [report](docs/Report-v1.0.0.md). We are training for higher resolution (>1024) as well as longer duration (>10s) videos, here is a preview of the next release. We show compressed .gif on GitHub, which loses some quality.
 
 Thanks to **HUAWEI Ascend NPU Team** for supporting us.
 
 目前已支持国产AI芯片(华为昇腾，期待更多国产算力芯片)进行推理，下一步将支持国产算力训练，具体可参考昇腾分支[hw branch](https://github.com/PKU-YuanGroup/Open-Sora-Plan/tree/hw).
 
+  
 | 257×512×512 (10s) | 65×1024×1024 (2.7s) | 65×1024×1024 (2.7s) | 
 | --- | --- | --- |
 | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/88202804/37c29fcb-47ba-4c6e-9ce8-612f0eab6634" width=224> |  <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/88202804/6362c3ad-b1c4-4c36-8737-ad8a1e1dbed4" width=448> |<img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/88202804/d90dd228-611b-44b7-93f4-fa99e224bd11" width=448>  |  
@@ -40,7 +99,7 @@ Thanks to **HUAWEI Ascend NPU Team** for supporting us.
 | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/88202804/900e7293-9c7c-4844-b7e7-c0b0b9f7e055" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/88202804/a710d498-5f43-4553-be12-e80f9d5b442e" width=224>  | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/88202804/1d350503-98f6-4e88-8802-2dd915357726" width=224> |
 | The dynamic movement of tall, wispy grasses swaying in the wind... | Slow pan upward of blazing oak fire in an indoor fireplace.  | A serene waterfall cascading down moss-covered rocks...  |
 
-
+</details>
 
 
 
@@ -68,12 +127,17 @@ Project stages:
   
 ## 📰 News
 
+**[2024.04.09]** 🚀🚀🚀 We are launching Open-Sora Plan v1.1.0, which significantly improves video quality and length, and is fully open source! Please check out our latest [report](docs/Report-v1.1.0.md).
+
 **[2024.04.09]** 🚀 Excited to share our latest exploration on metamorphic time-lapse video generation: [MagicTime](https://github.com/PKU-YuanGroup/MagicTime), which learns real-world physics knowledge from time-lapse videos. Here is the dataset for train (updating): [Open-Sora-Dataset](https://github.com/PKU-YuanGroup/Open-Sora-Dataset).
 
 **[2024.04.07]** 🔥🔥🔥 Today, we are thrilled to present Open-Sora-Plan v1.0.0, which significantly enhances video generation quality and text control capabilities. See our [report](docs/Report-v1.0.0.md). Thanks to HUAWEI NPU for supporting us.
 
 **[2024.03.27]** 🚀🚀🚀 We release the report of [VideoCausalVAE](docs/CausalVideoVAE.md), which supports both images and videos. We present our reconstructed video in this demonstration as follows. The text-to-video model is on the way.
 
+<details>
+<summary>View more</summary>
+  
 **[2024.03.10]** 🚀🚀🚀 This repo supports training a latent size of 225×90×90 (t×h×w), which means we are able to **train 1 minute of 1080P video with 30FPS** (2× interpolated frames and 2× super resolution) under class-condition.
 
 **[2024.03.08]** We support the training code of text condition with 16 frames of 512x512. The code is mainly borrowed from [Latte](https://github.com/Vchitect/Latte).
@@ -88,6 +152,7 @@ Project stages:
 
 **[2024.03.01]** Training code is available now! Learn more on our [project page](https://pku-yuangroup.github.io/Open-Sora-Plan/). Please feel free to watch 👀 this repository for the latest updates.
 
+</details>
 
 ## ✊ Todo
 
@@ -159,9 +224,11 @@ Project stages:
   - [x] Train with T5 conditioning.
   - [ ] Train with CLIP conditioning.
   - [ ] Train with CLIP + T5 conditioning (probably costly during training and experiments).
+- [ ] Support Chinese. ⌛ [WIP]
 
 #### Control model with more condition
 - [ ] Incorporating [ControlNet](https://github.com/lllyasviel/ControlNet). ⌛ [WIP] 🙏 **[Need your contribution]**
+- [ ] Incorporating [ReVideo](https://github.com/MC-E/ReVideo). ⌛ [WIP]
 
 ## 📂 Repo structure (WIP)
 ```
@@ -224,9 +291,16 @@ pip install -e '.[dev]'
 
 #### Gradio Web UI  <a href='https://github.com/gradio-app/gradio'><img src='https://img.shields.io/github/stars/gradio-app/gradio'></a> 
 
+Highly recommend trying out our web demo by the following command. We also provide [online demo](https://huggingface.co/spaces/LanguageBind/Open-Sora-Plan-v1.1.0) [![hf_space](https://img.shields.io/badge/🤗-Open%20In%20Spaces-blue.svg)](https://huggingface.co/spaces/LanguageBind/Open-Sora-Plan-v1.1.0). 
+
+<details>
+<summary>v1.0.0</summary>
+  
 Highly recommend trying out our web demo by the following command. We also provide [online demo](https://huggingface.co/spaces/LanguageBind/Open-Sora-Plan-v1.0.0) [![hf_space](https://img.shields.io/badge/🤗-Open%20In%20Spaces-blue.svg)](https://huggingface.co/spaces/LanguageBind/Open-Sora-Plan-v1.0.0) and [![hf_space](https://img.shields.io/badge/🤗-Open%20In%20Spaces-blue.svg)](https://huggingface.co/spaces/fffiloni/Open-Sora-Plan-v1-0-0) in Huggingface Spaces. 
 
 🤝 Enjoying the [![Replicate demo and cloud API](https://replicate.com/camenduru/open-sora-plan-512x512/badge)](https://replicate.com/camenduru/open-sora-plan-512x512) and [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/camenduru/Open-Sora-Plan-jupyter/blob/main/Open_Sora_Plan_jupyter.ipynb), created by [@camenduru](https://github.com/camenduru), who generously supports our research!
+
+</details>
 
 ```bash
 python -m opensora.serve.gradio_web_server
@@ -244,7 +318,7 @@ Refer to [Data.md](docs/Data.md)
 ###  Evaluation
 Refer to the document [EVAL.md](docs/EVAL.md).
 
-### Causal Video VAE
+### CausalVideoVAE
 
 #### Reconstructing
 
@@ -258,8 +332,6 @@ Parameter explanation:
 
 - `--enable_tiling`: This parameter is a flag to enable a tiling conv.
 
-- `--enable_time_chunk`: This parameter is a flag to enable a time chunking. This will block the video in the temporal dimension and reconstruct the long video. This is only an operation performed in the video space, not the latent space, and cannot be used for training.
-
 #### Training and Eval
 
 Please refer to the document [CausalVideoVAE](docs/Train_And_Eval_CausalVideoVAE.md).
@@ -272,16 +344,16 @@ Please refer to the document [VQVAE](docs/VQVAE.md).
 
 #### Training
 ```
-sh scripts/text_condition/train_videoae_17x256x256.sh
-```
-```
-sh scripts/text_condition/train_videoae_65x256x256.sh
-```
-```
 sh scripts/text_condition/train_videoae_65x512x512.sh
 ```
+```
+sh scripts/text_condition/train_videoae_221x512x512.sh
+```
+```
+sh scripts/text_condition/train_videoae_513x512x512.sh
+```
 
-
+<!--
 ## 🚀 Improved Training Performance
 
 In comparison to the original implementation, we implement a selection of training speed acceleration and memory saving features including gradient checkpointing, mixed precision training, and pre-extracted features, xformers, deepspeed. Some data points using **a batch size of 1 with a A100**:
@@ -306,6 +378,8 @@ In comparison to the original implementation, we implement a selection of traini
 | ✔                     | ✔               | ✔        | ✔                     | Zero2 offload     | ❌            |0.07 steps/sec  |   39G        |
 | ✔                     | ✔               | ✔        | ✔                     | Zero2 offload     | ✔             |0.07 steps/sec  |   33G        |
 
+-->
+
 ## 💡 How to Contribute to the Open-Sora Plan Community
 We greatly appreciate your contributions to the Open-Sora Plan open-source community and helping us make it even better than it is now!
 
@@ -317,6 +391,7 @@ For more details, please refer to the [Contribution Guidelines](docs/Contributio
 ## 👍 Acknowledgement
 * [Latte](https://github.com/Vchitect/Latte): The **main codebase** we built upon and it is an wonderful video generated model.
 * [PixArt-alpha](https://github.com/PixArt-alpha/PixArt-alpha): Fast Training of Diffusion Transformer for Photorealistic Text-to-Image Synthesis.
+* [ShareGPT4Video](https://github.com/InternLM/InternLM-XComposer/tree/main/projects/ShareGPT4Video): Improving Video Understanding and Generation with Better Captions.
 * [VideoGPT](https://github.com/wilson1yan/VideoGPT): Video Generation using VQ-VAE and Transformers.
 * [DiT](https://github.com/facebookresearch/DiT): Scalable Diffusion Models with Transformers.
 * [FiT](https://github.com/whlzy/FiT): Flexible Vision Transformer for Diffusion Model.
@@ -357,4 +432,3 @@ For more details, please refer to the [Contribution Guidelines](docs/Contributio
 <a href="https://github.com/PKU-YuanGroup/Open-Sora-Plan/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=PKU-YuanGroup/Open-Sora-Plan" />
 </a>
-
