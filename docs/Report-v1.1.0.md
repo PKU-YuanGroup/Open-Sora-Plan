@@ -77,10 +77,10 @@ We compare the computational overhead of the two versions by testing the forward
 |---|---|---|---|---|---|---|
 |  |  Peak Mem. |  Speed  | Peak Mem. |  Speed  |Peak Mem. |  Speed  |
 | v1.0.0 |  22G |   2.9 it/s  | OOM |  -   | OOM |   -  |
-| v1.0.1 |  18G |  4.9 it/s   | 34G  |  2.5 it/s   | 61G |   1.2 it/s   |
+| v1.1.0 |  18G |  4.9 it/s   | 34G  |  2.5 it/s   | 61G |   1.2 it/s   |
 
 
-#### Temoral Module
+#### Temporal Module
 
 <img width="480" alt="vaemodel" src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/7c8a4263-b7d1-4edc-a60c-801ae9b4344f">
 
