@@ -74,7 +74,8 @@ Thanks to **HUAWEI Ascend NPU Team** for supporting us.
 
 ### 512×512 Text-to-Image Generation
 
- <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/e44b7f8a-5da2-49c2-87c4-52ea680ad43b" width=512> 
+<img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/e44b7f8a-5da2-49c2-87c4-52ea680ad43b" width=512> 
+
 
 <details>
 <summary>v1.0.0 gallery</summary>
@@ -103,28 +104,6 @@ Thanks to **HUAWEI Ascend NPU Team** for supporting us.
 
 
 
-## 💪 Goal
-This project aims to create a simple and scalable repo, to reproduce [Sora](https://openai.com/sora) (OpenAI, but we prefer to call it "ClosedAI" ). We wish the open-source community can contribute to this project. Pull requests are welcome!!!
-
-本项目希望通过开源社区的力量复现Sora，由北大-兔展AIGC联合实验室共同发起，当前版本离目标差距仍然较大，仍需持续完善和快速迭代，欢迎Pull request！！！
-
-Project stages:
-- Primary
-1. Setup the codebase and train an un-conditional model on a landscape dataset.
-2. Train models that boost resolution and duration.
-
-- Extensions
-3. Conduct text2video experiments on landscape dataset.
-4. Train the 1080p model on video2text dataset.
-5. Control model with more conditions.
-
-
-<div style="display: flex; justify-content: center;"> 
-  <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/88202804/6b3095e9-88e8-4481-9b1b-ff9aaa25caf1" width=200> 
-  <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/88202804/f0a2ebca-6d25-4f94-be29-bd0a29cd9230" width=600> 
-</div>
-
-  
 ## 📰 News
 
 **[2024.05.27]** 🚀🚀🚀 We are launching Open-Sora Plan v1.1.0, which significantly improves video quality and length, and is fully open source! Please check out our latest [report](docs/Report-v1.1.0.md).
@@ -154,7 +133,30 @@ Project stages:
 
 </details>
 
-## ✊ Todo
+## 💪 Goal
+This project aims to create a simple and scalable repo, to reproduce [Sora](https://openai.com/sora) (OpenAI, but we prefer to call it "ClosedAI" ). We wish the open-source community can contribute to this project. Pull requests are welcome!!!
+
+本项目希望通过开源社区的力量复现Sora，由北大-兔展AIGC联合实验室共同发起，当前版本离目标差距仍然较大，仍需持续完善和快速迭代，欢迎Pull request！！！
+
+Project stages:
+- Primary
+1. Setup the codebase and train an un-conditional model on a landscape dataset.
+2. Train models that boost resolution and duration.
+
+- Extensions
+3. Conduct text2video experiments on landscape dataset.
+4. Train the 1080p model on video2text dataset.
+5. Control model with more conditions.
+
+
+<div style="display: flex; justify-content: center;"> 
+  <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/88202804/6b3095e9-88e8-4481-9b1b-ff9aaa25caf1" width=200> 
+  <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/88202804/f0a2ebca-6d25-4f94-be29-bd0a29cd9230" width=600> 
+</div>
+
+  
+<details>
+<summary>✊ Todo</summary>
 
 #### Setup the codebase and train an unconditional model on landscape dataset
 - [x] Fix typos & Update readme. 🤝 Thanks to [@mio2333](https://github.com/mio2333), [@CreamyLong](https://github.com/CreamyLong), [@chg0901](https://github.com/chg0901), [@Nyx-177](https://github.com/Nyx-177), [@HowardLi1984](https://github.com/HowardLi1984), [@sennnnn](https://github.com/sennnnn), [@Jason-fan20](https://github.com/Jason-fan20)
@@ -230,6 +232,8 @@ Project stages:
 - [ ] Incorporating [ControlNet](https://github.com/lllyasviel/ControlNet). ⌛ [WIP] 🙏 **[Need your contribution]**
 - [ ] Incorporating [ReVideo](https://github.com/MC-E/ReVideo). ⌛ [WIP]
 
+</details>
+ 
 ## 📂 Repo structure (WIP)
 ```
 ├── README.md
