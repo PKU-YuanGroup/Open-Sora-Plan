@@ -5,11 +5,9 @@ from .feature_datasets import T2V_Feature_dataset, T2V_T5_Feature_dataset
 from torchvision import transforms
 from torchvision.transforms import Lambda
 
-from .landscope import Landscope
 from .t2v_datasets import T2V_dataset
-from .transform import ToTensorVideo, TemporalRandomCrop, RandomHorizontalFlipVideo, CenterCropResizeVideo
-from .ucf101 import UCF101
-from .sky_datasets import Sky
+from .transform import ToTensorVideo, TemporalRandomCrop, RandomHorizontalFlipVideo, CenterCropResizeVideo, LongSideResizeVideo, SpatialStrideCropVideo
+
 
 ae_norm = {
     'CausalVAEModel_4x8x8': Lambda(lambda x: 2. * x - 1.),
@@ -48,52 +46,20 @@ ae_denorm = {
 def getdataset(args):
     temporal_sample = TemporalRandomCrop(args.num_frames * args.sample_rate)  # 16 x
     norm_fun = ae_norm[args.ae]
-    if args.dataset == 'ucf101':
-        transform = Compose(
-            [
-                ToTensorVideo(),  # TCHW
-                CenterCropResizeVideo(size=args.max_image_size),
-                RandomHorizontalFlipVideo(p=0.5),
-                norm_fun,
-            ]
-        )
-        return UCF101(args, transform=transform, temporal_sample=temporal_sample)
-    if args.dataset == 'landscope':
-        transform = Compose(
-            [
-                ToTensorVideo(),  # TCHW
-                CenterCropResizeVideo(size=args.max_image_size),
-                RandomHorizontalFlipVideo(p=0.5),
-                norm_fun,
-            ]
-        )
-        return Landscope(args, transform=transform, temporal_sample=temporal_sample)
-    elif args.dataset == 'sky':
+    if args.dataset == 't2v':
+        if args.multi_scale:
+            resize = [
+                LongSideResizeVideo(args.max_image_size, skip_low_resolution=True),
+                SpatialStrideCropVideo(args.stride)
+                ]
+        else:
+            resize = [CenterCropResizeVideo(args.max_image_size), ]
         transform = transforms.Compose([
             ToTensorVideo(),
-            CenterCropResizeVideo(args.max_image_size),
-            RandomHorizontalFlipVideo(p=0.5),
+            *resize, 
+            # RandomHorizontalFlipVideo(p=0.5),  # in case their caption have position decription
             norm_fun
         ])
-        return Sky(args, transform=transform, temporal_sample=temporal_sample)
-    elif args.dataset == 't2v':
-        transform = transforms.Compose([
-            ToTensorVideo(),
-            CenterCropResizeVideo(args.max_image_size),
-            RandomHorizontalFlipVideo(p=0.5),
-            norm_fun
-        ])
-        tokenizer = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir='./cache_dir')
+        tokenizer = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
         return T2V_dataset(args, transform=transform, temporal_sample=temporal_sample, tokenizer=tokenizer)
-    elif args.dataset == 't2v_feature':
-        return T2V_Feature_dataset(args, temporal_sample)
-    elif args.dataset == 't2v_t5_feature':
-        transform = transforms.Compose([
-            ToTensorVideo(),
-            CenterCropResizeVideo(args.max_image_size),
-            RandomHorizontalFlipVideo(p=0.5),
-            norm_fun
-        ])
-        return T2V_T5_Feature_dataset(args, transform, temporal_sample)
-    else:
-        raise NotImplementedError(args.dataset)
+    raise NotImplementedError(args.dataset)

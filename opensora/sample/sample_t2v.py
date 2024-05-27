@@ -29,26 +29,25 @@ import imageio
 
 
 def main(args):
-    # torch.manual_seed(args.seed)
+    # torch.manual_seed(args.seed) 
     torch.set_grad_enabled(False)
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    vae = getae_wrapper(args.ae)(args.model_path, subfolder="vae", cache_dir='cache_dir').to(device, dtype=torch.float16)
+    vae = getae_wrapper(args.ae)(args.model_path, subfolder="vae", cache_dir=args.cache_dir).to(device, dtype=torch.float16)
+    # vae = getae_wrapper(args.ae)(args.ae_path).to(device, dtype=torch.float16)
     if args.enable_tiling:
         vae.vae.enable_tiling()
         vae.vae.tile_overlap_factor = args.tile_overlap_factor
-
+    vae.vae_scale_factor = ae_stride_config[args.ae]
     # Load model:
-    transformer_model = LatteT2V.from_pretrained(args.model_path, subfolder=args.version, cache_dir="cache_dir", torch_dtype=torch.float16).to(device)
+    transformer_model = LatteT2V.from_pretrained(args.model_path, subfolder=args.version, cache_dir=args.cache_dir, torch_dtype=torch.float16).to(device)
+    # transformer_model = LatteT2V.from_pretrained(args.model_path, low_cpu_mem_usage=False, device_map=None, torch_dtype=torch.float16).to(device)
+    
     transformer_model.force_images = args.force_images
-    tokenizer = T5Tokenizer.from_pretrained(args.text_encoder_name, cache_dir="cache_dir")
-    text_encoder = T5EncoderModel.from_pretrained(args.text_encoder_name, cache_dir="cache_dir", torch_dtype=torch.float16).to(device)
+    tokenizer = T5Tokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
+    text_encoder = T5EncoderModel.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir, torch_dtype=torch.float16).to(device)
 
-    video_length, image_size = transformer_model.config.video_length, int(args.version.split('x')[1])
-    latent_size = (image_size // ae_stride_config[args.ae][1], image_size // ae_stride_config[args.ae][2])
-    vae.latent_size = latent_size
     if args.force_images:
-        video_length = 1
         ext = 'jpg'
     else:
         ext = 'mp4'
@@ -95,31 +94,29 @@ def main(args):
     if len(args.text_prompt) == 1 and args.text_prompt[0].endswith('txt'):
         text_prompt = open(args.text_prompt[0], 'r').readlines()
         args.text_prompt = [i.strip() for i in text_prompt]
-    for prompt in args.text_prompt:
+    for idx, prompt in enumerate(args.text_prompt):
         print('Processing the ({}) prompt'.format(prompt))
         videos = videogen_pipeline(prompt,
-                                   video_length=video_length,
-                                   height=image_size,
-                                   width=image_size,
+                                   num_frames=args.num_frames,
+                                   height=args.height,
+                                   width=args.width,
                                    num_inference_steps=args.num_sampling_steps,
                                    guidance_scale=args.guidance_scale,
                                    enable_temporal_attentions=not args.force_images,
                                    num_images_per_prompt=1,
                                    mask_feature=True,
                                    ).video
+        print(videos.shape)
         try:
             if args.force_images:
                 videos = videos[:, 0].permute(0, 3, 1, 2)  # b t h w c -> b c h w
-                save_image(videos / 255.0, os.path.join(args.save_img_path,
-                                                     prompt.replace(' ', '_')[:100] + f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}.{ext}'),
+                save_image(videos / 255.0, os.path.join(args.save_img_path, f'{idx}.{ext}'),
                            nrow=1, normalize=True, value_range=(0, 1))  # t c h w
 
             else:
                 imageio.mimwrite(
                     os.path.join(
-                        args.save_img_path,
-                        prompt.replace(' ', '_')[:100] + f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}.{ext}'
-                    ), videos[0],
+                        args.save_img_path, f'{idx}.{ext}'), videos[0],
                     fps=args.fps, quality=9)  # highest quality is 10, lowest is 0
         except:
             print('Error when saving {}'.format(prompt))
@@ -143,8 +140,13 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_path", type=str, default='LanguageBind/Open-Sora-Plan-v1.0.0')
-    parser.add_argument("--version", type=str, default='65x512x512', choices=['65x512x512', '65x256x256', '17x256x256'])
+    parser.add_argument("--version", type=str, default=None, choices=[None, '65x512x512', '221x512x512', '513x512x512'])
+    parser.add_argument("--num_frames", type=int, default=1)
+    parser.add_argument("--height", type=int, default=512)
+    parser.add_argument("--width", type=int, default=512)
+    parser.add_argument("--cache_dir", type=str, default='./cache_dir')
     parser.add_argument("--ae", type=str, default='CausalVAEModel_4x8x8')
+    parser.add_argument("--ae_path", type=str, default='CausalVAEModel_4x8x8')
     parser.add_argument("--text_encoder_name", type=str, default='DeepFloyd/t5-v1_1-xxl')
     parser.add_argument("--save_img_path", type=str, default="./sample_videos/t2v")
     parser.add_argument("--guidance_scale", type=float, default=7.5)

@@ -94,6 +94,5 @@ class CausalConv3d(nn.Module):
         first_frame_pad = x[:, :, :1, :, :].repeat(
             (1, 1, self.time_kernel_size - 1, 1, 1)
         )   # b c t h w
-        x = torch.concatenate((first_frame_pad, x), dim=2)
+        x = torch.concatenate((first_frame_pad, x), dim=2)  # 3 + 16
         return self.conv(x)
-    

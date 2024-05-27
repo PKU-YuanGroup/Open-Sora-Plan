@@ -20,49 +20,6 @@ from opensora.models.ae import getae_wrapper
 from opensora.dataset.transform import CenterCropVideo, resize
 from opensora.models.ae.videobase import CausalVAEModel
 
-def process_in_chunks(
-    video_data: torch.Tensor,
-    model: torch.nn.Module,
-    chunk_size: int,
-    overlap: int,
-    device: str,
-):
-    assert (chunk_size + overlap - 1) % 4 == 0
-    num_frames = video_data.size(2)
-    output_chunks = []
-
-    start = 0
-    while start < num_frames:
-        end = min(start + chunk_size, num_frames)
-        if start + chunk_size + overlap < num_frames:
-            end += overlap
-        chunk = video_data[:, :, start:end, :, :]
-        
-        with torch.no_grad():
-            chunk = chunk.to(device)
-            latents = model.encode(chunk)
-            recon_chunk = model.decode(latents.half()).cpu().float() # b t c h w
-            recon_chunk = recon_chunk.permute(0, 2, 1, 3, 4)
-
-        if output_chunks:
-            overlap_step = min(overlap, recon_chunk.shape[2])
-            overlap_tensor = (
-                output_chunks[-1][:, :, -overlap_step:] * 1 / 4
-                + recon_chunk[:, :, :overlap_step] * 3 / 4
-            )
-            output_chunks[-1] = torch.cat(
-                (output_chunks[-1][:, :, :-overlap], overlap_tensor), dim=2
-            )
-            if end < num_frames:
-                output_chunks.append(recon_chunk[:, :, overlap:])
-            else:
-                output_chunks.append(recon_chunk[:, :, :, :, :])
-        else:
-            output_chunks.append(recon_chunk)
-        start += chunk_size
-    return torch.cat(output_chunks, dim=2).permute(0, 2, 1, 3, 4)
-
-
 def array_to_video(image_array: npt.NDArray, fps: float = 30.0, output_file: str = 'output_video.mp4') -> None:
     height, width, channels = image_array[0].shape
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
@@ -153,7 +110,8 @@ def preprocess(video_data: torch.Tensor, short_size: int = 128, crop_size: Optio
 def main(args: argparse.Namespace):
     device = args.device
     kwarg = {}
-    vae = getae_wrapper(args.ae)(args.model_path, subfolder="vae", cache_dir='cache_dir', **kwarg).to(device)
+    # vae = getae_wrapper(args.ae)(args.model_path, subfolder="vae", cache_dir='cache_dir', **kwarg).to(device)
+    vae = getae_wrapper(args.ae)(args.ae_path, **kwarg).to(device)
     if args.enable_tiling:
         vae.vae.enable_tiling()
         vae.vae.tile_overlap_factor = args.tile_overlap_factor
@@ -165,12 +123,11 @@ def main(args: argparse.Namespace):
         x_vae = preprocess(read_video(args.video_path, args.num_frames, args.sample_rate), args.resolution,
                            args.crop_size)
         x_vae = x_vae.to(device, dtype=torch.float16)  # b c t h w
-        if args.enable_time_chunk:
-            video_recon = process_in_chunks(x_vae, vae, 7, 2, device)
-        else:
-            latents = vae.encode(x_vae)
-            latents = latents.to(torch.float16)
-            video_recon = vae.decode(latents)  # b t c h w
+        # from tqdm import tqdm
+        # for i in tqdm(range(10000000)):
+        latents = vae.encode(x_vae)
+        latents = latents.to(torch.float16)
+        video_recon = vae.decode(latents)  # b t c h w
 
     if video_recon.shape[2] == 1:
         x = video_recon[0, 0, :, :, :]
@@ -191,6 +148,7 @@ if __name__ == '__main__':
     parser.add_argument('--video_path', type=str, default='')
     parser.add_argument('--rec_path', type=str, default='')
     parser.add_argument('--ae', type=str, default='')
+    parser.add_argument('--ae_path', type=str, default='')
     parser.add_argument('--model_path', type=str, default='results/pretrained')
     parser.add_argument('--fps', type=int, default=30)
     parser.add_argument('--resolution', type=int, default=336)

@@ -144,7 +144,7 @@ class TimeDownsampleRes2x(nn.Module):
         in_channels,
         out_channels,
         kernel_size: int = 3,
-        mix_factor: float = 2,
+        mix_factor: float = 2.0,
     ):
         super().__init__()
         self.kernel_size = cast_tuple(kernel_size, 3)
@@ -168,7 +168,7 @@ class TimeUpsampleRes2x(nn.Module):
         in_channels,
         out_channels,
         kernel_size: int = 3,
-        mix_factor: float = 2,
+        mix_factor: float = 2.0,
     ):
         super().__init__()
         self.conv = CausalConv3d(
@@ -189,7 +189,8 @@ class TimeDownsampleResAdv2x(nn.Module):
         self,
         in_channels,
         out_channels,
-        kernel_size: int = 3
+        kernel_size: int = 3,
+        mix_factor: float = 1.5,
     ):
         super().__init__()
         self.kernel_size = cast_tuple(kernel_size, 3)
@@ -199,14 +200,15 @@ class TimeDownsampleResAdv2x(nn.Module):
         self.conv = nn.Conv3d(
             in_channels, out_channels, self.kernel_size, stride=(2,1,1), padding=(0,1,1)
         )
-        self.mix_factor = 1
+        self.mix_factor = torch.nn.Parameter(torch.Tensor([mix_factor]))
     
     def forward(self, x):
         first_frame_pad = x[:, :, :1, :, :].repeat(
             (1, 1, self.kernel_size[0] - 1, 1, 1)
         )
         x = torch.concatenate((first_frame_pad, x), dim=2)
-        return self.mix_factor * self.avg_pool(x) + (1 - self.mix_factor) * self.conv(self.attn((self.res(x))))
+        alpha = torch.sigmoid(self.mix_factor)
+        return alpha * self.avg_pool(x) + (1 - alpha) * self.conv(self.attn((self.res(x))))
 
 class TimeUpsampleResAdv2x(nn.Module):
     def __init__(
@@ -214,6 +216,7 @@ class TimeUpsampleResAdv2x(nn.Module):
         in_channels,
         out_channels,
         kernel_size: int = 3,
+        mix_factor: float = 1.5,
     ):
         super().__init__()
         self.res = ResnetBlock3D(in_channels=in_channels, out_channels=in_channels, dropout=0.0)
@@ -222,11 +225,12 @@ class TimeUpsampleResAdv2x(nn.Module):
         self.conv = CausalConv3d(
             in_channels, out_channels, kernel_size, padding=1
         )
-        self.mix_factor = 1
+        self.mix_factor = torch.nn.Parameter(torch.Tensor([mix_factor]))
         
     def forward(self, x):
         if x.size(2) > 1:
             x,x_= x[:,:,:1],x[:,:,1:]
             x_= F.interpolate(x_, scale_factor=(2,1,1), mode='trilinear')
             x = torch.concat([x, x_], dim=2)
-        return self.mix_factor * x + (1-self.mix_factor) * self.conv(self.attn(self.res(x)))
+        alpha = torch.sigmoid(self.mix_factor)
+        return alpha * x + (1 - alpha) * self.conv(self.attn(self.res(x)))

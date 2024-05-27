@@ -14,14 +14,13 @@ import os
 import shutil
 from pathlib import Path
 from typing import Optional
-
+import gc
 import numpy as np
 from einops import rearrange
 from tqdm import tqdm
 from dataclasses import field, dataclass
 from torch.utils.data import DataLoader
 from copy import deepcopy
-
 import accelerate
 import torch
 from torch.nn import functional as F
@@ -45,57 +44,69 @@ from opensora.models.ae import getae, getae_wrapper
 from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModelWrapper
 from opensora.models.diffusion.diffusion import create_diffusion_T as create_diffusion
 from opensora.models.diffusion.latte.modeling_latte import LatteT2V
-from opensora.models.text_encoder import get_text_enc
+from opensora.models.text_encoder import get_text_enc, get_text_warpper
 from opensora.utils.dataset_utils import Collate
 from opensora.models.ae import ae_stride_config, ae_channel_config
 from opensora.models.diffusion import Diffusion_models
+from opensora.sample.pipeline_videogen import VideoGenPipeline
+from opensora.utils.utils import print_grad_norm
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 check_min_version("0.24.0")
 logger = get_logger(__name__)
 
 
-def generate_timestep_weights(args, num_timesteps):
-    weights = torch.ones(num_timesteps)
-
-    # Determine the indices to bias
-    num_to_bias = int(args.timestep_bias_portion * num_timesteps)
-
-    if args.timestep_bias_strategy == "later":
-        bias_indices = slice(-num_to_bias, None)
-    elif args.timestep_bias_strategy == "earlier":
-        bias_indices = slice(0, num_to_bias)
-    elif args.timestep_bias_strategy == "range":
-        # Out of the possible 1000 timesteps, we might want to focus on eg. 200-500.
-        range_begin = args.timestep_bias_begin
-        range_end = args.timestep_bias_end
-        if range_begin < 0:
-            raise ValueError(
-                "When using the range strategy for timestep bias, you must provide a beginning timestep greater or equal to zero."
+@torch.inference_mode()
+def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weight_dtype, global_step):
+    validation_prompt = [
+        "A quiet beach at dawn, the waves gently lapping at the shore and the sky painted in pastel hues.", 
+        "The majestic beauty of a waterfall cascading down a cliff into a serene lake."
+    ]
+    logger.info(f"Running validation....\n")
+    model = accelerator.unwrap_model(model)
+    scheduler = PNDMScheduler()
+    videogen_pipeline = VideoGenPipeline(vae=vae,
+                                         text_encoder=text_encoder,
+                                         tokenizer=tokenizer,
+                                         scheduler=scheduler,
+                                         transformer=model).to(device=accelerator.device)
+    videos = []
+    for prompt in validation_prompt:
+        logger.info('Processing the ({}) prompt'.format(prompt))
+        video = videogen_pipeline(prompt,
+                                num_frames=args.num_frames,
+                                height=args.max_image_size,
+                                width=args.max_image_size,
+                                num_inference_steps=args.num_sampling_steps,
+                                guidance_scale=args.guidance_scale,
+                                enable_temporal_attentions=True,
+                                num_images_per_prompt=1,
+                                mask_feature=True,
+                                ).video
+        videos.append(video[0])
+    # import ipdb;ipdb.set_trace()
+    gc.collect()
+    torch.cuda.empty_cache()
+    videos = torch.stack(videos).numpy()
+    videos = rearrange(videos, 'b t h w c -> b t c h w')
+    for tracker in accelerator.trackers:
+        if tracker.name == "tensorboard":
+            np_videos = np.stack([np.asarray(vid) for vid in videos])
+            tracker.writer.add_video("validation", np_videos, global_step, fps=24)
+        if tracker.name == "wandb":
+            import wandb
+            tracker.log(
+                {
+                    "validation": [
+                        wandb.Video(video, caption=f"{i}: {prompt}", fps=24)
+                        for i, (video, prompt) in enumerate(zip(videos, validation_prompt))
+                    ]
+                }
             )
-        if range_end > num_timesteps:
-            raise ValueError(
-                "When using the range strategy for timestep bias, you must provide an ending timestep smaller than the number of timesteps."
-            )
-        bias_indices = slice(range_begin, range_end)
-    else:  # 'none' or any other string
-        return weights
-    if args.timestep_bias_multiplier <= 0:
-        return ValueError(
-            "The parameter --timestep_bias_multiplier is not intended to be used to disable the training of specific timesteps."
-            " If it was intended to disable timestep bias, use `--timestep_bias_strategy none` instead."
-            " A timestep bias multiplier less than or equal to 0 is not allowed."
-        )
 
-    # Apply the bias
-    weights[bias_indices] *= args.timestep_bias_multiplier
-
-    # Normalize
-    weights /= weights.sum()
-
-    return weights
-
-
+    del videogen_pipeline
+    gc.collect()
+    torch.cuda.empty_cache()
 #################################################################################
 #                                  Training Loop                                #
 #################################################################################
@@ -115,7 +126,6 @@ def main(args):
     if args.report_to == "wandb":
         if not is_wandb_available():
             raise ImportError("Make sure to install wandb if you want to use it for logging during training.")
-        import wandb
 
     # Make one log on every process with the configuration for debugging.
     logging.basicConfig(
@@ -145,28 +155,42 @@ def main(args):
         #         repo_id=args.hub_model_id or Path(args.output_dir).name, exist_ok=True, token=args.hub_token
         #     ).repo_id
 
-    # Create model:
+    # For mixed precision training we cast all non-trainable weigths to half-precision
+    # as these weights are only used for inference, keeping weights in full precision is not required.
+    weight_dtype = torch.float32
+    if accelerator.mixed_precision == "fp16":
+        weight_dtype = torch.float16
+    elif accelerator.mixed_precision == "bf16":
+        weight_dtype = torch.bfloat16
 
+    # Create model:
     diffusion = create_diffusion(timestep_respacing="")  # default: 1000 steps, linear noise schedule
-    ae = getae_wrapper(args.ae)(args.ae_path).eval()
+    kwargs = {}
+    ae = getae_wrapper(args.ae)(args.ae_path, cache_dir=args.cache_dir, **kwargs).eval()
     if args.enable_tiling:
         ae.vae.enable_tiling()
         ae.vae.tile_overlap_factor = args.tile_overlap_factor
-    text_enc = get_text_enc(args).eval()
+        
+    kwargs = {'load_in_8bit': args.enable_8bit_t5, 'torch_dtype': weight_dtype, 'low_cpu_mem_usage': True}
+    text_enc = get_text_warpper(args.text_encoder_name)(args, **kwargs).eval()
 
     ae_stride_t, ae_stride_h, ae_stride_w = ae_stride_config[args.ae]
+    ae.vae_scale_factor = ae_stride_config[args.ae]
+    assert ae_stride_h == ae_stride_w, f"Support only ae_stride_h == ae_stride_w now, but found ae_stride_h ({ae_stride_h}), ae_stride_w ({ae_stride_w})"
     args.ae_stride_t, args.ae_stride_h, args.ae_stride_w = ae_stride_t, ae_stride_h, ae_stride_w
     args.ae_stride = args.ae_stride_h
     patch_size = args.model[-3:]
     patch_size_t, patch_size_h, patch_size_w = int(patch_size[0]), int(patch_size[1]), int(patch_size[2])
     args.patch_size = patch_size_h
     args.patch_size_t, args.patch_size_h, args.patch_size_w = patch_size_t, patch_size_h, patch_size_w
-    assert ae_stride_h == ae_stride_w, f"Support only ae_stride_h == ae_stride_w now, but found ae_stride_h ({ae_stride_h}), ae_stride_w ({ae_stride_w})"
     assert patch_size_h == patch_size_w, f"Support only patch_size_h == patch_size_w now, but found patch_size_h ({patch_size_h}), patch_size_w ({patch_size_w})"
     # assert args.num_frames % ae_stride_t == 0, f"Num_frames must be divisible by ae_stride_t, but found num_frames ({args.num_frames}), ae_stride_t ({ae_stride_t})."
     assert args.max_image_size % ae_stride_h == 0, f"Image size must be divisible by ae_stride_h, but found max_image_size ({args.max_image_size}),  ae_stride_h ({ae_stride_h})."
 
+    args.stride_t = ae_stride_t * patch_size_t
+    args.stride = ae_stride_h * patch_size_h
     latent_size = (args.max_image_size // ae_stride_h, args.max_image_size // ae_stride_w)
+    ae.latent_size = latent_size
 
     if getae_wrapper(args.ae) == CausalVQVAEModelWrapper or getae_wrapper(args.ae) == CausalVAEModelWrapper:
         args.video_length = video_length = args.num_frames // ae_stride_t + 1
@@ -192,7 +216,9 @@ def main(args):
         attention_type='default',
         video_length=video_length,
         attention_mode=args.attention_mode,
-        # compress_kv=args.compress_kv
+        compress_kv_factor=args.compress_kv_factor, 
+        use_rope=args.use_rope, 
+        model_max_length=args.model_max_length, 
     )
     model.gradient_checkpointing = args.gradient_checkpointing
 
@@ -207,20 +233,6 @@ def main(args):
         missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=False)
         logger.info(f'missing_keys {len(missing_keys)} {missing_keys}, unexpected_keys {len(unexpected_keys)}')
         logger.info(f'Successfully load {len(model.state_dict()) - len(missing_keys)}/{len(model_state_dict)} keys from {args.pretrained}!')
-        # load from pixart-alpha
-        # pixelart_alpha = torch.load(args.pretrained, map_location='cpu')['state_dict']
-        # checkpoint = {}
-        # for k, v in pixelart_alpha.items():
-        #     if 'x_embedder' in k or 't_embedder' in k or 'y_embedder' in k:
-        #         checkpoint[k] = v
-        #     if k.startswith('blocks'):
-        #         k_spilt = k.split('.')
-        #         blk_id = str(int(k_spilt[1]) * 2)
-        #         k_spilt[1] = blk_id
-        #         new_k = '.'.join(k_spilt)
-        #         checkpoint[new_k] = v
-        # missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=False)
-        # logger.info(f'Successfully load {len(model.state_dict()) - len(missing_keys)} keys from {args.pretrained}!')
 
     # Freeze vae and text encoders.
     ae.requires_grad_(False)
@@ -228,18 +240,14 @@ def main(args):
     # Set model as trainable.
     model.train()
 
-    # For mixed precision training we cast all non-trainable weigths to half-precision
-    # as these weights are only used for inference, keeping weights in full precision is not required.
-    weight_dtype = torch.float32
-    if accelerator.mixed_precision == "fp16":
-        weight_dtype = torch.float16
-    elif accelerator.mixed_precision == "bf16":
-        weight_dtype = torch.bfloat16
 
     # Move unet, vae and text_encoder to device and cast to weight_dtype
     # The VAE is in float32 to avoid NaN losses.
-    ae.to(accelerator.device, dtype=torch.float32)
+    # ae.to(accelerator.device, dtype=torch.float32)
+    ae.to(accelerator.device, dtype=weight_dtype)
+    # ae.to(accelerator.device)
     text_enc.to(accelerator.device, dtype=weight_dtype)
+    # text_enc.to(accelerator.device)
 
     # Create EMA for the unet.
     if args.use_ema:
@@ -319,7 +327,7 @@ def main(args):
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
         shuffle=True,
-        # collate_fn=Collate(args),  # TODO: do not enable dynamic mask in this point
+        collate_fn=Collate(args),
         batch_size=args.train_batch_size,
         num_workers=args.dataloader_num_workers,
     )
@@ -406,33 +414,73 @@ def main(args):
 
     for epoch in range(first_epoch, args.num_train_epochs):
         train_loss = 0.0
-        for step, (x, input_ids, cond_mask) in enumerate(train_dataloader):
+        for step, (x, attn_mask, input_ids, cond_mask) in enumerate(train_dataloader):
             with accelerator.accumulate(model):
                 # Sample noise that we'll add to the latents
-                x = x.to(accelerator.device)  # B C T+num_images H W, 16 + 4
-                # attn_mask = attn_mask.to(device)  # B T H W
-                # assert torch.all(attn_mask.bool()), 'do not enable dynamic input'
-                attn_mask = None
+                if not args.multi_scale:
+                    assert torch.all(attn_mask)
+                
+                x = x.to(accelerator.device, dtype=weight_dtype)  # B C T+num_images H W, 16 + 4
+                attn_mask = attn_mask.to(accelerator.device)  # B L or B 1+num_images L
+                # assert torch.all(attn_mask != 0), 'attn_mask must all 1'
                 input_ids = input_ids.to(accelerator.device)  # B L or B 1+num_images L
                 cond_mask = cond_mask.to(accelerator.device)  # B L or B 1+num_images L
-
+                # print('x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape', x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape)
+                
                 with torch.no_grad():
+                    # use for loop to avoid OOM, because T5 is too huge...
+                    B, _, _ = input_ids.shape  # B T+num_images L  b 1+4, L
+                    cond = torch.stack([text_enc(input_ids[i], cond_mask[i]) for i in range(B)])  # B 1+num_images L D
+                    
                     # Map input images to latent space + normalize latents
                     if args.use_image_num == 0:
                         x = ae.encode(x)  # B C T H W
-                        cond = text_enc(input_ids, cond_mask)  # B L -> B L D
                     else:
                         videos, images = x[:, :, :-args.use_image_num], x[:, :, -args.use_image_num:]
                         videos = ae.encode(videos)  # B C T H W
+
+
+                        def custom_to_video(x: torch.Tensor, fps: float = 2.0, output_file: str = 'output_video.mp4') -> None:
+                            from examples.rec_imvi_vae import array_to_video
+                            x = x.detach().cpu()
+                            x = torch.clamp(x, -1, 1)
+                            x = (x + 1) / 2
+                            x = x.permute(1, 2, 3, 0).numpy()
+                            x = (255*x).astype(np.uint8)
+                            array_to_video(x, fps=fps, output_file=output_file)
+                            return
+
+                        # videos = ae.decode(videos.to(dtype=weight_dtype))[0]
+                        # videos = videos.transpose(0, 1)
+                        # custom_to_video(videos.to(torch.float32), fps=24, output_file='tmp.mp4')
+                        # sys.exit()
+
                         images = rearrange(images, 'b c t h w -> (b t) c 1 h w')
                         images = ae.encode(images)
+
+                        # import ipdb;ipdb.set_trace()
+                        # images = ae.decode(images.to(dtype=weight_dtype))
+                        # for idx in range(args.use_image_num):
+                        #     x = images[idx, 0, :, :, :].to(torch.float32)
+                        #     x = x.squeeze()
+                        #     x = x.detach().cpu().numpy()
+                        #     x = np.clip(x, -1, 1)
+                        #     x = (x + 1) / 2
+                        #     x = (255 * x).astype(np.uint8)
+                        #     x = x.transpose(1, 2, 0)
+                        #     from PIL import Image
+                        #     image = Image.fromarray(x)
+                        #     image.save(f'tmp{idx}.jpg')
+                        # import sys
+                        # sys.exit()
+
+
                         images = rearrange(images, '(b t) c 1 h w -> b c t h w', t=args.use_image_num)
-                        x = torch.cat([videos, images], dim=2)   #  b c 16+4, h, w
+                        x = torch.cat([videos, images], dim=2)   #  b c 17+4, h, w
 
-                        # use for loop to avoid OOM, because T5 is too huge...
-                        B, _, _ = input_ids.shape  # B T+num_images L  b 1+4, L
-                        cond = torch.stack([text_enc(input_ids[i], cond_mask[i]) for i in range(B)])  # B 1+num_images L D
+                
 
+                # print('(x.shape, attn_mask.shape, cond.shape, cond_mask.shape', x.shape, attn_mask.shape, cond.shape, cond_mask.shape)
                 model_kwargs = dict(encoder_hidden_states=cond, attention_mask=attn_mask,
                                     encoder_attention_mask=cond_mask, use_image_num=args.use_image_num)
                 t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=accelerator.device)
@@ -445,6 +493,12 @@ def main(args):
 
                 # Backpropagate
                 accelerator.backward(loss)
+
+
+                # accelerator.deepspeed_engine_wrapped.engine.backward(loss)
+                # print_grad_norm(model)
+                # accelerator.deepspeed_engine_wrapped.engine.step()
+
                 if accelerator.sync_gradients:
                     params_to_clip = model.parameters()
                     accelerator.clip_grad_norm_(params_to_clip, args.max_grad_norm)
@@ -492,75 +546,14 @@ def main(args):
                 break
 
             if accelerator.is_main_process:
-                validation_prompt = "The majestic beauty of a waterfall cascading down a cliff into a serene lake. The camera angle provides a bird's eye view of the waterfall."
                 if global_step % args.checkpointing_steps == 0:
-                    logger.info(f"Running validation... \n"
-                                f"Generating {args.num_validation_videos} videos with prompt: {validation_prompt}")
                     if args.use_ema:
                         # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
                         ema_model.store(model.parameters())
                         ema_model.copy_to(model.parameters())
 
                     if args.enable_tracker:
-                        with torch.no_grad():
-                            # create pipeline
-                            ae_ = getae_wrapper(args.ae)(args.ae_path).to(accelerator.device).eval()
-                            if args.enable_tiling:
-                                ae_.vae.enable_tiling()
-                                ae_.vae.tile_overlap_factor = args.tile_overlap_factor
-                            # text_enc_ = get_text_enc(args).to(accelerator.device).eval()
-                            model_ = LatteT2V.from_pretrained(save_path, subfolder="model").to(accelerator.device).eval()
-                            diffusion_ = create_diffusion(str(250))
-                            tokenizer_ = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir='./cache_dir')
-                            videos = []
-                            for idx in range(args.num_validation_videos):
-                                with torch.autocast(device_type='cuda', dtype=weight_dtype):
-                                    z = torch.randn(1, model_.in_channels, video_length,
-                                                    latent_size[0], latent_size[1], device=accelerator.device)
-                                    text_tokens_and_mask = tokenizer_(
-                                        validation_prompt,
-                                        max_length=args.model_max_length,
-                                        padding='max_length',
-                                        truncation=True,
-                                        return_attention_mask=True,
-                                        add_special_tokens=True,
-                                        return_tensors='pt'
-                                    )
-                                    input_ids = text_tokens_and_mask['input_ids'].to(accelerator.device)
-                                    cond_mask = text_tokens_and_mask['attention_mask'].to(accelerator.device)
-                                    # cond = text_enc_(input_ids, cond_mask)  # B L D
-                                    cond = text_enc(input_ids, cond_mask)  # B L D
-                                    model_kwargs = dict(encoder_hidden_states=cond, attention_mask=None, encoder_attention_mask=cond_mask)
-                                    sample_fn = model_.forward
-                                    # Sample images:
-                                    samples = diffusion_.p_sample_loop(
-                                        sample_fn, z.shape, z, clip_denoised=False, model_kwargs=model_kwargs, progress=True,
-                                        device=accelerator.device
-                                    )
-                                    samples = ae_.decode(samples)
-                                    # Save and display images:
-                                    video = (ae_denorm[args.ae](samples[0]) * 255).add_(0.5).clamp_(0, 255).to(
-                                        dtype=torch.uint8).cpu().contiguous()  # t c h w
-                                    videos.append(video)
-
-                        videos = torch.stack(videos).numpy()
-                        for tracker in accelerator.trackers:
-                            if tracker.name == "tensorboard":
-                                np_videos = np.stack([np.asarray(vid) for vid in videos])
-                                tracker.writer.add_video("validation", np_videos, global_step, fps=10)
-                            if tracker.name == "wandb":
-                                tracker.log(
-                                    {
-                                        "validation": [
-                                            wandb.Video(video, caption=f"{i}: {validation_prompt}", fps=10)
-                                            for i, video in enumerate(videos)
-                                        ]
-                                    }
-                                )
-
-                        # del ae_, text_enc_, model_, diffusion_, tokenizer_
-                        del ae_, model_, diffusion_, tokenizer_
-                        torch.cuda.empty_cache()
+                        log_validation(args, model, ae, text_enc.text_enc, train_dataset.tokenizer, accelerator, weight_dtype, global_step)
 
     accelerator.wait_for_everyone()
     accelerator.end_training()
@@ -569,37 +562,36 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=str, required=True)
-    parser.add_argument("--data_path", type=str, required=True)
-    parser.add_argument("--model", type=str, choices=list(Diffusion_models.keys()), default="DiT-XL/122")
-    parser.add_argument("--num_classes", type=int, default=1000)
-    parser.add_argument("--ae", type=str, default="stabilityai/sd-vae-ft-mse")
-    parser.add_argument("--ae_path", type=str, default="stabilityai/sd-vae-ft-mse")
-    parser.add_argument("--sample_rate", type=int, default=4)
-    parser.add_argument("--num_frames", type=int, default=16)
-    parser.add_argument("--max_image_size", type=int, default=128)
-    parser.add_argument("--dynamic_frames", action="store_true")
-    parser.add_argument("--compress_kv", action="store_true")
-    parser.add_argument("--attention_mode", type=str, choices=['xformers', 'math', 'flash'], default="math")
-    parser.add_argument("--pretrained", type=str, default=None)
+    parser.add_argument("--video_data", type=str, required='')
+    parser.add_argument("--image_data", type=str, default='')
+    parser.add_argument("--sample_rate", type=int, default=1)
+    parser.add_argument("--num_frames", type=int, default=17)
+    parser.add_argument("--max_image_size", type=int, default=512)
+    parser.add_argument("--use_img_from_vid", action="store_true")
+    parser.add_argument("--use_image_num", type=int, default=0)
+    parser.add_argument("--model_max_length", type=int, default=300)
 
+    parser.add_argument('--enable_8bit_t5', action='store_true')
     parser.add_argument('--tile_overlap_factor', type=float, default=0.25)
     parser.add_argument('--enable_tiling', action='store_true')
+    parser.add_argument("--compress_kv", action="store_true")
+    parser.add_argument("--attention_mode", type=str, choices=['xformers', 'math', 'flash'], default="xformers")
+    parser.add_argument('--use_rope', action='store_true')
+    parser.add_argument('--compress_kv_factor', type=int, default=1)
 
-    parser.add_argument("--video_folder", type=str, default='')
+    parser.add_argument("--model", type=str, choices=list(Diffusion_models.keys()), default="Latte-XL/122")
+    parser.add_argument("--pretrained", type=str, default=None)
+    parser.add_argument("--ae", type=str, default="stabilityai/sd-vae-ft-mse")
+    parser.add_argument("--ae_path", type=str, default="stabilityai/sd-vae-ft-mse")
     parser.add_argument("--text_encoder_name", type=str, default='DeepFloyd/t5-v1_1-xxl')
-    parser.add_argument("--model_max_length", type=int, default=120)
+    parser.add_argument("--cache_dir", type=str, default='./cache_dir')
 
+    parser.add_argument("--num_sampling_steps", type=int, default=50)
+    parser.add_argument('--guidance_scale', type=float, default=5.5)
+    parser.add_argument("--multi_scale", action="store_true")
     parser.add_argument("--enable_tracker", action="store_true")
-    parser.add_argument("--use_image_num", type=int, default=0)
-    parser.add_argument("--use_img_from_vid", action="store_true")
     parser.add_argument("--use_deepspeed", action="store_true")
     parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
-    parser.add_argument(
-        "--num_validation_videos",
-        type=int,
-        default=2,
-        help="Number of images that should be generated during validation with `validation_prompt`.",
-    )
     parser.add_argument(
         "--output_dir",
         type=str,

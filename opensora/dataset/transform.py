@@ -214,6 +214,71 @@ class RandomCropVideo:
         return f"{self.__class__.__name__}(size={self.size})"
 
 
+class SpatialStrideCropVideo:
+    def __init__(self, stride):
+            self.stride = stride
+
+    def __call__(self, clip):
+        """
+        Args:
+            clip (torch.tensor): Video clip to be cropped. Size is (T, C, H, W)
+        Returns:
+            torch.tensor: cropped video clip by stride.
+                size is (T, C, OH, OW)
+        """
+        i, j, h, w = self.get_params(clip)
+        return crop(clip, i, j, h, w)
+
+    def get_params(self, clip):
+        h, w = clip.shape[-2:]
+
+        th, tw = h // self.stride * self.stride, w // self.stride * self.stride
+
+        return 0, 0, th, tw  # from top-left
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(size={self.size})"
+
+class LongSideResizeVideo:
+    '''
+    First use the long side,
+    then resize to the specified size
+    '''
+
+    def __init__(
+            self,
+            size,
+            skip_low_resolution=False, 
+            interpolation_mode="bilinear",
+    ):
+        self.size = size
+        self.skip_low_resolution = skip_low_resolution
+        self.interpolation_mode = interpolation_mode
+
+    def __call__(self, clip):
+        """
+        Args:
+            clip (torch.tensor): Video clip to be cropped. Size is (T, C, H, W)
+        Returns:
+            torch.tensor: scale resized video clip.
+                size is (T, C, 512, *) or (T, C, *, 512)
+        """
+        _, _, h, w = clip.shape
+        if self.skip_low_resolution and max(h, w) <= self.size:
+            return clip
+        if h > w:
+            w = int(w * self.size / h)
+            h = self.size
+        else:
+            h = int(h * self.size / w)
+            w = self.size
+        resize_clip = resize(clip, target_size=(h, w),
+                                         interpolation_mode=self.interpolation_mode)
+        return resize_clip
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(size={self.size}, interpolation_mode={self.interpolation_mode}"
+
 class CenterCropResizeVideo:
     '''
     First use the short side for cropping length,
@@ -433,6 +498,25 @@ class TemporalRandomCrop(object):
         end_index = min(begin_index + self.size, total_frames)
         return begin_index, end_index
 
+class DynamicSampleDuration(object):
+    """Temporally crop the given frame indices at a random location.
+
+    Args:
+        size (int): Desired length of frames will be seen in the model.
+    """
+
+    def __init__(self, t_stride, extra_1):
+        self.t_stride = t_stride
+        self.extra_1 = extra_1
+
+    def __call__(self, t, h, w):
+        if self.extra_1:
+            t = t - 1
+        truncate_t_list = list(range(t+1))[t//2:][::self.t_stride]  # need half at least
+        truncate_t = random.choice(truncate_t_list)
+        if self.extra_1:
+            truncate_t = truncate_t + 1
+        return 0, truncate_t
 
 if __name__ == '__main__':
     from torchvision import transforms
