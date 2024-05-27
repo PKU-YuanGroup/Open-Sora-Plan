@@ -119,4 +119,4 @@ if __name__ == '__main__':
         title=title_markdown, description=DESCRIPTION, theme=gr.themes.Default(), css=block_css,
         examples=examples,
     )
-    demo.launch()
+    demo.launch(share=True)

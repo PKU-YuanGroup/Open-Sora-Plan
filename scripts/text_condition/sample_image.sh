@@ -9,7 +9,7 @@ CUDA_VISIBLE_DEVICES=4 python opensora/sample/sample_t2v.py \
     --text_prompt examples/prompt_list_0.txt \
     --ae CausalVAEModel_4x8x8 \
     --ae_path "/remote-home1/yeyang/CausalVAEModel_4x8x8" \
-    --save_img_path "./sample_image_512x512" \
+    --save_img_path "./sample_image_512x512_cfg5.0" \
     --force_images \
     --guidance_scale 5.0 \
     --num_sampling_steps 50 \

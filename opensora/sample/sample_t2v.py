@@ -94,7 +94,7 @@ def main(args):
     if len(args.text_prompt) == 1 and args.text_prompt[0].endswith('txt'):
         text_prompt = open(args.text_prompt[0], 'r').readlines()
         args.text_prompt = [i.strip() for i in text_prompt]
-    for prompt in args.text_prompt:
+    for idx, prompt in enumerate(args.text_prompt):
         print('Processing the ({}) prompt'.format(prompt))
         videos = videogen_pipeline(prompt,
                                    num_frames=args.num_frames,
@@ -110,16 +110,13 @@ def main(args):
         try:
             if args.force_images:
                 videos = videos[:, 0].permute(0, 3, 1, 2)  # b t h w c -> b c h w
-                save_image(videos / 255.0, os.path.join(args.save_img_path,
-                                                     prompt.replace(' ', '_')[:100] + f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}.{ext}'),
+                save_image(videos / 255.0, os.path.join(args.save_img_path, f'{idx}.{ext}'),
                            nrow=1, normalize=True, value_range=(0, 1))  # t c h w
 
             else:
                 imageio.mimwrite(
                     os.path.join(
-                        args.save_img_path,
-                        prompt.replace(' ', '_')[:100] + f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}.{ext}'
-                    ), videos[0],
+                        args.save_img_path, f'{idx}.{ext}'), videos[0],
                     fps=args.fps, quality=9)  # highest quality is 10, lowest is 0
         except:
             print('Error when saving {}'.format(prompt))
