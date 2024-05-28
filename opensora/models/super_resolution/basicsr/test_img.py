@@ -9,7 +9,7 @@ from basicsr.utils.options import dict2str, parse_options
 
 def image_sr(args):
     # parse options, set distributed setting, set ramdom seed
-    opt, _ = parse_options(args.root_path, is_train=False)
+    opt, _ = parse_options(args.root_path,args.SR,is_train=False)
     torch.backends.cudnn.benchmark = True
     # torch.backends.cudnn.deterministic = True
 
@@ -25,10 +25,10 @@ def image_sr(args):
             opt['upscale'] = opt['network_g']['upscale'] = 2
             opt['val']['suffix'] = 'x2'
             
-        test_set = build_dataset(dataset_opt)
-        test_loader = build_dataloader(
-            test_set, dataset_opt, num_gpu=opt['num_gpu'], dist=opt['dist'], sampler=None, seed=opt['manual_seed'])
-        test_loaders.append(test_loader)
+        # test_set = build_dataset(dataset_opt)
+        # test_loader = build_dataloader(
+        #     test_set, dataset_opt, num_gpu=opt['num_gpu'], dist=opt['dist'], sampler=None, seed=opt['manual_seed'])
+        # test_loaders.append(test_loader)
 
     opt['path']['pretrain_network_g'] = args.ckpt_path
     opt['val']['use_chop'] = args.use_chop
