@@ -2,8 +2,10 @@ LCALIB_PACKAGE_PATH=$(python -c "import lcalib; print(lcalib.__path__[0])")
 export LD_LIBRARY_PATH=${LCALIB_PACKAGE_PATH}:$LD_LIBRARY_PATH
 rm -rf /dev/shm/sem.lccl*
 rm -rf /tmp/.lccl*
+NUM_FRAME=61
+PROJECT_NAME="sora_plan"
 export PROJECT=$PROJECT_NAME
-WEIGHT_PATH="/home/opensora/shebin/pre_weights/"
+WEIGHT_PATH="/home/opensora/pre_weights/"
 env
 export WANDB_MODE='offline'
 accelerate launch \

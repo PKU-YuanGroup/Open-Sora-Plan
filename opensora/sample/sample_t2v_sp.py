@@ -222,7 +222,7 @@ if __name__ == "__main__":
             profiler_level=torch_npu.profiler.ProfilerLevel.Level1,
             aic_metrics=torch_npu.profiler.AiCMetrics.PipeUtilization
         )
-        profile_output_path = "/home/image_data/shebin/npu_profiling_t2v"
+        profile_output_path = "/home/image_data/npu_profiling_t2v"
         os.makedirs(profile_output_path, exist_ok=True)
 
         with torch_npu.profiler.profile(
