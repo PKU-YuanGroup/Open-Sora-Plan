@@ -31,8 +31,7 @@ sys.path.append(os.path.split(sys.path[0])[0])
 from pipeline_videogen import VideoGenPipeline
 
 import imageio
-from opensora.acceleration.parallel_states import initialize_sequence_parallel_state
-initialize_sequence_parallel_state(1)
+from opensora.acceleration.parallel_states import initialize_sequence_parallel_state, hccl_info
 
 
 def load_t2v_checkpoint(model_path):
@@ -79,9 +78,8 @@ def run_model_and_save_images(videogen_pipeline, transformer_model, video_length
     checkpoint_name = f"{os.path.basename(model_path)}"
 
     for index, prompt in enumerate(args.text_prompt):
-        if index % npu_config.N_NPU_PER_NODE != local_rank:
-            continue
         print('Processing the ({}) prompt'.format(prompt))
+        latent_channels = transformer_model.config.in_channels
         videos = videogen_pipeline(prompt,
                                    video_length=video_length,
                                    height=image_size,
@@ -92,44 +90,44 @@ def run_model_and_save_images(videogen_pipeline, transformer_model, video_length
                                    num_images_per_prompt=1,
                                    mask_feature=True,
                                    ).video
+
         print(videos.shape)
-        try:
-            if args.force_images:
-                videos = videos[:, 0].permute(0, 3, 1, 2)  # b t h w c -> b c h w
-                save_image(videos / 255.0, os.path.join(args.save_img_path,
-                                                        f'{args.sample_method}_{index}_{checkpoint_name}_gs{args.guidance_scale}_s{args.num_sampling_steps}.{ext}'),
-                           nrow=1, normalize=True, value_range=(0, 1))  # t c h w
+        if hccl_info.rank <= 0:
+            try:
+                if args.force_images:
+                    videos = videos[:, 0].permute(0, 3, 1, 2)  # b t h w c -> b c h w
+                    save_image(videos / 255.0, os.path.join(args.save_img_path,
+                                                            f'{args.sample_method}_{index}_{checkpoint_name}_gs{args.guidance_scale}_s{args.num_sampling_steps}.{ext}'),
+                               nrow=1, normalize=True, value_range=(0, 1))  # t c h w
 
-            else:
-                imageio.mimwrite(
-                    os.path.join(
-                        args.save_img_path, f'{args.sample_method}_{index}_{checkpoint_name}__gs{args.guidance_scale}_s{args.num_sampling_steps}.{ext}'
-                    ), videos[0],
-                    fps=args.fps, quality=9, codec='libx264', output_params=['-threads', '20'])  # highest quality is 10, lowest is 0
-        except:
-            print('Error when saving {}'.format(prompt))
-        video_grids.append(videos)
+                else:
+                    imageio.mimwrite(
+                        os.path.join(
+                            args.save_img_path,
+                            f'{args.sample_method}_{index}_{checkpoint_name}__gs{args.guidance_scale}_s{args.num_sampling_steps}.{ext}'
+                        ), videos[0],
+                        fps=args.fps, quality=9)  # highest quality is 10, lowest is 0
+            except:
+                print('Error when saving {}'.format(prompt))
+            video_grids.append(videos)
 
-    video_grids = torch.cat(video_grids, dim=0).cuda()
-    shape = list(video_grids.shape)
-    shape[0] *= world_size
-    gathered_tensor = torch.zeros(shape, dtype=video_grids.dtype, device=device)
-    dist.all_gather_into_tensor(gathered_tensor, video_grids)
-    video_grids = gathered_tensor.cpu()
-    # torch.distributed.all_gather(tensor_list, tensor, group=None)
-    # torchvision.io.write_video(args.save_img_path + '_%04d' % args.run_time + '-.mp4', video_grids, fps=6)
-    def get_file_name():
-        return os.path.join(args.save_img_path, f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}_{checkpoint_name}.{ext}')
+    if hccl_info.rank <= 0:
+        video_grids = torch.cat(video_grids, dim=0).cpu()
 
-    if args.force_images:
-        save_image(video_grids / 255.0, get_file_name(),
-                   nrow=math.ceil(math.sqrt(len(video_grids))), normalize=True, value_range=(0, 1))
-    else:
-        video_grids = save_video_grid(video_grids)
-        imageio.mimwrite(get_file_name(), video_grids, fps=args.fps, quality=9)
+        # torch.distributed.all_gather(tensor_list, tensor, group=None)
+        # torchvision.io.write_video(args.save_img_path + '_%04d' % args.run_time + '-.mp4', video_grids, fps=6)
+        def get_file_name():
+            return os.path.join(args.save_img_path,
+                                f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}_{checkpoint_name}.{ext}')
 
-    print('save path {}'.format(args.save_img_path))
+        if args.force_images:
+            save_image(video_grids / 255.0, get_file_name(),
+                       nrow=math.ceil(math.sqrt(len(video_grids))), normalize=True, value_range=(0, 1))
+        else:
+            video_grids = save_video_grid(video_grids)
+            imageio.mimwrite(get_file_name(), video_grids, fps=args.fps, quality=9)
 
+        print('save path {}'.format(args.save_img_path))
 
 
 if __name__ == "__main__":
@@ -153,16 +151,12 @@ if __name__ == "__main__":
     parser.add_argument('--enable_tiling', action='store_true')
     args = parser.parse_args()
 
-    npu_config.print_msg(args)
-
     # 初始化分布式环境
     local_rank = int(os.getenv('RANK', 0))
     world_size = int(os.getenv('WORLD_SIZE', 1))
     torch_npu.npu.set_device(local_rank)
-    dist.init_process_group(backend='hccl', init_method='env://', world_size=8, rank=local_rank)
-
-
-    # torch.manual_seed(args.seed)
+    torch.distributed.init_process_group(backend='hccl', init_method='env://', world_size=world_size, rank=local_rank)
+    initialize_sequence_parallel_state(world_size)
     torch.set_grad_enabled(False)
     device = torch.cuda.current_device()
 
@@ -204,7 +198,7 @@ if __name__ == "__main__":
     # videogen_pipeline.enable_xformers_memory_efficient_attention()
 
     if not os.path.exists(args.save_img_path):
-        os.makedirs(args.save_img_path, exist_ok=True)
+        os.makedirs(args.save_img_path)
 
     if args.force_images:
         video_length = 1
@@ -217,10 +211,8 @@ if __name__ == "__main__":
     while True:
         cur_path = get_latest_path()
         if cur_path == latest_path:
-            time.sleep(80)
+            time.sleep(100)
             continue
-
-        time.sleep(60)
         latest_path = cur_path
         npu_config.print_msg(f"The latest_path is {latest_path}")
         full_path = f"{args.model_path}/{latest_path}/model"

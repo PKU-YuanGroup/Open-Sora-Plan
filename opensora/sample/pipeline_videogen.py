@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import math
+
 import html
 import inspect
 import re
@@ -37,6 +37,7 @@ from diffusers.utils.torch_utils import randn_tensor
 from diffusers.pipelines.pipeline_utils import DiffusionPipeline
 from diffusers.utils import BaseOutput
 from dataclasses import dataclass
+from opensora.acceleration.parallel_states import get_sequence_parallel_state, hccl_info
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
@@ -501,15 +502,15 @@ class VideoGenPipeline(DiffusionPipeline):
         return caption.strip()
 
     # Copied from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion.StableDiffusionPipeline.prepare_latents
-    def prepare_latents(self, batch_size, num_channels_latents, num_frames, height, width, dtype, device, generator,
+    def prepare_latents(self, batch_size, num_channels_latents, video_length, height, width, dtype, device, generator,
                         latents=None):
         shape = (
-            batch_size,
-            num_channels_latents,
-            (math.ceil((int(num_frames) - 1) / self.vae.vae_scale_factor[0]) + 1) if int(num_frames) % 2 == 1 else math.ceil(int(num_frames) / self.vae.vae_scale_factor[0]), 
-            math.ceil(int(height) / self.vae.vae_scale_factor[1]),
-            math.ceil(int(width) / self.vae.vae_scale_factor[2]),
-        )
+        batch_size, num_channels_latents, video_length, self.vae.latent_size[0], self.vae.latent_size[1])
+        if isinstance(generator, list) and len(generator) != batch_size:
+            raise ValueError(
+                f"You have passed a list of generators of length {len(generator)}, but requested an effective batch"
+                f" size of {batch_size}. Make sure the batch size matches the length of the generators."
+            )
 
         if latents is None:
             latents = randn_tensor(shape, generator=generator, device=device, dtype=dtype)
@@ -530,7 +531,7 @@ class VideoGenPipeline(DiffusionPipeline):
             timesteps: List[int] = None,
             guidance_scale: float = 4.5,
             num_images_per_prompt: Optional[int] = 1,
-            num_frames: Optional[int] = None,
+            video_length: Optional[int] = None,
             height: Optional[int] = None,
             width: Optional[int] = None,
             eta: float = 0.0,
@@ -661,7 +662,7 @@ class VideoGenPipeline(DiffusionPipeline):
         latents = self.prepare_latents(
             batch_size * num_images_per_prompt,
             latent_channels,
-            num_frames,
+            (video_length + hccl_info.world_size - 1) // hccl_info.world_size if get_sequence_parallel_state() else video_length,
             height,
             width,
             prompt_embeds.dtype,
@@ -705,10 +706,6 @@ class VideoGenPipeline(DiffusionPipeline):
                 # broadcast to batch dimension in a way that's compatible with ONNX/Core ML
                 current_timestep = current_timestep.expand(latent_model_input.shape[0])
 
-                if prompt_embeds.ndim == 3:
-                    prompt_embeds = prompt_embeds.unsqueeze(1)  # b l d -> b 1 l d
-                # if prompt_attention_mask.ndim == 2:
-                #     prompt_attention_mask = prompt_attention_mask.unsqueeze(1)  # b l -> b 1 l
                 # predict noise model_output
                 noise_pred = self.transformer(
                     latent_model_input,
@@ -740,9 +737,17 @@ class VideoGenPipeline(DiffusionPipeline):
                         step_idx = i // getattr(self.scheduler, "order", 1)
                         callback(step_idx, t, latents)
 
+        if get_sequence_parallel_state():
+            latents_shape = list(latents.shape)
+            full_shape = [latents_shape[0] * hccl_info.world_size] + latents_shape[1:]
+            all_latents = torch.zeros(full_shape, dtype=latents.dtype, device=latents.device)
+            torch.distributed.all_gather_into_tensor(all_latents, latents)
+            latents_list = list(all_latents.chunk(hccl_info.world_size, dim=0))
+            latents = torch.cat(latents_list, dim=2)[:, :, :video_length]
+        latents = latents[:, :, :video_length]
+
         if not output_type == 'latents':
             video = self.decode_latents(latents)
-            video = video[:, :num_frames, :height, :width]
         else:
             video = latents
             return VideoPipelineOutput(video=video)

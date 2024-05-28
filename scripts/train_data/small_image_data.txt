@@ -1,0 +1,1 @@
+/home/local_dataset/image_data_obs/MJ_untar/images/,/home/opensora/captions/linbin_captions/human_images_162094.json

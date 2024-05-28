@@ -320,13 +320,11 @@ Please refer to the document [VQVAE](docs/VQVAE.md).
 
 #### Training
 ```
-sh scripts/text_condition/train_videoae_65x512x512.sh
+sh scripts/text_condition/train_videoae_nx512x512.sh
 ```
+support sequence parallelism (Ulysses)
 ```
-sh scripts/text_condition/train_videoae_221x512x512.sh
-```
-```
-sh scripts/text_condition/train_videoae_513x512x512.sh
+sh scripts/text_condition/train_videoae_nx512x512_sp.sh
 ```
 
 <!--

@@ -9,6 +9,8 @@ from .ops import cast_tuple, video_to_image
 from .conv import CausalConv3d
 from einops import rearrange
 from .block import Block
+from opensora.npu_config import  npu_config
+
 
 class Upsample(Block):
     def __init__(self, in_channels, out_channels):
@@ -42,9 +44,15 @@ class Downsample(Block):
     @video_to_image
     def forward(self, x):
         if self.with_conv:
-            pad = (0,1,0,1)
-            x = torch.nn.functional.pad(x, pad, mode="constant", value=0)
-            x = self.conv(x)
+            pad = (0, 1, 0, 1)
+            if npu_config.on_npu:
+                x_dtype = x.dtype
+                x = x.to(torch.bfloat16)
+                x = torch.nn.functional.pad(x, pad, mode="constant", value=0)
+                x = npu_config.run_conv3d(self.conv, x, x_dtype)
+            else:
+                x = torch.nn.functional.pad(x, pad, mode="constant", value=0)
+                x = self.conv(x)
         else:
             x = torch.nn.functional.avg_pool2d(x, kernel_size=2, stride=2)
         return x
@@ -115,14 +123,26 @@ class TimeDownsample2x(Block):
     ):
         super().__init__()
         self.kernel_size = kernel_size
-        self.conv = nn.AvgPool3d((kernel_size,1,1), stride=(2,1,1))
-        
+        if npu_config.on_npu:
+            self.avg_pool = nn.AvgPool2d((kernel_size, 1), stride=(2, 1))
+            self.pad = nn.ReplicationPad3d((0, 0, 0, 0, self.kernel_size - 1, 0))
+        else:
+            self.avg_pool = nn.AvgPool3d((kernel_size, 1, 1), stride=(2, 1, 1))
+
     def forward(self, x):
-        first_frame_pad = x[:, :, :1, :, :].repeat(
-            (1, 1, self.kernel_size - 1, 1, 1)
-        )
-        x = torch.concatenate((first_frame_pad, x), dim=2)
-        return self.conv(x)
+        if npu_config.on_npu:
+            n, c, d, h, w = x.shape
+            x = self.pad(x)
+            x = x.view(n * c, -1, h * w)
+            pooled = self.avg_pool(x)
+            output = pooled.view(n, c, -1, h, w)
+            return output
+        else:
+            first_frame_pad = x[:, :, :1, :, :].repeat(
+                (1, 1, self.kernel_size - 1, 1, 1)
+            )
+            x = torch.concatenate((first_frame_pad, x), dim=2)
+            return self.avg_pool(x)
 
 class TimeUpsample2x(Block):
     def __init__(
@@ -148,7 +168,11 @@ class TimeDownsampleRes2x(nn.Module):
     ):
         super().__init__()
         self.kernel_size = cast_tuple(kernel_size, 3)
-        self.avg_pool = nn.AvgPool3d((kernel_size,1,1), stride=(2,1,1))
+        if npu_config.on_npu:
+            self.avg_pool = nn.AvgPool2d((kernel_size, 1), stride=(2, 1))
+            self.pad = nn.ReplicationPad3d((0, 0, 0, 0, kernel_size - 1, 0))
+        else:
+            self.avg_pool = nn.AvgPool3d((kernel_size, 1, 1), stride=(2, 1, 1))
         self.conv = nn.Conv3d(
             in_channels, out_channels, self.kernel_size, stride=(2,1,1), padding=(0,1,1)
         )
@@ -156,11 +180,21 @@ class TimeDownsampleRes2x(nn.Module):
     
     def forward(self, x):
         alpha = torch.sigmoid(self.mix_factor)
-        first_frame_pad = x[:, :, :1, :, :].repeat(
-            (1, 1, self.kernel_size[0] - 1, 1, 1)
-        )
-        x = torch.concatenate((first_frame_pad, x), dim=2)
-        return alpha * self.avg_pool(x) + (1 - alpha) * self.conv(x)
+        if npu_config.on_npu:
+            n, c, d, h, w = x.shape
+            x_dtype = x.dtype
+            x = x.to(torch.float16)
+            x = self.pad(x)
+            pad_x = x.view(n, c, -1, h, w)
+            avg_x = self.avg_pool(x.view(n * c, -1, h * w)).view(n, c, -1, h, w).to(x_dtype)
+            conv_x = npu_config.run_conv3d(self.conv, pad_x, x_dtype)
+            return alpha * avg_x + (1 - alpha) * conv_x
+        else:
+            first_frame_pad = x[:, :, :1, :, :].repeat(
+                (1, 1, self.kernel_size[0] - 1, 1, 1)
+            )
+            x = torch.concatenate((first_frame_pad, x), dim=2)
+            return alpha * self.avg_pool(x) + (1 - alpha) * self.conv(x)
 
 class TimeUpsampleRes2x(nn.Module):
     def __init__(
@@ -180,7 +214,13 @@ class TimeUpsampleRes2x(nn.Module):
         alpha = torch.sigmoid(self.mix_factor)
         if x.size(2) > 1:
             x,x_= x[:,:,:1],x[:,:,1:]
-            x_= F.interpolate(x_, scale_factor=(2,1,1), mode='trilinear')
+            if npu_config.on_npu:
+                x_dtype = x_.dtype
+                x_ = x_.to(torch.float16)
+                x_ = F.interpolate(x_, scale_factor=(2, 1, 1), mode='trilinear')
+                x_ = x_.to(x_dtype)
+            else:
+                x_= F.interpolate(x_, scale_factor=(2,1,1), mode='trilinear')
             x = torch.concat([x, x_], dim=2)
         return alpha * x + (1-alpha) * self.conv(x)
 
@@ -230,7 +270,14 @@ class TimeUpsampleResAdv2x(nn.Module):
     def forward(self, x):
         if x.size(2) > 1:
             x,x_= x[:,:,:1],x[:,:,1:]
-            x_= F.interpolate(x_, scale_factor=(2,1,1), mode='trilinear')
+            if npu_config.on_npu:
+                x_dtype = x_.dtype
+                x_ = x_.to(torch.float16)
+                x_= F.interpolate(x_, scale_factor=(2,1,1), mode='trilinear')
+                x_ = x_.to(x_dtype)
+            else:
+                x_= F.interpolate(x_, scale_factor=(2,1,1), mode='trilinear')
+
             x = torch.concat([x, x_], dim=2)
         alpha = torch.sigmoid(self.mix_factor)
         return alpha * x + (1 - alpha) * self.conv(self.attn(self.res(x)))

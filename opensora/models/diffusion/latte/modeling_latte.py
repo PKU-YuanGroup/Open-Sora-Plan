@@ -2,7 +2,7 @@ import torch
 
 import os
 import json
-
+from opensora.npu_config import npu_config
 from dataclasses import dataclass
 from einops import rearrange, repeat
 from typing import Any, Dict, Optional, Tuple
@@ -18,8 +18,10 @@ import torch.nn.functional as F
 from torch import nn
 
 from opensora.models.diffusion.utils.pos_embed import get_1d_sincos_pos_embed, PositionGetter1D, PositionGetter2D
-from opensora.models.diffusion.latte.modules import PatchEmbed, BasicTransformerBlock, BasicTransformerBlock_, AdaLayerNormSingle, \
+from opensora.models.diffusion.latte.modules import PatchEmbed, BasicTransformerBlock, BasicTransformerBlock_, \
+    AdaLayerNormSingle, \
     Transformer3DModelOutput, CaptionProjection
+from opensora.acceleration.parallel_states import get_sequence_parallel_state, hccl_info, lccl_info, enable_LCCL
 
 
 class LatteT2V(ModelMixin, ConfigMixin):
@@ -80,12 +82,11 @@ class LatteT2V(ModelMixin, ConfigMixin):
             attention_type: str = "default",
             caption_channels: int = None,
             video_length: int = 16,
-            attention_mode: str = 'flash', 
-            use_rope: bool = False, 
-            model_max_length: int = 300, 
-            rope_scaling_type: str = 'linear', 
-            compress_kv_factor: int = 1, 
-            interpolation_scale_1d: float = None, 
+            attention_mode: str = 'flash',
+            use_rope: bool = False,
+            model_max_length: int = 300,
+            rope_scaling_type: str = 'linear',
+            compress_kv_factor: int = 1,
     ):
         super().__init__()
         self.use_linear_projection = use_linear_projection
@@ -140,23 +141,38 @@ class LatteT2V(ModelMixin, ConfigMixin):
             interpolation_scale=interpolation_scale_2d,
         )
 
-        
         # define temporal positional embedding
-        if interpolation_scale_1d is None:
-            if self.config.video_length % 2 == 1:
-                interpolation_scale_1d = (self.config.video_length - 1) // 16  # => 16 (= 16 Latte) has interpolation scale 1
-            else:
-                interpolation_scale_1d = self.config.video_length // 16  # => 16 (= 16 Latte) has interpolation scale 1
+        if self.config.video_length % 2 == 1:
+            interpolation_scale_1d = (
+                                             self.config.video_length - 1) // 16  # => 16 (= 16 Latte) has interpolation scale 1
+        else:
+            interpolation_scale_1d = self.config.video_length // 16  # => 16 (= 16 Latte) has interpolation scale 1
         # interpolation_scale_1d = self.config.video_length // 5  # 
         interpolation_scale_1d = max(interpolation_scale_1d, 1)
-        temp_pos_embed = get_1d_sincos_pos_embed(inner_dim, video_length, interpolation_scale=interpolation_scale_1d)  # 1152 hidden size
-        self.register_buffer("temp_pos_embed", torch.from_numpy(temp_pos_embed).float().unsqueeze(0), persistent=False)
+        if get_sequence_parallel_state():
+            if enable_LCCL:
+                self.sp_size = lccl_info.world_size
+                rank_offset = lccl_info.rank
+            else:
+                self.sp_size = hccl_info.world_size
+                rank_offset = hccl_info.rank % hccl_info.world_size
+            video_length = (self.video_length + self.sp_size - 1) // self.sp_size * self.sp_size
+            temp_pos_embed = get_1d_sincos_pos_embed(inner_dim, video_length,
+                                                     interpolation_scale=interpolation_scale_1d)  # 1152 hidden size
+            video_length //= self.sp_size
+            self.temp_pos_st = rank_offset * video_length
+            self.temp_pos_ed = (rank_offset + 1) * video_length
+        else:
+            temp_pos_embed = get_1d_sincos_pos_embed(inner_dim, self.video_length,
+                                                     interpolation_scale=interpolation_scale_1d)  # 1152 hidden size
+        self.register_buffer("temp_pos_embed", torch.from_numpy(temp_pos_embed).float(), persistent=False)
 
         rope_scaling = None
         if self.use_rope:
             self.position_getter_2d = PositionGetter2D()
             self.position_getter_1d = PositionGetter1D()
-            rope_scaling = dict(type=rope_scaling_type, factor_2d=interpolation_scale_2d, factor_1d=interpolation_scale_1d)
+            rope_scaling = dict(type=rope_scaling_type, factor_2d=interpolation_scale_2d,
+                                factor_1d=interpolation_scale_1d)
 
         # 3. Define transformers blocks, spatial attention
         self.transformer_blocks = nn.ModuleList(
@@ -177,10 +193,12 @@ class LatteT2V(ModelMixin, ConfigMixin):
                     norm_elementwise_affine=norm_elementwise_affine,
                     norm_eps=norm_eps,
                     attention_type=attention_type,
-                    attention_mode=attention_mode, 
-                    use_rope=use_rope, 
-                    rope_scaling=rope_scaling, 
-                    compress_kv_factor=(compress_kv_factor, compress_kv_factor) if d >= num_layers // 2 and compress_kv_factor != 1 else None, # follow pixart-sigma, apply in second-half layers
+                    attention_mode=attention_mode,
+                    use_rope=use_rope,
+                    rope_scaling=rope_scaling,
+                    compress_kv_factor=(compress_kv_factor,
+                                        compress_kv_factor) if d >= num_layers // 2 and compress_kv_factor != 1 else None,
+                    # follow pixart-sigma, apply in second-half layers
                 )
                 for d in range(num_layers)
             ]
@@ -205,10 +223,12 @@ class LatteT2V(ModelMixin, ConfigMixin):
                     norm_elementwise_affine=norm_elementwise_affine,
                     norm_eps=norm_eps,
                     attention_type=attention_type,
-                    attention_mode=attention_mode, 
-                    use_rope=use_rope, 
-                    rope_scaling=rope_scaling, 
-                    compress_kv_factor=(compress_kv_factor, ) if d >= num_layers // 2 and compress_kv_factor != 1 else None, # follow pixart-sigma, apply in second-half layers
+                    attention_mode=attention_mode,
+                    use_rope=use_rope,
+                    rope_scaling=rope_scaling,
+                    compress_kv_factor=(
+                        compress_kv_factor,) if d >= num_layers // 2 and compress_kv_factor != 1 else None,
+                    # follow pixart-sigma, apply in second-half layers
                 )
                 for d in range(num_layers)
             ]
@@ -253,25 +273,33 @@ class LatteT2V(ModelMixin, ConfigMixin):
         self.gradient_checkpointing = value
 
     def make_position(self, b, t, use_image_num, h, w, device):
-        pos_hw = self.position_getter_2d(b*(t+use_image_num), h, w, device)  # fake_b = b*(t+use_image_num)
-        pos_t = self.position_getter_1d(b*h*w, t, device)  # fake_b = b*h*w
+        pos_hw = self.position_getter_2d(b * (t + use_image_num), h, w, device)  # fake_b = b*(t+use_image_num)
+        pos_t = self.position_getter_1d(b * h * w, t, device)  # fake_b = b*h*w
         return pos_hw, pos_t
 
     def make_attn_mask(self, attention_mask, frame, dtype):
-        attention_mask = rearrange(attention_mask, 'b t h w -> (b t) 1 (h w)') 
+        attention_mask = rearrange(attention_mask, 'b t h w -> (b t) 1 (h w)')
         # assume that mask is expressed as:
         #   (1 = keep,      0 = discard)
         # convert mask into a bias that can be added to attention scores:
         #   (keep = +0,     discard = -10000.0)
-        attention_mask = (1 - attention_mask.to(dtype)) * -10000.0
+        attention_mask = (1 - attention_mask.to(dtype)) * npu_config.inf_float
         attention_mask = attention_mask.to(self.dtype)
+        attention_mask = attention_mask.repeat(1, attention_mask.size(-1), 1)
+        if npu_config.enable_FA:
+            attention_mask = attention_mask.to(torch.bool)
         return attention_mask
 
     def vae_to_diff_mask(self, attention_mask, use_image_num):
         dtype = attention_mask.dtype
         # b, t+use_image_num, h, w, assume t as channel
         # this version do not use 3d patch embedding
-        attention_mask = F.max_pool2d(attention_mask, kernel_size=(self.patch_size, self.patch_size), stride=(self.patch_size, self.patch_size))
+        if npu_config.on_npu and attention_mask.dtype == torch.bfloat16:
+            attention_mask = attention_mask.to(torch.float16)
+
+        attention_mask = F.max_pool2d(attention_mask, kernel_size=(self.patch_size, self.patch_size),
+                                      stride=(self.patch_size, self.patch_size))
+
         attention_mask = attention_mask.bool().to(dtype)
         return attention_mask
 
@@ -341,24 +369,29 @@ class LatteT2V(ModelMixin, ConfigMixin):
         #   [batch,  heads, query_tokens, key_tokens] (e.g. torch sdp attn)
         #   [batch * heads, query_tokens, key_tokens] (e.g. xformers or classic attn)
         if attention_mask is None:
-            attention_mask = torch.ones((input_batch_size, frame+use_image_num, h, w), device=hidden_states.device, dtype=hidden_states.dtype)
+            attention_mask = torch.ones((input_batch_size, frame + use_image_num, h, w), device=hidden_states.device,
+                                        dtype=hidden_states.dtype)
+
+        # npu_config.print_tensor_stats(attention_mask, "attn_mask Line 366")
         attention_mask = self.vae_to_diff_mask(attention_mask, use_image_num)
+        # npu_config.print_tensor_stats(attention_mask, "attn_mask Line 369")
         dtype = attention_mask.dtype
-        attention_mask_compress = F.max_pool2d(attention_mask.float(), kernel_size=self.compress_kv_factor, stride=self.compress_kv_factor)
+        attention_mask_compress = F.max_pool2d(attention_mask.float(), kernel_size=self.compress_kv_factor,
+                                               stride=self.compress_kv_factor)
         attention_mask_compress = attention_mask_compress.to(dtype)
 
         attention_mask = self.make_attn_mask(attention_mask, frame, hidden_states.dtype)
         attention_mask_compress = self.make_attn_mask(attention_mask_compress, frame, hidden_states.dtype)
-
+        # npu_config.print_tensor_stats(attention_mask, "attn_mask Line 376")
         # 1 + 4, 1 -> video condition, 4 -> image condition
         # convert encoder_attention_mask to a bias the same way we do for attention_mask
         if encoder_attention_mask is not None and encoder_attention_mask.ndim == 2:  # ndim == 2 means no image joint
-            encoder_attention_mask = (1 - encoder_attention_mask.to(hidden_states.dtype)) * -10000.0
+            encoder_attention_mask = (1 - encoder_attention_mask.to(hidden_states.dtype)) * npu_config.inf_float
             encoder_attention_mask = encoder_attention_mask.unsqueeze(1)
             encoder_attention_mask = repeat(encoder_attention_mask, 'b 1 l -> (b f) 1 l', f=frame).contiguous()
             encoder_attention_mask = encoder_attention_mask.to(self.dtype)
         elif encoder_attention_mask is not None and encoder_attention_mask.ndim == 3:  # ndim == 3 means image joint
-            encoder_attention_mask = (1 - encoder_attention_mask.to(hidden_states.dtype)) * -10000.0
+            encoder_attention_mask = (1 - encoder_attention_mask.to(hidden_states.dtype)) * npu_config.inf_float
             encoder_attention_mask_video = encoder_attention_mask[:, :1, ...]
             encoder_attention_mask_video = repeat(encoder_attention_mask_video, 'b 1 l -> b (1 f) l',
                                                   f=frame).contiguous()
@@ -367,8 +400,13 @@ class LatteT2V(ModelMixin, ConfigMixin):
             encoder_attention_mask = rearrange(encoder_attention_mask, 'b n l -> (b n) l').contiguous().unsqueeze(1)
             encoder_attention_mask = encoder_attention_mask.to(self.dtype)
 
+        if encoder_attention_mask is not None:
+            encoder_attention_mask = encoder_attention_mask.repeat(1, attention_mask.size(-2), 1)
+            if npu_config.enable_FA:
+                encoder_attention_mask = encoder_attention_mask.to(torch.bool)
+
         # Retrieve lora scale.
-        lora_scale = cross_attention_kwargs.get("scale", 1.0) if cross_attention_kwargs is not None else 1.0
+        # lora_scale = cross_attention_kwargs.get("scale", 1.0) if cross_attention_kwargs is not None else 1.0
 
         # 1. Input
         if self.is_input_patches:  # here
@@ -396,20 +434,51 @@ class LatteT2V(ModelMixin, ConfigMixin):
 
             if use_image_num != 0 and self.training:
                 encoder_hidden_states_video = encoder_hidden_states[:, :1, ...]
-                encoder_hidden_states_video = repeat(encoder_hidden_states_video, 'b 1 t d -> b (1 f) t d', f=frame).contiguous()
+                encoder_hidden_states_video = repeat(encoder_hidden_states_video, 'b 1 t d -> b (1 f) t d',
+                                                     f=frame).contiguous()
                 encoder_hidden_states_image = encoder_hidden_states[:, 1:, ...]
                 encoder_hidden_states = torch.cat([encoder_hidden_states_video, encoder_hidden_states_image], dim=1)
                 encoder_hidden_states_spatial = rearrange(encoder_hidden_states, 'b f t d -> (b f) t d').contiguous()
             else:
-                encoder_hidden_states_spatial = repeat(encoder_hidden_states, 'b 1 t d -> (b f) t d', f=frame).contiguous()
+                encoder_hidden_states_spatial = repeat(encoder_hidden_states, 'b t d -> (b f) t d',
+                                                       f=frame).contiguous()
 
         # prepare timesteps for spatial and temporal block
         timestep_spatial = repeat(timestep, 'b d -> (b f) d', f=frame + use_image_num).contiguous()
         timestep_temp = repeat(timestep, 'b d -> (b p) d', p=num_patches).contiguous()
-        
+        # BS H -> S B H
+        if get_sequence_parallel_state():
+            timestep_temp = timestep_temp.view(input_batch_size * num_patches, 6, -1).transpose(0, 1).contiguous()
+            # f, h -> f, 1, h
+            temp_pos_embed = self.temp_pos_embed[self.temp_pos_st: self.temp_pos_ed].unsqueeze(1)
+            seq_len = frame * self.sp_size
+            temp_attention_mask = torch.ones([input_batch_size * num_patches, 1, seq_len, seq_len],
+                                             dtype=hidden_states.dtype, device=hidden_states.device)
+        else:
+            temp_pos_embed = self.temp_pos_embed[:self.video_length].unsqueeze(0)
+            if temp_pos_embed.shape[1] != frame:
+                temp_pos_embed = F.pad(temp_pos_embed, (0, 0, 0, frame - temp_pos_embed.shape[1]), mode='constant',
+                                       value=0)
+            temp_attention_mask = torch.ones([input_batch_size * num_patches, 1, frame, frame],
+                                             dtype=hidden_states.dtype, device=hidden_states.device)
+
+        # assert self.video_length == 17, "`video_length` must be equal to 17"
+        # assert temp_attention_mask.shape[-1] == 24, "line 452"
+        # assert temp_attention_mask.shape[-1] == 24, "line 453"
+        # temp_attention_mask[:, :, :, self.video_length:] = False
+        # temp_attention_mask[:, :, self.video_length:] = False
+        #
+        # temp_attention_mask = (1 - temp_attention_mask.to(hidden_states.dtype)) * -10000.0
+        # if npu_config.enable_FA:
+        #     temp_attention_mask = temp_attention_mask.to(torch.bool)
+        temp_attention_mask = None
+
         pos_hw, pos_t = None, None
         if self.use_rope:
-            pos_hw, pos_t = self.make_position(input_batch_size, frame, use_image_num, height, width, hidden_states.device)
+            pos_hw, pos_t = self.make_position(input_batch_size, frame, use_image_num, height, width,
+                                               hidden_states.device)
+
+        # print(hidden_states.size(), encoder_hidden_states_spatial.size(), attention_mask.size(), encoder_attention_mask.size(), timestep_temp.size())
 
         for i, (spatial_block, temp_block) in enumerate(zip(self.transformer_blocks, self.temporal_transformer_blocks)):
 
@@ -417,55 +486,124 @@ class LatteT2V(ModelMixin, ConfigMixin):
                 hidden_states = torch.utils.checkpoint.checkpoint(
                     spatial_block,
                     hidden_states,
-                    attention_mask_compress if i >= self.num_layers // 2 else attention_mask, 
+                    attention_mask_compress if i >= self.num_layers // 2 else attention_mask,
                     encoder_hidden_states_spatial,
                     encoder_attention_mask,
                     timestep_spatial,
                     cross_attention_kwargs,
                     class_labels,
-                    pos_hw, 
-                    pos_hw, 
-                    hw, 
+                    pos_hw,
+                    pos_hw,
+                    hw,
                     use_reentrant=False,
                 )
 
                 if enable_temporal_attentions:
-                    hidden_states = rearrange(hidden_states, '(b f) t d -> (b t) f d', b=input_batch_size).contiguous()
-
-                    if use_image_num != 0:  # image-video joitn training
-                        hidden_states_video = hidden_states[:, :frame, ...]
-                        hidden_states_image = hidden_states[:, frame:, ...]
-
-                        # if i == 0 and not self.use_rope:
+                    if get_sequence_parallel_state():
+                        hidden_states = hidden_states.view(input_batch_size, frame + use_image_num, num_patches,
+                                                           -1).transpose(0, 1).contiguous()
+                        hidden_states = hidden_states.view(frame + use_image_num, input_batch_size * num_patches, -1)
+                        if use_image_num != 0:
+                            hidden_states_image = hidden_states[frame:]
+                            hidden_states = hidden_states[:frame]
                         if i == 0:
-                            hidden_states_video = hidden_states_video + self.temp_pos_embed
-
-                        hidden_states_video = torch.utils.checkpoint.checkpoint(
+                            hidden_states = hidden_states + temp_pos_embed
+                        hidden_states = torch.utils.checkpoint.checkpoint(
                             temp_block,
-                            hidden_states_video,
-                            None,  # attention_mask
+                            hidden_states,
+                            temp_attention_mask,  # attention_mask
                             None,  # encoder_hidden_states
                             None,  # encoder_attention_mask
                             timestep_temp,
                             cross_attention_kwargs,
                             class_labels,
-                            pos_t, 
-                            pos_t, 
-                            (frame, ), 
+                            pos_t,
+                            pos_t,
+                            (frame,),
                             use_reentrant=False,
                         )
-
-                        hidden_states = torch.cat([hidden_states_video, hidden_states_image], dim=1)
-                        hidden_states = rearrange(hidden_states, '(b t) f d -> (b f) t d',
+                        if use_image_num != 0:
+                            hidden_states = torch.cat([hidden_states, hidden_states_image], dim=0)
+                        hidden_states = rearrange(hidden_states, 'f (b t) d -> (b f) t d',
+                                                  b=input_batch_size).contiguous()
+                    else:
+                        hidden_states = rearrange(hidden_states, '(b f) t d -> (b t) f d',
                                                   b=input_batch_size).contiguous()
 
-                    else:
-                        # if i == 0 and not self.use_rope:
-                        if i == 0:
-                            hidden_states = hidden_states + self.temp_pos_embed
+                        if use_image_num != 0:  # image-video joitn training
+                            hidden_states_video = hidden_states[:, :frame, ...]
+                            hidden_states_image = hidden_states[:, frame:, ...]
 
-                        hidden_states = torch.utils.checkpoint.checkpoint(
-                            temp_block,
+                            # if i == 0 and not self.use_rope:
+                            if i == 0:
+                                hidden_states_video = hidden_states_video + temp_pos_embed
+
+                            hidden_states_video = torch.utils.checkpoint.checkpoint(
+                                temp_block,
+                                hidden_states_video,
+                                None,  # attention_mask
+                                None,  # encoder_hidden_states
+                                None,  # encoder_attention_mask
+                                timestep_temp,
+                                cross_attention_kwargs,
+                                class_labels,
+                                pos_t,
+                                pos_t,
+                                (frame,),
+                                use_reentrant=False,
+                            )
+
+                            hidden_states = torch.cat([hidden_states_video, hidden_states_image], dim=1)
+                            hidden_states = rearrange(hidden_states, '(b t) f d -> (b f) t d',
+                                                      b=input_batch_size).contiguous()
+
+                        else:
+                            # if i == 0 and not self.use_rope:
+                            if i == 0:
+                                hidden_states = hidden_states + temp_pos_embed
+
+                            hidden_states = torch.utils.checkpoint.checkpoint(
+                                temp_block,
+                                hidden_states,
+                                None,  # attention_mask
+                                None,  # encoder_hidden_states
+                                None,  # encoder_attention_mask
+                                timestep_temp,
+                                cross_attention_kwargs,
+                                class_labels,
+                                pos_t,
+                                pos_t,
+                                (frame,),
+                                use_reentrant=False,
+                            )
+
+                            hidden_states = rearrange(hidden_states, '(b t) f d -> (b f) t d',
+                                                      b=input_batch_size).contiguous()
+            else:
+                hidden_states = spatial_block(
+                    hidden_states,
+                    attention_mask_compress if i >= self.num_layers // 2 else attention_mask,
+                    encoder_hidden_states_spatial,
+                    encoder_attention_mask,
+                    timestep_spatial,
+                    cross_attention_kwargs,
+                    class_labels,
+                    pos_hw,
+                    pos_hw,
+                    hw,
+                )
+
+                if enable_temporal_attentions:
+                    if get_sequence_parallel_state():
+                        hidden_states = hidden_states.view(input_batch_size, frame + use_image_num, num_patches,
+                                                           -1).transpose(0, 1).contiguous()
+                        hidden_states = hidden_states.view(frame + use_image_num, input_batch_size * num_patches, -1)
+                        if use_image_num != 0:
+                            hidden_states_image = hidden_states[frame:]
+                            hidden_states = hidden_states[:frame]
+                        if i == 0:
+                            hidden_states = hidden_states + temp_pos_embed
+                        hidden_states = temp_block(
                             hidden_states,
                             None,  # attention_mask
                             None,  # encoder_hidden_states
@@ -473,60 +611,21 @@ class LatteT2V(ModelMixin, ConfigMixin):
                             timestep_temp,
                             cross_attention_kwargs,
                             class_labels,
-                            pos_t, 
-                            pos_t, 
-                            (frame, ), 
-                            use_reentrant=False,
+                            pos_t,
+                            pos_t,
+                            (frame,),
                         )
-
-                        hidden_states = rearrange(hidden_states, '(b t) f d -> (b f) t d',
+                        if use_image_num != 0:
+                            hidden_states = torch.cat([hidden_states, hidden_states_image], dim=0)
+                        hidden_states = rearrange(hidden_states, 'f (b t) d -> (b f) t d',
                                                   b=input_batch_size).contiguous()
-            else:
-                hidden_states = spatial_block(
-                    hidden_states,
-                    attention_mask_compress if i >= self.num_layers // 2 else attention_mask, 
-                    encoder_hidden_states_spatial,
-                    encoder_attention_mask,
-                    timestep_spatial,
-                    cross_attention_kwargs,
-                    class_labels,
-                    pos_hw, 
-                    pos_hw, 
-                    hw, 
-                )
-
-                if enable_temporal_attentions:
-                    # b c f h w, f = 16 + 4
-                    hidden_states = rearrange(hidden_states, '(b f) t d -> (b t) f d', b=input_batch_size).contiguous()
-
-                    if use_image_num != 0 and self.training:
-                        hidden_states_video = hidden_states[:, :frame, ...]
-                        hidden_states_image = hidden_states[:, frame:, ...]
-
-                        # if i == 0 and not self.use_rope:
-                        #     hidden_states_video = hidden_states_video + self.temp_pos_embed
-
-                        hidden_states_video = temp_block(
-                            hidden_states_video,
-                            None,  # attention_mask
-                            None,  # encoder_hidden_states
-                            None,  # encoder_attention_mask
-                            timestep_temp,
-                            cross_attention_kwargs,
-                            class_labels,
-                            pos_t, 
-                            pos_t, 
-                            (frame, ), 
-                        )
-
-                        hidden_states = torch.cat([hidden_states_video, hidden_states_image], dim=1)
-                        hidden_states = rearrange(hidden_states, '(b t) f d -> (b f) t d',
-                                                  b=input_batch_size).contiguous()
-
                     else:
-                        # if i == 0 and not self.use_rope:
+                        # b c f h w, f = 16 + 4
+                        hidden_states = rearrange(hidden_states, '(b f) t d -> (b t) f d',
+                                                  b=input_batch_size).contiguous()
+
                         if i == 0:
-                            hidden_states = hidden_states + self.temp_pos_embed
+                            hidden_states = hidden_states + temp_pos_embed
 
                         hidden_states = temp_block(
                             hidden_states,
@@ -536,9 +635,9 @@ class LatteT2V(ModelMixin, ConfigMixin):
                             timestep_temp,
                             cross_attention_kwargs,
                             class_labels,
-                            pos_t, 
-                            pos_t, 
-                            (frame, ), 
+                            pos_t,
+                            pos_t,
+                            (frame,),
                         )
 
                         hidden_states = rearrange(hidden_states, '(b t) f d -> (b f) t d',
@@ -591,17 +690,27 @@ class LatteT2V(ModelMixin, ConfigMixin):
         model = cls.from_config(config, **kwargs)
         return model
 
+
 # depth = num_layers * 2
 def LatteT2V_XL_122(**kwargs):
     return LatteT2V(num_layers=28, attention_head_dim=72, num_attention_heads=16, patch_size_t=1, patch_size=2,
                     norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=1152, **kwargs)
+
+
 def LatteT2V_D64_XL_122(**kwargs):
     return LatteT2V(num_layers=28, attention_head_dim=64, num_attention_heads=18, patch_size_t=1, patch_size=2,
                     norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=1152, **kwargs)
 
+
+def LatteT2V_XL_122_NPU(**kwargs):
+    return LatteT2V(num_layers=28, attention_head_dim=128, num_attention_heads=16, patch_size_t=1, patch_size=2,
+                    norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=2048, **kwargs)
+
+
 Latte_models = {
     "LatteT2V-XL/122": LatteT2V_XL_122,
     "LatteT2V-D64-XL/122": LatteT2V_D64_XL_122,
+    "LatteT2V_XL_NPU/122": LatteT2V_XL_122_NPU
 }
 
 if __name__ == '__main__':
@@ -609,18 +718,18 @@ if __name__ == '__main__':
     from opensora.models.ae import getae, getae_wrapper
     from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModelWrapper
 
-    args = type('args', (), 
-    {
-        'ae': 'CausalVAEModel_4x8x8', 
-        'attention_mode': 'xformers', 
-        'use_rope': False, 
-        'model_max_length': 300, 
-        'max_image_size': 512, 
-        'num_frames': 65, 
-        'use_image_num': 16, 
-        'compress_kv_factor': 1
-    }
-    )
+    args = type('args', (),
+                {
+                    'ae': 'CausalVAEModel_4x8x8',
+                    'attention_mode': 'xformers',
+                    'use_rope': False,
+                    'model_max_length': 300,
+                    'max_image_size': 512,
+                    'num_frames': 65,
+                    'use_image_num': 16,
+                    'compress_kv_factor': 1
+                }
+                )
     b = 2
     c = 4
     cond_c = 4096
@@ -653,9 +762,9 @@ if __name__ == '__main__':
         attention_type='default',
         video_length=video_length,
         attention_mode=args.attention_mode,
-        compress_kv_factor=args.compress_kv_factor, 
-        use_rope=args.use_rope, 
-        model_max_length=args.model_max_length, 
+        compress_kv_factor=args.compress_kv_factor,
+        use_rope=args.use_rope,
+        model_max_length=args.model_max_length,
     ).to(device)
     # try:
     #     ckpt = torch.load(r"t2v.pt", map_location='cpu')['model']
@@ -664,12 +773,17 @@ if __name__ == '__main__':
     #     print(e)
     print(model)
 
-    x = torch.randn(b, c,  1+(args.num_frames-1)//ae_stride_t+args.use_image_num, args.max_image_size//ae_stride_h, args.max_image_size//ae_stride_w).to(device)
-    cond = torch.randn(b, 1+args.use_image_num, args.model_max_length, cond_c).to(device)
-    attn_mask = torch.randint(0, 2, (b, 1+args.use_image_num, args.max_image_size//ae_stride_h//2, args.max_image_size//ae_stride_w//2)).to(device)  # B L or B 1+num_images L
-    cond_mask = torch.randint(0, 2, (b, 1+args.use_image_num, args.model_max_length)).to(device)  # B L or B 1+num_images L
+    x = torch.randn(b, c, 1 + (args.num_frames - 1) // ae_stride_t + args.use_image_num,
+                    args.max_image_size // ae_stride_h, args.max_image_size // ae_stride_w).to(device)
+    cond = torch.randn(b, 1 + args.use_image_num, args.model_max_length, cond_c).to(device)
+    attn_mask = torch.randint(0, 2, (
+        b, 1 + args.use_image_num, args.max_image_size // ae_stride_h // 2,
+        args.max_image_size // ae_stride_w // 2)).to(
+        device)  # B L or B 1+num_images L
+    cond_mask = torch.randint(0, 2, (b, 1 + args.use_image_num, args.model_max_length)).to(
+        device)  # B L or B 1+num_images L
     timestep = torch.randint(0, 1000, (b,), device=device)
-    model_kwargs = dict(hidden_states=x, encoder_hidden_states=cond, attention_mask=attn_mask, 
+    model_kwargs = dict(hidden_states=x, encoder_hidden_states=cond, attention_mask=attn_mask,
                         encoder_attention_mask=cond_mask, use_image_num=args.use_image_num, timestep=timestep)
     with torch.no_grad():
         output = model(**model_kwargs)

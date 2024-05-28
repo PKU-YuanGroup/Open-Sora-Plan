@@ -12,17 +12,29 @@ import logging
 import math
 import os
 import shutil
+import time
+import random
+import string
 from pathlib import Path
 from typing import Optional
 import gc
 import numpy as np
 from einops import rearrange
 from tqdm import tqdm
+import torch
+
+try:
+    import torch_npu
+except:
+    pass
+from opensora.npu_config import npu_config
+
 from dataclasses import field, dataclass
 from torch.utils.data import DataLoader
 from copy import deepcopy
+from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
 import accelerate
-import torch
 from torch.nn import functional as F
 import transformers
 from accelerate import Accelerator
@@ -32,7 +44,6 @@ from huggingface_hub import create_repo
 from packaging import version
 from tqdm.auto import tqdm
 from transformers import HfArgumentParser, TrainingArguments, AutoTokenizer
-
 import diffusers
 from diffusers import DDPMScheduler, PNDMScheduler
 from diffusers.optimization import get_scheduler
@@ -49,7 +60,9 @@ from opensora.utils.dataset_utils import Collate
 from opensora.models.ae import ae_stride_config, ae_channel_config
 from opensora.models.diffusion import Diffusion_models
 from opensora.sample.pipeline_videogen import VideoGenPipeline
-from opensora.utils.utils import print_grad_norm
+from opensora.acceleration.parallel_states import initialize_sequence_parallel_state, destroy_sequence_parallel_group, \
+    get_sequence_parallel_state, enable_LCCL
+from opensora.acceleration.communications import prepare_parallel_data, broadcast
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 check_min_version("0.24.0")
@@ -58,9 +71,12 @@ logger = get_logger(__name__)
 
 @torch.inference_mode()
 def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weight_dtype, global_step):
+    rank = npu_config.rank
     validation_prompt = [
-        "A quiet beach at dawn, the waves gently lapping at the shore and the sky painted in pastel hues.", 
-        "The majestic beauty of a waterfall cascading down a cliff into a serene lake."
+        "A quiet beach at dawn, the waves gently lapping at the shore and the sky painted in pastel hues.",
+        "The majestic beauty of a waterfall cascading down a cliff into a serene lake.",
+        "a cat wearing sunglasses and working as a lifeguard at pool.",
+        "Yellow and black tropical fish dart through the sea."
     ]
     logger.info(f"Running validation....\n")
     model = accelerator.unwrap_model(model)
@@ -71,18 +87,20 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
                                          scheduler=scheduler,
                                          transformer=model).to(device=accelerator.device)
     videos = []
-    for prompt in validation_prompt:
-        logger.info('Processing the ({}) prompt'.format(prompt))
+    for index, prompt in enumerate(validation_prompt):
+        # if index % npu_config.N_NPU_PER_NODE != rank:
+        #     continue
+        logger.info(f'Processing the ({prompt}) prompt by rank {rank}')
         video = videogen_pipeline(prompt,
-                                num_frames=args.num_frames,
-                                height=args.max_image_size,
-                                width=args.max_image_size,
-                                num_inference_steps=args.num_sampling_steps,
-                                guidance_scale=args.guidance_scale,
-                                enable_temporal_attentions=True,
-                                num_images_per_prompt=1,
-                                mask_feature=True,
-                                ).video
+                                  video_length=args.video_length,
+                                  height=args.max_image_size,
+                                  width=args.max_image_size,
+                                  num_inference_steps=args.num_sampling_steps,
+                                  guidance_scale=args.guidance_scale,
+                                  enable_temporal_attentions=True,
+                                  num_images_per_prompt=1,
+                                  mask_feature=True,
+                                  ).video
         videos.append(video[0])
     # import ipdb;ipdb.set_trace()
     gc.collect()
@@ -92,13 +110,13 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
     for tracker in accelerator.trackers:
         if tracker.name == "tensorboard":
             np_videos = np.stack([np.asarray(vid) for vid in videos])
-            tracker.writer.add_video("validation", np_videos, global_step, fps=24)
+            tracker.writer.add_video("validation", np_videos, global_step, fps=10)
         if tracker.name == "wandb":
             import wandb
             tracker.log(
                 {
                     "validation": [
-                        wandb.Video(video, caption=f"{i}: {prompt}", fps=24)
+                        wandb.Video(video, caption=f"{i}: {prompt}", fps=10)
                         for i, (video, prompt) in enumerate(zip(videos, validation_prompt))
                     ]
                 }
@@ -107,6 +125,55 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
     del videogen_pipeline
     gc.collect()
     torch.cuda.empty_cache()
+
+
+class ProgressInfo:
+    def __init__(self, global_step, train_loss=0.0):
+        self.global_step = global_step
+        self.train_loss = train_loss
+
+
+def generate_timestep_weights(args, num_timesteps):
+    weights = torch.ones(num_timesteps)
+
+    # Determine the indices to bias
+    num_to_bias = int(args.timestep_bias_portion * num_timesteps)
+
+    if args.timestep_bias_strategy == "later":
+        bias_indices = slice(-num_to_bias, None)
+    elif args.timestep_bias_strategy == "earlier":
+        bias_indices = slice(0, num_to_bias)
+    elif args.timestep_bias_strategy == "range":
+        # Out of the possible 1000 timesteps, we might want to focus on eg. 200-500.
+        range_begin = args.timestep_bias_begin
+        range_end = args.timestep_bias_end
+        if range_begin < 0:
+            raise ValueError(
+                "When using the range strategy for timestep bias, you must provide a beginning timestep greater or equal to zero."
+            )
+        if range_end > num_timesteps:
+            raise ValueError(
+                "When using the range strategy for timestep bias, you must provide an ending timestep smaller than the number of timesteps."
+            )
+        bias_indices = slice(range_begin, range_end)
+    else:  # 'none' or any other string
+        return weights
+    if args.timestep_bias_multiplier <= 0:
+        return ValueError(
+            "The parameter --timestep_bias_multiplier is not intended to be used to disable the training of specific timesteps."
+            " If it was intended to disable timestep bias, use `--timestep_bias_strategy none` instead."
+            " A timestep bias multiplier less than or equal to 0 is not allowed."
+        )
+
+    # Apply the bias
+    weights[bias_indices] *= args.timestep_bias_multiplier
+
+    # Normalize
+    weights /= weights.sum()
+
+    return weights
+
+
 #################################################################################
 #                                  Training Loop                                #
 #################################################################################
@@ -114,6 +181,8 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
 def main(args):
     logging_dir = Path(args.output_dir, args.logging_dir)
 
+    npu_config.print_msg(args)
+    # npu_config.seed_everything()
     accelerator_project_config = ProjectConfiguration(project_dir=args.output_dir, logging_dir=logging_dir)
 
     accelerator = Accelerator(
@@ -123,9 +192,12 @@ def main(args):
         project_config=accelerator_project_config,
     )
 
+    initialize_sequence_parallel_state(args.sp_size)
+
     if args.report_to == "wandb":
         if not is_wandb_available():
             raise ImportError("Make sure to install wandb if you want to use it for logging during training.")
+        import wandb
 
     # Make one log on every process with the configuration for debugging.
     logging.basicConfig(
@@ -154,28 +226,7 @@ def main(args):
         #     repo_id = create_repo(
         #         repo_id=args.hub_model_id or Path(args.output_dir).name, exist_ok=True, token=args.hub_token
         #     ).repo_id
-
-    # For mixed precision training we cast all non-trainable weigths to half-precision
-    # as these weights are only used for inference, keeping weights in full precision is not required.
-    weight_dtype = torch.float32
-    if accelerator.mixed_precision == "fp16":
-        weight_dtype = torch.float16
-    elif accelerator.mixed_precision == "bf16":
-        weight_dtype = torch.bfloat16
-
-    # Create model:
-    diffusion = create_diffusion(timestep_respacing="")  # default: 1000 steps, linear noise schedule
-    kwargs = {}
-    ae = getae_wrapper(args.ae)(args.ae_path, cache_dir=args.cache_dir, **kwargs).eval()
-    if args.enable_tiling:
-        ae.vae.enable_tiling()
-        ae.vae.tile_overlap_factor = args.tile_overlap_factor
-        
-    kwargs = {'load_in_8bit': args.enable_8bit_t5, 'torch_dtype': weight_dtype, 'low_cpu_mem_usage': True}
-    text_enc = get_text_warpper(args.text_encoder_name)(args, **kwargs).eval()
-
     ae_stride_t, ae_stride_h, ae_stride_w = ae_stride_config[args.ae]
-    ae.vae_scale_factor = ae_stride_config[args.ae]
     assert ae_stride_h == ae_stride_w, f"Support only ae_stride_h == ae_stride_w now, but found ae_stride_h ({ae_stride_h}), ae_stride_w ({ae_stride_w})"
     args.ae_stride_t, args.ae_stride_h, args.ae_stride_w = ae_stride_t, ae_stride_h, ae_stride_w
     args.ae_stride = args.ae_stride_h
@@ -190,6 +241,37 @@ def main(args):
     args.stride_t = ae_stride_t * patch_size_t
     args.stride = ae_stride_h * patch_size_h
     latent_size = (args.max_image_size // ae_stride_h, args.max_image_size // ae_stride_w)
+
+    # Setup data:
+    train_dataset = getdataset(args)
+    train_dataloader = torch.utils.data.DataLoader(
+        train_dataset,
+        # sampler=train_sampler,
+        shuffle=True,
+        collate_fn=Collate(args),
+        batch_size=args.train_batch_size,
+        num_workers=args.dataloader_num_workers,
+    )
+
+    # For mixed precision training we cast all non-trainable weigths to half-precision
+    # as these weights are only used for inference, keeping weights in full precision is not required.
+    weight_dtype = torch.float32
+    if accelerator.mixed_precision == "fp16":
+        weight_dtype = torch.float16
+    elif accelerator.mixed_precision == "bf16":
+        weight_dtype = torch.bfloat16
+    weight_dtype = torch.bfloat16
+
+    # Create model:
+    diffusion = create_diffusion(timestep_respacing="")  # default: 1000 steps, linear noise schedule
+    kwargs = {}
+    ae = getae_wrapper(args.ae)(args.ae_path, cache_dir=args.cache_dir, **kwargs).eval()
+    if args.enable_tiling:
+        ae.vae.enable_tiling()
+        ae.vae.tile_overlap_factor = args.tile_overlap_factor
+
+    kwargs = {'load_in_8bit': args.enable_8bit_t5, 'torch_dtype': weight_dtype, 'low_cpu_mem_usage': True}
+    text_enc = get_text_warpper(args.text_encoder_name)(args, **kwargs).eval()
     ae.latent_size = latent_size
 
     if getae_wrapper(args.ae) == CausalVQVAEModelWrapper or getae_wrapper(args.ae) == CausalVAEModelWrapper:
@@ -216,9 +298,9 @@ def main(args):
         attention_type='default',
         video_length=video_length,
         attention_mode=args.attention_mode,
-        compress_kv_factor=args.compress_kv_factor, 
-        use_rope=args.use_rope, 
-        model_max_length=args.model_max_length, 
+        compress_kv_factor=args.compress_kv_factor,
+        use_rope=args.use_rope,
+        model_max_length=args.model_max_length,
     )
     model.gradient_checkpointing = args.gradient_checkpointing
 
@@ -232,14 +314,14 @@ def main(args):
         model_state_dict = model.state_dict()
         missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=False)
         logger.info(f'missing_keys {len(missing_keys)} {missing_keys}, unexpected_keys {len(unexpected_keys)}')
-        logger.info(f'Successfully load {len(model.state_dict()) - len(missing_keys)}/{len(model_state_dict)} keys from {args.pretrained}!')
+        logger.info(
+            f'Successfully load {len(model.state_dict()) - len(missing_keys)}/{len(model_state_dict)} keys from {args.pretrained}!')
 
     # Freeze vae and text encoders.
     ae.requires_grad_(False)
     text_enc.requires_grad_(False)
     # Set model as trainable.
     model.train()
-
 
     # Move unet, vae and text_encoder to device and cast to weight_dtype
     # The VAE is in float32 to avoid NaN losses.
@@ -322,15 +404,8 @@ def main(args):
         eps=args.adam_epsilon,
     )
 
-    # Setup data:
-    train_dataset = getdataset(args)
-    train_dataloader = torch.utils.data.DataLoader(
-        train_dataset,
-        shuffle=True,
-        collate_fn=Collate(args),
-        batch_size=args.train_batch_size,
-        num_workers=args.dataloader_num_workers,
-    )
+    # optimizer = torch_optimizer.Lamb(params_to_optimize, lr=1e-7, betas=(0.9, 0.999), eps=1e-08, weight_decay=1e-03,
+    #                                  clamp_value=0.1, adam=False, debias=False)
 
     # Scheduler and math around the number of training steps.
     overrode_max_train_steps = False
@@ -350,6 +425,7 @@ def main(args):
     model, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
         model, optimizer, train_dataloader, lr_scheduler
     )
+    # npu_config.print_msg(f"Process {accelerator.process_index} / {accelerator.num_processes} - Dataset size: {len(train_dataset)}, train_dataloader size: {len(train_dataloader)}")
 
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
@@ -361,7 +437,7 @@ def main(args):
     # We need to initialize the trackers we use, and also store our configuration.
     # The trackers initializes automatically on the main process.
     if accelerator.is_main_process:
-        accelerator.init_trackers(args.output_dir, config=vars(args))
+        accelerator.init_trackers(os.path.basename(args.output_dir), config=vars(args))
 
     # Train!
     total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
@@ -411,152 +487,208 @@ def main(args):
         # Only show the progress bar once on each machine.
         disable=not accelerator.is_local_main_process,
     )
+    progress_info = ProgressInfo(global_step, train_loss=0.0)
 
-    for epoch in range(first_epoch, args.num_train_epochs):
-        train_loss = 0.0
-        for step, (x, attn_mask, input_ids, cond_mask) in enumerate(train_dataloader):
+    def sync_gradients_info(loss):
+        # Checks if the accelerator has performed an optimization step behind the scenes
+        progress_bar.update(1)
+        progress_info.global_step += 1
+        end_time = time.time()
+        one_step_duration = end_time - start_time
+        accelerator.log({"train_loss": progress_info.train_loss}, step=progress_info.global_step)
+        npu_config.print_msg(
+            f"Step: [{progress_info.global_step}], enable_LCCL={enable_LCCL}, local_loss={loss.detach().item()}, train_loss={progress_info.train_loss}, time_cost={one_step_duration}",
+            rank=0)
+        progress_info.train_loss = 0.0
+
+        if accelerator.is_main_process:
+            logs = {"local_loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
+            progress_bar.set_postfix(**logs)
+            if progress_info.global_step % args.checkpointing_steps == 0 and progress_info.global_step > 1:
+                # _before_ saving state, check if this save would set us over the `checkpoints_total_limit`
+                if args.checkpoints_total_limit is not None:
+                    checkpoints = os.listdir(args.output_dir)
+                    checkpoints = [d for d in checkpoints if d.startswith("checkpoint")]
+                    checkpoints = sorted(checkpoints, key=lambda x: int(x.split("-")[1]))
+
+                    # before we save the new checkpoint, we need to have at _most_ `checkpoints_total_limit - 1` checkpoints
+                    if len(checkpoints) >= args.checkpoints_total_limit:
+                        num_to_remove = len(checkpoints) - args.checkpoints_total_limit + 1
+                        removing_checkpoints = checkpoints[0:num_to_remove]
+
+                        logger.info(
+                            f"{len(checkpoints)} checkpoints already exist, removing {len(removing_checkpoints)} checkpoints"
+                        )
+                        logger.info(f"removing checkpoints: {', '.join(removing_checkpoints)}")
+
+                        for removing_checkpoint in removing_checkpoints:
+                            removing_checkpoint = os.path.join(args.output_dir, removing_checkpoint)
+                            shutil.rmtree(removing_checkpoint)
+
+                save_path = os.path.join(args.output_dir, f"checkpoint-{progress_info.global_step}")
+                accelerator.save_state(save_path)
+                logger.info(f"Saved state to {save_path}")
+
+                if args.use_ema:
+                    # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
+                    ema_model.store(model.parameters())
+                    ema_model.copy_to(model.parameters())
+
+                if args.enable_tracker and not get_sequence_parallel_state():
+                    log_validation(args, model, ae, text_enc.text_enc, train_dataset.tokenizer, accelerator,
+                                   weight_dtype, progress_info.global_step)
+
+    def run(x, model_kwargs, prof):
+        global start_time
+        start_time = time.time()
+
+        t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=accelerator.device)
+        if get_sequence_parallel_state():
+            broadcast(t)
+        # npu_config.print_msg(t, f"TimeStep: after broadcast")
+
+        loss_dict = diffusion.training_losses(model, x, t, model_kwargs)
+        loss = loss_dict["loss"].mean()
+
+        # Backpropagate
+        accelerator.backward(loss)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1)
+        if accelerator.sync_gradients:
+            params_to_clip = model.parameters()
+            accelerator.clip_grad_norm_(params_to_clip, args.max_grad_norm)
+        optimizer.step()
+        lr_scheduler.step()
+        optimizer.zero_grad()
+        if prof is not None:
+            prof.step()
+
+        avg_loss = accelerator.gather(loss.repeat(args.train_sp_batch_size)).mean()
+        progress_info.train_loss += avg_loss.detach().item() / args.gradient_accumulation_steps
+
+        if accelerator.sync_gradients:
+            sync_gradients_info(loss)
+
+        return loss
+
+    def train_one_step(step_, data_item_, prof_=None):
+        x, attn_mask, input_ids, cond_mask = data_item_
+        # Sample noise that we'll add to the latents
+        x = x.to(accelerator.device, dtype=weight_dtype)  # B C T+num_images H W, 16 + 4
+        attn_mask = attn_mask.to(accelerator.device)  # B L or B 1+num_images L
+        input_ids = input_ids.to(accelerator.device)  # B L or B 1+num_images L
+        cond_mask = cond_mask.to(accelerator.device)  # B L or B 1+num_images L
+        # print('x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape', x.shape, attn_mask.shape,
+        # input_ids.shape, cond_mask.shape)
+
+        with torch.no_grad():
+            ae.to(accelerator.device, dtype=weight_dtype)
+            # ae.to(accelerator.device)
+            text_enc.to(accelerator.device, dtype=weight_dtype)
+            # use for loop to avoid OOM, because T5 is too huge...
+            B, _, _ = input_ids.shape  # B T+num_images L  b 1+4, L
+            cond = torch.stack([text_enc(input_ids[i], cond_mask[i]) for i in range(B)])  # B 1+num_images L D
+
+            # Map input images to latent space + normalize latents
+            if args.use_image_num == 0:
+                x = ae.encode(x)  # B C T H W
+                cond = text_enc(input_ids, cond_mask)  # B L -> B L D
+            else:
+                videos, images = x[:, :, :-args.use_image_num], x[:, :, -args.use_image_num:]
+                videos = ae.encode(videos)  # B C T H W
+
+                images = rearrange(images, 'b c t h w -> (b t) c 1 h w')
+                images = ae.encode(images)
+
+                images = rearrange(images, '(b t) c 1 h w -> b c t h w', t=args.use_image_num)
+                x = torch.cat([videos, images], dim=2)  # b c 17+4, h, w
+
+        # ae.to('cpu', dtype=weight_dtype)
+        # # ae.to(accelerator.device)
+        # text_enc.to('cpu', dtype=weight_dtype)
+        # x = torch.randn([1, 4, 21, 64, 64], dtype=weight_dtype, device=accelerator.device)
+        # cond = torch.ones([1, 5, 4096], dtype=weight_dtype, device=accelerator.device)
+        # attn_mask = torch.ones([1, 21, 64, 64], dtype=weight_dtype, device=accelerator.device)
+
+        # npu_config.print_tensor_stats(x, "x")
+        # npu_config.print_tensor_stats(cond, "cond")
+        # npu_config.print_tensor_stats(attn_mask, "attn_mask")
+        # npu_config.print_tensor_stats(cond_mask, "cond_mask")
+
+        if get_sequence_parallel_state():
+            loss = 0.0
+            grad_norm = 0.0
+            # npu_config.print_tensor_stats(attn_mask, "attn_mask before prepare_parallel_data")
+            x, cond, attn_mask, cond_mask, use_image_num = prepare_parallel_data(x, cond, attn_mask, cond_mask,
+                                                                                 args.use_image_num)
+            assert torch.all(attn_mask), "unable multi-scale"
+            # npu_config.print_tensor_stats(attn_mask, "attn_mask after prepare_parallel_data")
+
+            if npu_config.on_npu and npu_config.enable_FP32:
+                x = x.to(torch.float32)
+                cond = cond.to(torch.float32)
+
+            for iter in range(args.train_batch_size * args.sp_size // args.train_sp_batch_size):
+                with accelerator.accumulate(model):
+                    st_idx = iter * args.train_sp_batch_size
+                    ed_idx = (iter + 1) * args.train_sp_batch_size
+                    model_kwargs = dict(encoder_hidden_states=cond[st_idx: ed_idx],
+                                        attention_mask=attn_mask[st_idx: ed_idx],
+                                        encoder_attention_mask=cond_mask[st_idx: ed_idx], use_image_num=use_image_num)
+
+                    run(x[st_idx: ed_idx], model_kwargs, prof_)
+
+        else:
             with accelerator.accumulate(model):
-                # Sample noise that we'll add to the latents
-                if not args.multi_scale:
-                    assert torch.all(attn_mask)
-                
-                x = x.to(accelerator.device, dtype=weight_dtype)  # B C T+num_images H W, 16 + 4
-                attn_mask = attn_mask.to(accelerator.device)  # B 1+num_images L
-                # assert torch.all(attn_mask != 0), 'attn_mask must all 1'
-                input_ids = input_ids.to(accelerator.device)  # B 1+num_images L
-                cond_mask = cond_mask.to(accelerator.device)  # B 1+num_images L
-                # print('x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape', x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape)
-                
-                with torch.no_grad():
-                    # use for loop to avoid OOM, because T5 is too huge...
-                    B, _, _ = input_ids.shape  # B T+num_images L  b 1+4, L
-                    cond = torch.stack([text_enc(input_ids[i], cond_mask[i]) for i in range(B)])  # B 1+num_images L D
-                    
-                    # Map input images to latent space + normalize latents
-                    if args.use_image_num == 0:
-                        x = ae.encode(x)  # B C T H W
-                    else:
-                        videos, images = x[:, :, :-args.use_image_num], x[:, :, -args.use_image_num:]
-                        videos = ae.encode(videos)  # B C T H W
-
-
-                        def custom_to_video(x: torch.Tensor, fps: float = 2.0, output_file: str = 'output_video.mp4') -> None:
-                            from examples.rec_imvi_vae import array_to_video
-                            x = x.detach().cpu()
-                            x = torch.clamp(x, -1, 1)
-                            x = (x + 1) / 2
-                            x = x.permute(1, 2, 3, 0).numpy()
-                            x = (255*x).astype(np.uint8)
-                            array_to_video(x, fps=fps, output_file=output_file)
-                            return
-
-                        # videos = ae.decode(videos.to(dtype=weight_dtype))[0]
-                        # videos = videos.transpose(0, 1)
-                        # custom_to_video(videos.to(torch.float32), fps=24, output_file='tmp.mp4')
-                        # sys.exit()
-
-                        images = rearrange(images, 'b c t h w -> (b t) c 1 h w')
-                        images = ae.encode(images)
-
-                        # import ipdb;ipdb.set_trace()
-                        # images = ae.decode(images.to(dtype=weight_dtype))
-                        # for idx in range(args.use_image_num):
-                        #     x = images[idx, 0, :, :, :].to(torch.float32)
-                        #     x = x.squeeze()
-                        #     x = x.detach().cpu().numpy()
-                        #     x = np.clip(x, -1, 1)
-                        #     x = (x + 1) / 2
-                        #     x = (255 * x).astype(np.uint8)
-                        #     x = x.transpose(1, 2, 0)
-                        #     from PIL import Image
-                        #     image = Image.fromarray(x)
-                        #     image.save(f'tmp{idx}.jpg')
-                        # import sys
-                        # sys.exit()
-
-
-                        images = rearrange(images, '(b t) c 1 h w -> b c t h w', t=args.use_image_num)
-                        x = torch.cat([videos, images], dim=2)   #  b c 17+4, h, w
-
-                
-
-                # print('(x.shape, attn_mask.shape, cond.shape, cond_mask.shape', x.shape, attn_mask.shape, cond.shape, cond_mask.shape)
                 model_kwargs = dict(encoder_hidden_states=cond, attention_mask=attn_mask,
                                     encoder_attention_mask=cond_mask, use_image_num=args.use_image_num)
-                t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=accelerator.device)
-                loss_dict = diffusion.training_losses(model, x, t, model_kwargs)
-                loss = loss_dict["loss"].mean()
+                run(x, model_kwargs, prof_)
 
-                # Gather the losses across all processes for logging (if we use distributed training).
-                avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
-                train_loss += avg_loss.item() / args.gradient_accumulation_steps
+        if progress_info.global_step >= args.max_train_steps:
+            return True
 
-                # Backpropagate
-                accelerator.backward(loss)
+        return False
 
+    def train_all_epoch(prof_=None):
+        for epoch in range(first_epoch, args.num_train_epochs):
+            progress_info.train_loss = 0.0
+            if progress_info.global_step >= args.max_train_steps:
+                return True
 
-                # accelerator.deepspeed_engine_wrapped.engine.backward(loss)
-                # print_grad_norm(model)
-                # accelerator.deepspeed_engine_wrapped.engine.step()
+            for step, data_item in enumerate(train_dataloader):
 
-                if accelerator.sync_gradients:
-                    params_to_clip = model.parameters()
-                    accelerator.clip_grad_norm_(params_to_clip, args.max_grad_norm)
-                optimizer.step()
-                lr_scheduler.step()
-                optimizer.zero_grad()
+                if train_one_step(step, data_item, prof_):
+                    break
 
-            # Checks if the accelerator has performed an optimization step behind the scenes
-            if accelerator.sync_gradients:
-                progress_bar.update(1)
-                global_step += 1
-                accelerator.log({"train_loss": train_loss}, step=global_step)
-                train_loss = 0.0
+                if step >= 2:
+                    npu_config.free_mm()
 
-                if args.use_deepspeed or accelerator.is_main_process:
-                    if global_step % args.checkpointing_steps == 0:
-                        # _before_ saving state, check if this save would set us over the `checkpoints_total_limit`
-                        if args.checkpoints_total_limit is not None:
-                            checkpoints = os.listdir(args.output_dir)
-                            checkpoints = [d for d in checkpoints if d.startswith("checkpoint")]
-                            checkpoints = sorted(checkpoints, key=lambda x: int(x.split("-")[1]))
+    if npu_config.on_npu and npu_config.profiling:
+        experimental_config = torch_npu.profiler._ExperimentalConfig(
+            profiler_level=torch_npu.profiler.ProfilerLevel.Level1,
+            aic_metrics=torch_npu.profiler.AiCMetrics.PipeUtilization
+        )
+        profile_output_path = f"/home/image_data/npu_profiling_t2v/{os.getenv('PROJECT_NAME', 'local')}"
+        os.makedirs(profile_output_path, exist_ok=True)
 
-                            # before we save the new checkpoint, we need to have at _most_ `checkpoints_total_limit - 1` checkpoints
-                            if len(checkpoints) >= args.checkpoints_total_limit:
-                                num_to_remove = len(checkpoints) - args.checkpoints_total_limit + 1
-                                removing_checkpoints = checkpoints[0:num_to_remove]
+        with torch_npu.profiler.profile(
+                activities=[torch_npu.profiler.ProfilerActivity.NPU, torch_npu.profiler.ProfilerActivity.CPU],
+                with_stack=True,
+                record_shapes=True,
+                profile_memory=True,
+                experimental_config=experimental_config,
+                schedule=torch_npu.profiler.schedule(wait=npu_config.profiling_step, warmup=0, active=1, repeat=1,
+                                                     skip_first=0),
+                on_trace_ready=torch_npu.profiler.tensorboard_trace_handler(f"{profile_output_path}/")
+        ) as prof:
+            train_all_epoch(prof)
+    else:
+        train_all_epoch()
 
-                                logger.info(
-                                    f"{len(checkpoints)} checkpoints already exist, removing {len(removing_checkpoints)} checkpoints"
-                                )
-                                logger.info(f"removing checkpoints: {', '.join(removing_checkpoints)}")
-
-                                for removing_checkpoint in removing_checkpoints:
-                                    removing_checkpoint = os.path.join(args.output_dir, removing_checkpoint)
-                                    shutil.rmtree(removing_checkpoint)
-
-                        save_path = os.path.join(args.output_dir, f"checkpoint-{global_step}")
-                        accelerator.save_state(save_path)
-                        logger.info(f"Saved state to {save_path}")
-
-                logs = {"step_loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
-                progress_bar.set_postfix(**logs)
-
-            if global_step >= args.max_train_steps:
-                break
-
-            if accelerator.is_main_process:
-                if global_step % args.checkpointing_steps == 0:
-                    if args.use_ema:
-                        # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
-                        ema_model.store(model.parameters())
-                        ema_model.copy_to(model.parameters())
-
-                    if args.enable_tracker:
-                        log_validation(args, model, ae, text_enc.text_enc, train_dataset.tokenizer, accelerator, weight_dtype, global_step)
-
+    if args.loss_save_path != None:
+        npu_config.save_loss(args.loss_save_path)
     accelerator.wait_for_everyone()
     accelerator.end_training()
+    destroy_sequence_parallel_group()
 
 
 if __name__ == "__main__":
@@ -575,7 +707,8 @@ if __name__ == "__main__":
     parser.add_argument('--tile_overlap_factor', type=float, default=0.25)
     parser.add_argument('--enable_tiling', action='store_true')
     parser.add_argument("--compress_kv", action="store_true")
-    parser.add_argument("--attention_mode", type=str, choices=['xformers', 'math', 'flash'], default="xformers")
+    parser.add_argument("--attention_mode", type=str, choices=['xformers', 'math', 'flash', 'unable'],
+                        default="xformers")
     parser.add_argument('--use_rope', action='store_true')
     parser.add_argument('--compress_kv_factor', type=int, default=1)
 
@@ -587,8 +720,7 @@ if __name__ == "__main__":
     parser.add_argument("--cache_dir", type=str, default='./cache_dir')
 
     parser.add_argument("--num_sampling_steps", type=int, default=50)
-    parser.add_argument('--guidance_scale', type=float, default=5.5)
-    parser.add_argument("--multi_scale", action="store_true")
+    parser.add_argument('--guidance_scale', type=float, default=10.0)
     parser.add_argument("--enable_tracker", action="store_true")
     parser.add_argument("--use_deepspeed", action="store_true")
     parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
@@ -794,6 +926,9 @@ if __name__ == "__main__":
     )
     parser.add_argument("--local_rank", type=int, default=-1, help="For distributed training: local_rank")
     parser.add_argument("--noise_offset", type=float, default=0, help="The scale of noise offset.")
+    parser.add_argument("--sp_size", type=int, default=1, help="For sequence parallel")
+    parser.add_argument("--train_sp_batch_size", type=int, default=1, help="Batch size for sequence parallel training")
+    parser.add_argument("--loss_save_path", type=str, default=None, help="Path to save loss")
 
     args = parser.parse_args()
     main(args)

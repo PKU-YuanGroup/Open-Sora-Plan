@@ -47,16 +47,18 @@ def getdataset(args):
     temporal_sample = TemporalRandomCrop(args.num_frames * args.sample_rate)  # 16 x
     norm_fun = ae_norm[args.ae]
     if args.dataset == 't2v':
-        if args.multi_scale:
-            resize = [
-                LongSideResizeVideo(args.max_image_size, skip_low_resolution=True),
-                SpatialStrideCropVideo(args.stride)
-                ]
-        else:
-            resize = [CenterCropResizeVideo(args.max_image_size), ]
+        # transform = transforms.Compose([
+        #     ToTensorVideo(),
+        #     LongSideResizeVideo(args.max_image_size, skip_low_resolution=True),
+        #     SpatialStrideCropVideo(args.stride),
+        #     # RandomHorizontalFlipVideo(p=0.5),  # in case their caption have position decription
+        #     norm_fun
+        # ])
         transform = transforms.Compose([
             ToTensorVideo(),
-            *resize, 
+            # LongSideResizeVideo(args.max_image_size, skip_low_resolution=True),
+            # SpatialStrideCropVideo(args.stride),
+            CenterCropResizeVideo(args.max_image_size),
             # RandomHorizontalFlipVideo(p=0.5),  # in case their caption have position decription
             norm_fun
         ])
