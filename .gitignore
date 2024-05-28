@@ -22,7 +22,8 @@ wandb/
 cache_dir/
 wandb/
 test*
-sample_videos/
+sample_video*
+sample_image*
 512*
 720*
 1024*
@@ -31,3 +32,15 @@ private*
 caption*
 *deepspeed*
 revised*
+129f*
+all*
+read*
+YSH*
+*pick*
+*ysh*
+hw*
+257f*
+513f*
+taming*
+221hw*
+65x512x512
