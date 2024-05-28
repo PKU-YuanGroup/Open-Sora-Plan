@@ -39,35 +39,99 @@ Thanks to **HUAWEI Ascend Team** for supporting us. In the second stage, we used
 ### 221×512×512 Text-to-Video Generation
 
 
+<table class="center">
+<tr>
+  <td style="text-align:center;"><b>3D animation of a small, round, fluffy creature with big, expressive eyes explores ...</b></td>
+  <td style="text-align:center;"><b>A single drop of liquid metal falls from a floating orb, landing on a mirror-like ...</b></td>
+  <td style="text-align:center;"><b>The video presents an abstract composition centered around a hexagonal shape adorned ...</b></td>
+</tr>
+<tr>
+  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/ded7da21-0567-44d9-8a49-7c6d7d6bbbf1" autoplay></td>
+  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/db9ab03c-28cc-4561-ab03-a221582fcfa3" autoplay></td>
+  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/10664bc7-1133-405e-a6ce-651fe06bd272" autoplay></td>
+</tr>
+<tr>
+  <td style="text-align:center;"><b>A drone camera circles around a beautiful historic church built on a rocky outcropping ...</b></td>
+  <td style="text-align:center;"><b>Aerial view of Santorini during the blue hour, showcasing the stunning architecture ...</b></td>
+  <td style="text-align:center;"><b>An aerial shot of a lighthouse standing tall on a rocky cliff, its beacon cutting ...</b></td>
+</tr>
+<tr>
+  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/e65e34ca-59d2-407e-a782-574a606505a9" autoplay></td>
+  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/a69fff5f-583c-430c-a5bc-a5a5cba8a003" autoplay></td>
+  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/21cd3137-91e6-4996-aa07-d785294d3bc0" autoplay></td>
+</tr>
+<tr>
+  <td style="text-align:center;"><b>A snowy forest landscape with a dirt road running through it. The road is flanked by ...</b></td>
+  <td style="text-align:center;"><b>Drone shot along the Hawaii jungle coastline, sunny day. Kayaks in the water.</b></td>
+  <td style="text-align:center;"><b>The camera rotates around a large stack of vintage televisions all showing different ...</b></td>
+</tr>
+<tr>
+  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/511e25ec-2fd3-4b0f-8975-8b439f62ea00" autoplay></td>
+  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/06c0b0fe-f8f5-4a1f-8e64-449f7e20ccca" autoplay></td>
+  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/97a79402-9c9a-4bf5-a880-f9a9f9f48746" autoplay></td>
+</tr>
+</table>
 
-| 221×512×512 (9.2s) | 221×512×512 (9.2s) | 221×512×512 (9.2s) |
-| --- | --- | --- |
-| <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/98897215-eae9-49f3-8fdb-df1d4b74d435" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/5453cf37-29ac-423d-9fb2-05f23416ca3e" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/77928824-6705-4d83-a7b4-43fdb74790bf" width=224> |
-| 3D animation of a small, round, fluffy creature with big, expressive eyes explores ... |  A single drop of liquid metal falls from a floating orb, landing on a mirror-like ... | The video presents an abstract composition centered around a hexagonal shape adorned ...  |
-| <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/42542b4e-b1b8-49b8-ada4-7bcfde8e1453" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/4eee2619-a5ca-4a32-b350-e65d6220c8f7" width=224>  | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/ec78d855-07c7-4421-896a-3c46a83ec129" width=224> |
-| A drone camera circles around a beautiful historic church built on a rocky outcropping ... | Aerial view of Santorini during the blue hour, showcasing the stunning architecture ...  | An aerial shot of a lighthouse standing tall on a rocky cliff, its beacon cutting ...  |
-| <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/f9c5823f-aa03-40ee-8335-684684f5c842" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/f207d798-8988-45b0-b836-347e499ee000" width=224>  |  <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/67b40ce1-135d-4ae2-a1ee-5a0866461eb2" width=224> |
-| A snowy forest landscape with a dirt road running through it. The road is flanked by ... |  Drone shot along the Hawaii jungle coastline, sunny day. Kayaks in the water. |The camera rotates around a large stack of vintage televisions all showing different ...  |
+
 
 
 ### 65×512×512 Text-to-Video Generation
 
-| 65×512×512 (2.7s) | 65×512×512 (2.7s) | 65×512×512 (2.7s) |
-| --- | --- | --- |
-| <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/8edfa249-272c-4773-8728-12686527771e" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/33338d8e-5ea7-4b57-9e94-97f3ee404033" width=224>  | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/227fa6b6-801b-438b-9b30-cd3a4e0a7f2f" width=224> | 
-| In an ornate, historical hall, a massive tidal wave peaks and begins to crash. Two ... | A Shiba Inu dog wearing a beret and black turtleneck.  |   A painting of a boat on water comes to life, with waves crashing and the boat becoming ...  |
-|<img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/34c1dda6-e420-4edd-bbcd-38ff8e542ec6" width=224>| <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/55229eca-de3a-476b-930b-13a35eb5db30" width=224>  | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/66b06822-2652-453e-80fb-dd2988b730ce" width=224> |
-| A person clad in a space suit with a helmet and equipped with a chest light and arm ... | 3D animation of a small, round, fluffy creature with big, expressive eyes explores a ...   |    In a studio, there is a painting depicting a ship sailing through the rough sea. |
-| <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/4d27ff13-e725-4602-bf17-90df2c0d8005" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/aba01259-60f2-49ef-aa33-e738dc8c9a49" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/98178397-61b0-4200-9ab9-9bef2728ed98" width=224> |
-| A robot dog trots down a deserted alley at night, its metallic paws clinking softly ... |   A lone surfer rides a massive wave, skillfully maneuvering through the surf. The water ... |  A solitary cheetah sprints across the savannah, its powerful muscles propelling it ... |
+
+
+<table class="center">
+<tr>
+  <td style="text-align:center;"><b>In an ornate, historical hall, a massive tidal wave peaks and begins to crash. Two ...</b></td>
+  <td style="text-align:center;"><b>A Shiba Inu dog wearing a beret and black turtleneck.</b></td>
+  <td style="text-align:center;"><b>A painting of a boat on water comes to life, with waves crashing and the boat becoming ...</b></td>
+</tr>
+<tr>
+  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/a7a81d96-8565-463c-9ea3-71ab2602e22d" autoplay></td>
+  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/552b3b3e-1d07-4daf-ac66-22541e03a954" autoplay></td>
+  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/060b6417-195b-4579-b13c-885da5d8bb6b" autoplay></td>
+</tr>
+<tr>
+  <td style="text-align:center;"><b>A person clad in a space suit with a helmet and equipped with a chest light and arm ...</b></td>
+  <td style="text-align:center;"><b>3D animation of a small, round, fluffy creature with big, expressive eyes explores a ...</b></td>
+  <td style="text-align:center;"><b>In a studio, there is a painting depicting a ship sailing through the rough sea.</b></td>
+</tr>
+<tr>
+  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/dfc8b58b-a5d7-4933-9ad7-ed0f0a7999af" autoplay></td>
+  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/5530a1c4-31ca-4c62-8a08-d66bbfc0763c" autoplay></td>
+  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/54a22473-c24b-4270-ba40-c95ecedc69e5" autoplay></td>
+</tr>
+<tr>
+  <td style="text-align:center;"><b>A robot dog trots down a deserted alley at night, its metallic paws clinking softly ...</b></td>
+  <td style="text-align:center;"><b>A lone surfer rides a massive wave, skillfully maneuvering through the surf. The water ...</b></td>
+  <td style="text-align:center;"><b>A solitary cheetah sprints across the savannah, its powerful muscles propelling it ...</b></td>
+</tr>
+<tr>
+  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/453a3f37-f5ac-4f59-a16b-b712422f5142" autoplay></td>
+  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/0b058c81-a339-4be9-b5c2-bc2c379a1f23" autoplay></td>
+  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/c05a8082-f21e-4618-b56b-2e0f71ef5340" autoplay></td>
+</tr>
+</table>
+
+
 
 ### 65×512×512 Video Editing
 
-| generated 65×512×512 (2.7s) | edited 65×512×512 (2.7s) |
-| --- | --- |
-| <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/edb8e8c2-5eef-4c90-85fb-6adb035067c3" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/32d93845-8904-4f8f-832e-37eba2ceb542" width=224>  |
-| <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/a70d0d91-0d61-4aa4-9520-6e4a6c477f12" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/7913e06f-1e0b-4d06-8233-72c882c6abfe" width=224>  |
-| <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/0e614ec0-fba0-4f42-a343-d4607966dd40" width=224> | <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/c531d930-410c-4614-890d-bae8013f33c2" width=224>  |
+
+<table class="center">
+<tr>
+  <td style="text-align:center;"><b>Generated</b></td>
+  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/cdc988cb-e471-4292-9fb5-a554393e66aa" autoplay></td>
+  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/fccedc52-18c9-413e-a026-d877ed4ec76b" autoplay></td>
+  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/b817969d-f1f9-4ab7-bdd4-5d9dd235bb24" autoplay></td>
+</tr>
+<tr>
+  <td style="text-align:center;"><b>Edited</b></td>
+  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/b94866bd-4f42-47af-b56b-06f39f010b8f" autoplay></td>
+  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/c53ddecb-0914-4b67-a7a5-d218115c0466" autoplay></td>
+  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/7f6ba225-6ff1-4c8b-a735-51f87d751812" autoplay></td>
+</tr>
+</table>
+
 
 ### 512×512 Text-to-Image Generation
 
