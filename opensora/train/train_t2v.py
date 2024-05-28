@@ -43,6 +43,7 @@ from opensora.dataset import getdataset, ae_denorm
 from opensora.models.ae import getae, getae_wrapper
 from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModelWrapper
 from opensora.utils.diffusion import create_diffusion_T as create_diffusion
+from opensora.utils.diffusion.diffusion_utils import compute_snr
 from opensora.models.diffusion.latte.modeling_latte import LatteT2V
 from opensora.models.text_encoder import get_text_enc, get_text_warpper
 from opensora.utils.dataset_utils import Collate
@@ -76,8 +77,8 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
         video = opensora_pipeline(prompt,
                                 num_frames=args.num_frames,
                                 # num_frames=1,
-                                height=args.max_image_size,
-                                width=args.max_image_size,
+                                height=args.max_height,
+                                width=args.max_width,
                                 num_inference_steps=args.num_sampling_steps,
                                 guidance_scale=args.guidance_scale,
                                 enable_temporal_attentions=True,
@@ -206,11 +207,13 @@ def main(args):
     args.patch_size_t, args.patch_size_h, args.patch_size_w = patch_size_t, patch_size_h, patch_size_w
     assert patch_size_h == patch_size_w, f"Support only patch_size_h == patch_size_w now, but found patch_size_h ({patch_size_h}), patch_size_w ({patch_size_w})"
     # assert args.num_frames % ae_stride_t == 0, f"Num_frames must be divisible by ae_stride_t, but found num_frames ({args.num_frames}), ae_stride_t ({ae_stride_t})."
-    assert args.max_image_size % ae_stride_h == 0, f"Image size must be divisible by ae_stride_h, but found max_image_size ({args.max_image_size}), ae_stride_h ({ae_stride_h})."
+    assert args.max_height % ae_stride_h == 0, f"Height must be divisible by ae_stride_h, but found Height ({args.max_height}), ae_stride_h ({ae_stride_h})."
+    assert args.max_width % ae_stride_h == 0, f"Width size must be divisible by ae_stride_h, but found Width ({args.max_width}), ae_stride_h ({ae_stride_h})."
+
 
     args.stride_t = ae_stride_t * patch_size_t
     args.stride = ae_stride_h * patch_size_h
-    latent_size = (args.max_image_size // ae_stride_h, args.max_image_size // ae_stride_w)
+    latent_size = (args.max_height // ae_stride_h, args.max_width // ae_stride_w)
     ae.latent_size = latent_size
 
     if args.num_frames % 2 == 1:
@@ -262,7 +265,7 @@ def main(args):
         logger.info(f'Successfully load {len(model.state_dict()) - len(missing_keys)}/{len(model_state_dict)} keys from {args.pretrained}!')
 
     # Freeze vae and text encoders.
-    ae.requires_grad_(False)
+    ae.vae.requires_grad_(False)
     text_enc.requires_grad_(False)
     # Set model as trainable.
     model.train()
@@ -271,7 +274,7 @@ def main(args):
     # Move unet, vae and text_encoder to device and cast to weight_dtype
     # The VAE is in float32 to avoid NaN losses.
     # ae.to(accelerator.device, dtype=torch.float32)
-    ae.to(accelerator.device, dtype=weight_dtype)
+    ae.vae.to(accelerator.device, dtype=weight_dtype)
     # ae.to(accelerator.device)
     text_enc.to(accelerator.device, dtype=weight_dtype)
     # text_enc.to(accelerator.device)
@@ -517,7 +520,18 @@ def main(args):
                 model_kwargs = dict(encoder_hidden_states=cond, attention_mask=attn_mask,
                                     encoder_attention_mask=cond_mask, use_image_num=args.use_image_num)
                 t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=accelerator.device)
-                loss_dict = diffusion.training_losses(model, x, t, model_kwargs)
+
+
+                # loss_dict = diffusion.training_losses(model, x, t, model_kwargs)
+                if args.snr_gamma is not None:
+                    snr = compute_snr(t, torch.from_numpy(diffusion.alphas_cumprod))
+                    mse_loss_weights = (torch.stack([snr, args.snr_gamma * torch.ones_like(t)], dim=1).min(dim=1)[0] / snr)
+                    # print(t, mse_loss_weights)
+                    loss_dict = diffusion.training_losses(model, x, t, model_kwargs, mse_loss_weights=mse_loss_weights)
+                else:
+                    loss_dict = diffusion.training_losses(model, x, t, model_kwargs)
+
+                    
                 loss = loss_dict["loss"].mean()
 
                 # Gather the losses across all processes for logging (if we use distributed training).
@@ -602,7 +616,8 @@ if __name__ == "__main__":
     parser.add_argument("--image_data", type=str, default='')
     parser.add_argument("--sample_rate", type=int, default=1)
     parser.add_argument("--num_frames", type=int, default=17)
-    parser.add_argument("--max_image_size", type=int, default=512)
+    parser.add_argument("--max_height", type=int, default=512)
+    parser.add_argument("--max_width", type=int, default=512)
     parser.add_argument("--use_img_from_vid", action="store_true")
     parser.add_argument("--use_image_num", type=int, default=0)
     parser.add_argument("--model_max_length", type=int, default=300)
