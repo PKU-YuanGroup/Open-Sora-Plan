@@ -107,6 +107,25 @@ def center_crop_using_short_edge(clip):
     return crop(clip, i, j, th, tw)
 
 
+
+def center_crop_th_tw(clip, th, tw):
+    if not _is_tensor_video_clip(clip):
+        raise ValueError("clip should be a 4D torch.tensor")
+    
+    # import ipdb;ipdb.set_trace()
+    h, w = clip.size(-2), clip.size(-1)
+    tr = th / tw
+    if h / w > tr:
+        new_h = int(w * tr)
+        new_w = w
+    else:
+        new_h = h
+        new_w = int(h / tr)
+    
+    i = int(round((h - new_h) / 2.0))
+    j = int(round((w - new_w) / 2.0))
+    return crop(clip, i, j, new_h, new_w)
+
 def random_shift_crop(clip):
     '''
     Slide along the long edge, with the short edge as crop size
@@ -290,12 +309,9 @@ class CenterCropResizeVideo:
             size,
             interpolation_mode="bilinear",
     ):
-        if isinstance(size, tuple):
-            if len(size) != 2:
-                raise ValueError(f"size should be tuple (height, width), instead got {size}")
-            self.size = size
-        else:
-            self.size = (size, size)
+        if len(size) != 2:
+            raise ValueError(f"size should be tuple (height, width), instead got {size}")
+        self.size = size
 
         self.interpolation_mode = interpolation_mode
 
@@ -307,7 +323,9 @@ class CenterCropResizeVideo:
             torch.tensor: scale resized / center cropped video clip.
                 size is (T, C, crop_size, crop_size)
         """
-        clip_center_crop = center_crop_using_short_edge(clip)
+        # clip_center_crop = center_crop_using_short_edge(clip)
+        clip_center_crop = center_crop_th_tw(clip, self.size[0], self.size[1])
+        # import ipdb;ipdb.set_trace()
         clip_center_crop_resize = resize(clip_center_crop, target_size=self.size,
                                          interpolation_mode=self.interpolation_mode)
         return clip_center_crop_resize

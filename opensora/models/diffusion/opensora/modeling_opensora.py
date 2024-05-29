@@ -72,7 +72,8 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
         norm_eps: float = 1e-5,
         attention_type: str = "default",
         caption_channels: int = None,
-        interpolation_scale: float = None,
+        interpolation_scale_h: float = None,
+        interpolation_scale_w: float = None,
         interpolation_scale_t: float = None,
         use_additional_conditions: Optional[bool] = None,
         attention_mode: str = 'xformers', 
@@ -92,7 +93,9 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
 
         # Set some common variables used across the board.
         self.use_linear_projection = use_linear_projection
-        self.interpolation_scale = interpolation_scale
+        self.interpolation_scale_t = interpolation_scale_t
+        self.interpolation_scale_h = interpolation_scale_h
+        self.interpolation_scale_w = interpolation_scale_w
         self.caption_channels = caption_channels
         self.num_attention_heads = num_attention_heads
         self.attention_head_dim = attention_head_dim
@@ -138,13 +141,13 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
         self.width = self.config.sample_size[1]
         self.patch_size_t = self.config.patch_size_t
         self.patch_size = self.config.patch_size
-        sample_size_t = ((self.config.sample_size_t - 1) // 16 + 1) if self.config.sample_size_t % 2 == 1 else self.config.sample_size_t / 16
+        interpolation_scale_t = ((self.config.sample_size_t - 1) // 16 + 1) if self.config.sample_size_t % 2 == 1 else self.config.sample_size_t / 16
         interpolation_scale_t = (
-            self.config.interpolation_scale_t if self.config.interpolation_scale_t is not None else sample_size_t
+            self.config.interpolation_scale_t if self.config.interpolation_scale_t is not None else interpolation_scale_t
         )
         interpolation_scale = (
-            self.config.interpolation_scale if self.config.interpolation_scale is not None else self.config.sample_size[0] / 64, 
-            self.config.interpolation_scale if self.config.interpolation_scale is not None else self.config.sample_size[1] / 64, 
+            self.config.interpolation_scale_h if self.config.interpolation_scale_h is not None else self.config.sample_size[0] / 30, 
+            self.config.interpolation_scale_w if self.config.interpolation_scale_w is not None else self.config.sample_size[1] / 40, 
         )
         # if self.config.sample_size_t > 1:
         #     self.pos_embed = PatchEmbed3D(
@@ -522,8 +525,8 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
             shape=(-1, self.out_channels, num_frames * self.patch_size_t, height * self.patch_size, width * self.patch_size)
         )
         # import ipdb;ipdb.set_trace()
-        if output.shape[2] % 2 == 0:
-            output = output[:, :, 1:]
+        # if output.shape[2] % 2 == 0:
+        #     output = output[:, :, 1:]
         return output
     
 
@@ -531,38 +534,42 @@ def OpenSoraT2V_S_122(**kwargs):
     return OpenSoraT2V(num_layers=28, attention_head_dim=72, num_attention_heads=16, patch_size_t=1, patch_size=2,
                        norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=1152, **kwargs)
 
-def OpenSoraT2V_S_222(**kwargs):
-    return OpenSoraT2V(num_layers=28, attention_head_dim=72, num_attention_heads=16, patch_size_t=2, patch_size=2,
-                       norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=1152, **kwargs)
-
-
-def OpenSoraT2V_B_222(**kwargs):
-    return OpenSoraT2V(num_layers=24, attention_head_dim=128, num_attention_heads=16, patch_size_t=2, patch_size=2,
+def OpenSoraT2V_B_122(**kwargs):
+    return OpenSoraT2V(num_layers=48, attention_head_dim=128, num_attention_heads=16, patch_size_t=1, patch_size=2,
                        norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=2048, **kwargs)
 
-def OpenSoraT2V_L_222(**kwargs):
-    return OpenSoraT2V(num_layers=40, attention_head_dim=128, num_attention_heads=20, patch_size_t=2, patch_size=2,
-                       norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=2560, **kwargs)
+# def OpenSoraT2V_S_222(**kwargs):
+#     return OpenSoraT2V(num_layers=28, attention_head_dim=72, num_attention_heads=16, patch_size_t=2, patch_size=2,
+#                        norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=1152, **kwargs)
 
-def OpenSoraT2V_XL_222(**kwargs):
-    return OpenSoraT2V(num_layers=32, attention_head_dim=128, num_attention_heads=32, patch_size_t=2, patch_size=2,
-                       norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=4096, **kwargs)
 
-def OpenSoraT2V_XXL_222(**kwargs):
-    return OpenSoraT2V(num_layers=40, attention_head_dim=128, num_attention_heads=40, patch_size_t=2, patch_size=2,
-                       norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=5120, **kwargs)
+# def OpenSoraT2V_B_222(**kwargs):
+#     return OpenSoraT2V(num_layers=24, attention_head_dim=128, num_attention_heads=16, patch_size_t=2, patch_size=2,
+#                        norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=2048, **kwargs)
+
+# def OpenSoraT2V_L_222(**kwargs):
+#     return OpenSoraT2V(num_layers=40, attention_head_dim=128, num_attention_heads=20, patch_size_t=2, patch_size=2,
+#                        norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=2560, **kwargs)
+
+# def OpenSoraT2V_XL_222(**kwargs):
+#     return OpenSoraT2V(num_layers=32, attention_head_dim=128, num_attention_heads=32, patch_size_t=2, patch_size=2,
+#                        norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=4096, **kwargs)
+
+# def OpenSoraT2V_XXL_222(**kwargs):
+#     return OpenSoraT2V(num_layers=40, attention_head_dim=128, num_attention_heads=40, patch_size_t=2, patch_size=2,
+#                        norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=5120, **kwargs)
 
 OpenSora_models = {
     "OpenSoraT2V-S/122": OpenSoraT2V_S_122,
-    # "OpenSoraT2V-B/122": OpenSoraT2V_B_122,
+    "OpenSoraT2V-B/122": OpenSoraT2V_B_122,
     # "OpenSoraT2V-L/122": OpenSoraT2V_L_122,
     # "OpenSoraT2V-XL/122": OpenSoraT2V_XL_122,
     # "OpenSoraT2V-XXL/122": OpenSoraT2V_XXL_122,
-    "OpenSoraT2V-S/222": OpenSoraT2V_S_222,
-    "OpenSoraT2V-B/222": OpenSoraT2V_B_222,
-    "OpenSoraT2V-L/222": OpenSoraT2V_L_222,
-    "OpenSoraT2V-XL/222": OpenSoraT2V_XL_222,
-    "OpenSoraT2V-XXL/222": OpenSoraT2V_XXL_222,
+    # "OpenSoraT2V-S/222": OpenSoraT2V_S_222,
+    # "OpenSoraT2V-B/222": OpenSoraT2V_B_222,
+    # "OpenSoraT2V-L/222": OpenSoraT2V_L_222,
+    # "OpenSoraT2V-XL/222": OpenSoraT2V_XL_222,
+    # "OpenSoraT2V-XXL/222": OpenSoraT2V_XXL_222,
 }
 
 if __name__ == '__main__':

@@ -12,6 +12,7 @@ from diffusers.models.embeddings import get_1d_sincos_pos_embed_from_grid, Image
 from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.models.modeling_utils import ModelMixin
 from diffusers.models.lora import LoRACompatibleConv, LoRACompatibleLinear
+from opensora.utils.utils import to_2tuple
 
 import torch
 import torch.nn.functional as F
@@ -56,7 +57,6 @@ class LatteT2V(ModelMixin, ConfigMixin):
     def __init__(
             self,
             num_attention_heads: int = 16,
-            patch_size_t: int = 1,
             attention_head_dim: int = 88,
             in_channels: Optional[int] = None,
             out_channels: Optional[int] = None,
@@ -66,8 +66,10 @@ class LatteT2V(ModelMixin, ConfigMixin):
             cross_attention_dim: Optional[int] = None,
             attention_bias: bool = False,
             sample_size: Optional[int] = None,
+            sample_size_t: Optional[int] = None,
             num_vector_embeds: Optional[int] = None,
             patch_size: Optional[int] = None,
+            patch_size_t: Optional[int] = None,
             activation_fn: str = "geglu",
             num_embeds_ada_norm: Optional[int] = None,
             use_linear_projection: bool = False,
@@ -79,19 +81,23 @@ class LatteT2V(ModelMixin, ConfigMixin):
             norm_eps: float = 1e-5,
             attention_type: str = "default",
             caption_channels: int = None,
-            video_length: int = 16,
             attention_mode: str = 'flash', 
             use_rope: bool = False, 
             model_max_length: int = 300, 
             rope_scaling_type: str = 'linear', 
             compress_kv_factor: int = 1, 
+            interpolation_scale_h: float = None,
+            interpolation_scale_w: float = None,
+            interpolation_scale_t: float = None,
     ):
         super().__init__()
+        self.interpolation_scale_t = interpolation_scale_t
+        self.interpolation_scale_h = interpolation_scale_h
+        self.interpolation_scale_w = interpolation_scale_w
         self.use_linear_projection = use_linear_projection
         self.num_attention_heads = num_attention_heads
         self.attention_head_dim = attention_head_dim
         inner_dim = num_attention_heads * attention_head_dim
-        self.video_length = video_length
         self.use_rope = use_rope
         self.model_max_length = model_max_length
         self.compress_kv_factor = compress_kv_factor
@@ -127,34 +133,44 @@ class LatteT2V(ModelMixin, ConfigMixin):
         self.height = sample_size[0]
         self.width = sample_size[1]
 
-        self.patch_size = patch_size
-        interpolation_scale_2d = self.config.sample_size[0] // 64  # => 64 (= 512 pixart) has interpolation scale 1
-        interpolation_scale_2d = max(interpolation_scale_2d, 1)
+        self.num_frames = self.config.sample_size_t
+        self.config.sample_size = to_2tuple(self.config.sample_size)
+        self.height = self.config.sample_size[0]
+        self.width = self.config.sample_size[1]
+        self.patch_size_t = self.config.patch_size_t
+        self.patch_size = self.config.patch_size
+        interpolation_scale_t = ((self.config.sample_size_t - 1) // 16 + 1) if self.config.sample_size_t % 2 == 1 else self.config.sample_size_t / 16
+        interpolation_scale_t = (
+            self.config.interpolation_scale_t if self.config.interpolation_scale_t is not None else interpolation_scale_t
+        )
+        interpolation_scale = (
+            self.config.interpolation_scale_h if self.config.interpolation_scale_h is not None else self.config.sample_size[0] / 30, 
+            self.config.interpolation_scale_w if self.config.interpolation_scale_w is not None else self.config.sample_size[1] / 40, 
+        )
         self.pos_embed = PatchEmbed(
             height=sample_size[0],
             width=sample_size[1],
             patch_size=patch_size,
             in_channels=in_channels,
             embed_dim=inner_dim,
-            interpolation_scale=interpolation_scale_2d,
+            interpolation_scale=interpolation_scale,
         )
 
-        
-        # define temporal positional embedding
-        if self.config.video_length % 2 == 1:
-            interpolation_scale_1d = (self.config.video_length - 1) // 16  # => 16 (= 16 Latte) has interpolation scale 1
-        else:
-            interpolation_scale_1d = self.config.video_length // 16  # => 16 (= 16 Latte) has interpolation scale 1
-        # interpolation_scale_1d = self.config.video_length // 5  # 
-        interpolation_scale_1d = max(interpolation_scale_1d, 1)
-        temp_pos_embed = get_1d_sincos_pos_embed(inner_dim, video_length, interpolation_scale=interpolation_scale_1d)  # 1152 hidden size
+        # # define temporal positional embedding
+        # if self.config.video_length % 2 == 1:
+        #     interpolation_scale_1d = (self.config.video_length - 1) // 16  # => 16 (= 16 Latte) has interpolation scale 1
+        # else:
+        #     interpolation_scale_1d = self.config.video_length // 16  # => 16 (= 16 Latte) has interpolation scale 1
+        # # interpolation_scale_1d = self.config.video_length // 5  # 
+        # interpolation_scale_1d = max(interpolation_scale_1d, 1)
+        temp_pos_embed = get_1d_sincos_pos_embed(inner_dim, self.config.sample_size_t, interpolation_scale=interpolation_scale_t)  # 1152 hidden size
         self.register_buffer("temp_pos_embed", torch.from_numpy(temp_pos_embed).float().unsqueeze(0), persistent=False)
 
         rope_scaling = None
         if self.use_rope:
             self.position_getter_2d = PositionGetter2D()
             self.position_getter_1d = PositionGetter1D()
-            rope_scaling = dict(type=rope_scaling_type, factor_2d=interpolation_scale_2d, factor_1d=interpolation_scale_1d)
+            rope_scaling = dict(type=rope_scaling_type, factor_2d=interpolation_scale, factor_1d=interpolation_scale_t)
 
         # 3. Define transformers blocks, spatial attention
         self.transformer_blocks = nn.ModuleList(
@@ -338,6 +354,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
         # this helps to broadcast it as a bias over attention scores, which will be in one of the following shapes:
         #   [batch,  heads, query_tokens, key_tokens] (e.g. torch sdp attn)
         #   [batch * heads, query_tokens, key_tokens] (e.g. xformers or classic attn)
+        # import ipdb;ipdb.set_trace()
         if attention_mask is None:
             attention_mask = torch.ones((input_batch_size, frame+use_image_num, h, w), device=hidden_states.device, dtype=hidden_states.dtype)
         attention_mask = self.vae_to_diff_mask(attention_mask, use_image_num)
@@ -399,7 +416,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
                 encoder_hidden_states = torch.cat([encoder_hidden_states_video, encoder_hidden_states_image], dim=1)
                 encoder_hidden_states_spatial = rearrange(encoder_hidden_states, 'b f t d -> (b f) t d').contiguous()
             else:
-                encoder_hidden_states_spatial = repeat(encoder_hidden_states, 'b t d -> (b f) t d', f=frame).contiguous()
+                encoder_hidden_states_spatial = repeat(encoder_hidden_states, 'b 1 t d -> (b f) t d', f=frame).contiguous()
 
         # prepare timesteps for spatial and temporal block
         timestep_spatial = repeat(timestep, 'b d -> (b f) d', f=frame + use_image_num).contiguous()
@@ -593,13 +610,19 @@ class LatteT2V(ModelMixin, ConfigMixin):
 def LatteT2V_XL_122(**kwargs):
     return LatteT2V(num_layers=28, attention_head_dim=72, num_attention_heads=16, patch_size_t=1, patch_size=2,
                     norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=1152, **kwargs)
-def LatteT2V_D64_XL_122(**kwargs):
-    return LatteT2V(num_layers=28, attention_head_dim=64, num_attention_heads=18, patch_size_t=1, patch_size=2,
-                    norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=1152, **kwargs)
+
+# def LatteT2V_D64_XL_122(**kwargs):
+#     return LatteT2V(num_layers=28, attention_head_dim=64, num_attention_heads=18, patch_size_t=1, patch_size=2,
+#                     norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=1152, **kwargs)
+
+def LatteT2V_122(**kwargs):
+    return LatteT2V(num_layers=28, attention_head_dim=128, num_attention_heads=16, patch_size_t=1, patch_size=2,
+                    norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=2048, **kwargs)
 
 Latte_models = {
     "LatteT2V-XL/122": LatteT2V_XL_122,
-    "LatteT2V-D64-XL/122": LatteT2V_D64_XL_122,
+    # "LatteT2V-D64-XL/122": LatteT2V_D64_XL_122,
+    "LatteT2V/122": LatteT2V_122,
 }
 
 if __name__ == '__main__':

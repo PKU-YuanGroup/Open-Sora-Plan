@@ -1,1 +1,1 @@
-/remote-home1/dataset/all_mixkit,/remote-home1/dataset/anno_jsons/video_mixkit_65f_54735.json
+/remote-home1/dataset/all_mixkit,/storage/anno_jsons/video_mixkit_65f_54735.json

@@ -240,12 +240,15 @@ def main(args):
         norm_eps=1e-6,
         attention_type='default',
         attention_mode=args.attention_mode,
+        interpolation_scale_h=args.interpolation_scale_h, 
+        interpolation_scale_w=args.interpolation_scale_w, 
+        interpolation_scale_t=args.interpolation_scale_t, 
         # compress_kv_factor=args.compress_kv_factor, 
         # use_rope=args.use_rope, 
         # model_max_length=args.model_max_length, 
     )
     model.gradient_checkpointing = args.gradient_checkpointing
-
+    
     # # use pretrained model?
     if args.pretrained:
         if 'safetensors' in args.pretrained:  # pixart series
@@ -615,12 +618,12 @@ if __name__ == "__main__":
     parser.add_argument("--video_data", type=str, required='')
     parser.add_argument("--image_data", type=str, default='')
     parser.add_argument("--sample_rate", type=int, default=1)
-    parser.add_argument("--num_frames", type=int, default=17)
-    parser.add_argument("--max_height", type=int, default=512)
-    parser.add_argument("--max_width", type=int, default=512)
+    parser.add_argument("--num_frames", type=int, default=65)
+    parser.add_argument("--max_height", type=int, default=320)
+    parser.add_argument("--max_width", type=int, default=240)
     parser.add_argument("--use_img_from_vid", action="store_true")
     parser.add_argument("--use_image_num", type=int, default=0)
-    parser.add_argument("--model_max_length", type=int, default=300)
+    parser.add_argument("--model_max_length", type=int, default=512)
 
     parser.add_argument('--enable_8bit_t5', action='store_true')
     parser.add_argument('--tile_overlap_factor', type=float, default=0.25)
@@ -629,6 +632,9 @@ if __name__ == "__main__":
     parser.add_argument("--attention_mode", type=str, choices=['xformers', 'math', 'flash'], default="xformers")
     parser.add_argument('--use_rope', action='store_true')
     parser.add_argument('--compress_kv_factor', type=int, default=1)
+    parser.add_argument('--interpolation_scale_h', type=float, default=1.0)
+    parser.add_argument('--interpolation_scale_w', type=float, default=1.0)
+    parser.add_argument('--interpolation_scale_t', type=float, default=1.0)
 
     parser.add_argument("--model", type=str, choices=list(Diffusion_models.keys()), default="Latte-XL/122")
     parser.add_argument("--pretrained", type=str, default=None)

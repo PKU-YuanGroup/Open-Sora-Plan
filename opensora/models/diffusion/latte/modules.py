@@ -20,7 +20,7 @@ from diffusers.models.activations import GEGLU, GELU, ApproximateGELU
 
 from dataclasses import dataclass
 
-from opensora.models.diffusion.utils.pos_embed import get_2d_sincos_pos_embed, RoPE1D, RoPE2D, LinearScalingRoPE2D, LinearScalingRoPE1D
+from opensora.models.diffusion.utils.pos_embed import RoPE1D, RoPE2D, LinearScalingRoPE2D, LinearScalingRoPE1D
 
 if is_xformers_available():
     import xformers
@@ -28,6 +28,75 @@ if is_xformers_available():
 else:
     xformers = None
 
+
+def get_2d_sincos_pos_embed(
+    embed_dim, grid_size, cls_token=False, extra_tokens=0, interpolation_scale=1.0, base_size=16, 
+):
+    """
+    grid_size: int of the grid height and width return: pos_embed: [grid_size*grid_size, embed_dim] or
+    [1+grid_size*grid_size, embed_dim] (w/ or w/o cls_token)
+    """
+    # if isinstance(grid_size, int):
+    #     grid_size = (grid_size, grid_size)
+
+    grid_h = np.arange(grid_size[0], dtype=np.float32) / (grid_size[0] / base_size[0]) / interpolation_scale[0]
+    grid_w = np.arange(grid_size[1], dtype=np.float32) / (grid_size[1] / base_size[1]) / interpolation_scale[1]
+    grid = np.meshgrid(grid_w, grid_h)  # here w goes first
+    grid = np.stack(grid, axis=0)
+
+    grid = grid.reshape([2, 1, grid_size[1], grid_size[0]])
+    pos_embed = get_2d_sincos_pos_embed_from_grid(embed_dim, grid)
+    if cls_token and extra_tokens > 0:
+        pos_embed = np.concatenate([np.zeros([extra_tokens, embed_dim]), pos_embed], axis=0)
+    return pos_embed
+
+
+def get_2d_sincos_pos_embed_from_grid(embed_dim, grid):
+    if embed_dim % 2 != 0:
+        raise ValueError("embed_dim must be divisible by 2")
+
+    # use 1/3 of dimensions to encode grid_t/h/w
+    emb_h = get_1d_sincos_pos_embed_from_grid(embed_dim // 2, grid[0])  # (H*W, D/2)
+    emb_w = get_1d_sincos_pos_embed_from_grid(embed_dim // 2, grid[1])  # (H*W, D/2)
+
+    emb = np.concatenate([emb_h, emb_w], axis=1)  # (H*W, D)
+    return emb
+
+def get_1d_sincos_pos_embed(
+    embed_dim, grid_size, cls_token=False, extra_tokens=0, interpolation_scale=1.0, base_size=16, 
+):
+    """
+    grid_size: int of the grid return: pos_embed: [grid_size, embed_dim] or
+    [1+grid_size, embed_dim] (w/ or w/o cls_token)
+    """
+    # if isinstance(grid_size, int):
+    #     grid_size = (grid_size, grid_size)
+
+    grid = np.arange(grid_size, dtype=np.float32) / (grid_size / base_size) / interpolation_scale
+    pos_embed = get_1d_sincos_pos_embed_from_grid(embed_dim, grid)  # (H*W, D/2)
+    if cls_token and extra_tokens > 0:
+        pos_embed = np.concatenate([np.zeros([extra_tokens, embed_dim]), pos_embed], axis=0)
+    return pos_embed
+
+def get_1d_sincos_pos_embed_from_grid(embed_dim, pos):
+    """
+    embed_dim: output dimension for each position pos: a list of positions to be encoded: size (M,) out: (M, D)
+    """
+    if embed_dim % 2 != 0:
+        raise ValueError("embed_dim must be divisible by 2")
+
+    omega = np.arange(embed_dim // 2, dtype=np.float64)
+    omega /= embed_dim / 2.0
+    omega = 1.0 / 10000**omega  # (D/2,)
+
+    pos = pos.reshape(-1)  # (M,)
+    out = np.einsum("m,d->md", pos, omega)  # (M, D/2), outer product
+
+    emb_sin = np.sin(out)  # (M, D/2)
+    emb_cos = np.cos(out)  # (M, D/2)
+
+    emb = np.concatenate([emb_sin, emb_cos], axis=1)  # (M, D)
+    return emb
 
 class CombinedTimestepSizeEmbeddings(nn.Module):
     """
@@ -137,10 +206,10 @@ class PatchEmbed(nn.Module):
         # https://github.com/PixArt-alpha/PixArt-alpha/blob/0f55e922376d8b797edd44d25d0e7464b260dcab/diffusion/model/nets/PixArtMS.py#L161
         self.height, self.width = height // patch_size, width // patch_size
 
-        self.base_size = height // patch_size
+        self.base_size = (height // patch_size, width // patch_size)
         self.interpolation_scale = interpolation_scale
         pos_embed = get_2d_sincos_pos_embed(
-            embed_dim, int(num_patches**0.5), base_size=self.base_size, interpolation_scale=self.interpolation_scale
+            embed_dim, (self.height, self.width), base_size=self.base_size, interpolation_scale=self.interpolation_scale
         )
         self.register_buffer("pos_embed", torch.from_numpy(pos_embed).float().unsqueeze(0), persistent=False)
 

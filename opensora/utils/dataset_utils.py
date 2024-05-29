@@ -44,7 +44,8 @@ def pad_to_multiple(number, ds_stride):
 
 class Collate:
     def __init__(self, args):
-        self.max_image_size = args.max_image_size
+        self.max_height = args.max_height
+        self.max_width = args.max_width
         self.ae_stride = args.ae_stride
         self.ae_stride_t = args.ae_stride_t
         self.ae_stride_thw = (self.ae_stride_t, self.ae_stride, self.ae_stride)
@@ -57,8 +58,8 @@ class Collate:
 
         self.num_frames = args.num_frames
         self.use_image_num = args.use_image_num
-        self.max_thw = (self.num_frames, self.max_image_size, self.max_image_size)
-        self.max_1hw = (1, self.max_image_size, self.max_image_size)
+        self.max_thw = (self.num_frames, self.max_height, self.max_width)
+        self.max_1hw = (1, self.max_height, self.max_width)
 
     def package(self, batch):
 
