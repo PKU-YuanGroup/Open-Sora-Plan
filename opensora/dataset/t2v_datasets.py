@@ -72,17 +72,17 @@ class T2V_dataset(Dataset):
         # input_ids = torch.ones(1, 120).to(torch.long).squeeze(0)
         # cond_mask = torch.cat([torch.ones(1, 60).to(torch.long), torch.ones(1, 60).to(torch.long)], dim=1).squeeze(0)
         
-        # video_path = self.vid_cap_list[idx]['path']
-        # frame_idx = self.vid_cap_list[idx]['frame_idx']
-        # video = self.decord_read(video_path, frame_idx)
+        video_path = self.vid_cap_list[idx]['path']
+        frame_idx = self.vid_cap_list[idx]['frame_idx']
+        video = self.decord_read(video_path, frame_idx)
 
-        # h, w = video.shape[-2:]
-        # assert h / w <= 16 / 16 and h / w >= 9 / 16, f'Only videos with a ratio (h/w) less than 16/16 and more than 9/16 are supported. But found ratio is {round(h/w, 2)} with the shape of {video.shape}'
-        # t = video.shape[0]
-        # video = video[:(t - 1) // 4 * 4 + 1]
-        # video = self.transform(video)  # T C H W -> T C H W
+        h, w = video.shape[-2:]
+        assert h / w <= 16 / 16 and h / w >= 9 / 16, f'Only videos with a ratio (h/w) less than 16/16 and more than 9/16 are supported. But found ratio is {round(h/w, 2)} with the shape of {video.shape}'
+        t = video.shape[0]
+        video = video[:(t - 1) // 4 * 4 + 1]
+        video = self.transform(video)  # T C H W -> T C H W
         
-        video = torch.rand(65, 3, 240, 320)
+        # video = torch.rand(65, 3, 240, 320)
 
         video = video.transpose(0, 1)  # T C H W -> C T H W
         text = self.vid_cap_list[idx]['cap']
@@ -113,12 +113,12 @@ class T2V_dataset(Dataset):
         idx = idx % len(self.img_cap_list)  # out of range
         image_data = self.img_cap_list[idx]  # [{'path': path, 'cap': cap}, ...]
         
-        # image = [Image.open(i['path']).convert('RGB') for i in image_data] # num_img [h, w, c]
-        # image = [torch.from_numpy(np.array(i)) for i in image] # num_img [h, w, c]
-        # image = [rearrange(i, 'h w c -> c h w').unsqueeze(0) for i in image] # num_img [1 c h w]
-        # image = [self.transform(i) for i in image]  # num_img [1 C H W] -> num_img [1 C H W]
+        image = [Image.open(i['path']).convert('RGB') for i in image_data] # num_img [h, w, c]
+        image = [torch.from_numpy(np.array(i)) for i in image] # num_img [h, w, c]
+        image = [rearrange(i, 'h w c -> c h w').unsqueeze(0) for i in image] # num_img [1 c h w]
+        image = [self.transform(i) for i in image]  # num_img [1 C H W] -> num_img [1 C H W]
 
-        image = [torch.rand(1, 3, 512, 512) for i in image_data]
+        # image = [torch.rand(1, 3, 512, 512) for i in image_data]
         image = [i.transpose(0, 1) for i in image]  # num_img [1 C H W] -> num_img [C 1 H W]
 
         caps = [i['cap'] for i in image_data]
