@@ -1017,7 +1017,8 @@ class AttnProcessor2_0:
                     hidden_states = hidden_states.view(-1, attn.heads // self.sp_size, head_dim)
 
                     # [s * b, h // sp, d] -> [s // sp * b, h, d] -> [s // sp, b, h * d]
-                    hidden_states = all_to_all_SBH(hidden_states, scatter_dim=0, gather_dim=1).view(-1, batch_size, h_size)
+                    hidden_states = all_to_all_SBH(hidden_states, scatter_dim=0, gather_dim=1).view(-1, batch_size,
+                                                                                                    h_size)
                 else:  # BSH
                     hidden_states = npu_config.run_attention(query, key, value, attention_mask, self.layout,
                                                              head_dim, attn.heads)

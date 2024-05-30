@@ -38,7 +38,7 @@ dev = ["mypy==1.8.0"]
 exclude = ["assets*", "docker*", "docs", "scripts*"]
 
 [tool.wheel]
-exclude = ["assets*", "docker*", "docs", "scripts*"]
+exclude = ["assets*", "docker*", "docs", "scripts*" ]
 
 [tool.mypy]
 warn_return_any = true
