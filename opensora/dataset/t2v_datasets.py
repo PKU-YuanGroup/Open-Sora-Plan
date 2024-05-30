@@ -63,7 +63,7 @@ class T2V_dataset(Dataset):
                 image_data = self.get_image(idx)  # 1 frame video as image
             return dict(video_data=video_data, image_data=image_data)
         except Exception as e:
-            print(f'Error with {e}')
+            # print(f'Error with {e}')
             return self.__getitem__(random.randint(0, self.__len__() - 1))
 
     def get_video(self, idx):
@@ -72,17 +72,17 @@ class T2V_dataset(Dataset):
         # input_ids = torch.ones(1, 120).to(torch.long).squeeze(0)
         # cond_mask = torch.cat([torch.ones(1, 60).to(torch.long), torch.ones(1, 60).to(torch.long)], dim=1).squeeze(0)
         
-        # video_path = self.vid_cap_list[idx]['path']
-        # frame_idx = self.vid_cap_list[idx]['frame_idx']
-        # video = self.decord_read(video_path, frame_idx)
+        video_path = self.vid_cap_list[idx]['path']
+        frame_idx = self.vid_cap_list[idx]['frame_idx']
+        video = self.decord_read(video_path, frame_idx)
 
-        # h, w = video.shape[-2:]
-        # assert h / w <= 16 / 16 and h / w >= 9 / 16, f'Only videos with a ratio (h/w) less than 16/16 and more than 9/16 are supported. But found ratio is {round(h/w, 2)} with the shape of {video.shape}'
-        # t = video.shape[0]
-        # video = video[:(t - 1) // 4 * 4 + 1]
-        # video = self.transform(video)  # T C H W -> T C H W
+        h, w = video.shape[-2:]
+        assert h / w <= 16 / 16 and h / w >= 9 / 16, f'Only videos with a ratio (h/w) less than 16/16 and more than 9/16 are supported. But found ratio is {round(h/w, 2)} with the shape of {video.shape}'
+        t = video.shape[0]
+        video = video[:(t - 1) // 4 * 4 + 1]
+        video = self.transform(video)  # T C H W -> T C H W
         
-        video = torch.rand(65, 3, 240, 320)
+        # video = torch.rand(65, 3, 240, 320)
 
         video = video.transpose(0, 1)  # T C H W -> C T H W
         text = self.vid_cap_list[idx]['cap']

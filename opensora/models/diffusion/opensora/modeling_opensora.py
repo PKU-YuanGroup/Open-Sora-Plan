@@ -131,8 +131,8 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
         self._init_patched_inputs(norm_type=norm_type)
 
     def _init_patched_inputs(self, norm_type):
-        assert self.config.sample_size_t is not None, "Transformer3DModel over patched input must provide sample_size_t"
-        assert self.config.sample_size is not None, "Transformer3DModel over patched input must provide sample_size"
+        assert self.config.sample_size_t is not None, "OpenSoraT2V over patched input must provide sample_size_t"
+        assert self.config.sample_size is not None, "OpenSoraT2V over patched input must provide sample_size"
         #assert not (self.config.sample_size_t == 1 and self.config.patch_size_t == 2), "Image do not need patchfy in t-dim"
 
         self.num_frames = self.config.sample_size_t
@@ -535,7 +535,7 @@ def OpenSoraT2V_S_122(**kwargs):
                        norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=1152, **kwargs)
 
 def OpenSoraT2V_B_122(**kwargs):
-    return OpenSoraT2V(num_layers=48, attention_head_dim=128, num_attention_heads=16, patch_size_t=1, patch_size=2,
+    return OpenSoraT2V(num_layers=32, attention_head_dim=128, num_attention_heads=16, patch_size_t=1, patch_size=2,
                        norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=2048, **kwargs)
 
 # def OpenSoraT2V_S_222(**kwargs):

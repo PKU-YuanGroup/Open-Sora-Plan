@@ -1,1 +1,1 @@
-/remote-home1/dataset/all_mixkit,/storage/anno_jsons/video_mixkit_65f_54735.json
+/storage/mixkit/LanguageBind/Open-Sora-Plan-v1.1.0/all_mixkit/mixkit,/storage/anno_jsons/video_mixkit_65f_54735.json

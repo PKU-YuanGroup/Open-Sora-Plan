@@ -57,7 +57,7 @@ logger = get_logger(__name__)
 
 
 @torch.inference_mode()
-def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weight_dtype, global_step):
+def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weight_dtype, global_step, ema=False):
     validation_prompt = [
         "a cat wearing sunglasses and working as a lifeguard at pool.",
         "A serene underwater scene featuring a sea turtle swimming through a coral reef. The turtle, with its greenish-brown shell, is the main focus of the video, swimming gracefully towards the right side of the frame. The coral reef, teeming with life, is visible in the background, providing a vibrant and colorful backdrop to the turtle's journey. Several small fish, darting around the turtle, add a sense of movement and dynamism to the scene."
@@ -98,10 +98,10 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
                 assert args.num_frames == 1
                 images = rearrange(videos, 'b 1 c h w -> (b 1) h w c') 
                 np_images = np.stack([np.asarray(img) for img in images])
-                tracker.writer.add_images("validation", np_images, global_step, dataformats="NHWC")
+                tracker.writer.add_images(f"{'ema_' if ema else ''}validation", np_images, global_step, dataformats="NHWC")
             else:
                 np_videos = np.stack([np.asarray(vid) for vid in videos])
-                tracker.writer.add_video("validation", np_videos, global_step, fps=10)
+                tracker.writer.add_video(f"{'ema_' if ema else ''}validation", np_videos, global_step, fps=30)
         if tracker.name == "wandb":
             import wandb
             if videos.shape[1] == 1:
@@ -109,22 +109,22 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
                 images = rearrange(videos, 'b 1 c h w -> (b 1) h w c') 
                 # import ipdb;ipdb.set_trace()
                 logs = {
-                        "validation": [
+                        f"{'ema_' if ema else ''}validation": [
                             wandb.Image(image, caption=f"{i}: {prompt}")
                             for i, (image, prompt) in enumerate(zip(images, validation_prompt))
                         ]
                     }
             else:
                 logs = {
-                        "validation": [
-                            wandb.Video(video, caption=f"{i}: {prompt}", fps=10)
+                        f"{'ema_' if ema else ''}validation": [
+                            wandb.Video(video, caption=f"{i}: {prompt}", fps=30)
                             for i, (video, prompt) in enumerate(zip(videos, validation_prompt))
                         ]
                     }
             # import ipdb;ipdb.set_trace()
             if hasattr(model.pos_embed, 'temp_embed_gate'):
                 logs.update({'temp_embed_gate (tanh)': float(model.pos_embed.temp_embed_gate.tanh().item())})
-            tracker.log(logs)
+            tracker.log(logs, step=global_step)
 
     del opensora_pipeline
     gc.collect()
@@ -605,17 +605,17 @@ def main(args):
                                 tracker.log({'temp_embed_gate (tanh)': float(model.pos_embed.temp_embed_gate.tanh().item())})
 
                 if global_step % args.checkpointing_steps == 0:
-                    if args.use_ema:
-                        # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
-                        ema_model.store(model.parameters())
-                        ema_model.copy_to(model.parameters())
-
+                    
                     if args.enable_tracker:
                         log_validation(args, model, ae, text_enc.text_enc, train_dataset.tokenizer, accelerator, weight_dtype, global_step)
 
-                    if args.use_ema:
-                        # Switch back to the original UNet parameters.
-                        ema_model.restore(model.parameters())
+                        if args.use_ema:
+                                # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
+                                ema_model.store(model.parameters())
+                                ema_model.copy_to(model.parameters())
+                                log_validation(args, model, ae, text_enc.text_enc, train_dataset.tokenizer, accelerator, weight_dtype, global_step, ema=True)
+                                # Switch back to the original UNet parameters.
+                                ema_model.restore(model.parameters())
 
     accelerator.wait_for_everyone()
     accelerator.end_training()
