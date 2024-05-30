@@ -625,6 +625,12 @@ Latte_models = {
     "LatteT2V/122": LatteT2V_122,
 }
 
+Latte_models_class = {
+    "LatteT2V-XL/122": LatteT2V,
+    # "LatteT2V-D64-XL/122": LatteT2V_D64_XL_122,
+    "LatteT2V/122": LatteT2V,
+}
+
 if __name__ == '__main__':
     from opensora.models.ae import ae_channel_config, ae_stride_config
     from opensora.models.ae import getae, getae_wrapper

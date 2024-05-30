@@ -12,7 +12,7 @@ export NCCL_ALGO=Ring
 export OMP_NUM_THREADS=1
 
 accelerate launch \
-    --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
+    --config_file scripts/accelerate_configs/debug.yaml \
     opensora/train/train_t2v.py \
     --model LatteT2V-XL/122 \
     --text_encoder_name DeepFloyd/t5-v1_1-xxl \
@@ -32,7 +32,7 @@ accelerate launch \
     --attention_mode xformers \
     --gradient_checkpointing \
     --train_batch_size=4 \
-    --dataloader_num_workers 10 \
+    --dataloader_num_workers 0 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
     --learning_rate=2e-5 \
@@ -40,7 +40,7 @@ accelerate launch \
     --lr_warmup_steps=0 \
     --mixed_precision="bf16" \
     --report_to="tensorboard" \
-    --checkpointing_steps=100 \
+    --checkpointing_steps=1 \
     --output_dir="debug" \
     --allow_tf32 \
     --use_deepspeed \
@@ -48,4 +48,6 @@ accelerate launch \
     --use_image_num 0 \
     --enable_tiling \
     --enable_tracker \
-    --snr_gamma 5.0
+    --snr_gamma 5.0 \
+    --use_ema \
+    --ema_start_step 0

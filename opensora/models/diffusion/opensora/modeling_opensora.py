@@ -572,6 +572,11 @@ OpenSora_models = {
     # "OpenSoraT2V-XXL/222": OpenSoraT2V_XXL_222,
 }
 
+OpenSora_models_class = {
+    "OpenSoraT2V-S/122": OpenSoraT2V,
+    "OpenSoraT2V-B/122": OpenSoraT2V,
+}
+
 if __name__ == '__main__':
     from opensora.models.ae import ae_channel_config, ae_stride_config
     from opensora.models.ae import getae, getae_wrapper

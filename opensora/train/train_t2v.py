@@ -48,7 +48,7 @@ from opensora.models.diffusion.latte.modeling_latte import LatteT2V
 from opensora.models.text_encoder import get_text_enc, get_text_warpper
 from opensora.utils.dataset_utils import Collate
 from opensora.models.ae import ae_stride_config, ae_channel_config
-from opensora.models.diffusion import Diffusion_models
+from opensora.models.diffusion import Diffusion_models, Diffusion_models_class
 from opensora.sample.pipeline_opensora import OpenSoraPipeline
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
@@ -248,7 +248,7 @@ def main(args):
         # model_max_length=args.model_max_length, 
     )
     model.gradient_checkpointing = args.gradient_checkpointing
-    
+
     # # use pretrained model?
     if args.pretrained:
         if 'safetensors' in args.pretrained:  # pixart series
@@ -285,7 +285,8 @@ def main(args):
     # Create EMA for the unet.
     if args.use_ema:
         ema_model = deepcopy(model)
-        ema_model = EMAModel(ema_model.parameters(), model_cls=Diffusion_models[args.model], model_config=ema_model.config)
+        ema_model = EMAModel(ema_model.parameters(), update_after_step=args.ema_start_step, 
+                             model_cls=Diffusion_models_class[args.model], model_config=ema_model.config)
 
     # `accelerate` 0.16.0 will have better support for customized saving
     if version.parse(accelerate.__version__) >= version.parse("0.16.0"):
@@ -303,7 +304,7 @@ def main(args):
 
         def load_model_hook(models, input_dir):
             if args.use_ema:
-                load_model = EMAModel.from_pretrained(os.path.join(input_dir, "model_ema"), LatteT2V)
+                load_model = EMAModel.from_pretrained(os.path.join(input_dir, "model_ema"), Diffusion_models_class[args.model])
                 ema_model.load_state_dict(load_model.state_dict())
                 ema_model.to(accelerator.device)
                 del load_model
@@ -313,7 +314,7 @@ def main(args):
                 model = models.pop()
 
                 # load diffusers style into model
-                load_model = Diffusion_models[args.model].from_pretrained(input_dir, subfolder="model")
+                load_model = Diffusion_models_class[args.model].from_pretrained(input_dir, subfolder="model")
                 model.register_to_config(**load_model.config)
 
                 model.load_state_dict(load_model.state_dict())
@@ -383,6 +384,8 @@ def main(args):
     model, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
         model, optimizer, train_dataloader, lr_scheduler
     )
+    if args.use_ema:
+        ema_model.to(accelerator.device)
 
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
@@ -552,6 +555,8 @@ def main(args):
 
             # Checks if the accelerator has performed an optimization step behind the scenes
             if accelerator.sync_gradients:
+                if args.use_ema:
+                    ema_model.step(model.parameters())
                 progress_bar.update(1)
                 global_step += 1
                 accelerator.log({"train_loss": train_loss}, step=global_step)
@@ -608,6 +613,10 @@ def main(args):
                     if args.enable_tracker:
                         log_validation(args, model, ae, text_enc.text_enc, train_dataset.tokenizer, accelerator, weight_dtype, global_step)
 
+                    if args.use_ema:
+                        # Switch back to the original UNet parameters.
+                        ema_model.restore(model.parameters())
+
     accelerator.wait_for_everyone()
     accelerator.end_training()
 
@@ -635,6 +644,7 @@ if __name__ == "__main__":
     parser.add_argument('--interpolation_scale_h', type=float, default=1.0)
     parser.add_argument('--interpolation_scale_w', type=float, default=1.0)
     parser.add_argument('--interpolation_scale_t', type=float, default=1.0)
+    parser.add_argument("--ema_start_step", type=int, default=0)
 
     parser.add_argument("--model", type=str, choices=list(Diffusion_models.keys()), default="Latte-XL/122")
     parser.add_argument("--pretrained", type=str, default=None)
