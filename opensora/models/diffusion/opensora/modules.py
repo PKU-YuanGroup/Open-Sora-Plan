@@ -18,7 +18,11 @@ from diffusers.models.attention import FeedForward, GatedSelfAttentionDense
 from diffusers.models.attention_processor import Attention as Attention_
 from diffusers.models.embeddings import SinusoidalPositionalEmbedding
 from diffusers.models.normalization import AdaLayerNorm, AdaLayerNormContinuous, AdaLayerNormZero, RMSNorm
-
+try:
+    import torch_npu
+except:
+    pass
+from opensora.npu_config import npu_config, set_run_dtype
 logger = logging.get_logger(__name__)
 
 def get_3d_sincos_pos_embed(
@@ -422,36 +426,48 @@ class AttnProcessor2_0:
         inner_dim = key.shape[-1]
         head_dim = inner_dim // attn.heads
 
-        query = query.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
+        if npu_config.on_npu:
+            if npu_config.enable_FA and query.dtype == torch.float32:
+                dtype = torch.bfloat16
+            else:
+                dtype = None
 
-        key = key.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
-        value = value.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
+            with set_run_dtype(query, dtype):
+                query, key, value = npu_config.set_current_run_dtype([query, key, value])
+                hidden_states = npu_config.run_attention(query, key, value, attention_mask, "BSH",
+                                                         head_dim, attn.heads)
 
-        if attention_mask is None or not torch.all(attention_mask.bool()):  # 0 mean visible
-            attention_mask = None
-        # the output of sdp = (batch, num_heads, seq_len, head_dim)
-        # TODO: add support for attn.scale when we move to Torch 2.1
-        # import ipdb;ipdb.set_trace()
-        # print(attention_mask)
-        if self.attention_mode == 'flash':
-            assert attention_mask is None or not torch.all(attention_mask.bool()), 'flash-attn do not support attention_mask'
-            with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=True, enable_mem_efficient=False):
-                hidden_states = F.scaled_dot_product_attention(
-                    query, key, value, dropout_p=0.0, is_causal=False
-                )
-        elif self.attention_mode == 'xformers':
-            with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=False, enable_mem_efficient=True):
+                hidden_states = npu_config.restore_dtype(hidden_states)
+        else:
+            query = query.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
+
+            key = key.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
+            value = value.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
+
+            if attention_mask is None or not torch.all(attention_mask.bool()):  # 0 mean visible
+                attention_mask = None
+            # the output of sdp = (batch, num_heads, seq_len, head_dim)
+            # TODO: add support for attn.scale when we move to Torch 2.1
+            # import ipdb;ipdb.set_trace()
+            # print(attention_mask)
+            if self.attention_mode == 'flash':
+                assert attention_mask is None or not torch.all(attention_mask.bool()), 'flash-attn do not support attention_mask'
+                with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=True, enable_mem_efficient=False):
+                    hidden_states = F.scaled_dot_product_attention(
+                        query, key, value, dropout_p=0.0, is_causal=False
+                    )
+            elif self.attention_mode == 'xformers':
+                with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=False, enable_mem_efficient=True):
+                    hidden_states = F.scaled_dot_product_attention(
+                        query, key, value, attn_mask=attention_mask, dropout_p=0.0, is_causal=False
+                    )
+            elif self.attention_mode == 'math':
                 hidden_states = F.scaled_dot_product_attention(
                     query, key, value, attn_mask=attention_mask, dropout_p=0.0, is_causal=False
                 )
-        elif self.attention_mode == 'math':
-            hidden_states = F.scaled_dot_product_attention(
-                query, key, value, attn_mask=attention_mask, dropout_p=0.0, is_causal=False
-            )
-        else:
-            raise NotImplementedError(f'Found attention_mode: {self.attention_mode}')
-
-        hidden_states = hidden_states.transpose(1, 2).reshape(batch_size, -1, attn.heads * head_dim)
+            else:
+                raise NotImplementedError(f'Found attention_mode: {self.attention_mode}')
+            hidden_states = hidden_states.transpose(1, 2).reshape(batch_size, -1, attn.heads * head_dim)
         hidden_states = hidden_states.to(query.dtype)
 
         # linear proj

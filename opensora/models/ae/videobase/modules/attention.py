@@ -1,4 +1,5 @@
 import torch.nn as nn
+from opensora.npu_config import npu_config
 from .normalize import Normalize
 from .conv import CausalConv3d
 import torch
@@ -91,7 +92,8 @@ class AttnBlock3DFix(nn.Module):
 
     def forward(self, x):
         h_ = x
-        h_ = self.norm(h_)
+        # h_ = self.norm(h_)
+        h_ = npu_config.run_group_norm(self.norm, h_)
         q = self.q(h_)
         k = self.k(h_)
         v = self.v(h_)

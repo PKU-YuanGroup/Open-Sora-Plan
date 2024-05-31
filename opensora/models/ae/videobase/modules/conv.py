@@ -6,6 +6,8 @@ from .block import Block
 from .ops import cast_tuple
 from einops import rearrange
 from .ops import video_to_image
+from opensora.npu_config import npu_config
+
 
 class Conv2d(nn.Conv2d):
     def __init__(
@@ -56,6 +58,7 @@ class CausalConv3d(nn.Module):
         padding[0] = 0
         stride = cast_tuple(stride, 3)
         self.conv = nn.Conv3d(chan_in, chan_out, self.kernel_size, stride=stride, padding=padding)
+        self.pad = nn.ReplicationPad2d((0, 0, self.time_kernel_size - 1, 0))
         self._init_weights(init_method)
         
     def _init_weights(self, init_method):
@@ -90,9 +93,18 @@ class CausalConv3d(nn.Module):
             nn.init.constant_(self.conv.bias, 0)
             
     def forward(self, x):
-        # 1 + 16   16 as video, 1 as image
-        first_frame_pad = x[:, :, :1, :, :].repeat(
-            (1, 1, self.time_kernel_size - 1, 1, 1)
-        )   # b c t h w
-        x = torch.concatenate((first_frame_pad, x), dim=2)  # 3 + 16
-        return self.conv(x)
+        if npu_config.on_npu:
+            x_dtype = x.dtype
+            x = x.to(torch.float16)
+            n, c, d, h, w = x.shape
+            x = x.reshape(n * c, d, h * w)
+            x = self.pad(x)
+            x = x.reshape(n, c, -1, h, w)
+            return npu_config.run_conv3d(self.conv, x, x_dtype)
+        else:
+            # 1 + 16   16 as video, 1 as image
+            first_frame_pad = x[:, :, :1, :, :].repeat(
+                (1, 1, self.time_kernel_size - 1, 1, 1)
+            )  # b c t h w
+            x = torch.concatenate((first_frame_pad, x), dim=2)  # 3 + 16
+            return self.conv(x)

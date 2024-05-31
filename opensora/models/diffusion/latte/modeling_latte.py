@@ -13,7 +13,7 @@ from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.models.modeling_utils import ModelMixin
 from diffusers.models.lora import LoRACompatibleConv, LoRACompatibleLinear
 from opensora.utils.utils import to_2tuple
-
+from opensora.npu_config import npu_config
 import torch
 import torch.nn.functional as F
 from torch import nn
@@ -279,6 +279,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
         #   (keep = +0,     discard = -10000.0)
         attention_mask = (1 - attention_mask.to(dtype)) * -10000.0
         attention_mask = attention_mask.to(self.dtype)
+        attention_mask = npu_config.get_attention_mask(attention_mask, attention_mask.shape[-1])
         return attention_mask
 
     def vae_to_diff_mask(self, attention_mask, use_image_num):
@@ -381,6 +382,8 @@ class LatteT2V(ModelMixin, ConfigMixin):
             encoder_attention_mask = torch.cat([encoder_attention_mask_video, encoder_attention_mask_image], dim=1)
             encoder_attention_mask = rearrange(encoder_attention_mask, 'b n l -> (b n) l').contiguous().unsqueeze(1)
             encoder_attention_mask = encoder_attention_mask.to(self.dtype)
+
+        encoder_attention_mask = npu_config.get_attention_mask(encoder_attention_mask, attention_mask.shape[-2])
 
         # Retrieve lora scale.
         lora_scale = cross_attention_kwargs.get("scale", 1.0) if cross_attention_kwargs is not None else 1.0
