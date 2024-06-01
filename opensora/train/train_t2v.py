@@ -20,9 +20,11 @@ from einops import rearrange
 from tqdm import tqdm
 try:
     import torch_npu
+    from opensora.npu_config import npu_config
 except:
+    torch_npu = None
+    npu_config = None
     pass
-from opensora.npu_config import npu_config
 import time
 from dataclasses import field, dataclass
 from torch.utils.data import DataLoader
@@ -147,7 +149,8 @@ class ProgressInfo:
 def main(args):
     logging_dir = Path(args.output_dir, args.logging_dir)
 
-    npu_config.print_msg(args)
+    if torch_npu is not None and npu_config is not None:
+        npu_config.print_msg(args)
     # npu_config.seed_everything()
     accelerator_project_config = ProjectConfiguration(project_dir=args.output_dir, logging_dir=logging_dir)
 
@@ -471,9 +474,10 @@ def main(args):
         end_time = time.time()
         one_step_duration = end_time - start_time
         accelerator.log({"train_loss": progress_info.train_loss}, step=progress_info.global_step)
-        npu_config.print_msg(
-            f"Step: [{progress_info.global_step}], local_loss={loss.detach().item()}, train_loss={progress_info.train_loss}, time_cost={one_step_duration}",
-            rank=0)
+        if torch_npu is not None and npu_config is not None:
+            npu_config.print_msg(
+                f"Step: [{progress_info.global_step}], local_loss={loss.detach().item()}, train_loss={progress_info.train_loss}, time_cost={one_step_duration}",
+                rank=0)
         progress_info.train_loss = 0.0
 
         if args.use_deepspeed or accelerator.is_main_process:
@@ -601,7 +605,6 @@ def main(args):
                 images = rearrange(images, '(b t) c 1 h w -> b c t h w', t=args.use_image_num)
                 x = torch.cat([videos, images], dim=2)   #  b c 17+4, h, w
 
-            # print('(x.shape, attn_mask.shape, cond.shape, cond_mask.shape', x.shape, attn_mask.shape, cond.shape, cond_mask.shape)
         with accelerator.accumulate(model):
             model_kwargs = dict(encoder_hidden_states=cond, attention_mask=attn_mask,
                                 encoder_attention_mask=cond_mask, use_image_num=args.use_image_num)
@@ -623,10 +626,10 @@ def main(args):
                 if train_one_step(step, data_item, prof_):
                     break
 
-                if step >= 2:
+                if step >= 2 and torch_npu is not None and npu_config is not None:
                     npu_config.free_mm()
 
-    if npu_config.on_npu and npu_config.profiling:
+    if npu_config is not None and npu_config.on_npu and npu_config.profiling:
         experimental_config = torch_npu.profiler._ExperimentalConfig(
             profiler_level=torch_npu.profiler.ProfilerLevel.Level1,
             aic_metrics=torch_npu.profiler.AiCMetrics.PipeUtilization
@@ -684,7 +687,7 @@ if __name__ == "__main__":
     parser.add_argument("--cache_dir", type=str, default='./cache_dir')
 
     parser.add_argument("--num_sampling_steps", type=int, default=50)
-    parser.add_argument('--guidance_scale', type=float, default=7.5)
+    parser.add_argument('--guidance_scale', type=float, default=5.0)
     parser.add_argument("--multi_scale", action="store_true")
     parser.add_argument("--enable_tracker", action="store_true")
     parser.add_argument("--use_deepspeed", action="store_true")

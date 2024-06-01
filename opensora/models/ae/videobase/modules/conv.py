@@ -6,7 +6,12 @@ from .block import Block
 from .ops import cast_tuple
 from einops import rearrange
 from .ops import video_to_image
-from opensora.npu_config import npu_config
+try:
+    import torch_npu
+    from opensora.npu_config import npu_config
+except:
+    torch_npu = None
+    npu_config = None
 
 
 class Conv2d(nn.Conv2d):
@@ -93,7 +98,7 @@ class CausalConv3d(nn.Module):
             nn.init.constant_(self.conv.bias, 0)
             
     def forward(self, x):
-        if npu_config.on_npu:
+        if npu_config is not None and npu_config.on_npu:
             x_dtype = x.dtype
             x = x.to(torch.float16)
             n, c, d, h, w = x.shape

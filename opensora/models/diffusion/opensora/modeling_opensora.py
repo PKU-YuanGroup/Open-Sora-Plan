@@ -13,7 +13,12 @@ from diffusers.models.normalization import AdaLayerNormSingle
 from diffusers.models.embeddings import PixArtAlphaTextProjection
 from opensora.models.diffusion.opensora.modules import PatchEmbed3D, PatchEmbed2D, BasicTransformerBlock
 from opensora.utils.utils import to_2tuple
-from opensora.npu_config import npu_config
+try:
+    import torch_npu
+    from opensora.npu_config import npu_config
+except:
+    torch_npu = None
+    npu_config = None
 class OpenSoraT2V(ModelMixin, ConfigMixin):
     """
     A 2D Transformer model for image-like data.
@@ -344,11 +349,11 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
                 encoder_attention_mask_img = encoder_attention_mask_vid
                 encoder_attention_mask_vid = None
 
-            if attention_mask_vid is not None:
+            if npu_config is not None and attention_mask_vid is not None:
                 attention_mask_vid = npu_config.get_attention_mask(attention_mask_vid, attention_mask_vid.shape[-1])
                 encoder_attention_mask_vid = npu_config.get_attention_mask(encoder_attention_mask_vid,
                                                                            attention_mask_vid.shape[-2])
-            if attention_mask_img is not None:
+            if npu_config is not None and attention_mask_img is not None:
                 attention_mask_img = npu_config.get_attention_mask(attention_mask_img, attention_mask_img.shape[-1])
                 encoder_attention_mask_img = npu_config.get_attention_mask(encoder_attention_mask_img,
                                                                            attention_mask_img.shape[-2])

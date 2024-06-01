@@ -20,9 +20,11 @@ from diffusers.models.embeddings import SinusoidalPositionalEmbedding
 from diffusers.models.normalization import AdaLayerNorm, AdaLayerNormContinuous, AdaLayerNormZero, RMSNorm
 try:
     import torch_npu
+    from opensora.npu_config import npu_config, set_run_dtype
 except:
-    pass
-from opensora.npu_config import npu_config, set_run_dtype
+    torch_npu = None
+    npu_config = None
+    set_run_dtype = None
 logger = logging.get_logger(__name__)
 
 def get_3d_sincos_pos_embed(
@@ -235,6 +237,7 @@ class PatchEmbed2D(nn.Module):
 
         # import ipdb;ipdb.set_trace()
         temp_embed = temp_embed.unsqueeze(2) * self.temp_embed_gate.tanh()
+        # temp_embed = temp_embed.unsqueeze(2)
         # print('raw value:', self.temp_embed_gate, 'tanh:', self.temp_embed_gate.tanh())
         video_latent = (video_latent + temp_embed).to(video_latent.dtype) if video_latent is not None and video_latent.numel() > 0 else None
         image_latent = (image_latent + temp_embed[:, :1]).to(image_latent.dtype) if image_latent is not None and image_latent.numel() > 0 else None
@@ -426,7 +429,7 @@ class AttnProcessor2_0:
         inner_dim = key.shape[-1]
         head_dim = inner_dim // attn.heads
 
-        if npu_config.on_npu:
+        if npu_config is not None and npu_config.on_npu:
             if npu_config.enable_FA and query.dtype == torch.float32:
                 dtype = torch.bfloat16
             else:

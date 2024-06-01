@@ -5,7 +5,12 @@ from .normalize import Normalize
 from .ops import nonlinearity, video_to_image
 from .conv import CausalConv3d
 from .block import Block
-from opensora.npu_config import npu_config
+try:
+    import torch_npu
+    from opensora.npu_config import npu_config
+except:
+    torch_npu = None
+    npu_config = None
 
 
 class ResnetBlock2D(Block):
@@ -73,12 +78,16 @@ class ResnetBlock3D(Block):
 
     def forward(self, x):
         h = x
-        # h = self.norm1(h)
-        h = npu_config.run_group_norm(self.norm1, h)
+        if npu_config is None:
+            h = self.norm1(h)
+        else:
+            h = npu_config.run_group_norm(self.norm1, h)
         h = nonlinearity(h)
         h = self.conv1(h)
-        # h = self.norm2(h)
-        h = npu_config.run_group_norm(self.norm2, h)
+        if npu_config is None:
+            h = self.norm2(h)
+        else:
+            h = npu_config.run_group_norm(self.norm2, h)
         h = nonlinearity(h)
         h = self.dropout(h)
         h = self.conv2(h)

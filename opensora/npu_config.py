@@ -16,7 +16,7 @@ except:
     npu_is_available = False
 
 from contextlib import contextmanager
-from opensora.acceleration.parallel_states import enable_LCCL, hccl_info, lccl_info
+# from opensora.acceleration.parallel_states import enable_LCCL, hccl_info, lccl_info
 
 
 def compress_video(input_file, output_file, out_size):

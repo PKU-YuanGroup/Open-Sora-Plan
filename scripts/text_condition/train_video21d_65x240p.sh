@@ -1,7 +1,7 @@
 export WANDB_KEY="953e958793b218efb850fa194e85843e2c3bd88b"
 # export WANDB_MODE="offline"
 export ENTITY="linbin"
-export PROJECT="test21d_2node_65x240p_bs4_snr5_ema0_pt"
+export PROJECT="testnpu21d"
 export HF_DATASETS_OFFLINE=1 
 export TRANSFORMERS_OFFLINE=1
 # NCCL setting
@@ -41,7 +41,7 @@ accelerate launch \
     --mixed_precision="bf16" \
     --report_to="wandb" \
     --checkpointing_steps=100 \
-    --output_dir="test21d_2node_65x240p_bs4_snr5_ema0_pt" \
+    --output_dir="testnpu21d" \
     --allow_tf32 \
     --use_deepspeed \
     --model_max_length 512 \

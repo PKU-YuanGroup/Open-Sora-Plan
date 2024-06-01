@@ -23,9 +23,11 @@ from dataclasses import dataclass
 from opensora.models.diffusion.utils.pos_embed import RoPE1D, RoPE2D, LinearScalingRoPE2D, LinearScalingRoPE1D
 try:
     import torch_npu
+    from opensora.npu_config import npu_config, set_run_dtype
 except:
-    pass
-from opensora.npu_config import npu_config, set_run_dtype
+    torch_npu = None
+    npu_config = None
+    set_run_dtype = None
 if is_xformers_available():
     import xformers
     import xformers.ops
@@ -870,7 +872,7 @@ class Attention(nn.Module):
                 #       remaining_length: int = target_length - current_length
                 # TODO: re-enable tests/models/test_models_unet_2d_condition.py#test_model_xattn_padding
                 attention_mask = F.pad(attention_mask, (0, target_length), value=0.0)
-        if not npu_config.on_npu:
+        if npu_config is None or not npu_config.on_npu:
             if out_dim == 3:
                 if attention_mask.shape[0] < batch_size * head_size:
                     attention_mask = attention_mask.repeat_interleave(head_size, dim=0)
@@ -999,11 +1001,12 @@ class AttnProcessor2_0:
             hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
         )
 
+        # import ipdb;ipdb.set_trace()
         if attention_mask is not None:
             attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length, batch_size)
             # scaled_dot_product_attention expects attention_mask shape to be
             # (batch, heads, source_length, target_length)
-            if npu_config.on_npu:
+            if npu_config is not None and npu_config.on_npu:
                 attention_mask = attention_mask.view(batch_size, 1, -1, attention_mask.shape[-1])
             else:
                 attention_mask = attention_mask.view(batch_size, attn.heads, -1, attention_mask.shape[-1])
@@ -1026,7 +1029,7 @@ class AttnProcessor2_0:
 
         inner_dim = key.shape[-1]
         head_dim = inner_dim // attn.heads
-        if npu_config.on_npu:
+        if npu_config is not None and npu_config.on_npu:
             if npu_config.enable_FA and query.dtype == torch.float32:
                 dtype = torch.bfloat16
             else:
@@ -1394,7 +1397,7 @@ class BasicTransformerBlock_(nn.Module):
         # 2. Prepare GLIGEN inputs
         cross_attention_kwargs = cross_attention_kwargs.copy() if cross_attention_kwargs is not None else {}
         gligen_kwargs = cross_attention_kwargs.pop("gligen", None)
-
+        # import ipdb;ipdb.set_trace()
         attn_output = self.attn1(
             norm_hidden_states,
             encoder_hidden_states=encoder_hidden_states if self.only_cross_attention else None,
@@ -1689,7 +1692,7 @@ class BasicTransformerBlock(nn.Module):
         # 2. Prepare GLIGEN inputs
         cross_attention_kwargs = cross_attention_kwargs.copy() if cross_attention_kwargs is not None else {}
         gligen_kwargs = cross_attention_kwargs.pop("gligen", None)
-
+        # import ipdb;ipdb.set_trace()
         attn_output = self.attn1(
             norm_hidden_states,
             encoder_hidden_states=encoder_hidden_states if self.only_cross_attention else None,

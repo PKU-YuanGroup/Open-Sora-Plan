@@ -3,10 +3,10 @@ WEIGHT_PATH="/home/opensora/shebin/pre_weights/"
 export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$(pwd)"
 export MASTER_PORT=12359
 
-torchrun --nproc_per_node=8 opensora/sample/sample_t2v.py \
+torchrun --nproc_per_node=8 opensora/sample/sample_t2v_npu.py \
     --model_path /home/image_data/checkpoints/${PROJECT_NAME} \
     --version ${NUM_FRAME}x512x512 \
-    --num_frames 1 \
+    --num_frames ${NUM_FRAME} \
     --height 512 \
     --width 512 \
     --cache_dir "./cache_dir" \

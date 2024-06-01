@@ -9,7 +9,12 @@ from .ops import cast_tuple, video_to_image
 from .conv import CausalConv3d
 from einops import rearrange
 from .block import Block
-from opensora.npu_config import  npu_config
+try:
+    import torch_npu
+    from opensora.npu_config import npu_config
+except:
+    torch_npu = None
+    npu_config = None
 
 
 class Upsample(Block):
@@ -45,7 +50,7 @@ class Downsample(Block):
     def forward(self, x):
         if self.with_conv:
             pad = (0, 1, 0, 1)
-            if npu_config.on_npu:
+            if npu_config is not None and npu_config.on_npu:
                 x_dtype = x.dtype
                 x = x.to(torch.bfloat16)
                 x = torch.nn.functional.pad(x, pad, mode="constant", value=0)
@@ -123,14 +128,14 @@ class TimeDownsample2x(Block):
     ):
         super().__init__()
         self.kernel_size = kernel_size
-        if npu_config.on_npu:
+        if npu_config is not None and npu_config.on_npu:
             self.avg_pool = nn.AvgPool2d((kernel_size, 1), stride=(2, 1))
             self.pad = nn.ReplicationPad3d((0, 0, 0, 0, self.kernel_size - 1, 0))
         else:
             self.avg_pool = nn.AvgPool3d((kernel_size, 1, 1), stride=(2, 1, 1))
 
     def forward(self, x):
-        if npu_config.on_npu:
+        if npu_config is not None and npu_config.on_npu:
             n, c, d, h, w = x.shape
             x = self.pad(x)
             x = x.view(n * c, -1, h * w)
@@ -168,7 +173,7 @@ class TimeDownsampleRes2x(nn.Module):
     ):
         super().__init__()
         self.kernel_size = cast_tuple(kernel_size, 3)
-        if npu_config.on_npu:
+        if npu_config is not None and npu_config.on_npu:
             self.avg_pool = nn.AvgPool2d((kernel_size, 1), stride=(2, 1))
             self.pad = nn.ReplicationPad3d((0, 0, 0, 0, kernel_size - 1, 0))
         else:
@@ -180,7 +185,7 @@ class TimeDownsampleRes2x(nn.Module):
     
     def forward(self, x):
         alpha = torch.sigmoid(self.mix_factor)
-        if npu_config.on_npu:
+        if npu_config is not None and npu_config.on_npu:
             n, c, d, h, w = x.shape
             x_dtype = x.dtype
             x = x.to(torch.float16)
@@ -214,7 +219,7 @@ class TimeUpsampleRes2x(nn.Module):
         alpha = torch.sigmoid(self.mix_factor)
         if x.size(2) > 1:
             x,x_= x[:,:,:1],x[:,:,1:]
-            if npu_config.on_npu:
+            if npu_config is not None and npu_config.on_npu:
                 x_dtype = x_.dtype
                 x_ = x_.to(torch.float16)
                 x_ = F.interpolate(x_, scale_factor=(2, 1, 1), mode='trilinear')
@@ -270,7 +275,7 @@ class TimeUpsampleResAdv2x(nn.Module):
     def forward(self, x):
         if x.size(2) > 1:
             x,x_= x[:,:,:1],x[:,:,1:]
-            if npu_config.on_npu:
+            if npu_config is not None and npu_config.on_npu:
                 x_dtype = x_.dtype
                 x_ = x_.to(torch.float16)
                 x_= F.interpolate(x_, scale_factor=(2,1,1), mode='trilinear')
