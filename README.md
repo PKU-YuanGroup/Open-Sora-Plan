@@ -342,8 +342,15 @@ Highly recommend trying out our web demo by the following command. We also provi
 
 </details>
 
+For the 65 frames.
+
 ```bash
-python -m opensora.serve.gradio_web_server
+python -m opensora.serve.gradio_web_server --version 65x512x512
+```
+
+For the 221 frames.
+```bash
+python -m opensora.serve.gradio_web_server --version 221x512x512
 ```
 
 #### CLI Inference
