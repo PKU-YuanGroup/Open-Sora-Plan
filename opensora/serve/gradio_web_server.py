@@ -46,23 +46,24 @@ def generate_img(prompt, sample_steps, scale, seed=0, randomize_seed=False, forc
     torch.cuda.empty_cache()
     videos = videos[0]
     tmp_save_path = 'tmp.mp4'
-    imageio.mimwrite(tmp_save_path, videos, fps=24, quality=9)  # highest quality is 10, lowest is 0
+    imageio.mimwrite(tmp_save_path, videos, fps=24, quality=6)  # highest quality is 10, lowest is 0
     display_model_info = f"Video size: {num_frames}×{height}×{width}, \nSampling Step: {sample_steps}, \nGuidance Scale: {scale}"
     return tmp_save_path, prompt, display_model_info, seed
 
 if __name__ == '__main__':
-    args = type('args', (), {
-        'ae': 'CausalVAEModel_4x8x8',
-        'force_images': False,
-        'model_path': 'LanguageBind/Open-Sora-Plan-v1.1.0',
-        'text_encoder_name': 'DeepFloyd/t5-v1_1-xxl',
-        'version': '65x512x512'
-    })
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model_path", type=str, default='LanguageBind/Open-Sora-Plan-v1.1.0')
+    parser.add_argument("--version", type=str, default='65x512x512', choices=['65x512x512', '221x512x512'])
+    parser.add_argument("--ae", type=str, default='CausalVAEModel_4x8x8')
+    parser.add_argument("--text_encoder_name", type=str, default='DeepFloyd/t5-v1_1-xxl')
+    parser.add_argument('--force_images', action='store_true')
+    args = parser.parse_args()
+
     device = torch.device('cuda:0')
 
     # Load model:
     transformer_model = LatteT2V.from_pretrained(args.model_path, subfolder=args.version, torch_dtype=torch.float16, cache_dir='cache_dir').to(device)
-
+    
     vae = getae_wrapper(args.ae)(args.model_path, subfolder="vae", cache_dir='cache_dir').to(device)
     vae = vae.half()
     vae.vae.enable_tiling()
