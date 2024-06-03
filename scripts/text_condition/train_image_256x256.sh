@@ -40,7 +40,7 @@ accelerate launch \
     --lr_warmup_steps=0 \
     --mixed_precision="bf16" \
     --report_to="wandb" \
-    --checkpointing_steps=100 \
+    --checkpointing_steps=10 \
     --output_dir="testimg_" \
     --allow_tf32 \
     --use_deepspeed \

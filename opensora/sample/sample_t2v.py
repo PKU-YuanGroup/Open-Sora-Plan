@@ -34,20 +34,23 @@ def main(args):
     weight_dtype = torch.float16
     device = torch.device(args.device)
 
-    vae = getae_wrapper(args.ae)(args.model_path, subfolder="vae", cache_dir=args.cache_dir)
-    # vae = getae_wrapper(args.ae)(args.ae_path)
+    # vae = getae_wrapper(args.ae)(args.model_path, subfolder="vae", cache_dir=args.cache_dir)
+    vae = getae_wrapper(args.ae)(args.ae_path)
     vae.vae = vae.vae.to(device=device, dtype=weight_dtype)
     if args.enable_tiling:
         vae.vae.enable_tiling()
         vae.vae.tile_overlap_factor = args.tile_overlap_factor
     vae.vae_scale_factor = ae_stride_config[args.ae]
 
+    # if args.model_3d:
+    #     transformer_model = OpenSoraT2V.from_pretrained(args.model_path, subfolder=args.version, cache_dir=args.cache_dir, low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
+    # else:
+    #     transformer_model = LatteT2V.from_pretrained(args.model_path, subfolder=args.version, cache_dir=args.cache_dir, low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
+    
     if args.model_3d:
-        transformer_model = OpenSoraT2V.from_pretrained(args.model_path, subfolder=args.version, cache_dir=args.cache_dir, low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
+        transformer_model = OpenSoraT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
     else:
-        transformer_model = LatteT2V.from_pretrained(args.model_path, subfolder=args.version, cache_dir=args.cache_dir, low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
-    # transformer_model = OpenSoraT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
-    # transformer_model = LatteT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
+        transformer_model = LatteT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
 
     text_encoder = T5EncoderModel.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir, low_cpu_mem_usage=True, torch_dtype=weight_dtype)
     tokenizer = T5Tokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
