@@ -113,12 +113,12 @@ class T2V_dataset(Dataset):
         idx = idx % len(self.img_cap_list)  # out of range
         image_data = self.img_cap_list[idx]  # [{'path': path, 'cap': cap}, ...]
         
-        # image = [Image.open(i['path']).convert('RGB') for i in image_data] # num_img [h, w, c]
-        # image = [torch.from_numpy(np.array(i)) for i in image] # num_img [h, w, c]
-        # image = [rearrange(i, 'h w c -> c h w').unsqueeze(0) for i in image] # num_img [1 c h w]
-        # image = [self.transform(i) for i in image]  # num_img [1 C H W] -> num_img [1 C H W]
+        image = [Image.open(i['path']).convert('RGB') for i in image_data] # num_img [h, w, c]
+        image = [torch.from_numpy(np.array(i)) for i in image] # num_img [h, w, c]
+        image = [rearrange(i, 'h w c -> c h w').unsqueeze(0) for i in image] # num_img [1 c h w]
+        image = [self.transform(i) for i in image]  # num_img [1 C H W] -> num_img [1 C H W]
 
-        image = [torch.rand(1, 3, 256, 256) for i in image_data]
+        # image = [torch.rand(1, 3, 256, 256) for i in image_data]
         image = [i.transpose(0, 1) for i in image]  # num_img [1 C H W] -> num_img [C 1 H W]
 
         caps = [i['cap'] for i in image_data]
