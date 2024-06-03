@@ -361,9 +361,10 @@ class LatteT2V(ModelMixin, ConfigMixin):
         # this helps to broadcast it as a bias over attention scores, which will be in one of the following shapes:
         #   [batch,  heads, query_tokens, key_tokens] (e.g. torch sdp attn)
         #   [batch * heads, query_tokens, key_tokens] (e.g. xformers or classic attn)
-        # import ipdb;ipdb.set_trace()
         if attention_mask is None:
             attention_mask = torch.ones((input_batch_size, frame+use_image_num, h, w), device=hidden_states.device, dtype=hidden_states.dtype)
+        else:
+            attention_mask = attention_mask.to(hidden_states.dtype)
         attention_mask = self.vae_to_diff_mask(attention_mask, use_image_num)
         dtype = attention_mask.dtype
         attention_mask_compress = F.max_pool2d(attention_mask.float(), kernel_size=self.compress_kv_factor, stride=self.compress_kv_factor)
@@ -617,7 +618,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
         return model
 
 # depth = num_layers * 2
-def LatteT2V_XL_122(**kwargs):
+def LatteT2V_S_122(**kwargs):
     return LatteT2V(num_layers=28, attention_head_dim=72, num_attention_heads=16, patch_size_t=1, patch_size=2,
                     norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=1152, **kwargs)
 
@@ -625,20 +626,27 @@ def LatteT2V_XL_122(**kwargs):
 #     return LatteT2V(num_layers=28, attention_head_dim=64, num_attention_heads=18, patch_size_t=1, patch_size=2,
 #                     norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=1152, **kwargs)
 
-def LatteT2V_122(**kwargs):
-    return LatteT2V(num_layers=28, attention_head_dim=128, num_attention_heads=16, patch_size_t=1, patch_size=2,
-                    norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=2048, **kwargs)
+# def LatteT2V_122(**kwargs):
+#     return LatteT2V(num_layers=28, attention_head_dim=128, num_attention_heads=16, patch_size_t=1, patch_size=2,
+#                     norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=2048, **kwargs)
+
+
+def LatteT2V_L_122(**kwargs):
+    return LatteT2V(num_layers=16, attention_head_dim=128, num_attention_heads=20, patch_size_t=1, patch_size=2,
+                    norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=2560, **kwargs)
 
 Latte_models = {
-    "LatteT2V-XL/122": LatteT2V_XL_122,
+    "LatteT2V-S/122": LatteT2V_S_122,
     # "LatteT2V-D64-XL/122": LatteT2V_D64_XL_122,
-    "LatteT2V/122": LatteT2V_122,
+    # "LatteT2V/122": LatteT2V_122,
+    "LatteT2V-L/122": LatteT2V_L_122,
 }
 
 Latte_models_class = {
-    "LatteT2V-XL/122": LatteT2V,
+    "LatteT2V-S/122": LatteT2V,
     # "LatteT2V-D64-XL/122": LatteT2V_D64_XL_122,
     "LatteT2V/122": LatteT2V,
+    "LatteT2V-L/122": LatteT2V,
 }
 
 if __name__ == '__main__':
@@ -652,9 +660,10 @@ if __name__ == '__main__':
         'attention_mode': 'xformers', 
         'use_rope': False, 
         'model_max_length': 300, 
-        'max_image_size': 512, 
+        'max_height': 512, 
+        'max_width': 512, 
         'num_frames': 65, 
-        'use_image_num': 16, 
+        'use_image_num': 4, 
         'compress_kv_factor': 1
     }
     )
@@ -663,20 +672,21 @@ if __name__ == '__main__':
     cond_c = 4096
     num_timesteps = 1000
     ae_stride_t, ae_stride_h, ae_stride_w = ae_stride_config[args.ae]
-    latent_size = (args.max_image_size // ae_stride_h, args.max_image_size // ae_stride_w)
+    latent_size = (args.max_height // ae_stride_h, args.max_width // ae_stride_w)
     if getae_wrapper(args.ae) == CausalVQVAEModelWrapper or getae_wrapper(args.ae) == CausalVAEModelWrapper:
-        args.video_length = video_length = (args.num_frames - 1) // ae_stride_t + 1
+        num_frames = (args.num_frames - 1) // ae_stride_t + 1
     else:
-        video_length = args.num_frames // ae_stride_t
+        num_frames = args.num_frames // ae_stride_t
 
     device = torch.device('cuda:6')
-    model = LatteT2V_D64_XL_122(
+    model = LatteT2V_L_122(
         in_channels=ae_channel_config[args.ae],
         out_channels=ae_channel_config[args.ae] * 2,
         # caption_channels=4096,
         # cross_attention_dim=1152,
         attention_bias=True,
         sample_size=latent_size,
+        sample_size_t=num_frames,
         num_vector_embeds=None,
         activation_fn="gelu-approximate",
         num_embeds_ada_norm=1000,
@@ -688,22 +698,46 @@ if __name__ == '__main__':
         norm_elementwise_affine=False,
         norm_eps=1e-6,
         attention_type='default',
-        video_length=video_length,
         attention_mode=args.attention_mode,
         compress_kv_factor=args.compress_kv_factor, 
         use_rope=args.use_rope, 
         model_max_length=args.model_max_length, 
     ).to(device)
-    # try:
-    #     ckpt = torch.load(r"t2v.pt", map_location='cpu')['model']
-    #     model.load_state_dict(ckpt)
-    # except Exception as e:
-    #     print(e)
+
+    try:
+        path = "/storage/ongoing/Open-Sora-Plan/testimg_/checkpoint-100/model/diffusion_pytorch_model.safetensors"
+        from safetensors.torch import load_file as safe_load
+        ckpt = safe_load(path, device="cpu")
+        # import ipdb;ipdb.set_trace()
+        new_ckpt = {}
+        for k, v in ckpt.items():
+            if 'transformer_blocks' in k:
+                split = k.split('.')
+                idx = int(split[1])
+                if idx % 2 == 0:
+                    split[1] = str(idx//2)
+                else:
+                    split[0] = 'temporal_transformer_blocks'
+                    split[1] = str((idx-1)//2)
+                new_k = '.'.join(split)
+            else:
+                new_k = k
+            new_ckpt[new_k] = v
+
+        # import ipdb;ipdb.set_trace()
+        # if ckpt['pos_embed.proj.weight'].shape != model.pos_embed.proj.weight.shape and ckpt['pos_embed.proj.weight'].ndim == 4:
+        #     repeat = model.pos_embed.proj.weight.shape[2]
+        #     ckpt['pos_embed.proj.weight'] = ckpt['pos_embed.proj.weight'].unsqueeze(2).repeat(1, 1, repeat, 1, 1) / float(repeat)
+        #     del ckpt['proj_out.weight'], ckpt['proj_out.bias']
+        msg = model.load_state_dict(new_ckpt, strict=False)
+        print(msg)
+    except Exception as e:
+        print(e)
     print(model)
 
-    x = torch.randn(b, c,  1+(args.num_frames-1)//ae_stride_t+args.use_image_num, args.max_image_size//ae_stride_h, args.max_image_size//ae_stride_w).to(device)
+    x = torch.randn(b, c,  1+(args.num_frames-1)//ae_stride_t+args.use_image_num, args.max_height//ae_stride_h, args.max_width//ae_stride_w).to(device)
     cond = torch.randn(b, 1+args.use_image_num, args.model_max_length, cond_c).to(device)
-    attn_mask = torch.randint(0, 2, (b, 1+args.use_image_num, args.max_image_size//ae_stride_h//2, args.max_image_size//ae_stride_w//2)).to(device)  # B L or B 1+num_images L
+    attn_mask = torch.randint(0, 2, (b, 1+(args.num_frames-1)//ae_stride_t+args.use_image_num, args.max_height//ae_stride_h, args.max_width//ae_stride_w)).to(device)  # B L or B 1+num_images L
     cond_mask = torch.randint(0, 2, (b, 1+args.use_image_num, args.model_max_length)).to(device)  # B L or B 1+num_images L
     timestep = torch.randint(0, 1000, (b,), device=device)
     model_kwargs = dict(hidden_states=x, encoder_hidden_states=cond, attention_mask=attn_mask, 

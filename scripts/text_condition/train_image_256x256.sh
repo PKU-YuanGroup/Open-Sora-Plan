@@ -1,7 +1,7 @@
 export WANDB_KEY="953e958793b218efb850fa194e85843e2c3bd88b"
 # export WANDB_MODE="offline"
 export ENTITY="linbin"
-export PROJECT="testnpu21d_"
+export PROJECT="testimg_"
 export HF_DATASETS_OFFLINE=1 
 export TRANSFORMERS_OFFLINE=1
 # NCCL setting
@@ -14,7 +14,7 @@ export OMP_NUM_THREADS=1
 accelerate launch \
     --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
     opensora/train/train_t2v.py \
-    --model LatteT2V/122 \
+    --model OpenSoraT2V-L/122 \
     --text_encoder_name DeepFloyd/t5-v1_1-xxl \
     --cache_dir "./cache_dir" \
     --dataset t2v \
@@ -23,15 +23,15 @@ accelerate launch \
     --video_data "scripts/train_data/video_data_debug.txt" \
     --image_data "scripts/train_data/image_data_debug.txt" \
     --sample_rate 1 \
-    --num_frames 509 \
-    --max_height 480 \
-    --max_width 640 \
+    --num_frames 1 \
+    --max_height 256 \
+    --max_width 256 \
     --interpolation_scale_t 1.0 \
     --interpolation_scale_h 0.5 \
     --interpolation_scale_w 0.5 \
     --attention_mode xformers \
     --gradient_checkpointing \
-    --train_batch_size=1 \
+    --train_batch_size=16 \
     --dataloader_num_workers 10 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
@@ -41,13 +41,13 @@ accelerate launch \
     --mixed_precision="bf16" \
     --report_to="wandb" \
     --checkpointing_steps=100 \
-    --output_dir="testnpu21d_" \
+    --output_dir="testimg_" \
     --allow_tf32 \
     --use_deepspeed \
     --model_max_length 512 \
     --use_image_num 0 \
-    --enable_tiling \
     --enable_tracker \
     --snr_gamma 5.0 \
     --use_ema \
-    --ema_start_step 0 
+    --ema_start_step 0 \
+    --guidance_scale 2.5 

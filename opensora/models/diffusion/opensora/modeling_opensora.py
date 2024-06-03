@@ -286,7 +286,6 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
             If `return_dict` is True, an [`~models.transformer_2d.Transformer2DModelOutput`] is returned, otherwise a
             `tuple` where the first element is the sample tensor.
         """
-        # import ipdb;ipdb.set_trace()
         batch_size, c, frame, h, w = hidden_states.shape
         frame = frame - use_image_num  # 21-4=17
         if cross_attention_kwargs is not None:
@@ -303,7 +302,6 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
         #   [batch,  heads, query_tokens, key_tokens] (e.g. torch sdp attn)
         #   [batch * heads, query_tokens, key_tokens] (e.g. xformers or classic attn)
         attention_mask_vid, attention_mask_img = None, None
-        # import ipdb;ipdb.set_trace()
         if attention_mask is not None and attention_mask.ndim == 4:
             # assume that mask is expressed as:
             #   (1 = keep,      0 = discard)
@@ -472,7 +470,6 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
 
     def _operate_on_patched_inputs(self, hidden_states, encoder_hidden_states, timestep, added_cond_kwargs, batch_size, frame, use_image_num):
         # batch_size = hidden_states.shape[0]
-        # import ipdb;ipdb.set_trace()
         hidden_states_vid, hidden_states_img = self.pos_embed(hidden_states.to(self.dtype), frame)
         timestep_vid, timestep_img = None, None
         embedded_timestep_vid, embedded_timestep_img = None, None
@@ -553,6 +550,10 @@ def OpenSoraT2V_B_122(**kwargs):
     return OpenSoraT2V(num_layers=32, attention_head_dim=128, num_attention_heads=16, patch_size_t=1, patch_size=2,
                        norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=2048, **kwargs)
 
+def OpenSoraT2V_L_122(**kwargs):
+    return OpenSoraT2V(num_layers=32, attention_head_dim=128, num_attention_heads=20, patch_size_t=1, patch_size=2,
+                       norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=2560, **kwargs)
+
 # def OpenSoraT2V_S_222(**kwargs):
 #     return OpenSoraT2V(num_layers=28, attention_head_dim=72, num_attention_heads=16, patch_size_t=2, patch_size=2,
 #                        norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=1152, **kwargs)
@@ -577,7 +578,7 @@ def OpenSoraT2V_B_122(**kwargs):
 OpenSora_models = {
     "OpenSoraT2V-S/122": OpenSoraT2V_S_122,
     "OpenSoraT2V-B/122": OpenSoraT2V_B_122,
-    # "OpenSoraT2V-L/122": OpenSoraT2V_L_122,
+    "OpenSoraT2V-L/122": OpenSoraT2V_L_122,
     # "OpenSoraT2V-XL/122": OpenSoraT2V_XL_122,
     # "OpenSoraT2V-XXL/122": OpenSoraT2V_XXL_122,
     # "OpenSoraT2V-S/222": OpenSoraT2V_S_222,
@@ -590,6 +591,9 @@ OpenSora_models = {
 OpenSora_models_class = {
     "OpenSoraT2V-S/122": OpenSoraT2V,
     "OpenSoraT2V-B/122": OpenSoraT2V,
+    "OpenSoraT2V-L/122": OpenSoraT2V,
+    # "OpenSoraT2V-S/222": OpenSoraT2V,
+    # "OpenSoraT2V-B/222": OpenSoraT2V,
 }
 
 if __name__ == '__main__':
@@ -603,8 +607,9 @@ if __name__ == '__main__':
         'attention_mode': 'xformers', 
         'use_rope': False, 
         'model_max_length': 300, 
-        'max_image_size': 512, 
-        'num_frames': 17, 
+        'max_height': 512, 
+        'max_width': 512, 
+        'num_frames': 1, 
         'use_image_num': 0, 
         'compress_kv_factor': 1
     }
@@ -614,17 +619,17 @@ if __name__ == '__main__':
     cond_c = 4096
     num_timesteps = 1000
     ae_stride_t, ae_stride_h, ae_stride_w = ae_stride_config[args.ae]
-    latent_size = (args.max_image_size // ae_stride_h, args.max_image_size // ae_stride_w)
+    latent_size = (args.max_height // ae_stride_h, args.max_width // ae_stride_w)
     if getae_wrapper(args.ae) == CausalVQVAEModelWrapper or getae_wrapper(args.ae) == CausalVAEModelWrapper:
-        args.video_length = video_length = (args.num_frames - 1) // ae_stride_t + 1
+        num_frames = (args.num_frames - 1) // ae_stride_t + 1
     else:
-        args.video_length = video_length = args.num_frames // ae_stride_t
+        num_frames = args.num_frames // ae_stride_t
 
     device = torch.device('cuda:0')
-    model = OpenSoraT2V_S_222(in_channels=4, 
+    model = OpenSoraT2V_L_122(in_channels=4, 
                               out_channels=8, 
                               sample_size=latent_size, 
-                              sample_size_t=video_length, 
+                              sample_size_t=num_frames, 
                               activation_fn="gelu-approximate",
                             attention_bias=True,
                             attention_type="default",
@@ -637,8 +642,9 @@ if __name__ == '__main__':
                             upcast_attention=False,
                             use_linear_projection=False,
                             use_additional_conditions=False).to(device)
+    
     try:
-        path = "/remote-home1/yeyang/dev3d/Open-Sora-Plan/cache_dir/models--PixArt-alpha--PixArt-Sigma-XL-2-512-MS/snapshots/786c445c97ddcc0eb2faa157b131ac71ee1935a2/transformer/diffusion_pytorch_model.safetensors"
+        path = "PixArt-Alpha-XL-2-512.safetensors"
         from safetensors.torch import load_file as safe_load
         ckpt = safe_load(path, device="cpu")
         # import ipdb;ipdb.set_trace()
@@ -651,10 +657,10 @@ if __name__ == '__main__':
     except Exception as e:
         print(e)
     print(model)
-
-    x = torch.randn(b, c,  1+(args.num_frames-1)//ae_stride_t+args.use_image_num, args.max_image_size//ae_stride_h, args.max_image_size//ae_stride_w).to(device)
+    print(f'{sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e9} B')
+    x = torch.randn(b, c,  1+(args.num_frames-1)//ae_stride_t+args.use_image_num, args.max_height//ae_stride_h, args.max_width//ae_stride_w).to(device)
     cond = torch.randn(b, 1+args.use_image_num, args.model_max_length, cond_c).to(device)
-    attn_mask = torch.randint(0, 2, (b, 1+(args.num_frames-1)//ae_stride_t+args.use_image_num, args.max_image_size//ae_stride_h, args.max_image_size//ae_stride_w)).to(device)  # B L or B 1+num_images L
+    attn_mask = torch.randint(0, 2, (b, 1+(args.num_frames-1)//ae_stride_t+args.use_image_num, args.max_height//ae_stride_h, args.max_width//ae_stride_w)).to(device)  # B L or B 1+num_images L
     cond_mask = torch.randint(0, 2, (b, 1+args.use_image_num, args.model_max_length)).to(device)  # B L or B 1+num_images L
     timestep = torch.randint(0, 1000, (b,), device=device)
     model_kwargs = dict(hidden_states=x, encoder_hidden_states=cond, attention_mask=attn_mask, 

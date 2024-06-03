@@ -181,9 +181,9 @@ class PatchEmbed2D(nn.Module):
         self.num_frames = (num_frames - 1) // patch_size_t + 1 if num_frames % 2 == 1 else num_frames // patch_size_t
         self.base_size_t = (num_frames - 1) // patch_size_t + 1 if num_frames % 2 == 1 else num_frames // patch_size_t
         self.interpolation_scale_t = interpolation_scale_t
-        temp_embed = get_1d_sincos_pos_embed(embed_dim, self.num_frames, base_size=self.base_size_t, interpolation_scale=self.interpolation_scale_t)
-        self.register_buffer("temp_embed", torch.from_numpy(temp_embed).float().unsqueeze(0), persistent=False)
-        self.temp_embed_gate = nn.Parameter(torch.tensor([0.0]))
+        temp_pos_embed = get_1d_sincos_pos_embed(embed_dim, self.num_frames, base_size=self.base_size_t, interpolation_scale=self.interpolation_scale_t)
+        self.register_buffer("temp_pos_embed", torch.from_numpy(temp_pos_embed).float().unsqueeze(0), persistent=False)
+        # self.temp_embed_gate = nn.Parameter(torch.tensor([0.0]))
 
     def forward(self, latent, num_frames):
         b, _, _, _, _ = latent.shape
@@ -219,32 +219,34 @@ class PatchEmbed2D(nn.Module):
         if self.num_frames != num_frames:
             # import ipdb;ipdb.set_trace()
             # raise NotImplementedError
-            temp_embed = get_1d_sincos_pos_embed(
-                embed_dim=self.temp_embed.shape[-1],
+            temp_pos_embed = get_1d_sincos_pos_embed(
+                embed_dim=self.temp_pos_embed.shape[-1],
                 grid_size=num_frames,
                 base_size=self.base_size_t,
                 interpolation_scale=self.interpolation_scale_t,
             )
-            temp_embed = torch.from_numpy(temp_embed)
-            temp_embed = temp_embed.float().unsqueeze(0).to(latent.device)
+            temp_pos_embed = torch.from_numpy(temp_pos_embed)
+            temp_pos_embed = temp_pos_embed.float().unsqueeze(0).to(latent.device)
         else:
-            temp_embed = self.temp_embed
+            temp_pos_embed = self.temp_pos_embed
 
         latent = (latent + pos_embed).to(latent.dtype)
         
         latent = rearrange(latent, '(b t) n c -> b t n c', b=b)
         video_latent, image_latent = latent[:, :num_frames], latent[:, num_frames:]
 
-        # import ipdb;ipdb.set_trace()
-        temp_embed = temp_embed.unsqueeze(2) * self.temp_embed_gate.tanh()
-        # temp_embed = temp_embed.unsqueeze(2)
-        # print('raw value:', self.temp_embed_gate, 'tanh:', self.temp_embed_gate.tanh())
-        video_latent = (video_latent + temp_embed).to(video_latent.dtype) if video_latent is not None and video_latent.numel() > 0 else None
-        image_latent = (image_latent + temp_embed[:, :1]).to(image_latent.dtype) if image_latent is not None and image_latent.numel() > 0 else None
+        # temp_pos_embed = temp_pos_embed.unsqueeze(2) * self.temp_embed_gate.tanh()
+        temp_pos_embed = temp_pos_embed.unsqueeze(2)
+        video_latent = (video_latent + temp_pos_embed).to(video_latent.dtype) if video_latent is not None and video_latent.numel() > 0 else None
+        image_latent = (image_latent + temp_pos_embed[:, :1]).to(image_latent.dtype) if image_latent is not None and image_latent.numel() > 0 else None
 
 
         video_latent = rearrange(video_latent, 'b t n c -> b (t n) c') if video_latent is not None and video_latent.numel() > 0 else None
         image_latent = rearrange(image_latent, 'b t n c -> (b t) n c') if image_latent is not None and image_latent.numel() > 0 else None
+
+        if num_frames == 1 and image_latent is None:
+            image_latent = video_latent
+            video_latent = None
         return video_latent, image_latent
     
 

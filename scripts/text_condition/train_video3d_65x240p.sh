@@ -1,7 +1,7 @@
 export WANDB_KEY="953e958793b218efb850fa194e85843e2c3bd88b"
 # export WANDB_MODE="offline"
 export ENTITY="linbin"
-export PROJECT="testnpu3d"
+export PROJECT="testnpu3d_"
 export HF_DATASETS_OFFLINE=1 
 export TRANSFORMERS_OFFLINE=1
 # NCCL setting
@@ -12,7 +12,7 @@ export NCCL_ALGO=Ring
 export OMP_NUM_THREADS=1
 
 accelerate launch \
-    --config_file scripts/accelerate_configs/multi_node_example.yaml \
+    --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
     opensora/train/train_t2v.py \
     --model OpenSoraT2V-S/122 \
     --text_encoder_name DeepFloyd/t5-v1_1-xxl \
@@ -23,15 +23,15 @@ accelerate launch \
     --video_data "scripts/train_data/video_data_debug.txt" \
     --image_data "scripts/train_data/image_data_debug.txt" \
     --sample_rate 1 \
-    --num_frames 65 \
-    --max_height 240 \
-    --max_width 320 \
+    --num_frames 509 \
+    --max_height 480 \
+    --max_width 640 \
     --interpolation_scale_t 1.0 \
     --interpolation_scale_h 0.5 \
     --interpolation_scale_w 0.5 \
     --attention_mode xformers \
     --gradient_checkpointing \
-    --train_batch_size=4 \
+    --train_batch_size=1 \
     --dataloader_num_workers 10 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
@@ -41,7 +41,7 @@ accelerate launch \
     --mixed_precision="bf16" \
     --report_to="wandb" \
     --checkpointing_steps=100 \
-    --output_dir="testnpu3d" \
+    --output_dir="testnpu3d_" \
     --allow_tf32 \
     --use_deepspeed \
     --model_max_length 512 \
@@ -51,6 +51,4 @@ accelerate launch \
     --snr_gamma 5.0 \
     --use_ema \
     --ema_start_step 0 \
-    --pretrained PixArt-Alpha-XL-2-512.safetensors \
-    --guidance_scale 7.5 \
-    --resume_from_checkpoint "latest"
+    --guidance_scale 7.5 

@@ -111,7 +111,6 @@ class Collate:
         return pad_batch_tubes, attention_mask, input_ids, cond_mask
 
     def process(self, batch_tubes, t_ds_stride, ds_stride, max_thw, ae_stride_thw, patch_size_thw, extra_1):
-        # import ipdb;ipdb.set_trace()
         # pad to max multiple of ds_stride
         batch_input_size = [i.shape for i in batch_tubes]  # [(c t h w), (c t h w)]
         max_t, max_h, max_w = max_thw
@@ -168,5 +167,4 @@ class Collate:
         #                          0, max_patchify_latent_size[1] - i[1],
         #                          0, max_patchify_latent_size[0] - i[0]), value=0) for i in valid_patchify_latent_size]
         # attention_mask = torch.stack(attention_mask)  # b t h w
-
         return pad_batch_tubes, attention_mask
