@@ -347,14 +347,14 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
                 encoder_attention_mask_img = encoder_attention_mask_vid
                 encoder_attention_mask_vid = None
 
-            if npu_config is not None and attention_mask_vid is not None:
-                attention_mask_vid = npu_config.get_attention_mask(attention_mask_vid, attention_mask_vid.shape[-1])
-                encoder_attention_mask_vid = npu_config.get_attention_mask(encoder_attention_mask_vid,
-                                                                           attention_mask_vid.shape[-2])
-            if npu_config is not None and attention_mask_img is not None:
-                attention_mask_img = npu_config.get_attention_mask(attention_mask_img, attention_mask_img.shape[-1])
-                encoder_attention_mask_img = npu_config.get_attention_mask(encoder_attention_mask_img,
-                                                                           attention_mask_img.shape[-2])
+        if npu_config is not None and attention_mask_vid is not None:
+            attention_mask_vid = npu_config.get_attention_mask(attention_mask_vid, attention_mask_vid.shape[-1])
+            encoder_attention_mask_vid = npu_config.get_attention_mask(encoder_attention_mask_vid,
+                                                                       attention_mask_vid.shape[-2])
+        if npu_config is not None and attention_mask_img is not None:
+            attention_mask_img = npu_config.get_attention_mask(attention_mask_img, attention_mask_img.shape[-1])
+            encoder_attention_mask_img = npu_config.get_attention_mask(encoder_attention_mask_img,
+                                                                       attention_mask_img.shape[-2])
 
 
         # 1. Input
@@ -367,7 +367,6 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
 
         frame = ((frame - 1) // self.patch_size_t + 1) if frame % 2 == 1 else frame // self.patch_size_t  # patchfy
         # 2. Blocks
-        
         # import ipdb;ipdb.set_trace()
         for block in self.transformer_blocks:
             if self.training and self.gradient_checkpointing:
@@ -547,8 +546,8 @@ def OpenSoraT2V_S_122(**kwargs):
                        norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=1152, **kwargs)
 
 def OpenSoraT2V_B_122(**kwargs):
-    return OpenSoraT2V(num_layers=32, attention_head_dim=128, num_attention_heads=16, patch_size_t=1, patch_size=2,
-                       norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=2048, **kwargs)
+    return OpenSoraT2V(num_layers=32, attention_head_dim=96, num_attention_heads=16, patch_size_t=1, patch_size=2,
+                       norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=1536, **kwargs)
 
 def OpenSoraT2V_L_122(**kwargs):
     return OpenSoraT2V(num_layers=32, attention_head_dim=128, num_attention_heads=20, patch_size_t=1, patch_size=2,

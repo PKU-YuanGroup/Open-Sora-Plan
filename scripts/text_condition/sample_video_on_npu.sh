@@ -3,12 +3,11 @@ WEIGHT_PATH="/home/opensora/shebin/pre_weights/"
 export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$(pwd)"
 export MASTER_PORT=12359
 
-torchrun --nproc_per_node=8 opensora/sample/sample_t2v_npu.py \
+torchrun --nproc_per_node=8 opensora/sample/sample_t2v_on_npu.py \
     --model_path /home/image_data/checkpoints/${PROJECT_NAME} \
-    --version ${NUM_FRAME}x512x512 \
     --num_frames ${NUM_FRAME} \
-    --height 512 \
-    --width 512 \
+    --height 240 \
+    --width 320 \
     --cache_dir "./cache_dir" \
     --text_encoder_name ${WEIGHT_PATH}/DeepFloyd/t5-v1_1-xxl \
     --text_prompt examples/prompt_list_0.txt \
@@ -18,5 +17,4 @@ torchrun --nproc_per_node=8 opensora/sample/sample_t2v_npu.py \
     --fps 24 \
     --guidance_scale 4.0 \
     --num_sampling_steps 50 \
-    --enable_tiling \
-    --model_3d
+    --enable_tiling

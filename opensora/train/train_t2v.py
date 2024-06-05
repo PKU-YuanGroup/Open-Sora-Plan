@@ -454,6 +454,9 @@ def main(args):
             initial_global_step = global_step
             first_epoch = global_step // num_update_steps_per_epoch
 
+            if npu_config is not None:
+                train_dataset.n_used_elements = global_step * args.train_batch_size
+
     else:
         initial_global_step = 0
 
@@ -564,8 +567,9 @@ def main(args):
                     # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
                     ema_model.store(model.parameters())
                     ema_model.copy_to(model.parameters())
-                    log_validation(args, model, ae, text_enc.text_enc, train_dataset.tokenizer, accelerator,
-                                   weight_dtype, progress_info.global_step, ema=True)
+                    if npu_config is None:
+                        log_validation(args, model, ae, text_enc.text_enc, train_dataset.tokenizer, accelerator,
+                                       weight_dtype, progress_info.global_step, ema=True)
                     # Switch back to the original UNet parameters.
                     ema_model.restore(model.parameters())
 

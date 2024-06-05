@@ -1,3 +1,11 @@
+try:
+    import torch_npu
+    from opensora.npu_config import npu_config
+    from opensora.dataset.virtual_disk import VirtualDisk
+except:
+    torch_npu = None
+    npu_config = None
+import glob
 import json
 import os, io, csv, math, random
 import numpy as np
@@ -15,7 +23,18 @@ from PIL import Image
 from opensora.utils.dataset_utils import DecordInit
 from opensora.utils.utils import text_preprocessing
 
+def filter_json_by_existed_files(directory, data, postfix=".mp4"):
+    # 构建搜索模式，以匹配指定后缀的文件
+    pattern = os.path.join(directory, '**', f'*{postfix}')
+    mp4_files = glob.glob(pattern, recursive=True)  # 使用glob查找所有匹配的文件
 
+    # 使用文件的绝对路径构建集合
+    mp4_files_set = set(os.path.abspath(path) for path in mp4_files)
+
+    # 过滤数据条目，只保留路径在mp4文件集合中的条目
+    filtered_items = [item for item in data if item['path'] in mp4_files_set]
+
+    return filtered_items
 def random_video_noise(t, c, h, w):
     vid = torch.rand(t, c, h, w) * 255.0
     vid = vid.to(torch.uint8)
@@ -41,7 +60,11 @@ class T2V_dataset(Dataset):
         else:
             self.img_cap_list = self.get_img_cap_list()
         
-
+        if npu_config is not None:
+            self.virtual_disk = VirtualDisk(f"/mnt/pandas_70m_{npu_config.get_local_rank()}")
+            self.n_used_elements = 0
+            self.elements = list(range(self.__len__()))
+            print(f"n_elements: {len(self.elements)}")
 
     def __len__(self):
         if self.num_frames != 1:
@@ -50,6 +73,9 @@ class T2V_dataset(Dataset):
             return len(self.img_cap_list)
         
     def __getitem__(self, idx):
+        if npu_config is not None:
+            idx = self.elements[self.n_used_elements % len(self.elements)]
+            self.n_used_elements += 1
         try:
             video_data, image_data = {}, {}
             if self.num_frames != 1:
@@ -73,7 +99,7 @@ class T2V_dataset(Dataset):
         # cond_mask = torch.cat([torch.ones(1, 60).to(torch.long), torch.ones(1, 60).to(torch.long)], dim=1).squeeze(0)
         
         video_path = self.vid_cap_list[idx]['path']
-        frame_idx = self.vid_cap_list[idx]['frame_idx']
+        frame_idx = self.vid_cap_list[idx]['frame_idx'] if hasattr(self.vid_cap_list[idx], 'frame_idx') else None
         video = self.decord_read(video_path, frame_idx)
 
         h, w = video.shape[-2:]
@@ -157,7 +183,11 @@ class T2V_dataset(Dataset):
         return video
     
     def decord_read(self, path, frame_idx=None):
+        if npu_config is not None:
+            path = self.virtual_disk.get_data(path)
         decord_vr = self.v_decoder(path)
+        if npu_config is not None:
+            self.virtual_disk.del_data(path)
         total_frames = len(decord_vr)
         # Sampling video frames
         if frame_idx is None:
@@ -182,8 +212,20 @@ class T2V_dataset(Dataset):
             folder_anno = [i.strip().split(',') for i in f.readlines() if len(i.strip()) > 0]
             # print(folder_anno)
         for folder, anno in folder_anno:
-            with open(anno, 'r') as f:
-                vid_cap_list = json.load(f)
+            if npu_config is None:
+                with open(anno, 'r') as f:
+                    vid_cap_list = json.load(f)
+            else:
+                # List all files in the directory
+                files = [f for f in os.listdir(anno) if os.path.isfile(os.path.join(anno, f))]
+
+                # Read the contents of the first chunk
+                vid_cap_list = []
+                for file in files[npu_config.rank::npu_config.world_size]:
+                    print(os.path.join(anno, file))
+                    with open(os.path.join(anno, file), 'r') as f:
+                        vid_cap_list.extend(json.load(f))
+
             print(f'Building {anno}...')
             for i in tqdm(range(len(vid_cap_list))):
                 path = opj(folder, vid_cap_list[i]['path'])
@@ -193,8 +235,7 @@ class T2V_dataset(Dataset):
             vid_cap_lists += vid_cap_list
         return vid_cap_lists
 
-    def get_img_cap_list(self):
-        use_image_num = self.use_image_num if self.use_image_num != 0 else 1
+    def read_images(self):
         img_cap_lists = []
         with open(self.image_data, 'r') as f:
             folder_anno = [i.strip().split(',') for i in f.readlines() if len(i.strip()) > 0]
@@ -204,6 +245,22 @@ class T2V_dataset(Dataset):
             print(f'Building {anno}...')
             for i in tqdm(range(len(img_cap_list))):
                 img_cap_list[i]['path'] = opj(folder, img_cap_list[i]['path'])
+            if npu_config is not None:
+                img_cap_list = filter_json_by_existed_files(folder, img_cap_list, postfix=".jpg")
             img_cap_lists += img_cap_list
-        img_cap_lists = [img_cap_lists[i: i+use_image_num] for i in range(0, len(img_cap_lists), use_image_num)]
         return img_cap_lists[:-1]  # drop last to avoid error length
+
+    def get_img_cap_list(self):
+        use_image_num = self.use_image_num if self.use_image_num != 0 else 1
+        if npu_config is None:
+            img_cap_lists = self.read_images()
+            img_cap_lists = [img_cap_lists[i: i + use_image_num] for i in range(0, len(img_cap_lists), use_image_num)]
+        else:
+            img_cap_lists = npu_config.try_load_pickle("img_cap_lists", self.read_images)
+            img_cap_lists = [img_cap_lists[i: i + use_image_num] for i in range(0, len(img_cap_lists), use_image_num)]
+            img_cap_lists = img_cap_lists[npu_config.get_local_rank()::npu_config.N_NPU_PER_NODE]
+        return img_cap_lists
+
+
+
+

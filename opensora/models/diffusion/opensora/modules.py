@@ -410,10 +410,13 @@ class AttnProcessor2_0:
         )
 
         if attention_mask is not None:
-            attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length, batch_size)
-            # scaled_dot_product_attention expects attention_mask shape to be
-            # (batch, heads, source_length, target_length)
-            attention_mask = attention_mask.view(batch_size, attn.heads, -1, attention_mask.shape[-1])
+            if npu_config is None:
+                attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length, batch_size)
+                # scaled_dot_product_attention expects attention_mask shape to be
+                # (batch, heads, source_length, target_length)
+                attention_mask = attention_mask.view(batch_size, attn.heads, -1, attention_mask.shape[-1])
+            else:
+                attention_mask = attention_mask.view(batch_size, 1, -1, attention_mask.shape[-1])
 
         if attn.group_norm is not None:
             hidden_states = attn.group_norm(hidden_states.transpose(1, 2)).transpose(1, 2)

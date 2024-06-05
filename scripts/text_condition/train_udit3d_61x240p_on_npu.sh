@@ -8,7 +8,7 @@ accelerate launch \
     --machine_rank=${MACHINE_RANK} \
     --main_process_ip=${MAIN_PROCESS_IP_VALUE} \
     opensora/train/train_t2v.py \
-    --model LatteT2V-S/122 \
+    --model UDiTT2V-B/111 \
     --text_encoder_name ${WEIGHT_PATH}/DeepFloyd/t5-v1_1-xxl \
     --cache_dir "../cache_dir" \
     --dataset t2v \
@@ -34,13 +34,13 @@ accelerate launch \
     --lr_warmup_steps=0 \
     --mixed_precision="bf16" \
     --report_to="wandb" \
-    --checkpointing_steps=500 \
+    --checkpointing_steps=20 \
     --output_dir="/home/image_data/checkpoints/${PROJECT}/" \
     --allow_tf32 \
     --model_max_length 512 \
-    --use_image_num 2 \
+    --use_image_num 0 \
     --enable_tiling \
     --snr_gamma 5.0 \
     --use_ema \
     --ema_start_step 0 \
-    --pretrained "${WEIGHT_PATH}/t2v.pt"
+    --guidance_scale 2.0

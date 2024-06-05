@@ -180,7 +180,11 @@ class OverlapPatchEmbed3D(nn.Module):
     def forward(self, latent):
         b, _, num_frames, _, _ = latent.shape
         height, width = latent.shape[-2], latent.shape[-1]
-        latent = self.proj(latent)  # b c t h w
+        if npu_config is None:
+            latent = self.proj(latent)  # b c t h w
+        else:
+            latent_dtype = latent.dtype
+            latent = npu_config.run_conv3d(self.proj, latent, latent_dtype)
 
         if self.flatten:
             latent = rearrange(latent, 'b c t h w -> (b t) (h w) c')  # B C T H W -> BT N C
@@ -247,7 +251,11 @@ class DownSampler(nn.Module):
 
     def forward(self, x):
         x = rearrange(x, 'b (t h w) d -> b d t h w', t=self.t, h=self.h, w=self.w)
-        x = self.layer(x) + (x if self.down_shortcut else 0)
+        if npu_config is None:
+            x = self.layer(x) + (x if self.down_shortcut else 0)
+        else:
+            x_dtype = x.dtype
+            x = npu_config.run_conv3d(self.layer, x, x_dtype) + (x if self.down_shortcut else 0)
         return rearrange(x, 'b d (t dt) (h dh) (w dw) -> (b dt dh dw) d (t h w)', dt=self.down_factor, dh=self.down_factor, dw=self.down_factor)
 
 
@@ -305,10 +313,13 @@ class AttnProcessor2_0:
         )
 
         if attention_mask is not None:
-            attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length, batch_size)
-            # scaled_dot_product_attention expects attention_mask shape to be
-            # (batch, heads, source_length, target_length)
-            attention_mask = attention_mask.view(batch_size, attn.heads, -1, attention_mask.shape[-1])
+            if npu_config is None:
+                attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length, batch_size)
+                # scaled_dot_product_attention expects attention_mask shape to be
+                # (batch, heads, source_length, target_length)
+                attention_mask = attention_mask.view(batch_size, attn.heads, -1, attention_mask.shape[-1])
+            else:
+                attention_mask = attention_mask.view(batch_size, 1, -1, attention_mask.shape[-1])
 
         if attn.group_norm is not None:
             hidden_states = attn.group_norm(hidden_states.transpose(1, 2)).transpose(1, 2)
@@ -426,7 +437,11 @@ class Downsample3d(nn.Module):
     def forward(self, x, attention_mask, frames, height, width, pad_h=0, pad_w=0):
         x = rearrange(x, 'b (t h w) d -> b d t h w', t=frames, h=height, w=width)
         x = F.pad(x, (0, pad_w, 0, pad_h, 0, 0), mode='reflect')
-        x = self.body(x)
+        if npu_config is None:
+            x = self.body(x)
+        else:
+            x_dtype = x.dtype
+            x = npu_config.run_conv3d(self.body, x, x_dtype)
         x = rearrange(x, 'b d t h w -> b (t h w) d')
         
         attention_mask = rearrange(attention_mask, 'b 1 (t h w) -> b 1 t h w', t=frames, h=height, w=width)
@@ -434,11 +449,6 @@ class Downsample3d(nn.Module):
         attention_mask = F.max_pool3d(attention_mask, kernel_size=2, stride=2)
         attention_mask = rearrange(attention_mask, 'b 1 t h w -> b 1 (t h w)')
         attention_bias = (1 - attention_mask.bool().to(x.dtype)) * -10000.0
-
-        
-        if npu_config is not None and attention_mask is not None:
-            attention_mask = npu_config.get_attention_mask(attention_mask, attention_mask.shape[-1])
-            attention_bias = npu_config.get_attention_mask(attention_bias, attention_mask.shape[-1])
 
         return x, attention_bias, attention_mask
     
@@ -451,7 +461,11 @@ class Upsample3d(nn.Module):
 
     def forward(self, x, attention_mask, frames, height, width, pad_h=0, pad_w=0):
         x = rearrange(x, 'b (t h w) d -> b d t h w', t=frames, h=height, w=width)
-        x = self.body(x)
+        if npu_config is None:
+            x = self.body(x)
+        else:
+            x_dtype = x.dtype
+            x = npu_config.run_conv3d(self.body, x, x_dtype)
         x = x[:, :, :, :height*2-pad_h, :width*2-pad_w]
         x = rearrange(x, 'b d t h w -> b (t h w) d')
 
@@ -460,10 +474,6 @@ class Upsample3d(nn.Module):
         attention_mask = attention_mask[:, :, :, :height*2-pad_h, :width*2-pad_w]
         attention_mask = rearrange(attention_mask, 'b 1 t h w -> b 1 (t h w)')
         attention_bias = (1 - attention_mask.bool().to(x.dtype)) * -10000.0
-        
-        if npu_config is not None and attention_mask is not None:
-            attention_mask = npu_config.get_attention_mask(attention_mask, attention_mask.shape[-1])
-            attention_bias = npu_config.get_attention_mask(attention_bias, attention_mask.shape[-1])
 
         return x, attention_bias, attention_mask
 
@@ -506,15 +516,27 @@ class FeedForward(nn.Module):
 
     def forward(self, x):
         x = rearrange(x, 'b (t h w) d -> b d t h w', t=self.t, h=self.h, w=self.w)
-        x = self.project_in(x)
-        x = F.gelu(x)
-        if self.rep:
-            out = x
-            for module in self.dwconv:
-                out = out + module(x)
+        if npu_config is None:
+            x = self.project_in(x)
+            x = F.gelu(x)
+            if self.rep:
+                out = x
+                for module in self.dwconv:
+                    out = out + module(x)
+            else:
+                out = self.dwconv(x)
+            x = self.project_out(out)
         else:
-            out = self.dwconv(x)
-        x = self.project_out(out)
+            x_dtype = x.dtype
+            x = npu_config.run_conv3d(self.project_in, x, torch.float16)
+            x = F.gelu(x)
+            if self.rep:
+                out = x
+                for module in self.dwconv:
+                    out = out + npu_config.run_conv3d(module, x, torch.float16)
+            else:
+                out = npu_config.run_conv3d(self.dwconv, x, torch.float16)
+            x = npu_config.run_conv3d(self.project_out, out, x_dtype)
         x = rearrange(x, 'b d t h w -> b (t h w) d', t=self.t, h=self.h, w=self.w)
         return x
 
