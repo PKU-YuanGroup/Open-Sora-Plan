@@ -118,13 +118,13 @@ class NPUConfig:
         return f"{self.work_path}/output_videos/{name}"
 
     def get_node_size(self):
-        return self.world_size / self.node_world_size
+        return self.world_size // self.node_world_size
 
     def get_local_rank(self):
         return self.rank % self.N_NPU_PER_NODE
 
     def get_pickle_path(self, file_name):
-        return f"{self.pickle_save_path}/{file_name}_local_n63"
+        return f"/home/opensora/yancen/Open-Sora-Plan-dev/pickles/{file_name}_local_n63"
 
     def free_mm(self):
         for key, value in self.mm.items():

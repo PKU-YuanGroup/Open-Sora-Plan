@@ -453,12 +453,12 @@ def main(args):
 
             initial_global_step = global_step
             first_epoch = global_step // num_update_steps_per_epoch
-
-            if npu_config is not None:
-                train_dataset.n_used_elements = global_step * args.train_batch_size
-
     else:
         initial_global_step = 0
+
+    if npu_config is not None:
+        # train_dataset.n_used_elements = global_step * args.train_batch_size
+        train_dataset.set_checkpoint(global_step * args.train_batch_size)
 
     progress_bar = tqdm(
         range(0, args.max_train_steps),

@@ -1,7 +1,9 @@
+import time
+import traceback
+
 try:
     import torch_npu
     from opensora.npu_config import npu_config
-    from opensora.dataset.virtual_disk import VirtualDisk
 except:
     torch_npu = None
     npu_config = None
@@ -23,6 +25,7 @@ from PIL import Image
 from opensora.utils.dataset_utils import DecordInit
 from opensora.utils.utils import text_preprocessing
 
+
 def filter_json_by_existed_files(directory, data, postfix=".mp4"):
     # 构建搜索模式，以匹配指定后缀的文件
     pattern = os.path.join(directory, '**', f'*{postfix}')
@@ -35,10 +38,13 @@ def filter_json_by_existed_files(directory, data, postfix=".mp4"):
     filtered_items = [item for item in data if item['path'] in mp4_files_set]
 
     return filtered_items
+
+
 def random_video_noise(t, c, h, w):
     vid = torch.rand(t, c, h, w) * 255.0
     vid = vid.to(torch.uint8)
     return vid
+
 
 class T2V_dataset(Dataset):
     def __init__(self, args, transform, temporal_sample, tokenizer):
@@ -59,19 +65,23 @@ class T2V_dataset(Dataset):
                 self.img_cap_list = self.get_img_cap_list()
         else:
             self.img_cap_list = self.get_img_cap_list()
-        
+
         if npu_config is not None:
-            self.virtual_disk = VirtualDisk(f"/mnt/pandas_70m_{npu_config.get_local_rank()}")
             self.n_used_elements = 0
             self.elements = list(range(self.__len__()))
             print(f"n_elements: {len(self.elements)}")
+        print(f"video length: {len(self.vid_cap_list)}")
+        print(f"image length: {len(self.img_cap_list)}")
+
+    def set_checkpoint(self, n_used_elements):
+        self.n_used_elements = n_used_elements
 
     def __len__(self):
         if self.num_frames != 1:
             return len(self.vid_cap_list)
         else:
             return len(self.img_cap_list)
-        
+
     def __getitem__(self, idx):
         if npu_config is not None:
             idx = self.elements[self.n_used_elements % len(self.elements)]
@@ -90,6 +100,10 @@ class T2V_dataset(Dataset):
             return dict(video_data=video_data, image_data=image_data)
         except Exception as e:
             # print(f'Error with {e}')
+            # 打印异常堆栈
+            print(f"Caught an exception! {self.vid_cap_list[idx]}")
+            traceback.print_exc()
+            traceback.print_stack()
             return self.__getitem__(random.randint(0, self.__len__() - 1))
 
     def get_video(self, idx):
@@ -97,17 +111,17 @@ class T2V_dataset(Dataset):
         # # print('random shape', video.shape)
         # input_ids = torch.ones(1, 120).to(torch.long).squeeze(0)
         # cond_mask = torch.cat([torch.ones(1, 60).to(torch.long), torch.ones(1, 60).to(torch.long)], dim=1).squeeze(0)
-        
+
         video_path = self.vid_cap_list[idx]['path']
         frame_idx = self.vid_cap_list[idx]['frame_idx'] if hasattr(self.vid_cap_list[idx], 'frame_idx') else None
         video = self.decord_read(video_path, frame_idx)
 
         h, w = video.shape[-2:]
-        assert h / w <= 16 / 16 and h / w >= 9 / 16, f'Only videos with a ratio (h/w) less than 16/16 and more than 9/16 are supported. But found ratio is {round(h/w, 2)} with the shape of {video.shape}'
+        assert h / w <= 16 / 16 and h / w >= 8 / 16, f'Only videos with a ratio (h/w) less than 16/16 and more than 8/16 are supported. But found ratio is {round(h / w, 2)} with the shape of {video.shape}'
         t = video.shape[0]
         video = video[:(t - 1) // 4 * 4 + 1]
         video = self.transform(video)  # T C H W -> T C H W
-        
+
         # video = torch.rand(509, 3, 240, 320)
 
         video = video.transpose(0, 1)  # T C H W -> C T H W
@@ -128,9 +142,9 @@ class T2V_dataset(Dataset):
         return dict(video=video, input_ids=input_ids, cond_mask=cond_mask)
 
     def get_image_from_video(self, video_data):
-        select_image_idx = np.linspace(0, self.num_frames-1, self.use_image_num, dtype=int)
+        select_image_idx = np.linspace(0, self.num_frames - 1, self.use_image_num, dtype=int)
         assert self.num_frames >= self.use_image_num
-        image = [video_data['video'][:, i:i+1] for i in select_image_idx]  # num_img [c, 1, h, w]
+        image = [video_data['video'][:, i:i + 1] for i in select_image_idx]  # num_img [c, 1, h, w]
         input_ids = video_data['input_ids'].repeat(self.use_image_num, 1)  # self.use_image_num, l
         cond_mask = video_data['cond_mask'].repeat(self.use_image_num, 1)  # self.use_image_num, l
         return dict(image=image, input_ids=input_ids, cond_mask=cond_mask)
@@ -138,10 +152,10 @@ class T2V_dataset(Dataset):
     def get_image(self, idx):
         idx = idx % len(self.img_cap_list)  # out of range
         image_data = self.img_cap_list[idx]  # [{'path': path, 'cap': cap}, ...]
-        
-        image = [Image.open(i['path']).convert('RGB') for i in image_data] # num_img [h, w, c]
-        image = [torch.from_numpy(np.array(i)) for i in image] # num_img [h, w, c]
-        image = [rearrange(i, 'h w c -> c h w').unsqueeze(0) for i in image] # num_img [1 c h w]
+
+        image = [Image.open(i['path']).convert('RGB') for i in image_data]  # num_img [h, w, c]
+        image = [torch.from_numpy(np.array(i)) for i in image]  # num_img [h, w, c]
+        image = [rearrange(i, 'h w c -> c h w').unsqueeze(0) for i in image]  # num_img [1 c h w]
         image = [self.transform(i) for i in image]  # num_img [1 C H W] -> num_img [1 C H W]
 
         # image = [torch.rand(1, 3, 256, 256) for i in image_data]
@@ -181,13 +195,9 @@ class T2V_dataset(Dataset):
         video = vframes[frame_indice]  # (T, C, H, W)
 
         return video
-    
+
     def decord_read(self, path, frame_idx=None):
-        if npu_config is not None:
-            path = self.virtual_disk.get_data(path)
         decord_vr = self.v_decoder(path)
-        if npu_config is not None:
-            self.virtual_disk.del_data(path)
         total_frames = len(decord_vr)
         # Sampling video frames
         if frame_idx is None:
@@ -205,62 +215,40 @@ class T2V_dataset(Dataset):
         video_data = video_data.permute(0, 3, 1, 2)  # (T, H, W, C) -> (T C H W)
         return video_data
 
-
-    def get_vid_cap_list(self):
-        vid_cap_lists = []
-        with open(self.video_data, 'r') as f:
-            folder_anno = [i.strip().split(',') for i in f.readlines() if len(i.strip()) > 0]
-            # print(folder_anno)
-        for folder, anno in folder_anno:
-            if npu_config is None:
-                with open(anno, 'r') as f:
-                    vid_cap_list = json.load(f)
-            else:
-                # List all files in the directory
-                files = [f for f in os.listdir(anno) if os.path.isfile(os.path.join(anno, f))]
-
-                # Read the contents of the first chunk
-                vid_cap_list = []
-                for file in files[npu_config.rank::npu_config.world_size]:
-                    print(os.path.join(anno, file))
-                    with open(os.path.join(anno, file), 'r') as f:
-                        vid_cap_list.extend(json.load(f))
-
-            print(f'Building {anno}...')
-            for i in tqdm(range(len(vid_cap_list))):
-                path = opj(folder, vid_cap_list[i]['path'])
-                if os.path.exists(path.replace('.mp4', '_resize_1080p.mp4')):
-                    path = path.replace('.mp4', '_resize_1080p.mp4')
-                vid_cap_list[i]['path'] = path
-            vid_cap_lists += vid_cap_list
-        return vid_cap_lists
-
-    def read_images(self):
-        img_cap_lists = []
-        with open(self.image_data, 'r') as f:
+    def read_jsons(self, data, postfix=".jpg"):
+        cap_lists = []
+        with open(data, 'r') as f:
             folder_anno = [i.strip().split(',') for i in f.readlines() if len(i.strip()) > 0]
         for folder, anno in folder_anno:
             with open(anno, 'r') as f:
-                img_cap_list = json.load(f)
+                sub_list = json.load(f)
             print(f'Building {anno}...')
-            for i in tqdm(range(len(img_cap_list))):
-                img_cap_list[i]['path'] = opj(folder, img_cap_list[i]['path'])
+            for i in tqdm(range(len(sub_list))):
+                sub_list[i]['path'] = opj(folder, sub_list[i]['path'])
             if npu_config is not None:
-                img_cap_list = filter_json_by_existed_files(folder, img_cap_list, postfix=".jpg")
-            img_cap_lists += img_cap_list
-        return img_cap_lists[:-1]  # drop last to avoid error length
+                sub_list = filter_json_by_existed_files(folder, sub_list, postfix=postfix)
+            cap_lists += sub_list
+        return cap_lists[:-1]  # drop last to avoid error length
 
     def get_img_cap_list(self):
         use_image_num = self.use_image_num if self.use_image_num != 0 else 1
         if npu_config is None:
-            img_cap_lists = self.read_images()
+            img_cap_lists = self.read_jsons(self.image_data, postfix=".jpg")
             img_cap_lists = [img_cap_lists[i: i + use_image_num] for i in range(0, len(img_cap_lists), use_image_num)]
         else:
-            img_cap_lists = npu_config.try_load_pickle("img_cap_lists", self.read_images)
+            img_cap_lists = npu_config.try_load_pickle("img_cap_lists",
+                                                       lambda: self.read_jsons(self.image_data, postfix=".jpg"))
             img_cap_lists = [img_cap_lists[i: i + use_image_num] for i in range(0, len(img_cap_lists), use_image_num)]
             img_cap_lists = img_cap_lists[npu_config.get_local_rank()::npu_config.N_NPU_PER_NODE]
         return img_cap_lists
 
+    def get_vid_cap_list(self):
+        if npu_config is None:
+            vid_cap_lists = self.read_jsons(self.video_data, postfix=".mp4")
+        else:
+            vid_cap_lists = npu_config.try_load_pickle("vid_cap_lists5",
+                                                       lambda: self.read_jsons(self.video_data, postfix=".mp4"))
+            npu_config.print_msg(f"length of vid_cap_lists is {len(vid_cap_lists)}")
+            vid_cap_lists = vid_cap_lists[npu_config.get_local_rank()::npu_config.N_NPU_PER_NODE]
 
-
-
+        return vid_cap_lists

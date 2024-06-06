@@ -29,16 +29,16 @@ accelerate launch \
     --dataloader_num_workers 10 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
-    --learning_rate=2e-5 \
-    --lr_scheduler="constant" \
+    --learning_rate=4e-5 \
+    --lr_scheduler="cosine" \
     --lr_warmup_steps=0 \
     --mixed_precision="bf16" \
     --report_to="wandb" \
-    --checkpointing_steps=500 \
+    --checkpointing_steps=250 \
     --output_dir="/home/image_data/checkpoints/${PROJECT}/" \
     --allow_tf32 \
     --model_max_length 512 \
-    --use_image_num 2 \
+    --use_image_num 0 \
     --enable_tiling \
     --snr_gamma 5.0 \
     --use_ema \

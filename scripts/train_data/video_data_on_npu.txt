@@ -1,1 +1,1 @@
-20240426/sdg/panda70m,/home/video_data/panda70m
+/home/local_dataset_n20/video_obs/panda70m/,/home/opensora/captions/linbin_captions/step2_merge_downloaded_videos_v2.json
