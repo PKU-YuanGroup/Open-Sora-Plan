@@ -63,13 +63,18 @@ class T2V_dataset(Dataset):
             self.vid_cap_list = self.get_vid_cap_list()
             if self.use_image_num != 0 and not self.use_img_from_vid:
                 self.img_cap_list = self.get_img_cap_list()
+            else:
+                self.img_cap_list = []
         else:
             self.img_cap_list = self.get_img_cap_list()
+            self.vid_cap_list = []
 
         if npu_config is not None:
             self.n_used_elements = 0
             self.elements = list(range(self.__len__()))
+            random.shuffle(self.elements)
             print(f"n_elements: {len(self.elements)}")
+
         print(f"video length: {len(self.vid_cap_list)}")
         print(f"image length: {len(self.img_cap_list)}")
 
@@ -107,17 +112,19 @@ class T2V_dataset(Dataset):
             return self.__getitem__(random.randint(0, self.__len__() - 1))
 
     def get_video(self, idx):
+        # npu_config.print_msg(f"current idx is {idx}")
         # video = random.choice([random_video_noise(65, 3, 336, 448), random_video_noise(65, 3, 1024, 1024), random_video_noise(65, 3, 360, 480)])
         # # print('random shape', video.shape)
         # input_ids = torch.ones(1, 120).to(torch.long).squeeze(0)
         # cond_mask = torch.cat([torch.ones(1, 60).to(torch.long), torch.ones(1, 60).to(torch.long)], dim=1).squeeze(0)
 
         video_path = self.vid_cap_list[idx]['path']
+        assert os.path.exists(video_path) and os.path.getsize(video_path) > 10240, f"file {video_path} has wrong size!"
         frame_idx = self.vid_cap_list[idx]['frame_idx'] if hasattr(self.vid_cap_list[idx], 'frame_idx') else None
         video = self.decord_read(video_path, frame_idx)
 
         h, w = video.shape[-2:]
-        assert h / w <= 16 / 16 and h / w >= 8 / 16, f'Only videos with a ratio (h/w) less than 16/16 and more than 8/16 are supported. But found ratio is {round(h / w, 2)} with the shape of {video.shape}'
+        assert h / w <= 16 / 16 and h / w >= 4 / 16, f'Only videos with a ratio (h/w) less than 16/16 and more than 4/16 are supported. But found ratio is {round(h / w, 2)} with the shape of {video.shape}'
         t = video.shape[0]
         video = video[:(t - 1) // 4 * 4 + 1]
         video = self.transform(video)  # T C H W -> T C H W
@@ -248,7 +255,13 @@ class T2V_dataset(Dataset):
         else:
             vid_cap_lists = npu_config.try_load_pickle("vid_cap_lists5",
                                                        lambda: self.read_jsons(self.video_data, postfix=".mp4"))
-            npu_config.print_msg(f"length of vid_cap_lists is {len(vid_cap_lists)}")
+            # npu_config.print_msg(f"length of vid_cap_lists is {len(vid_cap_lists)}")
             vid_cap_lists = vid_cap_lists[npu_config.get_local_rank()::npu_config.N_NPU_PER_NODE]
+            vid_cap_lists_final = []
+            for item in vid_cap_lists:
+                if os.path.exists(item['path']) and os.path.getsize(item['path']) > 10240:
+                    vid_cap_lists_final.append(item)
+            vid_cap_lists = vid_cap_lists_final
+            npu_config.print_msg(f"length of vid_cap_lists is {len(vid_cap_lists)}")
 
         return vid_cap_lists

@@ -151,7 +151,7 @@ def main(args):
 
     if torch_npu is not None and npu_config is not None:
         npu_config.print_msg(args)
-    # npu_config.seed_everything()
+        npu_config.seed_everything()
     accelerator_project_config = ProjectConfiguration(project_dir=args.output_dir, logging_dir=logging_dir)
 
     accelerator = Accelerator(
