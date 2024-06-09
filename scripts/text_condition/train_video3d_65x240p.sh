@@ -23,7 +23,7 @@ accelerate launch \
     --video_data "scripts/train_data/video_data_debug.txt" \
     --image_data "scripts/train_data/image_data_debug.txt" \
     --sample_rate 1 \
-    --num_frames 509 \
+    --num_frames 253 \
     --max_height 480 \
     --max_width 640 \
     --interpolation_scale_t 1.0 \
@@ -51,4 +51,5 @@ accelerate launch \
     --snr_gamma 5.0 \
     --use_ema \
     --ema_start_step 0 \
-    --guidance_scale 7.5 
+    --guidance_scale 5.0   \
+    --resume_from_checkpoint="latest"

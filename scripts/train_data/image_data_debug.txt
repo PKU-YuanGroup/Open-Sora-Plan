@@ -1,1 +1,1 @@
-/dxyl_data02/datasets/images,/storage/anno_jsons/human_images_162094.json
+/storage/dataset/image/human_images,/storage/anno_jsons/human_images_162094.json

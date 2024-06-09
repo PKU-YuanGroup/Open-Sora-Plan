@@ -42,7 +42,7 @@ from tqdm.auto import tqdm
 from transformers import HfArgumentParser, TrainingArguments, AutoTokenizer
 
 import diffusers
-from diffusers import DDPMScheduler, PNDMScheduler, DPMSolverMultistepScheduler
+from diffusers import DDPMScheduler, PNDMScheduler, DPMSolverMultistepScheduler, EulerDiscreteScheduler
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel, compute_snr
 from diffusers.utils import check_min_version, is_wandb_available
@@ -51,7 +51,6 @@ from opensora.dataset import getdataset, ae_denorm
 from opensora.models.ae import getae, getae_wrapper
 from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModelWrapper
 from opensora.utils.diffusion import create_diffusion_T as create_diffusion
-from opensora.utils.diffusion.diffusion_utils import compute_snr
 from opensora.models.diffusion.latte.modeling_latte import LatteT2V
 from opensora.models.text_encoder import get_text_enc, get_text_warpper
 from opensora.utils.dataset_utils import Collate
@@ -73,7 +72,9 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
     logger.info(f"Running validation....\n")
     model = accelerator.unwrap_model(model)
     # scheduler = PNDMScheduler()
-    scheduler = DPMSolverMultistepScheduler()
+    # scheduler = DPMSolverMultistepScheduler()
+    scheduler = EulerDiscreteScheduler.from_pretrained("stabilityai/stable-video-diffusion-img2vid", 
+                                                       subfolder="scheduler", cache_dir=args.cache_dir)
     opensora_pipeline = OpenSoraPipeline(vae=vae,
                                          text_encoder=text_encoder,
                                          tokenizer=tokenizer,
@@ -151,7 +152,7 @@ def main(args):
 
     if torch_npu is not None and npu_config is not None:
         npu_config.print_msg(args)
-        npu_config.seed_everything()
+    # npu_config.seed_everything()
     accelerator_project_config = ProjectConfiguration(project_dir=args.output_dir, logging_dir=logging_dir)
 
     accelerator = Accelerator(
@@ -238,7 +239,7 @@ def main(args):
         latent_size_t = args.num_frames // ae_stride_t
     model = Diffusion_models[args.model](
         in_channels=ae_channel_config[args.ae],
-        out_channels=ae_channel_config[args.ae] * 2,
+        out_channels=ae_channel_config[args.ae],
         # caption_channels=4096,
         # cross_attention_dim=1152,
         attention_bias=True,
@@ -289,7 +290,6 @@ def main(args):
     text_enc.requires_grad_(False)
     # Set model as trainable.
     model.train()
-
 
     # Move unet, vae and text_encoder to device and cast to weight_dtype
     # The VAE is in float32 to avoid NaN losses.
@@ -456,12 +456,12 @@ def main(args):
 
             initial_global_step = global_step
             first_epoch = global_step // num_update_steps_per_epoch
+
+            if npu_config is not None:
+                train_dataset.n_used_elements = global_step * args.train_batch_size
+
     else:
         initial_global_step = 0
-
-    if npu_config is not None:
-        # train_dataset.n_used_elements = global_step * args.train_batch_size
-        train_dataset.set_checkpoint(global_step * args.train_batch_size)
 
     progress_bar = tqdm(
         range(0, args.max_train_steps),
@@ -516,24 +516,38 @@ def main(args):
         logs = {"step_loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
         progress_bar.set_postfix(**logs)
 
-    def run(x, model_kwargs, prof):
+    def run(latents, model_kwargs, prof, P_std=0.6, P_mean=1.7):
         global start_time
         start_time = time.time()
-        t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=accelerator.device)
+        
+        # Add noise to the latents according to the noise magnitude at each timestep
+        # (this is the forward diffusion process) #[bsz, f, c, h , w]
+        bsz = latents.shape[0]
+        rnd_normal = torch.randn([bsz, 1, 1, 1, 1], device=latents.device)
+        sigma = (rnd_normal * P_std + P_mean).exp()
+        c_skip = 1 / (sigma**2 + 1)
+        c_out =  -sigma / (sigma**2 + 1) ** 0.5
+        c_in = 1 / (sigma**2 + 1) ** 0.5
+        c_noise = (sigma.log() / 4).reshape([bsz])
+        loss_weight = (sigma ** 2 + 1) / sigma ** 2
 
-        if args.snr_gamma is not None:
-            snr = compute_snr(t, torch.from_numpy(diffusion.alphas_cumprod))
-            mse_loss_weights = (torch.stack([snr, args.snr_gamma * torch.ones_like(t)], dim=1).min(dim=1)[0] / snr)
-            # print(t, mse_loss_weights)
-            loss_dict = diffusion.training_losses(model, x, t, model_kwargs, mse_loss_weights=mse_loss_weights)
-        else:
-            loss_dict = diffusion.training_losses(model, x, t, model_kwargs)
+        noisy_latents = c_in * (latents + torch.randn_like(latents) * sigma)
 
-        loss = loss_dict["loss"].mean()
+        model_pred = model(
+            noisy_latents,
+            c_noise,
+            **model_kwargs
+        )[0]
+
+        predict_x0 = c_out * model_pred + c_skip * noisy_latents 
+        loss = ((predict_x0 - latents)**2 * loss_weight).mean()
+
+        # Gather the losses across all processes for logging (if we use distributed training).
+        avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
+        progress_info.train_loss += avg_loss.detach().item() / args.gradient_accumulation_steps
 
         # Backpropagate
         accelerator.backward(loss)
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1)
         if accelerator.sync_gradients:
             params_to_clip = model.parameters()
             accelerator.clip_grad_norm_(params_to_clip, args.max_grad_norm)

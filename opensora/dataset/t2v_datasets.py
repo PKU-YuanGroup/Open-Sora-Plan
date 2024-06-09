@@ -57,6 +57,7 @@ class T2V_dataset(Dataset):
         self.temporal_sample = temporal_sample
         self.tokenizer = tokenizer
         self.model_max_length = args.model_max_length
+        self.cfg = args.cfg
         self.v_decoder = DecordInit()
 
         if self.num_frames != 1:
@@ -124,17 +125,17 @@ class T2V_dataset(Dataset):
         video = self.decord_read(video_path, frame_idx)
 
         h, w = video.shape[-2:]
-        assert h / w <= 16 / 16 and h / w >= 4 / 16, f'Only videos with a ratio (h/w) less than 16/16 and more than 4/16 are supported. But found ratio is {round(h / w, 2)} with the shape of {video.shape}'
+        assert h / w <= 16 / 16 and h / w >= 8 / 16, f'Only videos with a ratio (h/w) less than 16/16 and more than 8/16 are supported. But found ratio is {round(h/w, 2)} with the shape of {video.shape}'
         t = video.shape[0]
         video = video[:(t - 1) // 4 * 4 + 1]
         video = self.transform(video)  # T C H W -> T C H W
-
+        
         # video = torch.rand(509, 3, 240, 320)
 
         video = video.transpose(0, 1)  # T C H W -> C T H W
         text = self.vid_cap_list[idx]['cap']
 
-        text = text_preprocessing(text)
+        text = text_preprocessing(text) if random.random() > self.cfg else ""
         text_tokens_and_mask = self.tokenizer(
             text,
             max_length=self.model_max_length,

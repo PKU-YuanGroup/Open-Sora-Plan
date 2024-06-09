@@ -12,9 +12,9 @@ export NCCL_ALGO=Ring
 export OMP_NUM_THREADS=1
 
 accelerate launch \
-    --config_file scripts/accelerate_configs/multi_node_example.yaml \
+    --config_file scripts/accelerate_configs/multi_node_example1.yaml \
     opensora/train/train_t2v.py \
-    --model OpenSoraT2V-B/122 \
+    --model OpenSoraT2V-B/111 \
     --text_encoder_name DeepFloyd/t5-v1_1-xxl \
     --cache_dir "./cache_dir" \
     --dataset t2v \
@@ -41,7 +41,7 @@ accelerate launch \
     --mixed_precision="bf16" \
     --report_to="wandb" \
     --checkpointing_steps=500 \
-    --output_dir="bs16_4node_lr1e-4_snr5_ema_ps22_ds11" \
+    --output_dir="bs16_4node_lr1e-4_snr5_ema_ps11_ds22" \
     --allow_tf32 \
     --use_deepspeed \
     --model_max_length 512 \
@@ -51,4 +51,5 @@ accelerate launch \
     --use_ema \
     --ema_start_step 0 \
     --guidance_scale 2.5  \
+    --downsampler "k55_s22" \
     --resume_from_checkpoint="latest"

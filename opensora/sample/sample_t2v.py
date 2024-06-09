@@ -81,7 +81,10 @@ def main(args):
         scheduler = DEISMultistepScheduler()
     elif args.sample_method == 'KDPM2AncestralDiscrete':  #########
         scheduler = KDPM2AncestralDiscreteScheduler()
-        
+    elif args.sample_method == 'EulerDiscreteSVD':
+        scheduler = EulerDiscreteScheduler.from_pretrained("stabilityai/stable-video-diffusion-img2vid", 
+                                                        subfolder="scheduler", cache_dir=args.cache_dir)
+
     pipeline = OpenSoraPipeline(vae=vae,
                                 text_encoder=text_encoder,
                                 tokenizer=tokenizer,

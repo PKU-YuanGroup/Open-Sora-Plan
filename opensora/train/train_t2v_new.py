@@ -51,7 +51,6 @@ from opensora.dataset import getdataset, ae_denorm
 from opensora.models.ae import getae, getae_wrapper
 from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModelWrapper
 from opensora.utils.diffusion import create_diffusion_T as create_diffusion
-from opensora.utils.diffusion.diffusion_utils import compute_snr
 from opensora.models.diffusion.latte.modeling_latte import LatteT2V
 from opensora.models.text_encoder import get_text_enc, get_text_warpper
 from opensora.utils.dataset_utils import Collate
@@ -151,7 +150,7 @@ def main(args):
 
     if torch_npu is not None and npu_config is not None:
         npu_config.print_msg(args)
-        npu_config.seed_everything()
+    # npu_config.seed_everything()
     accelerator_project_config = ProjectConfiguration(project_dir=args.output_dir, logging_dir=logging_dir)
 
     accelerator = Accelerator(
@@ -238,7 +237,7 @@ def main(args):
         latent_size_t = args.num_frames // ae_stride_t
     model = Diffusion_models[args.model](
         in_channels=ae_channel_config[args.ae],
-        out_channels=ae_channel_config[args.ae] * 2,
+        out_channels=ae_channel_config[args.ae],
         # caption_channels=4096,
         # cross_attention_dim=1152,
         attention_bias=True,
@@ -290,7 +289,8 @@ def main(args):
     # Set model as trainable.
     model.train()
 
-
+    noise_scheduler = DDPMScheduler()
+    noise_scheduler.config.prediction_type == "v_prediction"
     # Move unet, vae and text_encoder to device and cast to weight_dtype
     # The VAE is in float32 to avoid NaN losses.
     # ae.to(accelerator.device, dtype=torch.float32)
@@ -456,12 +456,12 @@ def main(args):
 
             initial_global_step = global_step
             first_epoch = global_step // num_update_steps_per_epoch
+
+            if npu_config is not None:
+                train_dataset.n_used_elements = global_step * args.train_batch_size
+
     else:
         initial_global_step = 0
-
-    if npu_config is not None:
-        # train_dataset.n_used_elements = global_step * args.train_batch_size
-        train_dataset.set_checkpoint(global_step * args.train_batch_size)
 
     progress_bar = tqdm(
         range(0, args.max_train_steps),
@@ -516,24 +516,73 @@ def main(args):
         logs = {"step_loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
         progress_bar.set_postfix(**logs)
 
-    def run(x, model_kwargs, prof):
+    def run(model_input, model_kwargs, prof):
         global start_time
         start_time = time.time()
-        t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=accelerator.device)
+        # t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=accelerator.device)
 
-        if args.snr_gamma is not None:
-            snr = compute_snr(t, torch.from_numpy(diffusion.alphas_cumprod))
-            mse_loss_weights = (torch.stack([snr, args.snr_gamma * torch.ones_like(t)], dim=1).min(dim=1)[0] / snr)
-            # print(t, mse_loss_weights)
-            loss_dict = diffusion.training_losses(model, x, t, model_kwargs, mse_loss_weights=mse_loss_weights)
+        noise = torch.randn_like(model_input)
+        if args.noise_offset:
+            # https://www.crosslabs.org//blog/diffusion-with-offset-noise
+            noise += args.noise_offset * torch.randn((model_input.shape[0], model_input.shape[1], 1, 1), device=model_input.device)
+
+        bsz = model_input.shape[0]
+        # Sample a random timestep for each image without bias.
+        timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=model_input.device)
+
+        # Add noise to the model input according to the noise magnitude at each timestep
+        # (this is the forward diffusion process)
+        noisy_model_input = noise_scheduler.add_noise(model_input, noise, timesteps)
+
+        model_pred = model(
+            noisy_model_input,
+            timesteps,
+            **model_kwargs
+        )[0]
+
+        # Get the target for loss depending on the prediction type
+        if args.prediction_type is not None:
+            # set prediction_type of scheduler if defined
+            noise_scheduler.register_to_config(prediction_type=args.prediction_type)
+
+        if noise_scheduler.config.prediction_type == "epsilon":
+            target = noise
+        elif noise_scheduler.config.prediction_type == "v_prediction":
+            target = noise_scheduler.get_velocity(model_input, noise, timesteps)
+        elif noise_scheduler.config.prediction_type == "sample":
+            # We set the target to latents here, but the model_pred will return the noise sample prediction.
+            target = model_input
+            # We will have to subtract the noise residual from the prediction to get the target sample.
+            model_pred = model_pred - noise
         else:
-            loss_dict = diffusion.training_losses(model, x, t, model_kwargs)
+            raise ValueError(f"Unknown prediction type {noise_scheduler.config.prediction_type}")
 
-        loss = loss_dict["loss"].mean()
+        if args.snr_gamma is None:
+            loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
+        else:
+            # Compute loss-weights as per Section 3.4 of https://arxiv.org/abs/2303.09556.
+            # Since we predict the noise instead of x_0, the original formulation is slightly changed.
+            # This is discussed in Section 4.2 of the same paper.
+            snr = compute_snr(noise_scheduler, timesteps)
+            mse_loss_weights = torch.stack([snr, args.snr_gamma * torch.ones_like(timesteps)], dim=1).min(
+                dim=1
+            )[0]
+            if noise_scheduler.config.prediction_type == "epsilon":
+                mse_loss_weights = mse_loss_weights / snr
+            elif noise_scheduler.config.prediction_type == "v_prediction":
+                mse_loss_weights = mse_loss_weights / (snr + 1)
+
+            loss = F.mse_loss(model_pred.float(), target.float(), reduction="none")
+            loss = loss.mean(dim=list(range(1, len(loss.shape)))) * mse_loss_weights
+            loss = loss.mean()
+
+
+        # Gather the losses across all processes for logging (if we use distributed training).
+        avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
+        progress_info.train_loss += avg_loss.detach().item() / args.gradient_accumulation_steps
 
         # Backpropagate
         accelerator.backward(loss)
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1)
         if accelerator.sync_gradients:
             params_to_clip = model.parameters()
             accelerator.clip_grad_norm_(params_to_clip, args.max_grad_norm)

@@ -7,7 +7,7 @@ from einops import rearrange, repeat
 from typing import Any, Dict, Optional, Tuple
 from diffusers.utils.torch_utils import maybe_allow_in_graph
 from typing import Any, Dict, Optional
-
+import re
 import torch
 import torch.nn.functional as F
 from torch import nn
@@ -236,9 +236,9 @@ class PatchEmbed2D(nn.Module):
         video_latent, image_latent = latent[:, :num_frames], latent[:, num_frames:]
 
         # temp_pos_embed = temp_pos_embed.unsqueeze(2) * self.temp_embed_gate.tanh()
-        temp_pos_embed = temp_pos_embed.unsqueeze(2)
-        video_latent = (video_latent + temp_pos_embed).to(video_latent.dtype) if video_latent is not None and video_latent.numel() > 0 else None
-        image_latent = (image_latent + temp_pos_embed[:, :1]).to(image_latent.dtype) if image_latent is not None and image_latent.numel() > 0 else None
+        # temp_pos_embed = temp_pos_embed.unsqueeze(2)
+        # video_latent = (video_latent + temp_pos_embed).to(video_latent.dtype) if video_latent is not None and video_latent.numel() > 0 else None
+        # image_latent = (image_latent + temp_pos_embed[:, :1]).to(image_latent.dtype) if image_latent is not None and image_latent.numel() > 0 else None
 
 
         video_latent = rearrange(video_latent, 'b t n c -> b (t n) c') if video_latent is not None and video_latent.numel() > 0 else None
@@ -250,15 +250,16 @@ class PatchEmbed2D(nn.Module):
         return video_latent, image_latent
     
 
-class PatchEmbed3D(nn.Module):
-    """3D Video and 2D Image to Patch Embedding"""
+
+class OverlapPatchEmbed3D(nn.Module):
+    """2D Image to Patch Embedding but with 3D position embedding"""
 
     def __init__(
         self,
-        num_frames=17, 
+        num_frames=1, 
         height=224,
         width=224,
-        patch_size_t=2,
+        patch_size_t=1,
         patch_size=16,
         in_channels=3,
         embed_dim=768,
@@ -269,12 +270,12 @@ class PatchEmbed3D(nn.Module):
         interpolation_scale_t=1,
     ):
         super().__init__()
-        assert num_frames > 1
+        assert patch_size_t == 1 and patch_size == 1
         self.flatten = flatten
         self.layer_norm = layer_norm
 
         self.proj = nn.Conv3d(
-            in_channels, embed_dim, kernel_size=(patch_size_t, patch_size, patch_size), stride=(patch_size_t, patch_size, patch_size), bias=bias
+            in_channels, embed_dim, kernel_size=3, padding=1, stride=1, bias=bias
         )
         if layer_norm:
             self.norm = nn.LayerNorm(embed_dim, elementwise_affine=False, eps=1e-6)
@@ -287,96 +288,302 @@ class PatchEmbed3D(nn.Module):
         # https://github.com/PixArt-alpha/PixArt-alpha/blob/0f55e922376d8b797edd44d25d0e7464b260dcab/diffusion/model/nets/PixArtMS.py#L161
 
         self.height, self.width = height // patch_size, width // patch_size
-        if num_frames % 2 == 1:
-            self.num_frames = (num_frames - 1) // patch_size_t + 1
-            self.base_size = ((num_frames - 1) // patch_size_t + 1, height // patch_size, width // patch_size)
-        else:
-            self.num_frames = num_frames // patch_size_t
-            self.base_size = (num_frames // patch_size_t, height // patch_size, width // patch_size)
-        self.interpolation_scale = (interpolation_scale_t, interpolation_scale[0], interpolation_scale[1])
-        pos_embed_video = get_3d_sincos_pos_embed(
-            embed_dim, (self.num_frames, self.height, self.width), base_size=self.base_size, interpolation_scale=self.interpolation_scale
+        self.base_size = (height // patch_size, width // patch_size)
+        self.interpolation_scale = (interpolation_scale[0], interpolation_scale[1])
+        pos_embed = get_2d_sincos_pos_embed(
+            embed_dim, (self.height, self.width), base_size=self.base_size, interpolation_scale=self.interpolation_scale
         )
-        self.register_buffer("pos_embed_video", torch.from_numpy(pos_embed_video).float().unsqueeze(0), persistent=False)
+        self.register_buffer("pos_embed", torch.from_numpy(pos_embed).float().unsqueeze(0), persistent=False)
 
-        pos_embed_image = get_3d_sincos_pos_embed(
-            embed_dim, (1, self.height, self.width), base_size=self.base_size, interpolation_scale=self.interpolation_scale
-        )
-        self.register_buffer("pos_embed_image", torch.from_numpy(pos_embed_image).float().unsqueeze(0), persistent=False)
-        
+        self.num_frames = (num_frames - 1) // patch_size_t + 1 if num_frames % 2 == 1 else num_frames // patch_size_t
+        self.base_size_t = (num_frames - 1) // patch_size_t + 1 if num_frames % 2 == 1 else num_frames // patch_size_t
+        self.interpolation_scale_t = interpolation_scale_t
+        temp_pos_embed = get_1d_sincos_pos_embed(embed_dim, self.num_frames, base_size=self.base_size_t, interpolation_scale=self.interpolation_scale_t)
+        self.register_buffer("temp_pos_embed", torch.from_numpy(temp_pos_embed).float().unsqueeze(0), persistent=False)
+        # self.temp_embed_gate = nn.Parameter(torch.tensor([0.0]))
 
     def forward(self, latent, num_frames):
-        # b c v+i h w
-        # import ipdb;ipdb.set_trace()
+        b, _, _, _, _ = latent.shape
+        video_latent, image_latent = None, None
+        # b c 1 h w
+        # assert latent.shape[-3] == 1 and num_frames == 1
         height, width = latent.shape[-2] // self.patch_size, latent.shape[-1] // self.patch_size
-        # bcvhw, bcihw
-        video_latent, image_latent = latent[:, :, :num_frames], latent[:, :, num_frames:]
-        if num_frames % 2 == 1:
-            num_frames = (num_frames - 1) // self.patch_size_t + 1
-        else:
-            num_frames = num_frames // self.patch_size_t
-        
-        first_frame_repeat = video_latent[:, :, :1].repeat(1, 1, self.patch_size_t-1, 1, 1)
-        video_latent = torch.cat([first_frame_repeat, video_latent], dim=2)
-        video_latent = self.proj(video_latent)
-
-        if image_latent.numel() > 0:
-            image_latent = image_latent.repeat_interleave(self.patch_size_t, dim=2)  # b c i h w -> b c 2i h w
-            image_latent = self.proj(image_latent)  # b c 2i h w -> b c i h w
+        # latent = rearrange(latent, 'b c t h w -> (b t) c h w')
+        latent = self.proj(latent)
 
         if self.flatten:
-            video_latent = rearrange(video_latent, 'b c t h w -> b (t h w) c')
-            if image_latent.numel() > 0:
-                image_latent = rearrange(image_latent, 'b c i h w -> (b i) (h w) c')
+            # latent = latent.flatten(2).transpose(1, 2)  # BT C H W -> BT N C
+            latent = rearrange(latent, 'b c t h w -> (b t) (h w) c ')
         if self.layer_norm:
-            video_latent = self.norm(video_latent)
-            if image_latent.numel() > 0:
-                image_latent = self.norm(image_latent)
+            latent = self.norm(latent)
 
+        # import ipdb;ipdb.set_trace()
         # Interpolate positional embeddings if needed.
         # (For PixArt-Alpha: https://github.com/PixArt-alpha/PixArt-alpha/blob/0f55e922376d8b797edd44d25d0e7464b260dcab/diffusion/model/nets/PixArtMS.py#L162C151-L162C160)
-        if self.num_frames != num_frames or self.height != height or self.width != width:
-            pos_embed_video = get_3d_sincos_pos_embed(
-                embed_dim=self.pos_embed_video.shape[-1],
-                grid_size=(num_frames, height, width),
+        if self.height != height or self.width != width:
+            # raise NotImplementedError
+            pos_embed = get_2d_sincos_pos_embed(
+                embed_dim=self.pos_embed.shape[-1],
+                grid_size=(height, width),
                 base_size=self.base_size,
                 interpolation_scale=self.interpolation_scale,
             )
-            pos_embed_video = torch.from_numpy(pos_embed_video)
-            pos_embed_video = pos_embed_video.float().unsqueeze(0).to(latent.device)
+            pos_embed = torch.from_numpy(pos_embed)
+            pos_embed = pos_embed.float().unsqueeze(0).to(latent.device)
         else:
-            pos_embed_video = self.pos_embed_video
-        video_latent = (video_latent + pos_embed_video).to(latent.dtype)
+            pos_embed = self.pos_embed
 
-        if image_latent.numel() > 0:
-            if self.height != height or self.width != width:
-                pos_embed_image = get_3d_sincos_pos_embed(
-                    embed_dim=self.pos_embed_image.shape[-1],
-                    grid_size=(1, height, width),
-                    base_size=self.base_size,
-                    interpolation_scale=self.interpolation_scale,
-                )
-                pos_embed_image = torch.from_numpy(pos_embed_image)
-                pos_embed_image = pos_embed_image.float().unsqueeze(0).to(latent.device)
-            else:
-                pos_embed_image = self.pos_embed_image
-            image_latent = (image_latent + pos_embed_image).to(latent.dtype)
+
+        if self.num_frames != num_frames:
+            # import ipdb;ipdb.set_trace()
+            # raise NotImplementedError
+            temp_pos_embed = get_1d_sincos_pos_embed(
+                embed_dim=self.temp_pos_embed.shape[-1],
+                grid_size=num_frames,
+                base_size=self.base_size_t,
+                interpolation_scale=self.interpolation_scale_t,
+            )
+            temp_pos_embed = torch.from_numpy(temp_pos_embed)
+            temp_pos_embed = temp_pos_embed.float().unsqueeze(0).to(latent.device)
         else:
-            image_latent = None
+            temp_pos_embed = self.temp_pos_embed
+
+        latent = (latent + pos_embed).to(latent.dtype)
+        
+        latent = rearrange(latent, '(b t) n c -> b t n c', b=b)
+        video_latent, image_latent = latent[:, :num_frames], latent[:, num_frames:]
+
+        # temp_pos_embed = temp_pos_embed.unsqueeze(2) * self.temp_embed_gate.tanh()
+        # temp_pos_embed = temp_pos_embed.unsqueeze(2)
+        # video_latent = (video_latent + temp_pos_embed).to(video_latent.dtype) if video_latent is not None and video_latent.numel() > 0 else None
+        # image_latent = (image_latent + temp_pos_embed[:, :1]).to(image_latent.dtype) if image_latent is not None and image_latent.numel() > 0 else None
+
+
+        video_latent = rearrange(video_latent, 'b t n c -> b (t n) c') if video_latent is not None and video_latent.numel() > 0 else None
+        image_latent = rearrange(image_latent, 'b t n c -> (b t) n c') if image_latent is not None and image_latent.numel() > 0 else None
+
+        if num_frames == 1 and image_latent is None:
+            image_latent = video_latent
+            video_latent = None
         return video_latent, image_latent
     
 
-class Attention(Attention_):
-    def __init__(self, attention_mode, **kwags):
-        processor = AttnProcessor2_0(attention_mode)
-        super().__init__(processor=processor, **kwags)
 
+class OverlapPatchEmbed2D(nn.Module):
+    """2D Image to Patch Embedding but with 3D position embedding"""
+
+    def __init__(
+        self,
+        num_frames=1, 
+        height=224,
+        width=224,
+        patch_size_t=1,
+        patch_size=16,
+        in_channels=3,
+        embed_dim=768,
+        layer_norm=False,
+        flatten=True,
+        bias=True,
+        interpolation_scale=(1, 1),
+        interpolation_scale_t=1,
+    ):
+        super().__init__()
+        assert patch_size_t == 1 and patch_size == 1
+        self.flatten = flatten
+        self.layer_norm = layer_norm
+
+        self.proj = nn.Conv2d(
+            in_channels, embed_dim, kernel_size=3, padding=1, stride=1, bias=bias
+        )
+        if layer_norm:
+            self.norm = nn.LayerNorm(embed_dim, elementwise_affine=False, eps=1e-6)
+        else:
+            self.norm = None
+
+        self.patch_size_t = patch_size_t
+        self.patch_size = patch_size
+        # See:
+        # https://github.com/PixArt-alpha/PixArt-alpha/blob/0f55e922376d8b797edd44d25d0e7464b260dcab/diffusion/model/nets/PixArtMS.py#L161
+
+        self.height, self.width = height // patch_size, width // patch_size
+        self.base_size = (height // patch_size, width // patch_size)
+        self.interpolation_scale = (interpolation_scale[0], interpolation_scale[1])
+        pos_embed = get_2d_sincos_pos_embed(
+            embed_dim, (self.height, self.width), base_size=self.base_size, interpolation_scale=self.interpolation_scale
+        )
+        self.register_buffer("pos_embed", torch.from_numpy(pos_embed).float().unsqueeze(0), persistent=False)
+
+        self.num_frames = (num_frames - 1) // patch_size_t + 1 if num_frames % 2 == 1 else num_frames // patch_size_t
+        self.base_size_t = (num_frames - 1) // patch_size_t + 1 if num_frames % 2 == 1 else num_frames // patch_size_t
+        self.interpolation_scale_t = interpolation_scale_t
+        temp_pos_embed = get_1d_sincos_pos_embed(embed_dim, self.num_frames, base_size=self.base_size_t, interpolation_scale=self.interpolation_scale_t)
+        self.register_buffer("temp_pos_embed", torch.from_numpy(temp_pos_embed).float().unsqueeze(0), persistent=False)
+        # self.temp_embed_gate = nn.Parameter(torch.tensor([0.0]))
+
+    def forward(self, latent, num_frames):
+        b, _, _, _, _ = latent.shape
+        video_latent, image_latent = None, None
+        # b c 1 h w
+        # assert latent.shape[-3] == 1 and num_frames == 1
+        height, width = latent.shape[-2] // self.patch_size, latent.shape[-1] // self.patch_size
+        latent = rearrange(latent, 'b c t h w -> (b t) c h w')
+        latent = self.proj(latent)
+
+        if self.flatten:
+            latent = latent.flatten(2).transpose(1, 2)  # BT C H W -> BT N C
+        if self.layer_norm:
+            latent = self.norm(latent)
+
+        # import ipdb;ipdb.set_trace()
+        # Interpolate positional embeddings if needed.
+        # (For PixArt-Alpha: https://github.com/PixArt-alpha/PixArt-alpha/blob/0f55e922376d8b797edd44d25d0e7464b260dcab/diffusion/model/nets/PixArtMS.py#L162C151-L162C160)
+        if self.height != height or self.width != width:
+            # raise NotImplementedError
+            pos_embed = get_2d_sincos_pos_embed(
+                embed_dim=self.pos_embed.shape[-1],
+                grid_size=(height, width),
+                base_size=self.base_size,
+                interpolation_scale=self.interpolation_scale,
+            )
+            pos_embed = torch.from_numpy(pos_embed)
+            pos_embed = pos_embed.float().unsqueeze(0).to(latent.device)
+        else:
+            pos_embed = self.pos_embed
+
+
+        if self.num_frames != num_frames:
+            # import ipdb;ipdb.set_trace()
+            # raise NotImplementedError
+            temp_pos_embed = get_1d_sincos_pos_embed(
+                embed_dim=self.temp_pos_embed.shape[-1],
+                grid_size=num_frames,
+                base_size=self.base_size_t,
+                interpolation_scale=self.interpolation_scale_t,
+            )
+            temp_pos_embed = torch.from_numpy(temp_pos_embed)
+            temp_pos_embed = temp_pos_embed.float().unsqueeze(0).to(latent.device)
+        else:
+            temp_pos_embed = self.temp_pos_embed
+
+        latent = (latent + pos_embed).to(latent.dtype)
+        
+        latent = rearrange(latent, '(b t) n c -> b t n c', b=b)
+        video_latent, image_latent = latent[:, :num_frames], latent[:, num_frames:]
+
+        # temp_pos_embed = temp_pos_embed.unsqueeze(2) * self.temp_embed_gate.tanh()
+        # temp_pos_embed = temp_pos_embed.unsqueeze(2)
+        # video_latent = (video_latent + temp_pos_embed).to(video_latent.dtype) if video_latent is not None and video_latent.numel() > 0 else None
+        # image_latent = (image_latent + temp_pos_embed[:, :1]).to(image_latent.dtype) if image_latent is not None and image_latent.numel() > 0 else None
+
+
+        video_latent = rearrange(video_latent, 'b t n c -> b (t n) c') if video_latent is not None and video_latent.numel() > 0 else None
+        image_latent = rearrange(image_latent, 'b t n c -> (b t) n c') if image_latent is not None and image_latent.numel() > 0 else None
+
+        if num_frames == 1 and image_latent is None:
+            image_latent = video_latent
+            video_latent = None
+        return video_latent, image_latent
+    
+class Attention(Attention_):
+    def __init__(self, downsampler, attention_mode, **kwags):
+        processor = AttnProcessor2_0(attention_mode=attention_mode)
+        super().__init__(processor=processor, **kwags)
+        self.downsampler = None
+        if downsampler: # downsampler  k155_s122
+            downsampler_ker_size = list(re.search(r'k(\d{2,3})', downsampler).group(1)) # 122
+            down_factor = list(re.search(r's(\d{2,3})', downsampler).group(1))
+            downsampler_ker_size = [int(i) for i in downsampler_ker_size]
+            downsampler_padding = [(i - 1) // 2 for i in downsampler_ker_size]
+            down_factor = [int(i) for i in down_factor]
+            
+            if len(downsampler_ker_size) == 2:
+                self.downsampler = DownSampler2d(kwags['query_dim'], kwags['query_dim'], kernel_size=downsampler_ker_size, stride=1,
+                                            padding=downsampler_padding, groups=kwags['query_dim'], down_factor=down_factor,
+                                            down_shortcut=True)
+            elif len(downsampler_ker_size) == 3:
+                self.downsampler = DownSampler3d(kwags['query_dim'], kwags['query_dim'], kernel_size=downsampler_ker_size, stride=1,
+                                            padding=downsampler_padding, groups=kwags['query_dim'], down_factor=down_factor,
+                                            down_shortcut=True)
+        
+
+
+
+class DownSampler3d(nn.Module):
+    def __init__(self, *args, **kwargs):
+        ''' Required kwargs: down_factor, downsampler'''
+        super().__init__()
+        self.down_factor = kwargs.pop('down_factor')
+        self.down_shortcut = kwargs.pop('down_shortcut')
+        self.layer = nn.Conv3d(*args, **kwargs)
+
+    def forward(self, x, attention_mask, t, h, w):
+        # import ipdb;ipdb.set_trace()
+        b = x.shape[0]
+        x = rearrange(x, 'b (t h w) d -> b d t h w', t=t, h=h, w=w)
+        if npu_config is None:
+            x = self.layer(x) + (x if self.down_shortcut else 0)
+        else:
+            x_dtype = x.dtype
+            x = npu_config.run_conv3d(self.layer, x, x_dtype) + (x if self.down_shortcut else 0)
+        x = rearrange(x, 'b d (t dt) (h dh) (w dw) -> (b dt dh dw) (t h w) d', 
+                      t=t//self.down_factor[0], h=h//self.down_factor[1], w=w//self.down_factor[2], 
+                         dt=self.down_factor[0], dh=self.down_factor[1], dw=self.down_factor[2])
+    
+
+        attention_mask = rearrange(attention_mask, 'b 1 (t h w) -> b 1 t h w', t=t, h=h, w=w)
+        attention_mask = rearrange(attention_mask, 'b 1 (t dt) (h dh) (w dw) -> (b dt dh dw) 1 (t h w)',
+                      t=t//self.down_factor[0], h=h//self.down_factor[1], w=w//self.down_factor[2], 
+                         dt=self.down_factor[0], dh=self.down_factor[1], dw=self.down_factor[2])
+        return x, attention_mask
+    def reverse(self, x, t, h, w):
+        # import ipdb;ipdb.set_trace()
+        x = rearrange(x, '(b dt dh dw) (t h w) d -> b (t dt h dh w dw) d', 
+                      t=t//self.down_factor[0], h=h//self.down_factor[1], w=w//self.down_factor[2], 
+                         dt=self.down_factor[0], dh=self.down_factor[1], dw=self.down_factor[2])
+        return x
+
+
+class DownSampler2d(nn.Module):
+    def __init__(self, *args, **kwargs):
+        ''' Required kwargs: down_factor, downsampler'''
+        super().__init__()
+        self.down_factor = kwargs.pop('down_factor')
+        self.down_shortcut = kwargs.pop('down_shortcut')
+        self.layer = nn.Conv2d(*args, **kwargs)
+
+    def forward(self, x, attention_mask, t, h, w):
+        # import ipdb;ipdb.set_trace()
+        b = x.shape[0]
+        x = rearrange(x, 'b (t h w) d -> (b t) d h w', t=t, h=h, w=w)
+        if npu_config is None:
+            x = self.layer(x) + (x if self.down_shortcut else 0)
+        else:
+            x_dtype = x.dtype
+            x = npu_config.run_conv2d(self.layer, x, x_dtype) + (x if self.down_shortcut else 0)
+        x = rearrange(x, 'b d (h dh) (w dw) -> (b dh dw) (h w) d', 
+                      h=h//self.down_factor[0], w=w//self.down_factor[1], 
+                      dh=self.down_factor[0], dw=self.down_factor[1])
+    
+
+        attention_mask = rearrange(attention_mask, 'b 1 (t h w) -> (b t) 1 h w', h=h, w=w)
+        attention_mask = rearrange(attention_mask, 'b 1 (h dh) (w dw) -> (b dh dw) 1 (h w)',
+                      h=h//self.down_factor[0], w=w//self.down_factor[1], 
+                         dh=self.down_factor[0], dw=self.down_factor[1])
+        return x, attention_mask
+    def reverse(self, x, t, h, w):
+        # import ipdb;ipdb.set_trace()
+        x = rearrange(x, '(b t dh dw) (h w) d -> b (t h dh w dw) d', 
+                      t=t, h=h//self.down_factor[0], w=w//self.down_factor[1], 
+                      dh=self.down_factor[0], dw=self.down_factor[1])
+        return x
+    
 class AttnProcessor2_0:
     r"""
     Processor for implementing scaled dot-product attention (enabled by default if you're using PyTorch 2.0).
     """
 
-    def __init__(self, attention_mode):
+    def __init__(self, attention_mode='xformers'):
+
         self.attention_mode = attention_mode
         if not hasattr(F, "scaled_dot_product_attention"):
             raise ImportError("AttnProcessor2_0 requires PyTorch 2.0, to use it, please upgrade PyTorch to 2.0.")
@@ -388,6 +595,9 @@ class AttnProcessor2_0:
         encoder_hidden_states: Optional[torch.FloatTensor] = None,
         attention_mask: Optional[torch.FloatTensor] = None,
         temb: Optional[torch.FloatTensor] = None,
+        frame: int = 8, 
+        height: int = 16, 
+        width: int = 16, 
         *args,
         **kwargs,
     ) -> torch.FloatTensor:
@@ -395,7 +605,12 @@ class AttnProcessor2_0:
             deprecation_message = "The `scale` argument is deprecated and will be ignored. Please remove it, as passing it will raise an error in the future. `scale` should directly be passed while calling the underlying pipeline component i.e., via `cross_attention_kwargs`."
             deprecate("scale", "1.0.0", deprecation_message)
 
+
+        if attn.downsampler is not None:
+            hidden_states, attention_mask = attn.downsampler(hidden_states, attention_mask, t=frame, h=height, w=width)
+
         residual = hidden_states
+
         if attn.spatial_norm is not None:
             hidden_states = attn.spatial_norm(hidden_states, temb)
 
@@ -491,11 +706,97 @@ class AttnProcessor2_0:
 
         hidden_states = hidden_states / attn.rescale_output_factor
 
+        if attn.downsampler is not None:
+            hidden_states = attn.downsampler.reverse(hidden_states, t=frame, h=height, w=width)
         return hidden_states
 
 
 
+class FeedForward_Conv3d(nn.Module):
+    def __init__(self, downsampler, dim, hidden_features, bias=True):
+        super(FeedForward_Conv3d, self).__init__()
+        
+        self.bias = bias
 
+        self.project_in = nn.Linear(dim, hidden_features, bias=bias)
+
+        self.dwconv = nn.ModuleList([
+            nn.Conv3d(hidden_features, hidden_features, kernel_size=(5, 5, 5), stride=1, padding=(2, 2, 2), dilation=1,
+                        groups=hidden_features, bias=bias),
+            nn.Conv3d(hidden_features, hidden_features, kernel_size=(3, 3, 3), stride=1, padding=(1, 1, 1), dilation=1,
+                        groups=hidden_features, bias=bias),
+            nn.Conv3d(hidden_features, hidden_features, kernel_size=(1, 1, 1), stride=1, padding=(0, 0, 0), dilation=1,
+                        groups=hidden_features, bias=bias)
+        ])
+
+        self.project_out = nn.Linear(hidden_features, dim, bias=bias)
+
+
+    def forward(self, x, t, h, w):
+        # import ipdb;ipdb.set_trace()
+        if npu_config is None:
+            x = self.project_in(x)
+            x = rearrange(x, 'b (t h w) d -> b d t h w', t=t, h=h, w=w)
+            x = F.gelu(x)
+            out = x
+            for module in self.dwconv:
+                out = out + module(x)
+            out = rearrange(out, 'b d t h w -> b (t h w) d', t=t, h=h, w=w)
+            x = self.project_out(out)
+        else:
+            x_dtype = x.dtype
+            x = npu_config.run_conv3d(self.project_in, x, torch.float16)
+            x = rearrange(x, 'b (t h w) d -> b d t h w', t=t, h=h, w=w)
+            x = F.gelu(x)
+            out = x
+            for module in self.dwconv:
+                out = out + npu_config.run_conv3d(module, x, torch.float16)
+            out = rearrange(out, 'b d t h w -> b (t h w) d', t=t, h=h, w=w)
+            x = npu_config.run_conv3d(self.project_out, out, x_dtype)
+        return x
+
+
+class FeedForward_Conv2d(nn.Module):
+    def __init__(self, downsampler, dim, hidden_features, bias=True):
+        super(FeedForward_Conv2d, self).__init__()
+        
+        self.bias = bias
+
+        self.project_in = nn.Linear(dim, hidden_features, bias=bias)
+
+        self.dwconv = nn.ModuleList([
+            nn.Conv2d(hidden_features, hidden_features, kernel_size=(5, 5), stride=1, padding=(2, 2), dilation=1,
+                        groups=hidden_features, bias=bias),
+            nn.Conv2d(hidden_features, hidden_features, kernel_size=(3, 3), stride=1, padding=(1, 1), dilation=1,
+                        groups=hidden_features, bias=bias),
+            nn.Conv2d(hidden_features, hidden_features, kernel_size=(1, 1), stride=1, padding=(0, 0), dilation=1,
+                        groups=hidden_features, bias=bias)
+        ])
+
+        self.project_out = nn.Linear(hidden_features, dim, bias=bias)
+
+
+    def forward(self, x, t, h, w):
+        # import ipdb;ipdb.set_trace()
+        if npu_config is None:
+            x = self.project_in(x)
+            x = rearrange(x, 'b (t h w) d -> (b t) d h w', t=t, h=h, w=w)
+            x = F.gelu(x)
+            out = x
+            for module in self.dwconv:
+                out = out + module(x)
+            out = rearrange(out, '(b t) d h w -> b (t h w) d', t=t, h=h, w=w)
+            x = self.project_out(out)
+        else:
+            x_dtype = x.dtype
+            x = npu_config.run_conv2d(self.project_in, x, torch.float16)
+            x = F.gelu(x)
+            out = x
+            for module in self.dwconv:
+                out = out + npu_config.run_conv2d(module, x, torch.float16)
+            out = rearrange(out, '(b t) d h w -> b (t h w) d', t=t, h=h, w=w)
+            x = npu_config.run_conv2d(self.project_out, out, x_dtype)
+        return x
 
 @maybe_allow_in_graph
 class BasicTransformerBlock(nn.Module):
@@ -559,9 +860,11 @@ class BasicTransformerBlock(nn.Module):
         ff_bias: bool = True,
         attention_out_bias: bool = True,
         attention_mode: str = "xformers", 
+        downsampler: bool = False, 
     ):
         super().__init__()
         self.only_cross_attention = only_cross_attention
+        self.downsampler = downsampler
 
         # We keep these boolean flags for backward-compatibility.
         self.use_ada_layer_norm_zero = (num_embeds_ada_norm is not None) and norm_type == "ada_norm_zero"
@@ -617,6 +920,7 @@ class BasicTransformerBlock(nn.Module):
             upcast_attention=upcast_attention,
             out_bias=attention_out_bias,
             attention_mode=attention_mode, 
+            downsampler=downsampler, 
         )
 
         # 2. Cross-Attn
@@ -648,6 +952,7 @@ class BasicTransformerBlock(nn.Module):
                 upcast_attention=upcast_attention,
                 out_bias=attention_out_bias,
                 attention_mode=attention_mode, 
+                downsampler=False
             )  # is self-attn if encoder_hidden_states is none
         else:
             self.norm2 = None
@@ -669,6 +974,23 @@ class BasicTransformerBlock(nn.Module):
         elif norm_type == "layer_norm_i2vgen":
             self.norm3 = None
 
+        # if downsampler:
+        #     downsampler_ker_size = list(re.search(r'k(\d{2,3})', downsampler).group(1)) # 122
+        #     if len(downsampler_ker_size) == 3:
+        #         self.ff = FeedForward_Conv3d(
+        #             downsampler, 
+        #             dim,
+        #             2 * dim,
+        #             bias=ff_bias,
+        #         )
+        #     elif len(downsampler_ker_size) == 2:
+        #         self.ff = FeedForward_Conv2d(
+        #             downsampler, 
+        #             dim,
+        #             2 * dim,
+        #             bias=ff_bias,
+        #         )
+        # else:
         self.ff = FeedForward(
             dim,
             dropout=dropout,
@@ -704,6 +1026,9 @@ class BasicTransformerBlock(nn.Module):
         timestep: Optional[torch.LongTensor] = None,
         cross_attention_kwargs: Dict[str, Any] = None,
         class_labels: Optional[torch.LongTensor] = None,
+        frame: int = None, 
+        height: int = None, 
+        width: int = None, 
         added_cond_kwargs: Optional[Dict[str, torch.Tensor]] = None,
     ) -> torch.FloatTensor:
         if cross_attention_kwargs is not None:
@@ -746,7 +1071,7 @@ class BasicTransformerBlock(nn.Module):
         attn_output = self.attn1(
             norm_hidden_states,
             encoder_hidden_states=encoder_hidden_states if self.only_cross_attention else None,
-            attention_mask=attention_mask,
+            attention_mask=attention_mask, frame=frame, height=height, width=width, 
             **cross_attention_kwargs,
         )
         if self.norm_type == "ada_norm_zero":
@@ -802,9 +1127,13 @@ class BasicTransformerBlock(nn.Module):
             norm_hidden_states = self.norm2(hidden_states)
             norm_hidden_states = norm_hidden_states * (1 + scale_mlp) + shift_mlp
 
-        if self._chunk_size is not None:
-            # "feed_forward_chunk_size" can be used to save memory
-            ff_output = _chunked_feed_forward(self.ff, norm_hidden_states, self._chunk_dim, self._chunk_size)
+        # if self._chunk_size is not None:
+        #     # "feed_forward_chunk_size" can be used to save memory
+        #     ff_output = _chunked_feed_forward(self.ff, norm_hidden_states, self._chunk_dim, self._chunk_size)
+        # else:
+
+        if self.downsampler:
+            ff_output = self.ff(norm_hidden_states, t=frame, h=height, w=width)
         else:
             ff_output = self.ff(norm_hidden_states)
 

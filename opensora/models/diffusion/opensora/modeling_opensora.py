@@ -11,7 +11,7 @@ from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.models.modeling_utils import ModelMixin
 from diffusers.models.normalization import AdaLayerNormSingle
 from diffusers.models.embeddings import PixArtAlphaTextProjection
-from opensora.models.diffusion.opensora.modules import PatchEmbed3D, PatchEmbed2D, BasicTransformerBlock
+from opensora.models.diffusion.opensora.modules import OverlapPatchEmbed3D, OverlapPatchEmbed2D, PatchEmbed2D, BasicTransformerBlock
 from opensora.utils.utils import to_2tuple
 try:
     import torch_npu
@@ -82,6 +82,7 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
         interpolation_scale_t: float = None,
         use_additional_conditions: Optional[bool] = None,
         attention_mode: str = 'xformers', 
+        downsampler: str = None, 
     ):
         super().__init__()
 
@@ -101,6 +102,7 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
         self.interpolation_scale_t = interpolation_scale_t
         self.interpolation_scale_h = interpolation_scale_h
         self.interpolation_scale_w = interpolation_scale_w
+        self.downsampler = downsampler
         self.caption_channels = caption_channels
         self.num_attention_heads = num_attention_heads
         self.attention_head_dim = attention_head_dim
@@ -167,17 +169,43 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
         #         interpolation_scale_t=interpolation_scale_t,
         #     )
         # else:
-        self.pos_embed = PatchEmbed2D(
-            num_frames=self.config.sample_size_t,
-            height=self.config.sample_size[0],
-            width=self.config.sample_size[1],
-            patch_size_t=self.config.patch_size_t,
-            patch_size=self.config.patch_size,
-            in_channels=self.in_channels,
-            embed_dim=self.inner_dim,
-            interpolation_scale=interpolation_scale, 
-            interpolation_scale_t=interpolation_scale_t,
-        )
+        if self.config.downsampler is not None and len(self.config.downsampler) == 9 and self.config.patch_size == 1 and self.config.patch_size == 1:
+            self.pos_embed = OverlapPatchEmbed3D(
+                num_frames=self.config.sample_size_t,
+                height=self.config.sample_size[0],
+                width=self.config.sample_size[1],
+                patch_size_t=self.config.patch_size_t,
+                patch_size=self.config.patch_size,
+                in_channels=self.in_channels,
+                embed_dim=self.inner_dim,
+                interpolation_scale=interpolation_scale, 
+                interpolation_scale_t=interpolation_scale_t,
+            )
+        elif self.config.downsampler is not None and len(self.config.downsampler) == 7 and self.config.patch_size == 1 and self.config.patch_size == 1:
+            self.pos_embed = OverlapPatchEmbed2D(
+                num_frames=self.config.sample_size_t,
+                height=self.config.sample_size[0],
+                width=self.config.sample_size[1],
+                patch_size_t=self.config.patch_size_t,
+                patch_size=self.config.patch_size,
+                in_channels=self.in_channels,
+                embed_dim=self.inner_dim,
+                interpolation_scale=interpolation_scale, 
+                interpolation_scale_t=interpolation_scale_t,
+            )
+        
+        else:
+            self.pos_embed = PatchEmbed2D(
+                num_frames=self.config.sample_size_t,
+                height=self.config.sample_size[0],
+                width=self.config.sample_size[1],
+                patch_size_t=self.config.patch_size_t,
+                patch_size=self.config.patch_size,
+                in_channels=self.in_channels,
+                embed_dim=self.inner_dim,
+                interpolation_scale=interpolation_scale, 
+                interpolation_scale_t=interpolation_scale_t,
+            )
 
         self.transformer_blocks = nn.ModuleList(
             [
@@ -198,6 +226,7 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
                     norm_eps=self.config.norm_eps,
                     attention_type=self.config.attention_type,
                     attention_mode=self.config.attention_mode, 
+                    downsampler=self.config.downsampler, 
                 )
                 for _ in range(self.config.num_layers)
             ]
@@ -358,14 +387,14 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
 
 
         # 1. Input
+        frame = ((frame - 1) // self.patch_size_t + 1) if frame % 2 == 1 else frame // self.patch_size_t  # patchfy
         height, width = hidden_states.shape[-2] // self.patch_size, hidden_states.shape[-1] // self.patch_size
+
         added_cond_kwargs = {"resolution": None, "aspect_ratio": None}
         hidden_states_vid, hidden_states_img, encoder_hidden_states_vid, encoder_hidden_states_img, \
         timestep_vid, timestep_img, embedded_timestep_vid, embedded_timestep_img = self._operate_on_patched_inputs(
             hidden_states, encoder_hidden_states, timestep, added_cond_kwargs, batch_size, frame, use_image_num
         )
-
-        frame = ((frame - 1) // self.patch_size_t + 1) if frame % 2 == 1 else frame // self.patch_size_t  # patchfy
         # 2. Blocks
         # import ipdb;ipdb.set_trace()
         for block in self.transformer_blocks:
@@ -392,6 +421,9 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
                         timestep_vid,
                         cross_attention_kwargs,
                         class_labels,
+                        frame, 
+                        height, 
+                        width, 
                         **ckpt_kwargs,
                     )
                 # import ipdb;ipdb.set_trace()
@@ -405,6 +437,9 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
                         timestep_img,
                         cross_attention_kwargs,
                         class_labels,
+                        1, 
+                        height, 
+                        width, 
                         **ckpt_kwargs,
                     )
             else:
@@ -417,6 +452,9 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
                         timestep=timestep_vid,
                         cross_attention_kwargs=cross_attention_kwargs,
                         class_labels=class_labels,
+                        frame=frame, 
+                        height=height, 
+                        width=width, 
                     )
                 if hidden_states_img is not None:
                     hidden_states_img = block(
@@ -427,6 +465,9 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
                         timestep=timestep_img,
                         cross_attention_kwargs=cross_attention_kwargs,
                         class_labels=class_labels,
+                        frame=1, 
+                        height=height, 
+                        width=width, 
                     )
 
         # 3. Output
@@ -540,14 +581,25 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
         #     output = output[:, :, 1:]
         return output
     
+def OpenSoraT2V_S_111(**kwargs):
+    return OpenSoraT2V(num_layers=28, attention_head_dim=72, num_attention_heads=16, patch_size_t=1, patch_size=1,
+                       norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=1152, **kwargs)
+
+def OpenSoraT2V_B_111(**kwargs):
+    return OpenSoraT2V(num_layers=32, attention_head_dim=128, num_attention_heads=16, patch_size_t=1, patch_size=1,
+                       norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=2048, **kwargs)
+
+def OpenSoraT2V_L_111(**kwargs):
+    return OpenSoraT2V(num_layers=32, attention_head_dim=128, num_attention_heads=20, patch_size_t=1, patch_size=1,
+                       norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=2560, **kwargs)
 
 def OpenSoraT2V_S_122(**kwargs):
     return OpenSoraT2V(num_layers=28, attention_head_dim=72, num_attention_heads=16, patch_size_t=1, patch_size=2,
                        norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=1152, **kwargs)
 
 def OpenSoraT2V_B_122(**kwargs):
-    return OpenSoraT2V(num_layers=32, attention_head_dim=96, num_attention_heads=16, patch_size_t=1, patch_size=2,
-                       norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=1536, **kwargs)
+    return OpenSoraT2V(num_layers=32, attention_head_dim=128, num_attention_heads=16, patch_size_t=1, patch_size=2,
+                       norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=2048, **kwargs)
 
 def OpenSoraT2V_L_122(**kwargs):
     return OpenSoraT2V(num_layers=32, attention_head_dim=128, num_attention_heads=20, patch_size_t=1, patch_size=2,
@@ -578,6 +630,9 @@ OpenSora_models = {
     "OpenSoraT2V-S/122": OpenSoraT2V_S_122,
     "OpenSoraT2V-B/122": OpenSoraT2V_B_122,
     "OpenSoraT2V-L/122": OpenSoraT2V_L_122,
+    "OpenSoraT2V-S/111": OpenSoraT2V_S_111,
+    "OpenSoraT2V-B/111": OpenSoraT2V_B_111,
+    "OpenSoraT2V-L/111": OpenSoraT2V_L_111,
     # "OpenSoraT2V-XL/122": OpenSoraT2V_XL_122,
     # "OpenSoraT2V-XXL/122": OpenSoraT2V_XXL_122,
     # "OpenSoraT2V-S/222": OpenSoraT2V_S_222,
@@ -591,8 +646,9 @@ OpenSora_models_class = {
     "OpenSoraT2V-S/122": OpenSoraT2V,
     "OpenSoraT2V-B/122": OpenSoraT2V,
     "OpenSoraT2V-L/122": OpenSoraT2V,
-    # "OpenSoraT2V-S/222": OpenSoraT2V,
-    # "OpenSoraT2V-B/222": OpenSoraT2V,
+    "OpenSoraT2V-S/111": OpenSoraT2V,
+    "OpenSoraT2V-B/111": OpenSoraT2V,
+    "OpenSoraT2V-L/111": OpenSoraT2V,
 }
 
 if __name__ == '__main__':
@@ -625,7 +681,7 @@ if __name__ == '__main__':
         num_frames = args.num_frames // ae_stride_t
 
     device = torch.device('cuda:0')
-    model = OpenSoraT2V_L_122(in_channels=4, 
+    model = OpenSoraT2V_B_111(in_channels=4, 
                               out_channels=8, 
                               sample_size=latent_size, 
                               sample_size_t=num_frames, 
@@ -640,7 +696,8 @@ if __name__ == '__main__':
                             only_cross_attention=False,
                             upcast_attention=False,
                             use_linear_projection=False,
-                            use_additional_conditions=False).to(device)
+                            use_additional_conditions=False, 
+                            downsampler=None).to(device)
     
     try:
         path = "PixArt-Alpha-XL-2-512.safetensors"
@@ -666,7 +723,7 @@ if __name__ == '__main__':
                         encoder_attention_mask=cond_mask, use_image_num=args.use_image_num, timestep=timestep)
     with torch.no_grad():
         output = model(**model_kwargs)
-    # print(output)
+    print(output[0].shape)
 
 
 
