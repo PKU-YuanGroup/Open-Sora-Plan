@@ -43,13 +43,12 @@ accelerate launch \
     --checkpointing_steps=500 \
     --output_dir="bs16_4node_lr1e-4_snr5_ema_ps11_ds22" \
     --allow_tf32 \
-    --use_deepspeed \
     --model_max_length 512 \
     --use_image_num 0 \
     --enable_tracker \
     --snr_gamma 5.0 \
     --use_ema \
     --ema_start_step 0 \
-    --guidance_scale 2.5  \
+    --cfg 0.1 \
     --downsampler "k55_s22" \
     --resume_from_checkpoint="latest"

@@ -2,19 +2,19 @@ export WANDB_KEY="953e958793b218efb850fa194e85843e2c3bd88b"
 # export WANDB_MODE="offline"
 export ENTITY="linbin"
 export PROJECT="testnpu3d_"
-# export HF_DATASETS_OFFLINE=1 
-# export TRANSFORMERS_OFFLINE=1
+export HF_DATASETS_OFFLINE=1 
+export TRANSFORMERS_OFFLINE=1
 # NCCL setting
-# export NCCL_PXN_DISABLE=0
-# export NCCL_IB_QPS_PER_CONNECTION=4
-# export NCCL_IB_GID_INDEX=3
-# export NCCL_ALGO=Ring
-# export OMP_NUM_THREADS=1
+export NCCL_PXN_DISABLE=0
+export NCCL_IB_QPS_PER_CONNECTION=4
+export NCCL_IB_GID_INDEX=3
+export NCCL_ALGO=Ring
+export OMP_NUM_THREADS=1
 
 accelerate launch \
     --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
-    opensora/train/train_t2v.py \
-    --model OpenSoraT2V-L/111 \
+    opensora/train/train_t2v_diffusers.py \
+    --model OpenSoraT2V-B/222 \
     --text_encoder_name DeepFloyd/t5-v1_1-xxl \
     --cache_dir "./cache_dir" \
     --dataset t2v \
@@ -24,8 +24,8 @@ accelerate launch \
     --image_data "scripts/train_data/image_data_debug.txt" \
     --sample_rate 1 \
     --num_frames 253 \
-    --max_height 480 \
-    --max_width 640 \
+    --max_height 720 \
+    --max_width 1280 \
     --interpolation_scale_t 1.0 \
     --interpolation_scale_h 0.5 \
     --interpolation_scale_w 0.5 \
@@ -40,16 +40,15 @@ accelerate launch \
     --lr_warmup_steps=0 \
     --mixed_precision="bf16" \
     --report_to="wandb" \
-    --checkpointing_steps=100 \
+    --checkpointing_steps=500 \
     --output_dir="testnpu3d_" \
     --allow_tf32 \
-    --use_deepspeed \
     --model_max_length 512 \
     --use_image_num 0 \
-    --enable_tiling \
     --enable_tracker \
     --snr_gamma 5.0 \
     --use_ema \
     --ema_start_step 0 \
-    --guidance_scale 7.5 \
-    --downsampler "k333_s444"  \
+    --cfg 0.1 \
+    --downsampler "k333_s434"  \
+    --resume_from_checkpoint="latest"

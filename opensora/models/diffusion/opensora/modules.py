@@ -270,12 +270,12 @@ class OverlapPatchEmbed3D(nn.Module):
         interpolation_scale_t=1,
     ):
         super().__init__()
-        assert patch_size_t == 1 and patch_size == 1
+        # assert patch_size_t == 1 and patch_size == 1
         self.flatten = flatten
         self.layer_norm = layer_norm
 
         self.proj = nn.Conv3d(
-            in_channels, embed_dim, kernel_size=3, padding=1, stride=1, bias=bias
+            in_channels, embed_dim, kernel_size=(patch_size_t, patch_size, patch_size), stride=(patch_size_t, patch_size, patch_size), bias=bias
         )
         if layer_norm:
             self.norm = nn.LayerNorm(embed_dim, elementwise_affine=False, eps=1e-6)
@@ -388,12 +388,12 @@ class OverlapPatchEmbed2D(nn.Module):
         interpolation_scale_t=1,
     ):
         super().__init__()
-        assert patch_size_t == 1 and patch_size == 1
+        assert patch_size_t == 1
         self.flatten = flatten
         self.layer_norm = layer_norm
 
         self.proj = nn.Conv2d(
-            in_channels, embed_dim, kernel_size=3, padding=1, stride=1, bias=bias
+            in_channels, embed_dim, kernel_size=(patch_size, patch_size), stride=(patch_size, patch_size), bias=bias
         )
         if layer_norm:
             self.norm = nn.LayerNorm(embed_dim, elementwise_affine=False, eps=1e-6)
@@ -975,21 +975,21 @@ class BasicTransformerBlock(nn.Module):
             self.norm3 = None
 
         # if downsampler:
-        #     downsampler_ker_size = list(re.search(r'k(\d{2,3})', downsampler).group(1)) # 122
-        #     if len(downsampler_ker_size) == 3:
-        #         self.ff = FeedForward_Conv3d(
-        #             downsampler, 
-        #             dim,
-        #             2 * dim,
-        #             bias=ff_bias,
-        #         )
-        #     elif len(downsampler_ker_size) == 2:
-        #         self.ff = FeedForward_Conv2d(
-        #             downsampler, 
-        #             dim,
-        #             2 * dim,
-        #             bias=ff_bias,
-        #         )
+            downsampler_ker_size = list(re.search(r'k(\d{2,3})', downsampler).group(1)) # 122
+            # if len(downsampler_ker_size) == 3:
+            #     self.ff = FeedForward_Conv3d(
+            #         downsampler, 
+            #         dim,
+            #         2 * dim,
+            #         bias=ff_bias,
+            #     )
+            # elif len(downsampler_ker_size) == 2:
+            # self.ff = FeedForward_Conv2d(
+            #     downsampler, 
+            #     dim,
+            #     4 * dim,
+            #     bias=ff_bias,
+            # )
         # else:
         self.ff = FeedForward(
             dim,

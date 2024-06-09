@@ -114,10 +114,10 @@ class Collate:
         # pad to max multiple of ds_stride
         batch_input_size = [i.shape for i in batch_tubes]  # [(c t h w), (c t h w)]
         max_t, max_h, max_w = max_thw
-        pad_max_t, pad_max_h, pad_max_w = pad_to_multiple(max_t-1 if extra_1 else max_t, t_ds_stride), \
+        pad_max_t, pad_max_h, pad_max_w = pad_to_multiple(max_t-1+self.ae_stride_t if extra_1 else max_t, t_ds_stride), \
                                           pad_to_multiple(max_h, ds_stride), \
                                           pad_to_multiple(max_w, ds_stride)
-        pad_max_t = pad_max_t + 1 if extra_1 else pad_max_t
+        pad_max_t = pad_max_t + 1 - self.ae_stride_t if extra_1 else pad_max_t
         each_pad_t_h_w = [[pad_max_t - i.shape[1],
                            pad_max_h - i.shape[2],
                            pad_max_w - i.shape[3]] for i in batch_tubes]

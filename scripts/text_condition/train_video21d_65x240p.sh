@@ -13,7 +13,7 @@ export OMP_NUM_THREADS=1
 
 accelerate launch \
     --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
-    opensora/train/train_t2v.py \
+    opensora/train/train_t2v_diffusers.py \
     --model LatteT2V/122 \
     --text_encoder_name DeepFloyd/t5-v1_1-xxl \
     --cache_dir "./cache_dir" \
@@ -43,11 +43,11 @@ accelerate launch \
     --checkpointing_steps=100 \
     --output_dir="testnpu21d_" \
     --allow_tf32 \
-    --use_deepspeed \
     --model_max_length 512 \
     --use_image_num 0 \
-    --enable_tiling \
     --enable_tracker \
     --snr_gamma 5.0 \
     --use_ema \
-    --ema_start_step 0 
+    --ema_start_step 0 \
+    --cfg 0.1 \
+    --resume_from_checkpoint="latest"

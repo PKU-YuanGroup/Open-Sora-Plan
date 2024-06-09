@@ -110,6 +110,7 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
         self.in_channels = in_channels
         self.out_channels = in_channels if out_channels is None else out_channels
         self.gradient_checkpointing = False
+        self.config.hidden_size = self.inner_dim
         use_additional_conditions = False
         # if use_additional_conditions is None:
             # if norm_type == "ada_norm_single" and sample_size == 128:
@@ -169,7 +170,7 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
         #         interpolation_scale_t=interpolation_scale_t,
         #     )
         # else:
-        if self.config.downsampler is not None and len(self.config.downsampler) == 9 and self.config.patch_size == 1 and self.config.patch_size == 1:
+        if self.config.downsampler is not None and len(self.config.downsampler) == 9:
             self.pos_embed = OverlapPatchEmbed3D(
                 num_frames=self.config.sample_size_t,
                 height=self.config.sample_size[0],
@@ -181,7 +182,7 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
                 interpolation_scale=interpolation_scale, 
                 interpolation_scale_t=interpolation_scale_t,
             )
-        elif self.config.downsampler is not None and len(self.config.downsampler) == 7 and self.config.patch_size == 1 and self.config.patch_size == 1:
+        elif self.config.downsampler is not None and len(self.config.downsampler) == 7:
             self.pos_embed = OverlapPatchEmbed2D(
                 num_frames=self.config.sample_size_t,
                 height=self.config.sample_size[0],
@@ -610,9 +611,9 @@ def OpenSoraT2V_L_122(**kwargs):
 #                        norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=1152, **kwargs)
 
 
-# def OpenSoraT2V_B_222(**kwargs):
-#     return OpenSoraT2V(num_layers=24, attention_head_dim=128, num_attention_heads=16, patch_size_t=2, patch_size=2,
-#                        norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=2048, **kwargs)
+def OpenSoraT2V_B_222(**kwargs):
+    return OpenSoraT2V(num_layers=32, attention_head_dim=128, num_attention_heads=16, patch_size_t=2, patch_size=2,
+                       norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=2048, **kwargs)
 
 # def OpenSoraT2V_L_222(**kwargs):
 #     return OpenSoraT2V(num_layers=40, attention_head_dim=128, num_attention_heads=20, patch_size_t=2, patch_size=2,
@@ -636,7 +637,7 @@ OpenSora_models = {
     # "OpenSoraT2V-XL/122": OpenSoraT2V_XL_122,
     # "OpenSoraT2V-XXL/122": OpenSoraT2V_XXL_122,
     # "OpenSoraT2V-S/222": OpenSoraT2V_S_222,
-    # "OpenSoraT2V-B/222": OpenSoraT2V_B_222,
+    "OpenSoraT2V-B/222": OpenSoraT2V_B_222,
     # "OpenSoraT2V-L/222": OpenSoraT2V_L_222,
     # "OpenSoraT2V-XL/222": OpenSoraT2V_XL_222,
     # "OpenSoraT2V-XXL/222": OpenSoraT2V_XXL_222,
@@ -649,6 +650,8 @@ OpenSora_models_class = {
     "OpenSoraT2V-S/111": OpenSoraT2V,
     "OpenSoraT2V-B/111": OpenSoraT2V,
     "OpenSoraT2V-L/111": OpenSoraT2V,
+
+    "OpenSoraT2V-B/222": OpenSoraT2V,
 }
 
 if __name__ == '__main__':
@@ -664,7 +667,7 @@ if __name__ == '__main__':
         'model_max_length': 300, 
         'max_height': 512, 
         'max_width': 512, 
-        'num_frames': 1, 
+        'num_frames': 61, 
         'use_image_num': 0, 
         'compress_kv_factor': 1
     }
@@ -681,7 +684,7 @@ if __name__ == '__main__':
         num_frames = args.num_frames // ae_stride_t
 
     device = torch.device('cuda:0')
-    model = OpenSoraT2V_B_111(in_channels=4, 
+    model = OpenSoraT2V_B_222(in_channels=4, 
                               out_channels=8, 
                               sample_size=latent_size, 
                               sample_size_t=num_frames, 
@@ -697,7 +700,7 @@ if __name__ == '__main__':
                             upcast_attention=False,
                             use_linear_projection=False,
                             use_additional_conditions=False, 
-                            downsampler=None).to(device)
+                            downsampler='k333_s222').to(device)
     
     try:
         path = "PixArt-Alpha-XL-2-512.safetensors"

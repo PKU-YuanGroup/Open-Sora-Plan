@@ -7,7 +7,7 @@ accelerate launch \
     --config_file scripts/accelerate_configs/multi_node_example_on_npu.yaml \
     --machine_rank=${MACHINE_RANK} \
     --main_process_ip=${MAIN_PROCESS_IP_VALUE} \
-    opensora/train/train_t2v.py \
+    opensora/train/train_t2v_diffusers.py \
     --model OpenSoraT2V-S/122 \
     --text_encoder_name ${WEIGHT_PATH}/DeepFloyd/t5-v1_1-xxl \
     --cache_dir "../cache_dir" \
@@ -39,8 +39,9 @@ accelerate launch \
     --allow_tf32 \
     --model_max_length 512 \
     --use_image_num 0 \
-    --enable_tiling \
     --snr_gamma 5.0 \
     --use_ema \
     --ema_start_step 0 \
-    --pretrained /home/opensora/yancen/Open-Sora-Plan-dev/PixArt-alpha/transformer/diffusion_pytorch_model.safetensors
+    --pretrained /home/opensora/yancen/Open-Sora-Plan-dev/PixArt-alpha/transformer/diffusion_pytorch_model.safetensors \
+    --cfg 0.1 \
+    --resume_from_checkpoint="latest"

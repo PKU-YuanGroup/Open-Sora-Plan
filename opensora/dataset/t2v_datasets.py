@@ -130,7 +130,7 @@ class T2V_dataset(Dataset):
         video = video[:(t - 1) // 4 * 4 + 1]
         video = self.transform(video)  # T C H W -> T C H W
         
-        # video = torch.rand(509, 3, 240, 320)
+        # video = torch.rand(253, 3, 720, 1280)
 
         video = video.transpose(0, 1)  # T C H W -> C T H W
         text = self.vid_cap_list[idx]['cap']
@@ -173,6 +173,7 @@ class T2V_dataset(Dataset):
         text = [text_preprocessing(cap) for cap in caps]
         input_ids, cond_mask = [], []
         for t in text:
+            t = t if random.random() > self.cfg else ""
             text_tokens_and_mask = self.tokenizer(
                 t,
                 max_length=self.model_max_length,
@@ -187,22 +188,6 @@ class T2V_dataset(Dataset):
         input_ids = torch.cat(input_ids)  # self.use_image_num, l
         cond_mask = torch.cat(cond_mask)  # self.use_image_num, l
         return dict(image=image, input_ids=input_ids, cond_mask=cond_mask)
-
-    def tv_read(self, path, frame_idx=None):
-        vframes, aframes, info = torchvision.io.read_video(filename=path, pts_unit='sec', output_format='TCHW')
-        total_frames = len(vframes)
-        if frame_idx is None:
-            start_frame_ind, end_frame_ind = self.temporal_sample(total_frames)
-        else:
-            start_frame_ind, end_frame_ind = frame_idx.split(':')
-            start_frame_ind, end_frame_ind = int(start_frame_ind), int(end_frame_ind)
-        # assert end_frame_ind - start_frame_ind >= self.num_frames
-        frame_indice = np.linspace(start_frame_ind, end_frame_ind - 1, self.num_frames, dtype=int)
-        # frame_indice = np.linspace(0, 63, self.num_frames, dtype=int)
-
-        video = vframes[frame_indice]  # (T, C, H, W)
-
-        return video
 
     def decord_read(self, path, frame_idx=None):
         decord_vr = self.v_decoder(path)
@@ -236,7 +221,7 @@ class T2V_dataset(Dataset):
             if npu_config is not None:
                 sub_list = filter_json_by_existed_files(folder, sub_list, postfix=postfix)
             cap_lists += sub_list
-        return cap_lists[:-1]  # drop last to avoid error length
+        return cap_lists
 
     def get_img_cap_list(self):
         use_image_num = self.use_image_num if self.use_image_num != 0 else 1
@@ -248,7 +233,7 @@ class T2V_dataset(Dataset):
                                                        lambda: self.read_jsons(self.image_data, postfix=".jpg"))
             img_cap_lists = [img_cap_lists[i: i + use_image_num] for i in range(0, len(img_cap_lists), use_image_num)]
             img_cap_lists = img_cap_lists[npu_config.get_local_rank()::npu_config.N_NPU_PER_NODE]
-        return img_cap_lists
+        return img_cap_lists[:-1]  # drop last to avoid error length
 
     def get_vid_cap_list(self):
         if npu_config is None:
