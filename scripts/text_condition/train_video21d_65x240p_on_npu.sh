@@ -26,10 +26,11 @@ accelerate launch \
     --attention_mode xformers \
     --gradient_checkpointing \
     --train_batch_size=1 \
-    --dataloader_num_workers 10 \
+    --dataloader_num_workers 15 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
     --learning_rate=4e-5 \
+    --seed=10 \
     --lr_scheduler="cosine" \
     --lr_warmup_steps=0 \
     --mixed_precision="bf16" \

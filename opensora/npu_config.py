@@ -6,7 +6,7 @@ import random
 import numpy as np
 import torch
 import subprocess
-
+import torch.distributed as dist
 try:
     import torch_npu
 
@@ -79,6 +79,18 @@ class NPUConfig:
 
         if self.on_npu:
             torch_npu.npu.set_compile_mode(jit_compile=False)
+            import deepspeed.runtime.bf16_optimizer as optimizer
+            from opensora.adaptor.bf16_optimizer import BF16_Optimizer
+            optimizer.BF16_Optimizer.__init__ = BF16_Optimizer.__init__
+
+            import deepspeed.runtime.zero.stage_1_and_2 as stage_1_and_2
+            from opensora.adaptor.stage_1_and_2 import DeepSpeedZeroOptimizer
+            stage_1_and_2.DeepSpeedZeroOptimizer.__init__ = DeepSpeedZeroOptimizer.__init__
+            stage_1_and_2.DeepSpeedZeroOptimizer.allreduce_bucket = DeepSpeedZeroOptimizer.allreduce_bucket
+
+            import deepspeed.runtime.utils as utils
+            from opensora.adaptor.utils import all_gather_into_tensor_dp_groups
+            utils.all_gather_into_tensor_dp_groups = all_gather_into_tensor_dp_groups
 
         if "RANK" in os.environ:
             self.rank = int(os.environ["RANK"])
@@ -228,7 +240,8 @@ class NPUConfig:
     def run_pool_2d(self, operator, x):
         return self._run(operator, x, torch.float16)
 
-    def seed_everything(self, seed=0):
+    def seed_everything(self, seed=100):
+        seed += self.rank
         random.seed(seed)
         np.random.seed(seed)
         torch.manual_seed(seed)

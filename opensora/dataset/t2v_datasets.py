@@ -19,6 +19,7 @@ from os.path import join as opj
 import torch
 import torchvision.transforms as transforms
 from torch.utils.data.dataset import Dataset
+from torch.utils.data import DataLoader, Dataset, get_worker_info
 from tqdm import tqdm
 from PIL import Image
 
@@ -73,6 +74,8 @@ class T2V_dataset(Dataset):
         if npu_config is not None:
             self.n_used_elements = 0
             self.elements = list(range(self.__len__()))
+            self.worker_elements = None
+
             random.shuffle(self.elements)
             print(f"n_elements: {len(self.elements)}")
 
@@ -90,8 +93,20 @@ class T2V_dataset(Dataset):
 
     def __getitem__(self, idx):
         if npu_config is not None:
-            idx = self.elements[self.n_used_elements % len(self.elements)]
-            self.n_used_elements += 1
+            worker_info = get_worker_info()
+            if worker_info is None:  # single-process data loading, return a regular index
+                idx = self.elements[self.n_used_elements % len(self.elements)]
+                self.n_used_elements += 1
+            else:  # in a worker process
+                # split workload
+                if self.worker_elements is None:
+                    per_worker = int(math.ceil(len(self.elements) / float(worker_info.num_workers)))
+                    worker_id = worker_info.id
+                    start = worker_id * per_worker
+                    end = min(start + per_worker, len(self.elements))
+                    self.worker_elements = self.elements[start:end]
+                idx = self.worker_elements[self.n_used_elements % len(self.worker_elements)]
+                self.n_used_elements += 1
         try:
             video_data, image_data = {}, {}
             if self.num_frames != 1:
@@ -107,7 +122,8 @@ class T2V_dataset(Dataset):
         except Exception as e:
             # print(f'Error with {e}')
             # 打印异常堆栈
-            print(f"Caught an exception! {self.vid_cap_list[idx]}")
+            if idx in self.vid_cap_list:
+                print(f"Caught an exception! {self.vid_cap_list[idx]}")
             traceback.print_exc()
             traceback.print_stack()
             return self.__getitem__(random.randint(0, self.__len__() - 1))
@@ -125,11 +141,11 @@ class T2V_dataset(Dataset):
         video = self.decord_read(video_path, frame_idx)
 
         h, w = video.shape[-2:]
-        assert h / w <= 16 / 16 and h / w >= 8 / 16, f'Only videos with a ratio (h/w) less than 16/16 and more than 8/16 are supported. But found ratio is {round(h/w, 2)} with the shape of {video.shape}'
+        assert h / w <= 16 / 16 and h / w >= 4 / 16, f'Only videos with a ratio (h/w) less than 16/16 and more than 4/16 are supported. But found ratio is {round(h / w, 2)} with the shape of {video.shape}'
         t = video.shape[0]
         video = video[:(t - 1) // 4 * 4 + 1]
         video = self.transform(video)  # T C H W -> T C H W
-        
+
         # video = torch.rand(253, 3, 720, 1280)
 
         video = video.transpose(0, 1)  # T C H W -> C T H W

@@ -144,7 +144,7 @@ class Collate:
         valid_latent_size = [[int(math.ceil((i[1]-1) / ae_stride_thw[0])) + 1 if extra_1 else int(math.ceil(i[1] / ae_stride_thw[0])),
                             int(math.ceil(i[2] / ae_stride_thw[1])),
                             int(math.ceil(i[3] / ae_stride_thw[2]))] for i in batch_input_size]
-        attention_mask = [F.pad(torch.ones(i),
+        attention_mask = [F.pad(torch.ones(i, dtype=pad_batch_tubes.dtype),
                                 (0, max_latent_size[2] - i[2],
                                  0, max_latent_size[1] - i[1],
                                  0, max_latent_size[0] - i[0]), value=0) for i in valid_latent_size]

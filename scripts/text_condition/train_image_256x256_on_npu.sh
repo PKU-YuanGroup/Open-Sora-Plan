@@ -29,7 +29,7 @@ accelerate launch \
     --dataloader_num_workers 20 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
-    --learning_rate=2e-5 \
+    --learning_rate=1e-4 \
     --lr_scheduler="constant" \
     --lr_warmup_steps=0 \
     --mixed_precision="bf16" \
