@@ -7,7 +7,7 @@ In April 2024, we launched Open-Sora-Plan v1.0.0, featuring a simple and efficie
 Compared to the previous version, Open-Sora-Plan v1.1.0, the improvements include:
 
 1. **Better compressed visual representations**. We optimized the CausalVideoVAE architecture, which now has stronger performance and higher inference efficiency.
-2. **Generate higher quality, longer videos**. We used higher quality visual data and captions, enabling the model to better understand the workings of the world.
+2. **Generate higher quality, longer videos**. We used higher quality visual data and captions by [ShareGPT4Video](https://sharegpt4video.github.io/), enabling the model to better understand the workings of the world.
 
 Along with performance improvements, Open-Sora-Plan v1.1.0 maintains the minimalist design and data efficiency of v1.0.0. Remarkably, we found that v1.1.0 exhibits similar performance to the Sora base model, indicating that our version's evolution aligns with the scaling law demonstrated by Sora.
 
