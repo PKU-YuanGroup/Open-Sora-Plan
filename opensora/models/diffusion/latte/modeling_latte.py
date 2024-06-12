@@ -94,6 +94,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
             interpolation_scale_h: float = None,
             interpolation_scale_w: float = None,
             interpolation_scale_t: float = None,
+            downsampler: str = None,
     ):
         super().__init__()
         self.interpolation_scale_t = interpolation_scale_t

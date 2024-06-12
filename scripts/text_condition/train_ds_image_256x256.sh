@@ -13,7 +13,7 @@ export OMP_NUM_THREADS=1
 
 accelerate launch \
     --config_file scripts/accelerate_configs/multi_node_example1.yaml \
-    opensora/train/train_t2v.py \
+    opensora/train/train_t2v_diffusers.py \
     --model OpenSoraT2V-B/111 \
     --text_encoder_name DeepFloyd/t5-v1_1-xxl \
     --cache_dir "./cache_dir" \

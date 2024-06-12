@@ -5,6 +5,7 @@
 
 import torch
 import os
+import pdb
 from deepspeed import comm as dist
 from packaging import version as pkg_version
 from collections import OrderedDict
@@ -274,7 +275,6 @@ class DeepSpeedZeroOptimizer(ZeROOptimizer):
 
         # align nccl all-gather send buffers to 4-byte boundary
         self.nccl_start_alignment_factor = 512  # 4-byte alignment/sizeof(fp16) = 2
-        print("Set nccl_start_alignment_factor = 52...")
 
         assert (
             allgather_bucket_size % self.nccl_start_alignment_factor == 0
@@ -1447,26 +1447,23 @@ class DeepSpeedZeroOptimizer(ZeROOptimizer):
 
         tensor_to_allreduce = tensor
 
-        # if pg_correctness_test or self.sequence_parallel_size > 1:
-        #     communication_data_type = torch.float32
-        # else:
-        #     communication_data_type = self.communication_data_type
-        communication_data_type = torch.float32
+        if pg_correctness_test or self.sequence_parallel_size > 1:
+            communication_data_type = torch.float32
+        else:
+            communication_data_type = self.communication_data_type
+
         if communication_data_type != tensor.dtype:
             tensor_to_allreduce = tensor.to(communication_data_type)
 
-        # if divide:
-        #     tensor_to_allreduce.div_(dist.get_world_size(group=process_group) / float(self.sequence_parallel_size))
+        if divide:
+            tensor_to_allreduce.div_(dist.get_world_size(group=process_group) / float(self.sequence_parallel_size))
 
-        tensor_to_allreduce = tensor_to_allreduce.contiguous()
-        # print("call tensor_to_allreduce.contiguous() ....")
-
-        # if rank is None:
-        #     #    "All Reducing"
-        #     dist.all_reduce(tensor_to_allreduce, group=process_group)
-        # else:
-        #     global_rank = dist.get_global_rank(process_group, rank)
-        #     dist.reduce(tensor_to_allreduce, global_rank, group=process_group)
+        if rank is None:
+            #    "All Reducing"
+            dist.all_reduce(tensor_to_allreduce, group=process_group)
+        else:
+            global_rank = dist.get_global_rank(process_group, rank)
+            dist.reduce(tensor_to_allreduce, global_rank, group=process_group)
 
         if communication_data_type != tensor.dtype and tensor is not tensor_to_allreduce:
             if rank is None or rank == dist.get_rank(group=process_group):
@@ -1867,6 +1864,10 @@ class DeepSpeedZeroOptimizer(ZeROOptimizer):
             self.reset_cpu_buffers()
 
         self.timers(OPTIMIZER_ALLGATHER_TIMER).start()
+
+        # if dist.get_rank(group=self.dp_process_group) == 0:
+        #     pdb.set_trace()  # 或者使用其他调试工具
+
         # Gather the updated weights from everyone.
         # Then all partitions of the model parameters are updated and ready for next round forward.
         all_gather_dp_groups(groups_flat=self.bit16_groups_flat,

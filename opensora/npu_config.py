@@ -16,6 +16,7 @@ except:
     npu_is_available = False
 
 from contextlib import contextmanager
+import types
 # from opensora.acceleration.parallel_states import enable_LCCL, hccl_info, lccl_info
 
 
@@ -78,19 +79,21 @@ class NPUConfig:
         self.mm = dict()
 
         if self.on_npu:
+            import deepspeed
+            import sys
             torch_npu.npu.set_compile_mode(jit_compile=False)
-            import deepspeed.runtime.bf16_optimizer as optimizer
-            from opensora.adaptor.bf16_optimizer import BF16_Optimizer
-            optimizer.BF16_Optimizer.__init__ = BF16_Optimizer.__init__
-
-            import deepspeed.runtime.zero.stage_1_and_2 as stage_1_and_2
-            from opensora.adaptor.stage_1_and_2 import DeepSpeedZeroOptimizer
-            stage_1_and_2.DeepSpeedZeroOptimizer.__init__ = DeepSpeedZeroOptimizer.__init__
-            stage_1_and_2.DeepSpeedZeroOptimizer.allreduce_bucket = DeepSpeedZeroOptimizer.allreduce_bucket
 
             import deepspeed.runtime.utils as utils
-            from opensora.adaptor.utils import all_gather_into_tensor_dp_groups
-            utils.all_gather_into_tensor_dp_groups = all_gather_into_tensor_dp_groups
+            from opensora.adaptor.utils import all_gather_dp_groups, all_gather_into_tensor_dp_groups
+            utils.all_gather_dp_groups = all_gather_dp_groups
+
+            import deepspeed.runtime.bf16_optimizer as bf16_optimizer
+            from opensora.adaptor.bf16_optimizer import BF16_Optimizer
+            self.replace_methods(bf16_optimizer.BF16_Optimizer, BF16_Optimizer)
+
+            from opensora.adaptor.stage_1_and_2 import DeepSpeedZeroOptimizer
+            import deepspeed.runtime.zero.stage_1_and_2 as stage_1_and_2
+            self.replace_methods(stage_1_and_2.DeepSpeedZeroOptimizer, DeepSpeedZeroOptimizer, ['_has_inf_or_nan'])
 
         if "RANK" in os.environ:
             self.rank = int(os.environ["RANK"])
@@ -100,6 +103,15 @@ class NPUConfig:
             self.rank = torch.cuda.current_device()
             self.world_size = self.N_NPU_PER_NODE
         self.print_with_rank(f"The npu_config.on_npu is {self.on_npu}")
+
+    def replace_methods(self, target_class, source_class, skip_fcns=[]):
+        for attr_name in dir(source_class):
+            attr_value = getattr(source_class, attr_name)
+            if isinstance(attr_value, (staticmethod, classmethod)) or attr_name in skip_fcns:
+                print(f"skip replace {attr_name}")
+                continue
+            elif isinstance(attr_value, types.FunctionType):
+                setattr(target_class, attr_name, attr_value)
 
     def get_attention_mask(self, attention_mask, repeat_num):
         if self.on_npu and attention_mask is not None:

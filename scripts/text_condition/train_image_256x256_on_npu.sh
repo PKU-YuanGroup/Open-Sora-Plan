@@ -4,11 +4,11 @@ env
 export WANDB_MODE='offline'
 
 accelerate launch \
-    --config_file scripts/accelerate_configs/multi_node_example_on_npu.yaml \
+    --config_file scripts/accelerate_configs/multi_node_deepspeed.yaml \
     --machine_rank=${MACHINE_RANK} \
     --main_process_ip=${MAIN_PROCESS_IP_VALUE} \
     opensora/train/train_t2v_diffusers.py \
-    --model OpenSoraT2V-B/122 \
+    --model OpenSoraT2V-L/122 \
     --text_encoder_name ${WEIGHT_PATH}/DeepFloyd/t5-v1_1-xxl \
     --cache_dir "../cache_dir" \
     --dataset t2v \
@@ -34,7 +34,7 @@ accelerate launch \
     --lr_warmup_steps=0 \
     --mixed_precision="bf16" \
     --report_to="wandb" \
-    --checkpointing_steps=500 \
+    --checkpointing_steps=1000 \
     --output_dir="/home/image_data/checkpoints/${PROJECT}/" \
     --allow_tf32 \
     --model_max_length 512 \

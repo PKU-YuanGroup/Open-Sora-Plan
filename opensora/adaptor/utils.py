@@ -967,8 +967,8 @@ def all_gather_into_tensor_dp_groups(groups_flat, partitioned_param_groups, dp_p
 
 def all_gather_dp_groups(groups_flat, partitioned_param_groups, dp_process_group, start_alignment_factor,
                          allgather_bucket_size):
-    if dist.has_all_gather_into_tensor():
-        return all_gather_into_tensor_dp_groups(groups_flat, partitioned_param_groups, dp_process_group)
+    # if dist.has_all_gather_into_tensor():
+    #     return all_gather_into_tensor_dp_groups(groups_flat, partitioned_param_groups, dp_process_group)
 
     for group_id, partitioned_params in enumerate(partitioned_param_groups):
         # Sequential AllGather Best of both worlds
