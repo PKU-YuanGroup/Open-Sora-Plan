@@ -5,6 +5,7 @@ export PROJECT="bs32_2node_lr1e-4_snr5_ema_ps11_ds11_udit22_prodigy"
 export HF_DATASETS_OFFLINE=1 
 export TRANSFORMERS_OFFLINE=1
 # NCCL setting
+export PDSH_RCMD_TYPE=ssh
 export NCCL_PXN_DISABLE=0
 export NCCL_IB_QPS_PER_CONNECTION=4
 export NCCL_IB_GID_INDEX=3
