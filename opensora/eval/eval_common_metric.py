@@ -133,19 +133,17 @@ def _preprocess(video_data, short_size=128, crop_size=None):
         ]
     )
     video_outputs = transform(video_data)
-    # video_outputs = torch.unsqueeze(video_outputs, 0) # (bz,c,t,h,w)
     return video_outputs
 
 
 def calculate_common_metric(args, dataloader, device):
-
     score_list = []
     for batch_data in tqdm(dataloader): # {'real': real_video_tensor, 'generated':generated_video_tensor }
         real_videos = batch_data['real'] 
         generated_videos = batch_data['generated']
         assert real_videos.shape[2] == generated_videos.shape[2]
         if args.metric == 'fvd':
-            tmp_list = list(calculate_fvd(real_videos, generated_videos, args.device, method=args.fvd_method)['value'].values())
+            tmp_list = [calculate_fvd(real_videos, generated_videos, args.device)]
         elif args.metric == 'ssim':
             tmp_list = list(calculate_ssim(real_videos, generated_videos)['value'].values())
         elif args.metric == 'psnr':
@@ -178,7 +176,6 @@ def main():
     parser.add_argument('--sample_rate', type=int, default=1)
     parser.add_argument('--subset_size', type=int, default=None)
     parser.add_argument("--metric", type=str, default="fvd",choices=['fvd','psnr','ssim','lpips', 'flolpips'])
-    parser.add_argument("--fvd_method", type=str, default='styleganv',choices=['styleganv','videogpt'])
 
 
     args = parser.parse_args()

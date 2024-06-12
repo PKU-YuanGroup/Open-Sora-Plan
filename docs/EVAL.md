@@ -28,13 +28,8 @@ You can easily calculate the following video quality metrics, which supports the
         pip install ftfy
         pip install regex
         pip install tqdm
+        pip install cupy
     ```
-## Pretrain model
-- FVD
-    Before you cacluate FVD, you should first download the FVD pre-trained model. You can manually download any of the following and put it into FVD folder. 
-    - `i3d_torchscript.pt` from [here](https://www.dropbox.com/s/ge9e5ujwgetktms/i3d_torchscript.pt) 
-    - `i3d_pretrained_400.pt` from [here](https://onedrive.live.com/download?cid=78EEF3EB6AE7DBCB&resid=78EEF3EB6AE7DBCB%21199&authkey=AApKdFHPXzWLNyI)
-
 
 ## Other Notices
 1. Make sure the pixel value of videos should be in [0, 1].
@@ -82,28 +77,21 @@ You can easily calculate the following video quality metrics, which supports the
 # you change the file path and need to set the frame_num, resolution etc...
 
 # clip_score cross modality
-cd opensora/eval
-bash script/cal_clip_score.sh
+bash scripts/eval/cal_clip_score.sh
 
-
-
-# fvd 
-cd opensora/eval
-bash script/cal_fvd.sh
+# fvd
+bash scripts/eval/cal_fvd.sh
 
 # psnr
-cd opensora/eval
-bash eval/script/cal_psnr.sh
+bash scripts/eval/cal_psnr.sh
 
 
 # ssim
-cd opensora/eval
-bash eval/script/cal_ssim.sh
+bash scripts/eval/cal_ssim.sh
 
 
 # lpips
-cd opensora/eval
-bash eval/script/cal_lpips.sh
+bash scripts/eval/cal_lpips.sh
 ```
 
 # Acknowledgement
