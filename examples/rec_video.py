@@ -101,18 +101,7 @@ def main(args: argparse.Namespace):
         latents = latents.to(torch.float16)
         video_recon = vae.decode(latents)  # b t c h w
 
-    if video_recon.shape[1] == 1:
-        x = video_recon[0, 0, :, :, :]
-        x = x.squeeze()
-        x = x.detach().cpu().numpy()
-        x = np.clip(x, -1, 1)
-        x = (x + 1) / 2
-        x = (255 * x).astype(np.uint8)
-        x = x.transpose(1, 2, 0)
-        image = Image.fromarray(x)
-        image.save(args.rec_path.replace('mp4', 'jpg'))
-    else:
-        custom_to_video(video_recon[0], fps=args.fps, output_file=args.rec_path)
+    custom_to_video(video_recon[0], fps=args.fps, output_file=args.rec_path)
 
 
 if __name__ == '__main__':

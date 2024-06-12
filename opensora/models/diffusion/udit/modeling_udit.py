@@ -11,10 +11,10 @@ from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.models.modeling_utils import ModelMixin
 from diffusers.models.normalization import AdaLayerNormSingle
 from diffusers.models.embeddings import PixArtAlphaTextProjection
-from opensora.models.diffusion.udit.modules import Upsample3d, Downsample3d, OverlapPatchEmbed3D, BasicTransformerBlock
+from opensora.models.diffusion.udit.modules import Upsample3d, Downsample3d, Upsample2d, Downsample2d, OverlapPatchEmbed3D, OverlapPatchEmbed2D, BasicTransformerBlock
 from opensora.utils.utils import to_2tuple
 import math
-
+import re
 try:
     import torch_npu
     from opensora.npu_config import npu_config
@@ -69,7 +69,7 @@ class UDiTT2V(ModelMixin, ConfigMixin):
         patch_size: Optional[int] = None,
         patch_size_t: Optional[int] = None,
         num_vector_embeds: Optional[int] = None,
-        down_factor: Optional[int] = 2,
+        mlp_ratio: int = 4, 
         depth: Optional[list] = [2, 5, 8, 5, 2],
         activation_fn: str = "geglu",
         num_embeds_ada_norm: Optional[int] = None,
@@ -86,12 +86,13 @@ class UDiTT2V(ModelMixin, ConfigMixin):
         interpolation_scale_w: float = None,
         interpolation_scale_t: float = None,
         use_additional_conditions: Optional[bool] = None,
-        mlp_ratio: float = 2.0, 
         attention_mode: str = 'xformers', 
+        downsampler: str = 'k333_s222'
     ):
         super().__init__()
 
         # Set some common variables used across the board.
+        self.downsampler = downsampler
         self.use_linear_projection = use_linear_projection
         self.interpolation_scale_t = interpolation_scale_t
         self.interpolation_scale_h = interpolation_scale_h
@@ -146,28 +147,58 @@ class UDiTT2V(ModelMixin, ConfigMixin):
             self.config.interpolation_scale_h if self.config.interpolation_scale_h is not None else self.config.sample_size[0] / 30, 
             self.config.interpolation_scale_w if self.config.interpolation_scale_w is not None else self.config.sample_size[1] / 40, 
         )
-        self.pos_embed = OverlapPatchEmbed3D(
-            num_frames=self.config.sample_size_t,
-            height=self.config.sample_size[0],
-            width=self.config.sample_size[1],
-            in_channels=self.in_channels,
-            embed_dim=self.inner_dim,
-            interpolation_scale=interpolation_scale, 
-            interpolation_scale_t=interpolation_scale_t,
-        )
 
-        down_factor = down_factor if isinstance(self.config.down_factor, list) else [self.config.down_factor] * 5
-
+        # down_factor = list(re.search(r's(\d{2,3})', self.downsampler).group(1))
+        # down_factor = [int(i) for i in down_factor]
+        # down_factor = down_factor if isinstance(self.config.down_factor, list) else [self.config.down_factor] * 5
+        # down_factor = [2] * len(self.config.depth)
+        
+        if self.config.downsampler is not None and len(self.config.downsampler) == 9:
+            is_video_model = True
+            self.pos_embed = OverlapPatchEmbed3D(
+                num_frames=self.config.sample_size_t,
+                height=self.config.sample_size[0],
+                width=self.config.sample_size[1],
+                patch_size_t=self.config.patch_size_t,
+                patch_size=self.config.patch_size,
+                in_channels=self.in_channels,
+                embed_dim=self.inner_dim,
+                interpolation_scale=interpolation_scale, 
+                interpolation_scale_t=interpolation_scale_t,
+            )
+        elif self.config.downsampler is not None and len(self.config.downsampler) == 7:
+            is_video_model = False
+            self.pos_embed = OverlapPatchEmbed2D(
+                num_frames=self.config.sample_size_t,
+                height=self.config.sample_size[0],
+                width=self.config.sample_size[1],
+                patch_size_t=self.config.patch_size_t,
+                patch_size=self.config.patch_size,
+                in_channels=self.in_channels,
+                embed_dim=self.inner_dim,
+                interpolation_scale=interpolation_scale, 
+                interpolation_scale_t=interpolation_scale_t,
+            )
+        layer_thw = [[self.config.sample_size_t//self.config.patch_size_t, 
+                      (self.config.sample_size[0] + self.config.sample_size[0] % (self.config.patch_size*2))//self.config.patch_size, 
+                      (self.config.sample_size[1] + self.config.sample_size[1] % (self.config.patch_size*2))//self.config.patch_size]]
+        
+        for i in range((len(self.config.depth)-1)//2):
+            t = layer_thw[i][0] // 2 if layer_thw[i][0] != 1 else 1
+            h = (layer_thw[i][1] + layer_thw[i][1] % 4) // 2  # why mod 4, because downsample and downsampler in attention
+            w = (layer_thw[i][2] + layer_thw[i][2] % 4) // 2
+            layer_thw.append([t, h, w])
+    
         self.encoder_level_1 = nn.ModuleList(
             [
                 BasicTransformerBlock(
                     self.inner_dim,
                     self.config.num_attention_heads,
                     self.config.attention_head_dim,
-                    num_frames=self.config.sample_size_t,
-                    height=self.config.sample_size[0],
-                    width=self.config.sample_size[1],
-                    down_factor=down_factor[0], 
+                    num_frames=layer_thw[0][0],
+                    height=layer_thw[0][1],
+                    width=layer_thw[0][2],
+                    downsampler=self.config.downsampler, 
                     mlp_ratio=self.config.mlp_ratio, 
                     dropout=self.config.dropout,
                     cross_attention_dim=self.inner_dim,
@@ -186,18 +217,18 @@ class UDiTT2V(ModelMixin, ConfigMixin):
                 for _ in range(self.config.depth[0])
             ]
         )
-        self.down1_2 = Downsample3d(self.inner_dim)
-
+        self.down1_2 = Downsample3d(self.inner_dim) if is_video_model else Downsample2d(self.inner_dim)
+        
         self.encoder_level_2 = nn.ModuleList(
             [
                 BasicTransformerBlock(
                     self.inner_dim * 2,
                     self.config.num_attention_heads,
                     self.config.attention_head_dim * 2,
-                    num_frames=self.config.sample_size_t // 2,
-                    height=math.ceil(self.config.sample_size[0] / 2),
-                    width=math.ceil(self.config.sample_size[1] / 2),
-                    down_factor=down_factor[1], 
+                    num_frames=layer_thw[1][0],
+                    height=layer_thw[1][1],
+                    width=layer_thw[1][2],
+                    downsampler=self.config.downsampler, 
                     mlp_ratio=self.config.mlp_ratio, 
                     dropout=self.config.dropout,
                     cross_attention_dim=self.inner_dim * 2,
@@ -216,7 +247,7 @@ class UDiTT2V(ModelMixin, ConfigMixin):
                 for _ in range(self.config.depth[1])
             ]
         )
-        self.down2_3 = Downsample3d(self.inner_dim * 2)
+        self.down2_3 = Downsample3d(self.inner_dim * 2) if is_video_model else Downsample2d(self.inner_dim * 2)
 
         self.latent = nn.ModuleList(
             [
@@ -224,10 +255,10 @@ class UDiTT2V(ModelMixin, ConfigMixin):
                     self.inner_dim * 4,
                     self.config.num_attention_heads,
                     self.config.attention_head_dim * 4,
-                    num_frames=self.config.sample_size_t // 4,
-                    height=math.ceil(math.ceil(self.config.sample_size[0] / 2) / 2),
-                    width=math.ceil(math.ceil(self.config.sample_size[1] / 2) / 2),
-                    down_factor=down_factor[2], 
+                    num_frames=layer_thw[2][0],
+                    height=layer_thw[2][1],
+                    width=layer_thw[2][2],
+                    downsampler=self.config.downsampler, 
                     mlp_ratio=self.config.mlp_ratio, 
                     dropout=self.config.dropout,
                     cross_attention_dim=self.inner_dim * 4,
@@ -247,7 +278,7 @@ class UDiTT2V(ModelMixin, ConfigMixin):
             ]
         )
 
-        self.up3_2 = Upsample3d(int(self.inner_dim * 4))  ## From Level 4 to Level 3
+        self.up3_2 = Upsample3d(int(self.inner_dim * 4)) if is_video_model else Upsample2d(self.inner_dim * 4)  ## From Level 4 to Level 3
         self.reduce_chan_level2 = nn.Linear(int(self.inner_dim * 4), int(self.inner_dim * 2), bias=True)
         self.decoder_level_2 = nn.ModuleList(
             [
@@ -255,10 +286,10 @@ class UDiTT2V(ModelMixin, ConfigMixin):
                     self.inner_dim * 2,
                     self.config.num_attention_heads,
                     self.config.attention_head_dim * 2,
-                    num_frames=self.config.sample_size_t // 2,
-                    height=math.ceil(self.config.sample_size[0] / 2),
-                    width=math.ceil(self.config.sample_size[1] / 2),
-                    down_factor=down_factor[3], 
+                    num_frames=layer_thw[1][0],
+                    height=layer_thw[1][1],
+                    width=layer_thw[1][2],
+                    downsampler=self.config.downsampler, 
                     mlp_ratio=self.config.mlp_ratio, 
                     dropout=self.config.dropout,
                     cross_attention_dim=self.inner_dim * 2,
@@ -278,7 +309,7 @@ class UDiTT2V(ModelMixin, ConfigMixin):
             ]
         )
 
-        self.up2_1 = Upsample3d(int(self.inner_dim * 2))  ## From Level 4 to Level 3
+        self.up2_1 = Upsample3d(int(self.inner_dim * 2)) if is_video_model else Upsample2d(self.inner_dim * 2)  ## From Level 4 to Level 3
         self.reduce_chan_level1 = nn.Linear(int(self.inner_dim * 2), int(self.inner_dim * 2), bias=True)
         self.decoder_level_1 = nn.ModuleList(
             [
@@ -286,10 +317,10 @@ class UDiTT2V(ModelMixin, ConfigMixin):
                     self.inner_dim * 2,
                     self.config.num_attention_heads,
                     self.config.attention_head_dim * 2,
-                    num_frames=self.config.sample_size_t,
-                    height=self.config.sample_size[0],
-                    width=self.config.sample_size[1],
-                    down_factor=down_factor[4], 
+                    num_frames=layer_thw[0][0],
+                    height=layer_thw[0][1],
+                    width=layer_thw[0][2],
+                    downsampler=self.config.downsampler, 
                     mlp_ratio=self.config.mlp_ratio, 
                     dropout=self.config.dropout,
                     cross_attention_dim=self.inner_dim * 2,
@@ -313,13 +344,13 @@ class UDiTT2V(ModelMixin, ConfigMixin):
             self.norm_out = nn.LayerNorm(2 * self.inner_dim, elementwise_affine=False, eps=1e-6)
             self.proj_out_1 = nn.Linear(2 * self.inner_dim, 2 * self.inner_dim)
             self.proj_out_2 = nn.Linear(
-                2 * self.inner_dim, self.out_channels
+                2 * self.inner_dim, self.config.patch_size_t * self.config.patch_size * self.config.patch_size * self.out_channels
             )
         elif self.config.norm_type == "ada_norm_single":
             self.norm_out = nn.LayerNorm(2 * self.inner_dim, elementwise_affine=False, eps=1e-6)
             self.scale_shift_table = nn.Parameter(torch.randn(2, 2 * self.inner_dim) / (2 * self.inner_dim)**0.5)
             self.proj_out = nn.Linear(
-                2 * self.inner_dim, self.out_channels
+                2 * self.inner_dim, self.config.patch_size_t * self.config.patch_size * self.config.patch_size * self.out_channels
             )
 
         # PixArt-Alpha blocks.
@@ -405,7 +436,6 @@ class UDiTT2V(ModelMixin, ConfigMixin):
             `tuple` where the first element is the sample tensor.
         """
         batch_size, c, frame, height, width = hidden_states.shape
-        assert frame % 2 == 0 and use_image_num == 0
         frame = frame - use_image_num  # 21-4=17
         if cross_attention_kwargs is not None:
             if cross_attention_kwargs.get("scale", None) is not None:
@@ -428,8 +458,14 @@ class UDiTT2V(ModelMixin, ConfigMixin):
             #   (keep = +0,     discard = -10000.0)
             # b, frame+use_image_num, h, w -> a video with images
             # b, 1, h, w -> only images
+            pad_h_0, pad_w_0 = height % (self.config.patch_size * 2), width % (self.config.patch_size * 2)
+
+            hidden_states = F.pad(hidden_states, (0, pad_w_0, 0, pad_h_0, 0, 0), mode='reflect')
             attention_mask = attention_mask.to(self.dtype)
             attention_mask = attention_mask.unsqueeze(1)  # b 1 t h w
+            attention_mask = F.pad(attention_mask, (0, pad_w_0, 0, pad_h_0, 0, 0))
+            attention_mask = F.max_pool3d(attention_mask, kernel_size=(self.config.patch_size_t, self.config.patch_size, self.config.patch_size), 
+                                                  stride=(self.config.patch_size_t, self.config.patch_size, self.config.patch_size))
             attention_mask = rearrange(attention_mask, 'b 1 t h w -> b 1 (t h w)') 
 
             attention_bias = (1 - attention_mask.bool().to(self.dtype)) * -10000.0
@@ -444,6 +480,7 @@ class UDiTT2V(ModelMixin, ConfigMixin):
             attention_bias = npu_config.get_attention_mask(attention_bias, attention_mask.shape[-1])
             encoder_attention_mask = npu_config.get_attention_mask(encoder_attention_mask, attention_mask.shape[-1])
 
+
         # 1. Input
         added_cond_kwargs = {"resolution": None, "aspect_ratio": None}
         hidden_states, encoder_hidden_states_1, encoder_hidden_states_2, encoder_hidden_states_3, \
@@ -451,9 +488,8 @@ class UDiTT2V(ModelMixin, ConfigMixin):
                 embedded_timestep_1, embedded_timestep_2, embedded_timestep_3 = self._operate_on_patched_inputs(
             hidden_states, encoder_hidden_states, timestep, added_cond_kwargs, batch_size, frame, use_image_num
         )
-
-        # encoder_1
-        out_enc_level1 = hidden_states
+        frame, height, width = frame // self.config.patch_size_t, \
+            (height + pad_h_0) // (self.config.patch_size), (width + pad_w_0) // (self.config.patch_size)
 
 
         def create_custom_forward(module, return_dict=None):
@@ -465,6 +501,9 @@ class UDiTT2V(ModelMixin, ConfigMixin):
 
             return custom_forward
         
+        # encoder_1
+        out_enc_level1 = hidden_states
+        # import ipdb;ipdb.set_trace()
         if self.training and self.gradient_checkpointing:
 
             ckpt_kwargs: Dict[str, Any] = {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
@@ -491,10 +530,10 @@ class UDiTT2V(ModelMixin, ConfigMixin):
                     cross_attention_kwargs=cross_attention_kwargs,
                     class_labels=class_labels,
                 )
-        pad_h_1, pad_w_1 = height % 2, width % 2
+        pad_h_1, pad_w_1 = height % 4, width % 4
         
         inp_enc_level2, attention_bias, attention_mask = self.down1_2(out_enc_level1, attention_mask, frame, height, width, pad_h=pad_h_1, pad_w=pad_w_1)
-        frame, height, width = frame // 2, (height + pad_h_1) // 2, (width + pad_w_1) // 2
+        frame, height, width = frame // 2 if frame != 1 else frame, (height + pad_h_1) // 2, (width + pad_w_1) // 2
 
         # encoder_2
         out_enc_level2 = inp_enc_level2
@@ -530,10 +569,11 @@ class UDiTT2V(ModelMixin, ConfigMixin):
                     cross_attention_kwargs=cross_attention_kwargs,
                     class_labels=class_labels,
                 )
-        pad_h_2, pad_w_2 = height % 2, width % 2
+        pad_h_2, pad_w_2 = height % 4, width % 4
         
+        # import ipdb;ipdb.set_trace()
         inp_enc_level3, attention_bias, attention_mask = self.down2_3(out_enc_level2, attention_mask, frame, height, width, pad_h=pad_h_2, pad_w=pad_w_2)
-        frame, height, width = frame // 2, (height + pad_h_2) // 2, (width + pad_w_2) // 2
+        frame, height, width = frame // 2 if frame != 1 else frame, (height + pad_h_2) // 2, (width + pad_w_2) // 2
 
         if npu_config is not None and attention_mask is not None:
             attention_bias = npu_config.get_attention_mask(attention_bias, attention_mask.shape[-1])
@@ -571,8 +611,9 @@ class UDiTT2V(ModelMixin, ConfigMixin):
 
         # decoder_2
         
+        # import ipdb;ipdb.set_trace()
         inp_dec_level2, attention_bias, attention_mask = self.up3_2(latent, attention_mask, frame, height, width, pad_h=pad_h_2, pad_w=pad_w_2)
-        frame, height, width = frame * 2, height * 2 - pad_h_2, width * 2 - pad_w_2
+        frame, height, width = frame * 2 if frame != 1 else frame, height * 2 - pad_h_2, width * 2 - pad_w_2
         inp_dec_level2 = torch.cat([inp_dec_level2, out_enc_level2], 2)
         inp_dec_level2 = self.reduce_chan_level2(inp_dec_level2)
         out_dec_level2 = inp_dec_level2
@@ -581,7 +622,6 @@ class UDiTT2V(ModelMixin, ConfigMixin):
             attention_bias = npu_config.get_attention_mask(attention_bias, attention_mask.shape[-1])
             encoder_attention_mask = npu_config.get_attention_mask(encoder_attention_mask[:, 0:1, :], attention_mask.shape[-1])
 
-        print(out_dec_level2.size(), attention_bias.size(), encoder_hidden_states_2.size(), encoder_attention_mask.size())
         if self.training and self.gradient_checkpointing:
 
             ckpt_kwargs: Dict[str, Any] = {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
@@ -612,8 +652,9 @@ class UDiTT2V(ModelMixin, ConfigMixin):
 
         # decoder_1
         
+        # import ipdb;ipdb.set_trace()
         inp_dec_level1, attention_bias, attention_mask = self.up2_1(out_dec_level2, attention_mask, frame, height, width, pad_h=pad_h_1, pad_w=pad_w_1)
-        frame, height, width = frame * 2, height * 2 - pad_h_1, width * 2 - pad_w_1
+        frame, height, width = frame * 2 if frame != 1 else frame, height * 2 - pad_h_1, width * 2 - pad_w_1
         inp_dec_level1 = torch.cat([inp_dec_level1, out_enc_level1], 2)
         inp_dec_level1 = self.reduce_chan_level1(inp_dec_level1)
         out_dec_level1 = inp_dec_level1
@@ -650,6 +691,7 @@ class UDiTT2V(ModelMixin, ConfigMixin):
                     class_labels=class_labels,
                 )
 
+        # import ipdb;ipdb.set_trace()
         # 3. Output
         output = self._get_output_for_patched_inputs(
             hidden_states=out_dec_level1,
@@ -660,7 +702,9 @@ class UDiTT2V(ModelMixin, ConfigMixin):
             height=height,
             width=width,
         )  # b c t h w
-
+        
+        frame, height, width = frame * self.config.patch_size_t, height * self.config.patch_size - pad_h_0, width * self.config.patch_size - pad_w_0
+        output = output[:, :, :frame, :height, :width]
         if not return_dict:
             return (output,)
 
@@ -669,7 +713,7 @@ class UDiTT2V(ModelMixin, ConfigMixin):
 
     def _operate_on_patched_inputs(self, hidden_states, encoder_hidden_states, timestep, added_cond_kwargs, batch_size, frame, use_image_num):
         # batch_size = hidden_states.shape[0]
-        hidden_states = self.pos_embed(hidden_states.to(self.dtype))
+        hidden_states = self.pos_embed(hidden_states.to(self.dtype), frame)
 
         if self.use_additional_conditions and added_cond_kwargs is None:
             raise ValueError(
@@ -716,46 +760,75 @@ class UDiTT2V(ModelMixin, ConfigMixin):
             hidden_states = self.proj_out(hidden_states)
             hidden_states = hidden_states.squeeze(1)
 
-        # unpatchify
+        # # unpatchify
+        # hidden_states = hidden_states.reshape(
+        #     shape=(-1, num_frames, height, width, self.out_channels)
+        # )
+        # output = torch.einsum("nthwc->ncthw", hidden_states)
+        # return output
+            # unpatchify
         hidden_states = hidden_states.reshape(
-            shape=(-1, num_frames, height, width, self.out_channels)
+            shape=(-1, num_frames, height, width, self.config.patch_size_t, self.config.patch_size, self.config.patch_size, self.config.out_channels)
         )
-        output = torch.einsum("nthwc->ncthw", hidden_states)
+        hidden_states = torch.einsum("nthwopqc->nctohpwq", hidden_states)
+        output = hidden_states.reshape(
+            shape=(-1, self.config.out_channels, num_frames * self.config.patch_size_t, height * self.config.patch_size, width * self.config.patch_size)
+        )
+        # import ipdb;ipdb.set_trace()
+        # if output.shape[2] % 2 == 0:
+        #     output = output[:, :, 1:]
         return output
-    
 
 def UDiTT2V_S_111(**kwargs):
-    return UDiTT2V(down_factor=2, depth=[2, 5, 8, 5, 2], attention_head_dim=16, num_attention_heads=16, 
-                   patch_size_t=1, patch_size=1, mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
+    return UDiTT2V(depth=[2, 5, 8, 5, 2], attention_head_dim=16, num_attention_heads=16, patch_size_t=1, patch_size=1, 
+                   mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
 
 def UDiTT2V_B_111(**kwargs):
-    return UDiTT2V(down_factor=2, depth=[2, 5, 8, 5, 2], attention_head_dim=32, num_attention_heads=16, 
-                   patch_size_t=1, patch_size=1, mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
+    return UDiTT2V(depth=[2, 5, 8, 5, 2], attention_head_dim=32, num_attention_heads=16, patch_size_t=1, patch_size=1, 
+                   mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
 
 def UDiTT2V_L_111(**kwargs):
-    return UDiTT2V(down_factor=2, depth=[4, 10, 16, 10, 4], attention_head_dim=32, num_attention_heads=16, 
-                   patch_size_t=1, patch_size=1, mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
+    return UDiTT2V(depth=[4, 8, 12, 8, 4], attention_head_dim=32, num_attention_heads=24, patch_size_t=1, patch_size=1, 
+                   mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
+
+def UDiTT2V_L_211(**kwargs):
+    return UDiTT2V(depth=[4, 8, 12, 8, 4], attention_head_dim=32, num_attention_heads=24, patch_size_t=2, patch_size=1, 
+                   mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
+
+def UDiTT2V_L_122(**kwargs):
+    return UDiTT2V(depth=[4, 8, 12, 8, 4], attention_head_dim=32, num_attention_heads=24, patch_size_t=1, patch_size=2, 
+                   mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
+
+def UDiTT2V_L_222(**kwargs):
+    return UDiTT2V(depth=[4, 8, 12, 8, 4], attention_head_dim=32, num_attention_heads=24, patch_size_t=2, patch_size=2, 
+                   mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
 
 def UDiTT2V_XL_111(**kwargs):
-    return UDiTT2V(down_factor=2, depth=[4, 10, 16, 10, 4], attention_head_dim=32, num_attention_heads=16, 
-                   patch_size_t=1, patch_size=1, mlp_ratio=4, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
+    return UDiTT2V(depth=[4, 10, 16, 10, 4], attention_head_dim=32, num_attention_heads=32, patch_size_t=1, patch_size=1, 
+                   mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
 
 def UDiTT2V_XXL_111(**kwargs):
-    return UDiTT2V(down_factor=2, depth=[4, 10, 16, 10, 4], attention_head_dim=32, num_attention_heads=24, 
-                   patch_size_t=1, patch_size=1, mlp_ratio=4, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
+    return UDiTT2V(depth=[4, 20, 32, 20, 4], attention_head_dim=32, num_attention_heads=32, patch_size_t=1, patch_size=1, 
+                   mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
 
 UDiT_models = {
-    "UDiTT2V-S/111": UDiTT2V_S_111,  # 0.33B
-    "UDiTT2V-B/111": UDiTT2V_B_111,  # 1.3B
-    "UDiTT2V-L/111": UDiTT2V_L_111,  # 2B
-    "UDiTT2V-XL/111": UDiTT2V_XL_111,  # 3.3B
-    "UDiTT2V-XXL/111": UDiTT2V_XXL_111,  # 7.3B
+    "UDiTT2V-S/111": UDiTT2V_S_111,  # 0.19B    0.3B if video
+    "UDiTT2V-B/111": UDiTT2V_B_111,  # 0.73B    1.2B if video
+    "UDiTT2V-L/111": UDiTT2V_L_111,  # 2.3B    3.4B if video
+    "UDiTT2V-L/211": UDiTT2V_L_211,  # 2.3B    3.4B if video
+    "UDiTT2V-L/122": UDiTT2V_L_122,  # 2.3B    3.4B if video
+    "UDiTT2V-L/222": UDiTT2V_L_222,  # 2.3B    3.4B if video
+    "UDiTT2V-XL/111": UDiTT2V_XL_111,  # 5.1B    7B if video
+    "UDiTT2V-XXL/111": UDiTT2V_XXL_111,  # 9.4B    11.3B if video
 }
 
 UDiT_models_class = {
     "UDiTT2V-S/111": UDiTT2V,
     "UDiTT2V-B/111": UDiTT2V,
     "UDiTT2V-L/111": UDiTT2V,
+    "UDiTT2V-L/211": UDiTT2V,
+    "UDiTT2V-L/122": UDiTT2V,
+    "UDiTT2V-L/222": UDiTT2V,
     "UDiTT2V-XL/111": UDiTT2V,
     "UDiTT2V-XXL/111": UDiTT2V,
 }
@@ -772,8 +845,9 @@ if __name__ == '__main__':
         'attention_mode': 'xformers', 
         'use_rope': False, 
         'model_max_length': 300, 
-        'max_image_size': 512, 
-        'num_frames': 61, 
+        'max_height': 480, 
+        'max_width': 640, 
+        'num_frames': 125, 
         'use_image_num': 0, 
         'compress_kv_factor': 1
     }
@@ -783,15 +857,15 @@ if __name__ == '__main__':
     cond_c = 4096
     num_timesteps = 1000
     ae_stride_t, ae_stride_h, ae_stride_w = ae_stride_config[args.ae]
-    latent_size = (args.max_image_size // ae_stride_h, args.max_image_size // ae_stride_w)
+    latent_size = (args.max_height // ae_stride_h, args.max_width // ae_stride_w)
     if getae_wrapper(args.ae) == CausalVQVAEModelWrapper or getae_wrapper(args.ae) == CausalVAEModelWrapper:
         num_frames = (args.num_frames - 1) // ae_stride_t + 1
     else:
         num_frames = args.num_frames // ae_stride_t
 
     device = torch.device('cuda:1')
-    model = UDiTT2V_XXL_111(in_channels=4, 
-                              out_channels=8, 
+    model = UDiTT2V_L_122(in_channels=c, 
+                              out_channels=c, 
                               sample_size=latent_size, 
                               sample_size_t=num_frames, 
                               activation_fn="gelu-approximate",
@@ -805,14 +879,38 @@ if __name__ == '__main__':
                             only_cross_attention=False,
                             upcast_attention=False,
                             use_linear_projection=False,
-                            use_additional_conditions=False).to(device)
+                            use_additional_conditions=False, 
+                            downsampler='k333_s222').to(device)
 
     print(model)
     print(f'{sum(p.numel() for p in model.parameters() if p.requires_grad)/1e9} B')
-    sys.exit()
-    x = torch.randn(b, c,  1+(args.num_frames-1)//ae_stride_t+args.use_image_num, args.max_image_size//ae_stride_h, args.max_image_size//ae_stride_w).to(device)
+    try:
+        path = "/storage/ongoing/new/Open-Sora-Plan/bs32_2node_lr1e-4_snr5_ema_ps11_ds11_udit22/checkpoint-50/model_ema/diffusion_pytorch_model.safetensors"
+        from safetensors.torch import load_file as safe_load
+        ckpt = safe_load(path, device="cpu")
+        new_ckpt = {}
+        k_size = 3
+        for k, v in ckpt.items():
+            if 'pos_embed.proj.weight' in k:
+                new_v = v.unsqueeze(-3).repeat(1, 1, k_size, 1, 1)  # 768, 4, 3, 3 -> 768, 4, 3, 3, 3
+            elif 'attn1.downsampler.layer.weight' in k:
+                new_v = v.unsqueeze(-3).repeat(1, 1, k_size, 1, 1)  # 768, 4, 3, 3 -> 768, 4, 3, 3, 3
+            elif 'body.0.weight' in k and 'down' in k:
+                in_c = v.shape[0]
+                new_v = v[:in_c//2].unsqueeze(-3).repeat(1, 1, k_size, 1, 1)  # 384, 768, 3, 3 -> 192, 768, 3, 3, 3
+            elif 'body.0.weight' in k and 'up' in k:
+                new_v = v.unsqueeze(-3).repeat(2, 1, k_size, 1, 1)  # 6144, 3072, 3, 3 -> 12288, 3072, 3, 3, 3
+            else:
+                new_v = v
+            new_ckpt[k] = new_v
+        msg = model.load_state_dict(new_ckpt, strict=False)
+        print(msg)
+    except Exception as e:
+        print(e)
+    # import sys;sys.exit()
+    x = torch.randn(b, c,  1+(args.num_frames-1)//ae_stride_t+args.use_image_num, args.max_height//ae_stride_h, args.max_width//ae_stride_w).to(device)
     cond = torch.randn(b, 1+args.use_image_num, args.model_max_length, cond_c).to(device)
-    attn_mask = torch.randint(0, 2, (b, 1+(args.num_frames-1)//ae_stride_t+args.use_image_num, args.max_image_size//ae_stride_h, args.max_image_size//ae_stride_w)).to(device)  # B L or B 1+num_images L
+    attn_mask = torch.randint(0, 2, (b, 1+(args.num_frames-1)//ae_stride_t+args.use_image_num, args.max_height//ae_stride_h, args.max_width//ae_stride_w)).to(device)  # B L or B 1+num_images L
     cond_mask = torch.randint(0, 2, (b, 1+args.use_image_num, args.model_max_length)).to(device)  # B L or B 1+num_images L
     timestep = torch.randint(0, 1000, (b,), device=device)
     model_kwargs = dict(hidden_states=x, encoder_hidden_states=cond, attention_mask=attn_mask, 
