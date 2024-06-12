@@ -1,7 +1,7 @@
 export WANDB_KEY="953e958793b218efb850fa194e85843e2c3bd88b"
 # export WANDB_MODE="offline"
 export ENTITY="linbin"
-export PROJECT="bs32_2node_lr1e-4_snr5_ema_ps11_ds11_udit22"
+export PROJECT="bs32_2node_lr1e-4_snr5_ema_ps11_ds11_udit22_prodigy"
 export HF_DATASETS_OFFLINE=1 
 export TRANSFORMERS_OFFLINE=1
 # NCCL setting
@@ -12,7 +12,7 @@ export NCCL_ALGO=Ring
 export OMP_NUM_THREADS=1
 
 accelerate launch \
-    --config_file scripts/accelerate_configs/multi_node_example2.yaml \
+    --config_file scripts/accelerate_configs/multi_node_example1.yaml \
     opensora/train/train_t2v_diffusers.py \
     --model UDiTT2V-L/122 \
     --text_encoder_name google/umt5-xxl \
@@ -35,13 +35,19 @@ accelerate launch \
     --dataloader_num_workers 10 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
-    --learning_rate=1e-4 \
+    --optimizer="prodigy" \
+    --learning_rate=1.0 \
+    --prodigy_safeguard_warmup=True \
+    --prodigy_use_bias_correction=True \
+    --adam_beta1=0.9 \
+    --adam_beta2=0.99  \
+    --adam_weight_decay=0.01 \
     --lr_scheduler="constant" \
     --lr_warmup_steps=0 \
     --mixed_precision="bf16" \
     --report_to="wandb" \
     --checkpointing_steps=500 \
-    --output_dir="bs32_2node_480p_lr1e-4_snr5_ema_ps11_ds11_udit22_umt5" \
+    --output_dir="bs32_2node_480p_lr1e-4_snr5_ema_ps11_ds11_udit22_prodigy_umt5" \
     --allow_tf32 \
     --model_max_length 512 \
     --use_image_num 0 \

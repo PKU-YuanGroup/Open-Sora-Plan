@@ -20,5 +20,9 @@ from .updownsample import (
     TimeDownsampleRes2x,
     TimeUpsampleRes2x,
     TimeDownsampleResAdv2x,
-    TimeUpsampleResAdv2x
+    TimeUpsampleResAdv2x, 
+    Spatial2x3DDownsample,
+    Spatial2x3DUpsample,
+    Spatial2xTime2x3DDownsample,
+    Spatial2xTime2x3DUpsample
 )
