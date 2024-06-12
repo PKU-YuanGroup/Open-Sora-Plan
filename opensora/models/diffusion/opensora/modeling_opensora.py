@@ -667,13 +667,13 @@ if __name__ == '__main__':
         'model_max_length': 300, 
         'max_height': 512, 
         'max_width': 512, 
-        'num_frames': 61, 
+        'num_frames': 1, 
         'use_image_num': 0, 
         'compress_kv_factor': 1
     }
     )
     b = 2
-    c = 4
+    c = 8
     cond_c = 4096
     num_timesteps = 1000
     ae_stride_t, ae_stride_h, ae_stride_w = ae_stride_config[args.ae]
@@ -684,7 +684,7 @@ if __name__ == '__main__':
         num_frames = args.num_frames // ae_stride_t
 
     device = torch.device('cuda:0')
-    model = OpenSoraT2V_B_222(in_channels=4, 
+    model = OpenSoraT2V_B_122(in_channels=c, 
                               out_channels=8, 
                               sample_size=latent_size, 
                               sample_size_t=num_frames, 
@@ -700,7 +700,7 @@ if __name__ == '__main__':
                             upcast_attention=False,
                             use_linear_projection=False,
                             use_additional_conditions=False, 
-                            downsampler='k333_s222').to(device)
+                            downsampler='k33_s11').to(device)
     
     try:
         path = "PixArt-Alpha-XL-2-512.safetensors"

@@ -17,6 +17,7 @@ from .causal_vae import (
 videobase_ae_stride = {
     'CausalVAEModel_2x8x8': [2, 8, 8],
     'CausalVAEModel_4x8x8': [4, 8, 8],
+    'CausalVAEModel_D8_4x8x8': [4, 8, 8],
     'CausalVQVAEModel_4x4x4': [4, 4, 4],
     'CausalVQVAEModel_4x8x8': [4, 8, 8],
     'VQVAEModel_4x4x4': [4, 4, 4],
@@ -31,6 +32,7 @@ videobase_ae_stride = {
 videobase_ae_channel = {
     'CausalVAEModel_2x8x8': 4,
     'CausalVAEModel_4x8x8': 4,
+    'CausalVAEModel_D8_4x8x8': 8,
     'CausalVQVAEModel_4x4x4': 4,
     'CausalVQVAEModel_4x8x8': 4,
     'VQVAEModel_4x4x4': 4,
@@ -45,6 +47,7 @@ videobase_ae_channel = {
 videobase_ae = {
     'CausalVAEModel_2x8x8': CausalVAEModelWrapper,
     'CausalVAEModel_4x8x8': CausalVAEModelWrapper,
+    'CausalVAEModel_D8_4x8x8': CausalVAEModelWrapper,
     'CausalVQVAEModel_4x4x4': CausalVQVAEModelWrapper,
     'CausalVQVAEModel_4x8x8': CausalVQVAEModelWrapper,
     'VQVAEModel_4x4x4': VQVAEModelWrapper,

@@ -135,10 +135,10 @@ class T2V_dataset(Dataset):
         # input_ids = torch.ones(1, 120).to(torch.long).squeeze(0)
         # cond_mask = torch.cat([torch.ones(1, 60).to(torch.long), torch.ones(1, 60).to(torch.long)], dim=1).squeeze(0)
 
-        video_path = self.vid_cap_list[idx]['path']
-        assert os.path.exists(video_path) and os.path.getsize(video_path) > 10240, f"file {video_path} has wrong size!"
-        frame_idx = self.vid_cap_list[idx]['frame_idx'] if hasattr(self.vid_cap_list[idx], 'frame_idx') else None
-        video = self.decord_read(video_path, frame_idx)
+        # video_path = self.vid_cap_list[idx]['path']
+        # assert os.path.exists(video_path) and os.path.getsize(video_path) > 10240, f"file {video_path} has wrong size!"
+        # frame_idx = self.vid_cap_list[idx]['frame_idx'] if hasattr(self.vid_cap_list[idx], 'frame_idx') else None
+        # video = self.decord_read(video_path, frame_idx)
 
         h, w = video.shape[-2:]
         assert h / w <= 16 / 16 and h / w >= 4 / 16, f'Only videos with a ratio (h/w) less than 16/16 and more than 4/16 are supported. But found ratio is {round(h / w, 2)} with the shape of {video.shape}'

@@ -860,7 +860,7 @@ class BasicTransformerBlock(nn.Module):
         ff_bias: bool = True,
         attention_out_bias: bool = True,
         attention_mode: str = "xformers", 
-        downsampler: bool = False, 
+        downsampler: str = None, 
     ):
         super().__init__()
         self.only_cross_attention = only_cross_attention
@@ -974,7 +974,7 @@ class BasicTransformerBlock(nn.Module):
         elif norm_type == "layer_norm_i2vgen":
             self.norm3 = None
 
-        # if downsampler:
+        if downsampler:
             downsampler_ker_size = list(re.search(r'k(\d{2,3})', downsampler).group(1)) # 122
             # if len(downsampler_ker_size) == 3:
             #     self.ff = FeedForward_Conv3d(
@@ -984,21 +984,21 @@ class BasicTransformerBlock(nn.Module):
             #         bias=ff_bias,
             #     )
             # elif len(downsampler_ker_size) == 2:
-            # self.ff = FeedForward_Conv2d(
-            #     downsampler, 
-            #     dim,
-            #     4 * dim,
-            #     bias=ff_bias,
-            # )
-        # else:
-        self.ff = FeedForward(
-            dim,
-            dropout=dropout,
-            activation_fn=activation_fn,
-            final_dropout=final_dropout,
-            inner_dim=ff_inner_dim,
-            bias=ff_bias,
-        )
+            self.ff = FeedForward_Conv2d(
+                downsampler, 
+                dim,
+                4 * dim,
+                bias=ff_bias,
+            )
+        else:
+            self.ff = FeedForward(
+                dim,
+                dropout=dropout,
+                activation_fn=activation_fn,
+                final_dropout=final_dropout,
+                inner_dim=ff_inner_dim,
+                bias=ff_bias,
+            )
 
         # 4. Fuser
         if attention_type == "gated" or attention_type == "gated-text-image":

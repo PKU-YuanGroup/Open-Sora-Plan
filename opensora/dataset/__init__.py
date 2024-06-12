@@ -9,6 +9,7 @@ from .transform import ToTensorVideo, TemporalRandomCrop, RandomHorizontalFlipVi
 
 
 ae_norm = {
+    'CausalVAEModel_D8_4x8x8': Lambda(lambda x: 2. * x - 1.),
     'CausalVAEModel_2x8x8': Lambda(lambda x: 2. * x - 1.),
     'CausalVAEModel_4x8x8': Lambda(lambda x: 2. * x - 1.),
     'CausalVQVAEModel_4x4x4': Lambda(lambda x: x - 0.5),
@@ -27,6 +28,7 @@ ae_norm = {
 
 }
 ae_denorm = {
+    'CausalVAEModel_D8_4x8x8': lambda x: (x + 1.) / 2.,
     'CausalVAEModel_2x8x8': lambda x: (x + 1.) / 2.,
     'CausalVAEModel_4x8x8': lambda x: (x + 1.) / 2.,
     'CausalVQVAEModel_4x4x4': lambda x: x + 0.5,
