@@ -1000,7 +1000,6 @@ def all_gather_dp_groups(groups_flat, partitioned_param_groups, dp_process_group
                 curr_shard = partitioned_params[dp_id].narrow(0, shard_id * shard_size, num_elements).detach()
                 shard_list.append(curr_shard)
 
-
             dist.all_gather(shard_list, shard_list[partition_id].contiguous(), dp_process_group[group_id])
 
 
