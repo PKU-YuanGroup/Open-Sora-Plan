@@ -9,10 +9,7 @@ class T5Wrapper(nn.Module):
     def __init__(self, args, **kwargs):
         super(T5Wrapper, self).__init__()
         self.model_name = args.text_encoder_name
-        if 'umt5' in self.model_name:
-            from transformers import UMT5EncoderModel
-            self.text_enc = UMT5EncoderModel.from_pretrained(self.model_name, cache_dir=args.cache_dir, **kwargs).eval()
-        elif 'mt5' in self.model_name:
+        if 'mt5' in self.model_name:
             from transformers import MT5EncoderModel
             self.text_enc = MT5EncoderModel.from_pretrained(self.model_name, cache_dir=args.cache_dir, **kwargs).eval()
         elif 't5' in self.model_name:

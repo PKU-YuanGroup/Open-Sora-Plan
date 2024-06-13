@@ -335,5 +335,5 @@ class Spatial2xTime2x3DUpsample(Block):
             x = F.interpolate(x, scale_factor=(1,2,2), mode='trilinear')
             x = torch.concat([x, x_], dim=2)
         else:
-             x = F.interpolate(x, scale_factor=(2,2), mode='trilinear')
+             x = F.interpolate(x, scale_factor=(1,2,2), mode='trilinear')
         return self.conv(x)

@@ -66,13 +66,14 @@ logger = get_logger(__name__)
 @torch.inference_mode()
 def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weight_dtype, global_step, ema=False):
     validation_prompt = [
+        '在游泳馆里充当救生员的戴眼镜的猫',
+        '在珊瑚礁旁边游过一只海龟',
         "a cat wearing sunglasses and working as a lifeguard at pool.",
         "A serene underwater scene featuring a sea turtle swimming through a coral reef. The turtle, with its greenish-brown shell, is the main focus of the video, swimming gracefully towards the right side of the frame. The coral reef, teeming with life, is visible in the background, providing a vibrant and colorful backdrop to the turtle's journey. Several small fish, darting around the turtle, add a sense of movement and dynamism to the scene."
         ]
     logger.info(f"Running validation....\n")
     model = accelerator.unwrap_model(model)
-    # scheduler = PNDMScheduler()
-    scheduler = DPMSolverMultistepScheduler()
+    scheduler = DDPMScheduler()
     opensora_pipeline = OpenSoraPipeline(vae=vae,
                                          text_encoder=text_encoder,
                                          tokenizer=tokenizer,
@@ -555,7 +556,7 @@ def main(args):
         noise = torch.randn_like(model_input)
         if args.noise_offset:
             # https://www.crosslabs.org//blog/diffusion-with-offset-noise
-            noise += args.noise_offset * torch.randn((model_input.shape[0], model_input.shape[1], 1, 1),
+            noise += args.noise_offset * torch.randn((model_input.shape[0], model_input.shape[1], 1, 1, 1),
                                                      device=model_input.device)
 
         bsz = model_input.shape[0]
