@@ -555,7 +555,7 @@ def main(args):
         noise = torch.randn_like(model_input)
         if args.noise_offset:
             # https://www.crosslabs.org//blog/diffusion-with-offset-noise
-            noise += args.noise_offset * torch.randn((model_input.shape[0], model_input.shape[1], 1, 1),
+            noise += args.noise_offset * torch.randn((model_input.shape[0], model_input.shape[1], 1, 1, 1),
                                                      device=model_input.device)
 
         bsz = model_input.shape[0]

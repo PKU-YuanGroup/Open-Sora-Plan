@@ -1,10 +1,11 @@
 export WANDB_KEY="953e958793b218efb850fa194e85843e2c3bd88b"
 # export WANDB_MODE="offline"
 export ENTITY="linbin"
-export PROJECT="bs16_4node_480p_lr1e-4_snr5_noise0.02_ema_ps11_ds11_udit22_umt5xl"
-# export HF_DATASETS_OFFLINE=1 
-# export TRANSFORMERS_OFFLINE=1
+export PROJECT="bs16_4node_480p_lr1e-4_snr5_noise0.02_ema_ps22_ds22_udit22_umt5xl"
+export HF_DATASETS_OFFLINE=1 
+export TRANSFORMERS_OFFLINE=1
 # NCCL setting
+export PDSH_RCMD_TYPE=ssh
 export NCCL_PXN_DISABLE=0
 export NCCL_IB_QPS_PER_CONNECTION=4
 export NCCL_IB_GID_INDEX=3
@@ -12,7 +13,7 @@ export NCCL_ALGO=Ring
 export OMP_NUM_THREADS=1
 
 accelerate launch \
-    --config_file scripts/accelerate_configs/debug.yaml \
+    --config_file scripts/accelerate_configs/multi_node_example.yaml \
     opensora/train/train_t2v_diffusers.py \
     --model UDiTT2V-L/122 \
     --text_encoder_name google/umt5-xl \
@@ -41,7 +42,7 @@ accelerate launch \
     --mixed_precision="bf16" \
     --report_to="wandb" \
     --checkpointing_steps=500 \
-    --output_dir="bs16_4node_480p_lr1e-4_snr5_noise0.02_ema_ps11_ds11_udit22_umt5xl" \
+    --output_dir="bs16_4node_480p_lr1e-4_snr5_noise0.02_ema_ps22_ds22_udit22_umt5xl" \
     --allow_tf32 \
     --model_max_length 512 \
     --use_image_num 0 \
