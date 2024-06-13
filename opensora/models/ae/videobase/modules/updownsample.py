@@ -286,3 +286,54 @@ class TimeUpsampleResAdv2x(nn.Module):
             x = torch.concat([x, x_], dim=2)
         alpha = torch.sigmoid(self.mix_factor)
         return alpha * x + (1 - alpha) * self.conv(self.attn(self.res(x)))
+
+
+
+class Spatial2xTime2x3DDownsample(Block):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        # no asymmetric padding in torch conv, must do it ourselves
+        self.conv = CausalConv3d(in_channels, out_channels, kernel_size=3, padding=0, stride=2)
+
+    def forward(self, x):
+        pad = (0,1,0,1,0,0)
+        x = torch.nn.functional.pad(x, pad, mode="constant", value=0)
+        x = self.conv(x)
+        return x
+
+class Spatial2x3DDownsample(Block):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        # no asymmetric padding in torch conv, must do it ourselves
+        self.conv = CausalConv3d(in_channels, out_channels, kernel_size=3, padding=0, stride=(1,2,2))
+
+    def forward(self, x):
+        pad = (0,1,0,1,0,0)
+        x = torch.nn.functional.pad(x, pad, mode="constant", value=0)
+        x = self.conv(x)
+        return x
+
+class Spatial2x3DUpsample(Block):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        # no asymmetric padding in torch conv, must do it ourselves
+        self.conv = CausalConv3d(in_channels, out_channels, kernel_size=3, padding=1)
+
+    def forward(self, x):
+        x = F.interpolate(x, scale_factor=(1,2,2), mode='trilinear')
+        return self.conv(x)
+    
+class Spatial2xTime2x3DUpsample(Block):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        # no asymmetric padding in torch conv, must do it ourselves
+        self.conv = CausalConv3d(in_channels, out_channels, kernel_size=3, padding=1)
+    def forward(self, x):
+        if x.size(2) > 1:
+            x,x_= x[:,:,:1],x[:,:,1:]
+            x_= F.interpolate(x_, scale_factor=(2,2,2), mode='trilinear')
+            x = F.interpolate(x, scale_factor=(1,2,2), mode='trilinear')
+            x = torch.concat([x, x_], dim=2)
+        else:
+             x = F.interpolate(x, scale_factor=(2,2), mode='trilinear')
+        return self.conv(x)

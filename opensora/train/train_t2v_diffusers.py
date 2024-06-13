@@ -68,7 +68,7 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
     validation_prompt = [
         "a cat wearing sunglasses and working as a lifeguard at pool.",
         "A serene underwater scene featuring a sea turtle swimming through a coral reef. The turtle, with its greenish-brown shell, is the main focus of the video, swimming gracefully towards the right side of the frame. The coral reef, teeming with life, is visible in the background, providing a vibrant and colorful backdrop to the turtle's journey. Several small fish, darting around the turtle, add a sense of movement and dynamism to the scene."
-    ]
+        ]
     logger.info(f"Running validation....\n")
     model = accelerator.unwrap_model(model)
     # scheduler = PNDMScheduler()
@@ -105,8 +105,7 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
                 assert args.num_frames == 1
                 images = rearrange(videos, 'b 1 c h w -> (b 1) h w c')
                 np_images = np.stack([np.asarray(img) for img in images])
-                tracker.writer.add_images(f"{'ema_' if ema else ''}validation", np_images, global_step,
-                                          dataformats="NHWC")
+                tracker.writer.add_images(f"{'ema_' if ema else ''}validation", np_images, global_step, dataformats="NHWC")
             else:
                 np_videos = np.stack([np.asarray(vid) for vid in videos])
                 tracker.writer.add_video(f"{'ema_' if ema else ''}validation", np_videos, global_step, fps=30)
@@ -268,23 +267,17 @@ def main(args):
             from safetensors.torch import load_file as safe_load
             # import ipdb;ipdb.set_trace()
             checkpoint = safe_load(args.pretrained, device="cpu")
-            if checkpoint['pos_embed.proj.weight'].shape != model.pos_embed.proj.weight.shape and checkpoint[
-                'pos_embed.proj.weight'].ndim == 4:
-                logger.info(
-                    f"Resize pos_embed, {checkpoint['pos_embed.proj.weight'].shape} -> {model.pos_embed.proj.weight.shape}")
+            if checkpoint['pos_embed.proj.weight'].shape != model.pos_embed.proj.weight.shape and checkpoint['pos_embed.proj.weight'].ndim == 4:
+                logger.info(f"Resize pos_embed, {checkpoint['pos_embed.proj.weight'].shape} -> {model.pos_embed.proj.weight.shape}")
                 repeat = model.pos_embed.proj.weight.shape[2]
-                checkpoint['pos_embed.proj.weight'] = checkpoint['pos_embed.proj.weight'].unsqueeze(2).repeat(1, 1,
-                                                                                                              repeat, 1,
-                                                                                                              1) / float(
-                    repeat)
+                checkpoint['pos_embed.proj.weight'] = checkpoint['pos_embed.proj.weight'].unsqueeze(2).repeat(1, 1, repeat, 1, 1) / float(repeat)
                 # del checkpoint['proj_out.weight'], checkpoint['proj_out.bias']
         else:  # latest stage training weight
             checkpoint = torch.load(args.pretrained, map_location='cpu')['model']
         model_state_dict = model.state_dict()
         missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=False)
         logger.info(f'missing_keys {len(missing_keys)} {missing_keys}, unexpected_keys {len(unexpected_keys)}')
-        logger.info(
-            f'Successfully load {len(model.state_dict()) - len(missing_keys)}/{len(model_state_dict)} keys from {args.pretrained}!')
+        logger.info(f'Successfully load {len(model.state_dict()) - len(missing_keys)}/{len(model_state_dict)} keys from {args.pretrained}!')
 
     # Freeze vae and text encoders.
     ae.vae.requires_grad_(False)
@@ -321,8 +314,7 @@ def main(args):
 
         def load_model_hook(models, input_dir):
             if args.use_ema:
-                load_model = EMAModel.from_pretrained(os.path.join(input_dir, "model_ema"),
-                                                      Diffusion_models_class[args.model])
+                load_model = EMAModel.from_pretrained(os.path.join(input_dir, "model_ema"), Diffusion_models_class[args.model])
                 ema_model.load_state_dict(load_model.state_dict())
                 ema_model.to(accelerator.device)
                 del load_model
@@ -766,10 +758,8 @@ if __name__ == "__main__":
     parser.add_argument("--model_max_length", type=int, default=512)
     parser.add_argument("--multi_scale", action="store_true")
     parser.add_argument('--cfg', type=float, default=0.1)
-    parser.add_argument("--dataloader_num_workers", type=int, default=10,
-                        help="Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process.")
-    parser.add_argument("--train_batch_size", type=int, default=16,
-                        help="Batch size (per device) for the training dataloader.")
+    parser.add_argument("--dataloader_num_workers", type=int, default=10, help="Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process.")
+    parser.add_argument("--train_batch_size", type=int, default=16, help="Batch size (per device) for the training dataloader.")
 
     # text encoder & vae & diffusion model
     parser.add_argument("--model", type=str, choices=list(Diffusion_models.keys()), default="Latte-XL/122")
@@ -789,27 +779,22 @@ if __name__ == "__main__":
     parser.add_argument("--text_encoder_name", type=str, default='DeepFloyd/t5-v1_1-xxl')
     parser.add_argument("--cache_dir", type=str, default='./cache_dir')
     parser.add_argument("--pretrained", type=str, default=None)
-    parser.add_argument("--gradient_checkpointing", action="store_true",
-                        help="Whether or not to use gradient checkpointing to save memory at the expense of slower backward pass.")
-
+    parser.add_argument("--gradient_checkpointing", action="store_true", help="Whether or not to use gradient checkpointing to save memory at the expense of slower backward pass.")
+    
     # diffusion setting
-    parser.add_argument("--snr_gamma", type=float, default=None,
-                        help="SNR weighting gamma to be used if rebalancing the loss. Recommended value is 5.0. More details here: https://arxiv.org/abs/2303.09556.")
+    parser.add_argument("--snr_gamma", type=float, default=None, help="SNR weighting gamma to be used if rebalancing the loss. Recommended value is 5.0. More details here: https://arxiv.org/abs/2303.09556.")
     parser.add_argument("--use_ema", action="store_true", help="Whether to use EMA model.")
     parser.add_argument("--ema_start_step", type=int, default=0)
     parser.add_argument("--noise_offset", type=float, default=0, help="The scale of noise offset.")
-    parser.add_argument("--prediction_type", type=str, default=None,
-                        help="The prediction_type that shall be used for training. Choose between 'epsilon' or 'v_prediction' or leave `None`. If left to `None` the default prediction type of the scheduler: `noise_scheduler.config.prediciton_type` is chosen.")
+    parser.add_argument("--prediction_type", type=str, default=None, help="The prediction_type that shall be used for training. Choose between 'epsilon' or 'v_prediction' or leave `None`. If left to `None` the default prediction type of the scheduler: `noise_scheduler.config.prediciton_type` is chosen.")
 
     # validation & logs
     parser.add_argument("--num_sampling_steps", type=int, default=50)
     parser.add_argument('--guidance_scale', type=float, default=2.5)
     parser.add_argument("--enable_tracker", action="store_true")
     parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
-    parser.add_argument("--output_dir", type=str, default=None,
-                        help="The output directory where the model predictions and checkpoints will be written.")
-    parser.add_argument("--checkpoints_total_limit", type=int, default=None,
-                        help=("Max number of checkpoints to store."))
+    parser.add_argument("--output_dir", type=str, default=None, help="The output directory where the model predictions and checkpoints will be written.")
+    parser.add_argument("--checkpoints_total_limit", type=int, default=None, help=("Max number of checkpoints to store."))
     parser.add_argument("--checkpointing_steps", type=int, default=500,
                         help=(
                             "Save a checkpoint of the training state every X updates. These checkpoints can be used both as final"
@@ -837,34 +822,21 @@ if __name__ == "__main__":
                         )
     # optimizer & scheduler
     parser.add_argument("--num_train_epochs", type=int, default=100)
-    parser.add_argument("--max_train_steps", type=int, default=None,
-                        help="Total number of training steps to perform.  If provided, overrides num_train_epochs.")
-    parser.add_argument("--gradient_accumulation_steps", type=int, default=1,
-                        help="Number of updates steps to accumulate before performing a backward/update pass.")
-    parser.add_argument("--optimizer", type=str, default="adamW",
-                        help='The optimizer type to use. Choose between ["AdamW", "prodigy"]')
-    parser.add_argument("--learning_rate", type=float, default=1e-4,
-                        help="Initial learning rate (after the potential warmup period) to use.")
-    parser.add_argument("--scale_lr", action="store_true", default=False,
-                        help="Scale the learning rate by the number of GPUs, gradient accumulation steps, and batch size.")
-    parser.add_argument("--lr_warmup_steps", type=int, default=500,
-                        help="Number of steps for the warmup in the lr scheduler.")
-    parser.add_argument("--use_8bit_adam", action="store_true",
-                        help="Whether or not to use 8-bit Adam from bitsandbytes. Ignored if optimizer is not set to AdamW")
-    parser.add_argument("--adam_beta1", type=float, default=0.9,
-                        help="The beta1 parameter for the Adam and Prodigy optimizers.")
-    parser.add_argument("--adam_beta2", type=float, default=0.999,
-                        help="The beta2 parameter for the Adam and Prodigy optimizers.")
+    parser.add_argument("--max_train_steps", type=int, default=None, help="Total number of training steps to perform.  If provided, overrides num_train_epochs.")
+    parser.add_argument("--gradient_accumulation_steps", type=int, default=1, help="Number of updates steps to accumulate before performing a backward/update pass.")
+    parser.add_argument("--optimizer", type=str, default="adamW", help='The optimizer type to use. Choose between ["AdamW", "prodigy"]')
+    parser.add_argument("--learning_rate", type=float, default=1e-4, help="Initial learning rate (after the potential warmup period) to use.")
+    parser.add_argument("--scale_lr", action="store_true", default=False, help="Scale the learning rate by the number of GPUs, gradient accumulation steps, and batch size.")
+    parser.add_argument("--lr_warmup_steps", type=int, default=500, help="Number of steps for the warmup in the lr scheduler.")
+    parser.add_argument("--use_8bit_adam", action="store_true", help="Whether or not to use 8-bit Adam from bitsandbytes. Ignored if optimizer is not set to AdamW")
+    parser.add_argument("--adam_beta1", type=float, default=0.9, help="The beta1 parameter for the Adam and Prodigy optimizers.")
+    parser.add_argument("--adam_beta2", type=float, default=0.999, help="The beta2 parameter for the Adam and Prodigy optimizers.")
     parser.add_argument("--prodigy_decouple", type=bool, default=True, help="Use AdamW style decoupled weight decay")
     parser.add_argument("--adam_weight_decay", type=float, default=1e-02, help="Weight decay to use for unet params")
-    parser.add_argument("--adam_weight_decay_text_encoder", type=float, default=None,
-                        help="Weight decay to use for text_encoder")
-    parser.add_argument("--adam_epsilon", type=float, default=1e-08,
-                        help="Epsilon value for the Adam optimizer and Prodigy optimizers.")
-    parser.add_argument("--prodigy_use_bias_correction", type=bool, default=True,
-                        help="Turn on Adam's bias correction. True by default. Ignored if optimizer is adamW")
-    parser.add_argument("--prodigy_safeguard_warmup", type=bool, default=True,
-                        help="Remove lr from the denominator of D estimate to avoid issues during warm-up stage. True by default. Ignored if optimizer is adamW")
+    parser.add_argument("--adam_weight_decay_text_encoder", type=float, default=None, help="Weight decay to use for text_encoder")
+    parser.add_argument("--adam_epsilon", type=float, default=1e-08, help="Epsilon value for the Adam optimizer and Prodigy optimizers.")
+    parser.add_argument("--prodigy_use_bias_correction", type=bool, default=True, help="Turn on Adam's bias correction. True by default. Ignored if optimizer is adamW")
+    parser.add_argument("--prodigy_safeguard_warmup", type=bool, default=True, help="Remove lr from the denominator of D estimate to avoid issues during warm-up stage. True by default. Ignored if optimizer is adamW")
     parser.add_argument("--max_grad_norm", default=1.0, type=float, help="Max gradient norm.")
     parser.add_argument("--prodigy_beta3", type=float, default=None,
                         help="coefficients for computing the Prodidy stepsize using running averages. If set to None, "
