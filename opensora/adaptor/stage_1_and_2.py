@@ -94,6 +94,9 @@ def _get_padded_tensor(src_tensor, size):
     return padded_tensor
 
 
+def contigous_flatten(tensors):
+    return _flatten_dense_tensors([tensor.contiguous() for tensor in tensors])
+
 class DeepSpeedZeroOptimizer(ZeROOptimizer):
     """
     DeepSpeedZeroOptimizer designed to reduce the memory footprint
@@ -167,7 +170,7 @@ class DeepSpeedZeroOptimizer(ZeROOptimizer):
         self.optimizer = init_optimizer
 
         # Use torch (un)flatten ops
-        self.flatten = _flatten_dense_tensors
+        self.flatten = contigous_flatten
         self.unflatten = _unflatten_dense_tensors
 
         # ZeRO stage 1 (False) or 2 (True)
@@ -1458,6 +1461,7 @@ class DeepSpeedZeroOptimizer(ZeROOptimizer):
         if divide:
             tensor_to_allreduce.div_(dist.get_world_size(group=process_group) / float(self.sequence_parallel_size))
 
+        tensor_to_allreduce = tensor_to_allreduce.contiguous()
         if rank is None:
             #    "All Reducing"
             dist.all_reduce(tensor_to_allreduce, group=process_group)

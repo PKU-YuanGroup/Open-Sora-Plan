@@ -26,7 +26,8 @@ from deepspeed.checkpoint.constants import (DS_VERSION, PARTITION_COUNT, BASE_OP
 
 setattr(sys.modules[__name__], 'fragment_address', fragment_address)
 
-def bin_flatten(tensors):
+
+def contigous_flatten(tensors):
     return _flatten_dense_tensors([tensor.contiguous() for tensor in tensors])
 
 
@@ -66,7 +67,7 @@ class BF16_Optimizer(ZeROOptimizer):
         self.real_dp_process_group = [dp_process_group for i in range(len(self.optimizer.param_groups))]
 
         # Use torch (un)flatten ops
-        self.flatten = _flatten_dense_tensors
+        self.flatten = contigous_flatten
         self.unflatten = _unflatten_dense_tensors
 
         #align nccl all-gather send buffers to 4-bye boundary

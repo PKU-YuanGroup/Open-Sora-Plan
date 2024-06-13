@@ -1001,7 +1001,7 @@ def all_gather_dp_groups(groups_flat, partitioned_param_groups, dp_process_group
                 shard_list.append(curr_shard)
 
 
-            dist.all_gather(shard_list, shard_list[partition_id], dp_process_group[group_id])
+            dist.all_gather(shard_list, shard_list[partition_id].contiguous(), dp_process_group[group_id])
 
 
 class TLinear(torch.nn.Linear):

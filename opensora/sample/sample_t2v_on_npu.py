@@ -221,7 +221,7 @@ if __name__ == "__main__":
             time.sleep(80)
             continue
 
-        time.sleep(120)
+        time.sleep(180)
         latest_path = cur_path
         npu_config.print_msg(f"The latest_path is {latest_path}")
         full_path = f"{args.model_path}/{latest_path}/model_ema"

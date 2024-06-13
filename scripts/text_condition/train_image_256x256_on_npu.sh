@@ -8,7 +8,7 @@ accelerate launch \
     --machine_rank=${MACHINE_RANK} \
     --main_process_ip=${MAIN_PROCESS_IP_VALUE} \
     opensora/train/train_t2v_diffusers.py \
-    --model OpenSoraT2V-L/122 \
+    --model OpenSoraT2V-S/122 \
     --text_encoder_name ${WEIGHT_PATH}/DeepFloyd/t5-v1_1-xxl \
     --cache_dir "../cache_dir" \
     --dataset t2v \
@@ -30,7 +30,8 @@ accelerate launch \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
     --learning_rate=1e-4 \
-    --lr_scheduler="constant" \
+    --lr_scheduler="cosine" \
+    --seed=10 \
     --lr_warmup_steps=0 \
     --mixed_precision="bf16" \
     --report_to="wandb" \
