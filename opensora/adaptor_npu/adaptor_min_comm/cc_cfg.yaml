@@ -1,0 +1,10 @@
+recompute_all_gather: true
+matmul_soc_friendly: true
+print_tensor_value_open: false
+customized_cc: { }
+# "[m, k, n]": 1  # assign a parallel_num to a specific shape of mm
+#Example:
+#customized_cc:{
+#    "[16384, 5120, 1920]": 8
+#    "[16384, 1920, 5120]": 1
+#}

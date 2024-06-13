@@ -18,6 +18,21 @@ except:
 from contextlib import contextmanager
 # from opensora.acceleration.parallel_states import enable_LCCL, hccl_info, lccl_info
 
+from torch.nn.parallel import DistributedDataParallel as torchDDP
+
+def unwrap_model(model, module_instances=(torchDDP)):
+    return_list = True
+    if not isinstance(model, list):
+        model = [model]
+        return_list = False
+    unwrapped_model = []
+    for model_module in model:
+        while isinstance(model_module, module_instances):
+            model_module = model_module.module
+        unwrapped_model.append(model_module)
+    if not return_list:
+        return unwrapped_model[0]
+    return unwrapped_model
 
 def compress_video(input_file, output_file, out_size):
     """使用 ffmpeg 压缩视频文件。"""
@@ -79,18 +94,18 @@ class NPUConfig:
 
         if self.on_npu:
             torch_npu.npu.set_compile_mode(jit_compile=False)
-            import deepspeed.runtime.bf16_optimizer as optimizer
-            from opensora.adaptor.bf16_optimizer import BF16_Optimizer
-            optimizer.BF16_Optimizer.__init__ = BF16_Optimizer.__init__
-
-            import deepspeed.runtime.zero.stage_1_and_2 as stage_1_and_2
-            from opensora.adaptor.stage_1_and_2 import DeepSpeedZeroOptimizer
-            stage_1_and_2.DeepSpeedZeroOptimizer.__init__ = DeepSpeedZeroOptimizer.__init__
-            stage_1_and_2.DeepSpeedZeroOptimizer.allreduce_bucket = DeepSpeedZeroOptimizer.allreduce_bucket
-
-            import deepspeed.runtime.utils as utils
-            from opensora.adaptor.utils import all_gather_into_tensor_dp_groups
-            utils.all_gather_into_tensor_dp_groups = all_gather_into_tensor_dp_groups
+            # import deepspeed.runtime.bf16_optimizer as optimizer
+            # from opensora.adaptor.bf16_optimizer import BF16_Optimizer
+            # optimizer.BF16_Optimizer.__init__ = BF16_Optimizer.__init__
+            #
+            # import deepspeed.runtime.zero.stage_1_and_2 as stage_1_and_2
+            # from opensora.adaptor.stage_1_and_2 import DeepSpeedZeroOptimizer
+            # stage_1_and_2.DeepSpeedZeroOptimizer.__init__ = DeepSpeedZeroOptimizer.__init__
+            # stage_1_and_2.DeepSpeedZeroOptimizer.allreduce_bucket = DeepSpeedZeroOptimizer.allreduce_bucket
+            #
+            # import deepspeed.runtime.utils as utils
+            # from opensora.adaptor.utils import all_gather_into_tensor_dp_groups
+            # utils.all_gather_into_tensor_dp_groups = all_gather_into_tensor_dp_groups
 
         if "RANK" in os.environ:
             self.rank = int(os.environ["RANK"])

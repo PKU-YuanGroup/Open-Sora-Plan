@@ -163,7 +163,7 @@ class T2V_dataset(Dataset):
         )
         input_ids = text_tokens_and_mask['input_ids']
         cond_mask = text_tokens_and_mask['attention_mask']
-        return dict(video=video, input_ids=input_ids, cond_mask=cond_mask)
+        return dict(video=video, input_ids=input_ids, cond_mask=cond_mask, video_path=video_path)
 
     def get_image_from_video(self, video_data):
         select_image_idx = np.linspace(0, self.num_frames - 1, self.use_image_num, dtype=int)

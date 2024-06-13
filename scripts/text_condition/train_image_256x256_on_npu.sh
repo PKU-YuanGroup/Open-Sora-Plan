@@ -2,6 +2,17 @@ export PROJECT=$PROJECT_NAME
 WEIGHT_PATH="/home/opensora/shebin/pre_weights/"
 env
 export WANDB_MODE='offline'
+max_train_steps=1000000
+save_checkpoint="/home/image_data/checkpoints/${PROJECT}"
+COMMON_TASK_ARGS="--use-distributed-optimizer \
+                  --train-iters ${max_train_steps} \
+                  --micro-batch-size 16 \
+                  --data-parallel-size ${NUM_PROCESSES} \
+                  --lr-decay-style constant \
+                  --accumulate-allreduce-grads-in-fp32 \
+                  --save ${save_checkpoint} \
+                  --load ${save_checkpoint} \
+                  --bf16"
 
 accelerate launch \
     --config_file scripts/accelerate_configs/multi_node_example_on_npu.yaml \
@@ -28,14 +39,14 @@ accelerate launch \
     --train_batch_size=8 \
     --dataloader_num_workers 20 \
     --gradient_accumulation_steps=1 \
-    --max_train_steps=1000000 \
+    --max_train_steps=${max_train_steps} \
     --learning_rate=1e-4 \
     --lr_scheduler="constant" \
     --lr_warmup_steps=0 \
     --mixed_precision="bf16" \
     --report_to="wandb" \
-    --checkpointing_steps=500 \
-    --output_dir="/home/image_data/checkpoints/${PROJECT}/" \
+    --checkpointing_steps=50 \
+    --output_dir=${save_checkpoint} \
     --allow_tf32 \
     --model_max_length 512 \
     --use_image_num 0 \
@@ -43,4 +54,5 @@ accelerate launch \
     --use_ema \
     --ema_start_step 0 \
     --cfg 0.1 \
-    --resume_from_checkpoint="latest"
+    --resume_from_checkpoint="latest" \
+    ${COMMON_TASK_ARGS}

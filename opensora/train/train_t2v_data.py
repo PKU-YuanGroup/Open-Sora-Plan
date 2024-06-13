@@ -18,10 +18,6 @@ import gc
 import numpy as np
 from einops import rearrange
 from tqdm import tqdm
-import opensora.adaptor_npu
-import torch_npu
-from opensora.npu_config import npu_config
-
 try:
     import torch_npu
     from opensora.npu_config import npu_config
@@ -33,13 +29,14 @@ import time
 from dataclasses import field, dataclass
 from torch.utils.data import DataLoader
 from copy import deepcopy
+import pickle
 import accelerate
 import torch
 from torch.nn import functional as F
 import transformers
 from accelerate import Accelerator
 from accelerate.logging import get_logger
-from accelerate.utils import DistributedType, ProjectConfiguration, set_seed
+from accelerate.utils import ProjectConfiguration, set_seed
 from huggingface_hub import create_repo
 from packaging import version
 from tqdm.auto import tqdm
@@ -54,6 +51,8 @@ from diffusers.utils import check_min_version, is_wandb_available
 from opensora.dataset import getdataset, ae_denorm
 from opensora.models.ae import getae, getae_wrapper
 from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModelWrapper
+from opensora.utils.diffusion import create_diffusion_T as create_diffusion
+from opensora.utils.diffusion.diffusion_utils import compute_snr
 from opensora.models.diffusion.latte.modeling_latte import LatteT2V
 from opensora.models.text_encoder import get_text_enc, get_text_warpper
 from opensora.utils.dataset_utils import Collate
@@ -190,6 +189,11 @@ def main(args):
         if args.output_dir is not None:
             os.makedirs(args.output_dir, exist_ok=True)
 
+        # if args.push_to_hub:
+        #     repo_id = create_repo(
+        #         repo_id=args.hub_model_id or Path(args.output_dir).name, exist_ok=True, token=args.hub_token
+        #     ).repo_id
+
     # For mixed precision training we cast all non-trainable weigths to half-precision
     # as these weights are only used for inference, keeping weights in full precision is not required.
     weight_dtype = torch.float32
@@ -199,6 +203,7 @@ def main(args):
         weight_dtype = torch.bfloat16
 
     # Create model:
+    diffusion = create_diffusion(timestep_respacing="")  # default: 1000 steps, linear noise schedule
     kwargs = {}
     ae = getae_wrapper(args.ae)(args.ae_path, cache_dir=args.cache_dir, **kwargs).eval()
     if args.enable_tiling:
@@ -234,7 +239,7 @@ def main(args):
         latent_size_t = args.num_frames // ae_stride_t
     model = Diffusion_models[args.model](
         in_channels=ae_channel_config[args.ae],
-        out_channels=ae_channel_config[args.ae],
+        out_channels=ae_channel_config[args.ae] * 2,
         # caption_channels=4096,
         # cross_attention_dim=1152,
         attention_bias=True,
@@ -255,43 +260,28 @@ def main(args):
         interpolation_scale_h=args.interpolation_scale_h,
         interpolation_scale_w=args.interpolation_scale_w,
         interpolation_scale_t=args.interpolation_scale_t,
-        downsampler=args.downsampler, 
         # compress_kv_factor=args.compress_kv_factor,
         # use_rope=args.use_rope,
         # model_max_length=args.model_max_length,
     )
     model.gradient_checkpointing = args.gradient_checkpointing
-    
+
     # # use pretrained model?
-    if args.pretrained:
-        if 'safetensors' in args.pretrained:  # pixart series
-            from safetensors.torch import load_file as safe_load
-            # import ipdb;ipdb.set_trace()
-            checkpoint = safe_load(args.pretrained, device="cpu")
-            if checkpoint['pos_embed.proj.weight'].shape != model.pos_embed.proj.weight.shape and checkpoint['pos_embed.proj.weight'].ndim == 4:
-                logger.info(f"Resize pos_embed, {checkpoint['pos_embed.proj.weight'].shape} -> {model.pos_embed.proj.weight.shape}")
-                repeat = model.pos_embed.proj.weight.shape[2]
-                checkpoint['pos_embed.proj.weight'] = checkpoint['pos_embed.proj.weight'].unsqueeze(2).repeat(1, 1, repeat, 1, 1) / float(repeat)
-                # del checkpoint['proj_out.weight'], checkpoint['proj_out.bias']
-        else:  # latest stage training weight
-            checkpoint = torch.load(args.pretrained, map_location='cpu')['model']
-        model_state_dict = model.state_dict()
-        missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=False)
-        logger.info(f'missing_keys {len(missing_keys)} {missing_keys}, unexpected_keys {len(unexpected_keys)}')
-        logger.info(f'Successfully load {len(model.state_dict()) - len(missing_keys)}/{len(model_state_dict)} keys from {args.pretrained}!')
 
     # Freeze vae and text encoders.
     ae.vae.requires_grad_(False)
     text_enc.requires_grad_(False)
     # Set model as trainable.
-    model.train()
+    # model.train()
 
-    noise_scheduler = DDPMScheduler()
+
     # Move unet, vae and text_encoder to device and cast to weight_dtype
     # The VAE is in float32 to avoid NaN losses.
     # ae.to(accelerator.device, dtype=torch.float32)
     ae.vae.to(accelerator.device, dtype=weight_dtype)
+    # ae.to(accelerator.device)
     text_enc.to(accelerator.device, dtype=weight_dtype)
+    # text_enc.to(accelerator.device)
 
     # Create EMA for the unet.
     if args.use_ema:
@@ -344,67 +334,28 @@ def main(args):
                 args.learning_rate * args.gradient_accumulation_steps * args.train_batch_size * accelerator.num_processes
         )
 
-    
-    params_to_optimize = model.parameters()
+    # Use 8-bit Adam for lower memory usage or to fine-tune the model in 16GB GPUs
+    if args.use_8bit_adam:
+        try:
+            import bitsandbytes as bnb
+        except ImportError:
+            raise ImportError(
+                "To use 8-bit Adam, please install the bitsandbytes library: `pip install bitsandbytes`."
+            )
+
+        optimizer_class = bnb.optim.AdamW8bit
+    else:
+        optimizer_class = torch.optim.AdamW
+
     # Optimizer creation
-    # if not (args.optimizer.lower() == "prodigy" or args.optimizer.lower() == "adamw"):
-    #     logger.warning(
-    #         f"Unsupported choice of optimizer: {args.optimizer}.Supported optimizers include [adamW, prodigy]."
-    #         "Defaulting to adamW"
-    #     )
-    #     args.optimizer = "adamw"
-    #
-    # if args.use_8bit_adam and not args.optimizer.lower() == "adamw":
-    #     logger.warning(
-    #         f"use_8bit_adam is ignored when optimizer is not set to 'AdamW'. Optimizer was "
-    #         f"set to {args.optimizer.lower()}"
-    #     )
-    #
-    # if args.optimizer.lower() == "adamw":
-    #     if args.use_8bit_adam:
-    #         try:
-    #             import bitsandbytes as bnb
-    #         except ImportError:
-    #             raise ImportError(
-    #                 "To use 8-bit Adam, please install the bitsandbytes library: `pip install bitsandbytes`."
-    #             )
-    #
-    #         optimizer_class = bnb.optim.AdamW8bit
-    #     else:
-    #         optimizer_class = torch.optim.AdamW
-    #
-    #     optimizer = optimizer_class(
-    #         params_to_optimize,
-    #         lr=args.learning_rate,
-    #         betas=(args.adam_beta1, args.adam_beta2),
-    #         weight_decay=args.adam_weight_decay,
-    #         eps=args.adam_epsilon,
-    #     )
-    #
-    # if args.optimizer.lower() == "prodigy":
-    #     try:
-    #         import prodigyopt
-    #     except ImportError:
-    #         raise ImportError("To use Prodigy, please install the prodigyopt library: `pip install prodigyopt`")
-    #
-    #     optimizer_class = prodigyopt.Prodigy
-    #
-    #     if args.learning_rate <= 0.1:
-    #         logger.warning(
-    #             "Learning rate is too low. When using prodigy, it's generally better to set learning rate around 1.0"
-    #         )
-    #
-    #     optimizer = optimizer_class(
-    #         params_to_optimize,
-    #         lr=args.learning_rate,
-    #         betas=(args.adam_beta1, args.adam_beta2),
-    #         beta3=args.prodigy_beta3,
-    #         weight_decay=args.adam_weight_decay,
-    #         eps=args.adam_epsilon,
-    #         decouple=args.prodigy_decouple,
-    #         use_bias_correction=args.prodigy_use_bias_correction,
-    #         safeguard_warmup=args.prodigy_safeguard_warmup,
-    #     )
+    params_to_optimize = model.parameters()
+    optimizer = optimizer_class(
+        params_to_optimize,
+        lr=args.learning_rate,
+        betas=(args.adam_beta1, args.adam_beta2),
+        weight_decay=args.adam_weight_decay,
+        eps=args.adam_epsilon,
+    )
 
     # Setup data:
     train_dataset = getdataset(args)
@@ -424,29 +375,17 @@ def main(args):
         args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
         overrode_max_train_steps = True
 
-    # lr_scheduler = get_scheduler(
-    #     args.lr_scheduler,
-    #     optimizer=optimizer,
-    #     num_warmup_steps=args.lr_warmup_steps * args.gradient_accumulation_steps,
-    #     num_training_steps=args.max_train_steps * args.gradient_accumulation_steps,
-    # )
-
-    from opensora.initialize import initialize_megatron
-    initialize_megatron()
-    from opensora.global_vars import get_args, get_timers, get_num_microbatches
-    dist_args = get_args()
-    timers = get_timers()
-    from opensora.optimizer import get_megatron_optimizer, get_optimizer_param_scheduler
-    from opensora.model import DistributedDataParallel as LocalDDP
-    model.to(weight_dtype).to(accelerator.device)
-    model = LocalDDP(model, dist_args.accumulate_allreduce_grads_in_fp32, dist_args.use_contiguous_buffers_in_local_ddp)
-    optimizer = get_megatron_optimizer([model], no_weight_decay_cond=None, scale_lr_cond=None, lr_mult=1.0)
-    lr_scheduler = get_optimizer_param_scheduler(optimizer)
+    lr_scheduler = get_scheduler(
+        args.lr_scheduler,
+        optimizer=optimizer,
+        num_warmup_steps=args.lr_warmup_steps * args.gradient_accumulation_steps,
+        num_training_steps=args.max_train_steps * args.gradient_accumulation_steps,
+    )
 
     # Prepare everything with our `accelerator`.
-    # model, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
-    #     model, optimizer, train_dataloader, lr_scheduler
-    # )
+    model, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
+        model, optimizer, train_dataloader, lr_scheduler
+    )
     if args.use_ema:
         ema_model.to(accelerator.device)
 
@@ -466,14 +405,12 @@ def main(args):
     total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
 
     logger.info("***** Running training *****")
-    logger.info(f"  Model = {model}")
     logger.info(f"  Num examples = {len(train_dataset)}")
     logger.info(f"  Num Epochs = {args.num_train_epochs}")
     logger.info(f"  Instantaneous batch size per device = {args.train_batch_size}")
     logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
     logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
     logger.info(f"  Total optimization steps = {args.max_train_steps}")
-    logger.info(f"  Total parameters = {sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e9} B")
     global_step = 0
     first_epoch = 0
 
@@ -496,19 +433,17 @@ def main(args):
             initial_global_step = 0
         else:
             accelerator.print(f"Resuming from checkpoint {path}")
-            # model.load_state_dict(os.path.join(args.output_dir, path))
-            from opensora.checkpointing import load_checkpoint
-            load_checkpoint([model], optimizer, lr_scheduler)
+            accelerator.load_state(os.path.join(args.output_dir, path))
             global_step = int(path.split("-")[1])
 
             initial_global_step = global_step
             first_epoch = global_step // num_update_steps_per_epoch
-
-            if npu_config is not None:
-                train_dataset.n_used_elements = global_step * args.train_batch_size
-
     else:
         initial_global_step = 0
+
+    if npu_config is not None:
+        # train_dataset.n_used_elements = global_step * args.train_batch_size
+        train_dataset.set_checkpoint(global_step * args.train_batch_size)
 
     progress_bar = tqdm(
         range(0, args.max_train_steps),
@@ -529,14 +464,12 @@ def main(args):
         one_step_duration = end_time - start_time
         accelerator.log({"train_loss": progress_info.train_loss}, step=progress_info.global_step)
         if torch_npu is not None and npu_config is not None:
-            # npu_config.print_with_rank(f"train_loss={progress_info.train_loss}", rank=0, save=True)
             npu_config.print_msg(
                 f"Step: [{progress_info.global_step}], local_loss={loss.detach().item()}, train_loss={progress_info.train_loss}, time_cost={one_step_duration}",
                 rank=0)
         progress_info.train_loss = 0.0
 
-        # DeepSpeed requires saving weights on every device; saving weights only on the main process would cause issues.
-        if accelerator.distributed_type == DistributedType.DEEPSPEED or accelerator.is_main_process:
+        if args.use_deepspeed or accelerator.is_main_process:
             if progress_info.global_step % args.checkpointing_steps == 0:
                 # _before_ saving state, check if this save would set us over the `checkpoints_total_limit`
                 if args.checkpoints_total_limit is not None:
@@ -561,112 +494,53 @@ def main(args):
                 save_path = os.path.join(args.output_dir, f"checkpoint-{progress_info.global_step}")
                 accelerator.save_state(save_path)
                 logger.info(f"Saved state to {save_path}")
-        if progress_info.global_step % args.checkpointing_steps == 0:
-            from opensora.checkpointing import save_checkpoint
-            save_checkpoint(progress_info.global_step, [model], optimizer, lr_scheduler)
 
-        logs = {"step_loss": loss.detach().item(), "lr": lr_scheduler.get_lr()}
+        logs = {"step_loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
         progress_bar.set_postfix(**logs)
 
-    def run(model_input, model_kwargs, prof):
+    def run(x, model_kwargs, prof):
         global start_time
         start_time = time.time()
-        model.zero_grad_buffer()
-        optimizer.zero_grad()
-        noise = torch.randn_like(model_input)
-        if args.noise_offset:
-            # https://www.crosslabs.org//blog/diffusion-with-offset-noise
-            noise += args.noise_offset * torch.randn((model_input.shape[0], model_input.shape[1], 1, 1), device=model_input.device)
+        t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=accelerator.device)
 
-        bsz = model_input.shape[0]
-        # Sample a random timestep for each image without bias.
-        timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=model_input.device)
-
-        # Add noise to the model input according to the noise magnitude at each timestep
-        # (this is the forward diffusion process)
-        noisy_model_input = noise_scheduler.add_noise(model_input, noise, timesteps)
-
-        model_pred = model(
-            noisy_model_input,
-            timesteps,
-            **model_kwargs
-        )[0]
-        # Get the target for loss depending on the prediction type
-        if args.prediction_type is not None:
-            # set prediction_type of scheduler if defined
-            noise_scheduler.register_to_config(prediction_type=args.prediction_type)
-
-        if noise_scheduler.config.prediction_type == "epsilon":
-            target = noise
-        elif noise_scheduler.config.prediction_type == "v_prediction":
-            target = noise_scheduler.get_velocity(model_input, noise, timesteps)
-        elif noise_scheduler.config.prediction_type == "sample":
-            # We set the target to latents here, but the model_pred will return the noise sample prediction.
-            target = model_input
-            # We will have to subtract the noise residual from the prediction to get the target sample.
-            model_pred = model_pred - noise
+        if args.snr_gamma is not None:
+            snr = compute_snr(t, torch.from_numpy(diffusion.alphas_cumprod))
+            mse_loss_weights = (torch.stack([snr, args.snr_gamma * torch.ones_like(t)], dim=1).min(dim=1)[0] / snr)
+            # print(t, mse_loss_weights)
+            loss_dict = diffusion.training_losses(model, x, t, model_kwargs, mse_loss_weights=mse_loss_weights)
         else:
-            raise ValueError(f"Unknown prediction type {noise_scheduler.config.prediction_type}")
+            loss_dict = diffusion.training_losses(model, x, t, model_kwargs)
 
-        if args.snr_gamma is None:
-            loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
-        else:
-            # Compute loss-weights as per Section 3.4 of https://arxiv.org/abs/2303.09556.
-            # Since we predict the noise instead of x_0, the original formulation is slightly changed.
-            # This is discussed in Section 4.2 of the same paper.
-            snr = compute_snr(noise_scheduler, timesteps)
-            mse_loss_weights = torch.stack([snr, args.snr_gamma * torch.ones_like(timesteps)], dim=1).min(
-                dim=1
-            )[0]
-            if noise_scheduler.config.prediction_type == "epsilon":
-                mse_loss_weights = mse_loss_weights / snr
-            elif noise_scheduler.config.prediction_type == "v_prediction":
-                mse_loss_weights = mse_loss_weights / (snr + 1)
-
-            loss = F.mse_loss(model_pred.float(), target.float(), reduction="none")
-            loss = loss.mean(dim=list(range(1, len(loss.shape)))) * mse_loss_weights
-            loss = loss.mean()
-
-
-        # Gather the losses across all processes for logging (if we use distributed training).
-        avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
-        progress_info.train_loss += avg_loss.detach().item() / args.gradient_accumulation_steps
+        loss = loss_dict["loss"].mean()
 
         # Backpropagate
-        loss.backward()
-        # accelerator.backward(loss)
-        # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1)
-        # if accelerator.sync_gradients:
-        #     params_to_clip = model.parameters()
-        #     accelerator.clip_grad_norm_(params_to_clip, args.max_grad_norm)
-
-        optimizer.reduce_model_grads(dist_args, timers)
-        update_successful, grad_norm, num_zeros_in_grad = optimizer.step(dist_args, timers)
-        if update_successful:
-            optimizer.gather_model_params(dist_args, timers)
-            increment = get_num_microbatches() * \
-                        dist_args.micro_batch_size * \
-                        dist_args.data_parallel_size
-            lr_scheduler.step(increment=increment)
+        accelerator.backward(loss)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1)
+        if accelerator.sync_gradients:
+            params_to_clip = model.parameters()
+            accelerator.clip_grad_norm_(params_to_clip, args.max_grad_norm)
+        optimizer.step()
+        lr_scheduler.step()
+        optimizer.zero_grad()
         if prof is not None:
             prof.step()
 
         avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
         progress_info.train_loss += avg_loss.detach().item() / args.gradient_accumulation_steps
 
-        # if accelerator.sync_gradients:
-        sync_gradients_info(loss)
+        if accelerator.sync_gradients:
+            sync_gradients_info(loss)
 
         if accelerator.is_main_process:
-            # for tracker in accelerator.trackers:
-            #     if tracker.name == "wandb":
-            #         if progress_info.global_step % args.checkpointing_steps != 0:
-            #             if hasattr(model, 'module') and hasattr(model.module.pos_embed, 'temp_embed_gate'):
-            #                 tracker.log(
-            #                     {'temp_embed_gate (tanh)': float(model.module.pos_embed.temp_embed_gate.tanh().item())})
-            #             elif hasattr(model, 'pos_embed') and hasattr(model.pos_embed, 'temp_embed_gate'):
-            #                 tracker.log(
-            #                     {'temp_embed_gate (tanh)': float(model.pos_embed.temp_embed_gate.tanh().item())})
+            for tracker in accelerator.trackers:
+                if tracker.name == "wandb":
+                    if progress_info.global_step % args.checkpointing_steps != 0:
+                        if hasattr(model, 'module') and hasattr(model.module.pos_embed, 'temp_embed_gate'):
+                            tracker.log(
+                                {'temp_embed_gate (tanh)': float(model.module.pos_embed.temp_embed_gate.tanh().item())})
+                        elif hasattr(model, 'pos_embed') and hasattr(model.pos_embed, 'temp_embed_gate'):
+                            tracker.log(
+                                {'temp_embed_gate (tanh)': float(model.pos_embed.temp_embed_gate.tanh().item())})
 
             if progress_info.global_step % args.checkpointing_steps == 0:
 
@@ -686,8 +560,17 @@ def main(args):
 
         return loss
     def train_one_step(step_, data_item_, prof_=None):
+        def get_new_path(video_path):
+            parts = video_path.strip().split(os.sep)
+            path = os.sep.join(parts[-3:]).replace('mp4', 'pkl')
+            return path
         train_loss = 0.0
-        x, attn_mask, input_ids, cond_mask, _ = data_item_
+        progress_info.global_step += 1
+        x, attn_mask, input_ids, cond_mask, video_paths = data_item_
+        video_paths = [get_new_path(_) for _ in video_paths]
+        path_name = os.path.join("/home/local_dataset_6t/panda70m_videos", video_paths[0])
+        if os.path.exists(path_name):
+            return False
         # Sample noise that we'll add to the latents
 
         if not args.multi_scale:
@@ -721,10 +604,29 @@ def main(args):
                 images = rearrange(images, '(b t) c 1 h w -> b c t h w', t=args.use_image_num)
                 x = torch.cat([videos, images], dim=2)   #  b c 17+4, h, w
 
-        with accelerator.accumulate(model):
-            model_kwargs = dict(encoder_hidden_states=cond, attention_mask=attn_mask,
-                                encoder_attention_mask=cond_mask, use_image_num=args.use_image_num)
-            run(x, model_kwargs, prof_)
+        def save_pickle(info, pickle_save_path, file_name):
+            path_name = os.path.join(pickle_save_path, file_name)
+            os.makedirs(os.path.dirname(path_name), exist_ok=True)
+            print(path_name)
+            with open(path_name, 'wb') as file:
+                pickle.dump(info, file, pickle.HIGHEST_PROTOCOL)
+
+        for i in range(args.train_batch_size):
+            file_name = video_paths[i]
+            # print(file_name)
+            videos_info = dict(x=x[i], attention_mask=attn_mask[i])
+            caption_info = dict(encoder_hidden_states=cond[i], encoder_attention_mask=cond_mask[i])
+            # print(x[i].shape, attn_mask[i].shape, cond[i].shape, cond_mask[i].shape)
+            save_pickle(videos_info, "/home/local_dataset_6t/panda70m_videos", file_name)
+            save_pickle(caption_info, "/home/local_dataset_6t/panda70m_captions", file_name)
+
+
+
+
+        # with accelerator.accumulate(model):
+        #     model_kwargs = dict(encoder_hidden_states=cond, attention_mask=attn_mask,
+        #                         encoder_attention_mask=cond_mask, use_image_num=args.use_image_num)
+        #     run(x, model_kwargs, prof_)
 
         if progress_info.global_step >= args.max_train_steps:
             return True
@@ -732,6 +634,7 @@ def main(args):
         return False
 
     def train_all_epoch(prof_=None):
+        args.max_train_steps = len(train_dataset) // args.train_batch_size // 8
         for epoch in range(first_epoch, args.num_train_epochs):
             progress_info.train_loss = 0.0
             if progress_info.global_step >= args.max_train_steps:
@@ -745,6 +648,8 @@ def main(args):
                 if step >= 2 and torch_npu is not None and npu_config is not None:
                     npu_config.free_mm()
 
+    del model
+    del optimizer
     if npu_config is not None and npu_config.on_npu and npu_config.profiling:
         experimental_config = torch_npu.profiler._ExperimentalConfig(
             profiler_level=torch_npu.profiler.ProfilerLevel.Level1,
@@ -768,13 +673,10 @@ def main(args):
         train_all_epoch()
     accelerator.wait_for_everyone()
     accelerator.end_training()
-    # npu_config.save_loss("megatron.log", rank=0)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-
-    # dataset & dataloader
     parser.add_argument("--dataset", type=str, required=True)
     parser.add_argument("--video_data", type=str, required='')
     parser.add_argument("--image_data", type=str, default='')
@@ -785,13 +687,7 @@ if __name__ == "__main__":
     parser.add_argument("--use_img_from_vid", action="store_true")
     parser.add_argument("--use_image_num", type=int, default=0)
     parser.add_argument("--model_max_length", type=int, default=512)
-    parser.add_argument("--multi_scale", action="store_true")
-    parser.add_argument('--cfg', type=float, default=0.1)
-    parser.add_argument("--dataloader_num_workers", type=int, default=10, help="Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process.")
-    parser.add_argument("--train_batch_size", type=int, default=16, help="Batch size (per device) for the training dataloader.")
 
-    # text encoder & vae & diffusion model
-    parser.add_argument("--model", type=str, choices=list(Diffusion_models.keys()), default="Latte-XL/122")
     parser.add_argument('--enable_8bit_t5', action='store_true')
     parser.add_argument('--tile_overlap_factor', type=float, default=0.25)
     parser.add_argument('--enable_tiling', action='store_true')
@@ -802,96 +698,223 @@ if __name__ == "__main__":
     parser.add_argument('--interpolation_scale_h', type=float, default=1.0)
     parser.add_argument('--interpolation_scale_w', type=float, default=1.0)
     parser.add_argument('--interpolation_scale_t', type=float, default=1.0)
-    parser.add_argument("--downsampler", type=str, default=None)
+    parser.add_argument("--ema_start_step", type=int, default=0)
+
+    parser.add_argument("--model", type=str, choices=list(Diffusion_models.keys()), default="Latte-XL/122")
+    parser.add_argument("--pretrained", type=str, default=None)
     parser.add_argument("--ae", type=str, default="stabilityai/sd-vae-ft-mse")
     parser.add_argument("--ae_path", type=str, default="stabilityai/sd-vae-ft-mse")
     parser.add_argument("--text_encoder_name", type=str, default='DeepFloyd/t5-v1_1-xxl')
     parser.add_argument("--cache_dir", type=str, default='./cache_dir')
-    parser.add_argument("--pretrained", type=str, default=None)
-    parser.add_argument("--gradient_checkpointing", action="store_true", help="Whether or not to use gradient checkpointing to save memory at the expense of slower backward pass.")
-    
-    # diffusion setting
-    parser.add_argument("--snr_gamma", type=float, default=None, help="SNR weighting gamma to be used if rebalancing the loss. Recommended value is 5.0. More details here: https://arxiv.org/abs/2303.09556.")
-    parser.add_argument("--use_ema", action="store_true", help="Whether to use EMA model.")
-    parser.add_argument("--ema_start_step", type=int, default=0)
-    parser.add_argument("--noise_offset", type=float, default=0, help="The scale of noise offset.")
-    parser.add_argument("--prediction_type", type=str, default=None, help="The prediction_type that shall be used for training. Choose between 'epsilon' or 'v_prediction' or leave `None`. If left to `None` the default prediction type of the scheduler: `noise_scheduler.config.prediciton_type` is chosen.")
 
-    # validation & logs
     parser.add_argument("--num_sampling_steps", type=int, default=50)
-    parser.add_argument('--guidance_scale', type=float, default=2.5)
+    parser.add_argument('--guidance_scale', type=float, default=5.0)
+    parser.add_argument("--multi_scale", action="store_true")
     parser.add_argument("--enable_tracker", action="store_true")
+    parser.add_argument("--use_deepspeed", action="store_true")
     parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
-    parser.add_argument("--output_dir", type=str, default=None, help="The output directory where the model predictions and checkpoints will be written.")
-    parser.add_argument("--checkpoints_total_limit", type=int, default=None, help=("Max number of checkpoints to store."))
-    parser.add_argument("--checkpointing_steps", type=int, default=500,
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default=None,
+        help="The output directory where the model predictions and checkpoints will be written.",
+    )
+    parser.add_argument(
+        "--train_batch_size", type=int, default=16, help="Batch size (per device) for the training dataloader."
+    )
+    parser.add_argument("--num_train_epochs", type=int, default=100)
+    parser.add_argument(
+        "--max_train_steps",
+        type=int,
+        default=None,
+        help="Total number of training steps to perform.  If provided, overrides num_train_epochs.",
+    )
+    parser.add_argument(
+        "--checkpointing_steps",
+        type=int,
+        default=500,
         help=(
             "Save a checkpoint of the training state every X updates. These checkpoints can be used both as final"
             " checkpoints in case they are better than the last checkpoint, and are also suitable for resuming"
             " training using `--resume_from_checkpoint`."
         ),
     )
-    parser.add_argument("--resume_from_checkpoint", type=str, default=None,
+    parser.add_argument(
+        "--checkpoints_total_limit",
+        type=int,
+        default=None,
+        help=("Max number of checkpoints to store."),
+    )
+    parser.add_argument(
+        "--resume_from_checkpoint",
+        type=str,
+        default=None,
         help=(
             "Whether training should be resumed from a previous checkpoint. Use a path saved by"
             ' `--checkpointing_steps`, or `"latest"` to automatically select the last available checkpoint.'
         ),
     )
-    parser.add_argument("--logging_dir", type=str, default="logs",
-        help=(
-            "[TensorBoard](https://www.tensorflow.org/tensorboard) log directory. Will default to"
-            " *output_dir/runs/**CURRENT_DATETIME_HOSTNAME***."
-        ),
+    parser.add_argument(
+        "--gradient_accumulation_steps",
+        type=int,
+        default=1,
+        help="Number of updates steps to accumulate before performing a backward/update pass.",
     )
-    parser.add_argument("--report_to", type=str, default="tensorboard",
-        help=(
-            'The integration to report the results and logs to. Supported platforms are `"tensorboard"`'
-            ' (default), `"wandb"` and `"comet_ml"`. Use `"all"` to report to all integrations.'
-        ),
+    parser.add_argument(
+        "--gradient_checkpointing",
+        action="store_true",
+        help="Whether or not to use gradient checkpointing to save memory at the expense of slower backward pass.",
     )
-    # optimizer & scheduler
-    parser.add_argument("--num_train_epochs", type=int, default=100)
-    parser.add_argument("--max_train_steps", type=int, default=None, help="Total number of training steps to perform.  If provided, overrides num_train_epochs.")
-    parser.add_argument("--gradient_accumulation_steps", type=int, default=1, help="Number of updates steps to accumulate before performing a backward/update pass.")
-    parser.add_argument("--optimizer", type=str, default="adamW", help='The optimizer type to use. Choose between ["AdamW", "prodigy"]')
-    parser.add_argument("--learning_rate", type=float, default=1e-4, help="Initial learning rate (after the potential warmup period) to use.")
-    parser.add_argument("--scale_lr", action="store_true", default=False, help="Scale the learning rate by the number of GPUs, gradient accumulation steps, and batch size.")
-    parser.add_argument("--lr_warmup_steps", type=int, default=500, help="Number of steps for the warmup in the lr scheduler.")
-    parser.add_argument("--use_8bit_adam", action="store_true", help="Whether or not to use 8-bit Adam from bitsandbytes. Ignored if optimizer is not set to AdamW")
-    parser.add_argument("--adam_beta1", type=float, default=0.9, help="The beta1 parameter for the Adam and Prodigy optimizers.")
-    parser.add_argument("--adam_beta2", type=float, default=0.999, help="The beta2 parameter for the Adam and Prodigy optimizers.")
-    parser.add_argument("--prodigy_decouple", type=bool, default=True, help="Use AdamW style decoupled weight decay")
-    parser.add_argument("--adam_weight_decay", type=float, default=1e-02, help="Weight decay to use for unet params")
-    parser.add_argument("--adam_weight_decay_text_encoder", type=float, default=None, help="Weight decay to use for text_encoder")
-    parser.add_argument("--adam_epsilon", type=float, default=1e-08, help="Epsilon value for the Adam optimizer and Prodigy optimizers.")
-    parser.add_argument("--prodigy_use_bias_correction", type=bool, default=True, help="Turn on Adam's bias correction. True by default. Ignored if optimizer is adamW")
-    parser.add_argument("--prodigy_safeguard_warmup", type=bool, default=True, help="Remove lr from the denominator of D estimate to avoid issues during warm-up stage. True by default. Ignored if optimizer is adamW")
-    parser.add_argument("--max_grad_norm", default=1.0, type=float, help="Max gradient norm.")
-    parser.add_argument("--prodigy_beta3", type=float, default=None,
-        help="coefficients for computing the Prodidy stepsize using running averages. If set to None, "
-        "uses the value of square root of beta2. Ignored if optimizer is adamW",
+    parser.add_argument(
+        "--learning_rate",
+        type=float,
+        default=1e-4,
+        help="Initial learning rate (after the potential warmup period) to use.",
     )
-    parser.add_argument("--lr_scheduler", type=str, default="constant",
+    parser.add_argument(
+        "--scale_lr",
+        action="store_true",
+        default=False,
+        help="Scale the learning rate by the number of GPUs, gradient accumulation steps, and batch size.",
+    )
+    parser.add_argument(
+        "--lr_scheduler",
+        type=str,
+        default="constant",
         help=(
             'The scheduler type to use. Choose between ["linear", "cosine", "cosine_with_restarts", "polynomial",'
             ' "constant", "constant_with_warmup"]'
         ),
     )
-    parser.add_argument("--allow_tf32", action="store_true",
+    parser.add_argument(
+        "--lr_warmup_steps", type=int, default=500, help="Number of steps for the warmup in the lr scheduler."
+    )
+    parser.add_argument(
+        "--timestep_bias_strategy",
+        type=str,
+        default="none",
+        choices=["earlier", "later", "range", "none"],
+        help=(
+            "The timestep bias strategy, which may help direct the model toward learning low or high frequency details."
+            " Choices: ['earlier', 'later', 'range', 'none']."
+            " The default is 'none', which means no bias is applied, and training proceeds normally."
+            " The value of 'later' will increase the frequency of the model's final training timesteps."
+        ),
+    )
+    parser.add_argument(
+        "--timestep_bias_multiplier",
+        type=float,
+        default=1.0,
+        help=(
+            "The multiplier for the bias. Defaults to 1.0, which means no bias is applied."
+            " A value of 2.0 will double the weight of the bias, and a value of 0.5 will halve it."
+        ),
+    )
+    parser.add_argument(
+        "--timestep_bias_begin",
+        type=int,
+        default=0,
+        help=(
+            "When using `--timestep_bias_strategy=range`, the beginning (inclusive) timestep to bias."
+            " Defaults to zero, which equates to having no specific bias."
+        ),
+    )
+    parser.add_argument(
+        "--timestep_bias_end",
+        type=int,
+        default=1000,
+        help=(
+            "When using `--timestep_bias_strategy=range`, the final timestep (inclusive) to bias."
+            " Defaults to 1000, which is the number of timesteps that Stable Diffusion is trained on."
+        ),
+    )
+    parser.add_argument(
+        "--timestep_bias_portion",
+        type=float,
+        default=0.25,
+        help=(
+            "The portion of timesteps to bias. Defaults to 0.25, which 25% of timesteps will be biased."
+            " A value of 0.5 will bias one half of the timesteps. The value provided for `--timestep_bias_strategy` determines"
+            " whether the biased portions are in the earlier or later timesteps."
+        ),
+    )
+    parser.add_argument(
+        "--snr_gamma",
+        type=float,
+        default=None,
+        help="SNR weighting gamma to be used if rebalancing the loss. Recommended value is 5.0. "
+             "More details here: https://arxiv.org/abs/2303.09556.",
+    )
+    parser.add_argument("--use_ema", action="store_true", help="Whether to use EMA model.")
+    parser.add_argument(
+        "--allow_tf32",
+        action="store_true",
         help=(
             "Whether or not to allow TF32 on Ampere GPUs. Can be used to speed up training. For more information, see"
             " https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices"
         ),
     )
-    parser.add_argument("--mixed_precision", type=str, default=None, choices=["no", "fp16", "bf16"],
+    parser.add_argument(
+        "--dataloader_num_workers",
+        type=int,
+        default=10,
+        help=(
+            "Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process."
+        ),
+    )
+    parser.add_argument(
+        "--use_8bit_adam", action="store_true", help="Whether or not to use 8-bit Adam from bitsandbytes."
+    )
+    parser.add_argument("--adam_beta1", type=float, default=0.9, help="The beta1 parameter for the Adam optimizer.")
+    parser.add_argument("--adam_beta2", type=float, default=0.999, help="The beta2 parameter for the Adam optimizer.")
+    parser.add_argument("--adam_weight_decay", type=float, default=1e-2, help="Weight decay to use.")
+    parser.add_argument("--adam_epsilon", type=float, default=1e-08, help="Epsilon value for the Adam optimizer")
+    parser.add_argument("--max_grad_norm", default=1.0, type=float, help="Max gradient norm.")
+    parser.add_argument("--push_to_hub", action="store_true", help="Whether or not to push the model to the Hub.")
+    parser.add_argument("--hub_token", type=str, default=None, help="The token to use to push to the Model Hub.")
+    parser.add_argument(
+        "--prediction_type",
+        type=str,
+        default=None,
+        help="The prediction_type that shall be used for training. Choose between 'epsilon' or 'v_prediction' or leave `None`. If left to `None` the default prediction type of the scheduler: `noise_scheduler.config.prediciton_type` is chosen.",
+    )
+    parser.add_argument(
+        "--hub_model_id",
+        type=str,
+        default=None,
+        help="The name of the repository to keep in sync with the local `output_dir`.",
+    )
+    parser.add_argument(
+        "--logging_dir",
+        type=str,
+        default="logs",
+        help=(
+            "[TensorBoard](https://www.tensorflow.org/tensorboard) log directory. Will default to"
+            " *output_dir/runs/**CURRENT_DATETIME_HOSTNAME***."
+        ),
+    )
+    parser.add_argument(
+        "--report_to",
+        type=str,
+        default="tensorboard",
+        help=(
+            'The integration to report the results and logs to. Supported platforms are `"tensorboard"`'
+            ' (default), `"wandb"` and `"comet_ml"`. Use `"all"` to report to all integrations.'
+        ),
+    )
+    parser.add_argument(
+        "--mixed_precision",
+        type=str,
+        default=None,
+        choices=["no", "fp16", "bf16"],
         help=(
             "Whether to use mixed precision. Choose between fp16 and bf16 (bfloat16). Bf16 requires PyTorch >="
             " 1.10.and an Nvidia Ampere GPU.  Default to the value of accelerate config of the current system or the"
             " flag passed with the `accelerate.launch` command. Use this argument to override the accelerate config."
         ),
     )
-
     parser.add_argument("--local_rank", type=int, default=-1, help="For distributed training: local_rank")
+    parser.add_argument("--noise_offset", type=float, default=0, help="The scale of noise offset.")
 
-    args, _ = parser.parse_known_args()
+    args = parser.parse_args()
     main(args)

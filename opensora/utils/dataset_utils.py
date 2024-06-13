@@ -70,14 +70,16 @@ class Collate:
             batch_tubes_vid = [i['video_data']['video'] for i in batch]  # b [c t h w]
             input_ids_vid = torch.stack([i['video_data']['input_ids'] for i in batch])  # b 1 l
             cond_mask_vid = torch.stack([i['video_data']['cond_mask'] for i in batch])  # b 1 l
+            video_paths = [i['video_data']['video_path'] for i in batch]  # b 1
         if self.num_frames == 1 or self.use_image_num != 0: 
             batch_tubes_img = [j for i in batch for j in i['image_data']['image']]  # b*num_img [c 1 h w]
             input_ids_img = torch.stack([i['image_data']['input_ids'] for i in batch])  # b image_num l
             cond_mask_img = torch.stack([i['image_data']['cond_mask'] for i in batch])  # b image_num l
-        return batch_tubes_vid, input_ids_vid, cond_mask_vid, batch_tubes_img, input_ids_img, cond_mask_img
+            video_paths = []
+        return batch_tubes_vid, input_ids_vid, cond_mask_vid, batch_tubes_img, input_ids_img, cond_mask_img, video_paths
 
     def __call__(self, batch):
-        batch_tubes_vid, input_ids_vid, cond_mask_vid, batch_tubes_img, input_ids_img, cond_mask_img = self.package(batch)
+        batch_tubes_vid, input_ids_vid, cond_mask_vid, batch_tubes_img, input_ids_img, cond_mask_img, video_paths = self.package(batch)
 
         ds_stride = self.ae_stride * self.patch_size
         t_ds_stride = self.ae_stride_t * self.patch_size_t
@@ -108,7 +110,7 @@ class Collate:
             pad_batch_tubes = rearrange(pad_batch_tubes_img, '(b i) c 1 h w -> b c i h w', i=1)
             attention_mask = rearrange(attention_mask_img, '(b i) 1 h w -> b i h w', i=1)
             input_ids, cond_mask = input_ids_img, cond_mask_img  # b 1 l
-        return pad_batch_tubes, attention_mask, input_ids, cond_mask
+        return pad_batch_tubes, attention_mask, input_ids, cond_mask, video_paths
 
     def process(self, batch_tubes, t_ds_stride, ds_stride, max_thw, ae_stride_thw, patch_size_thw, extra_1):
         # pad to max multiple of ds_stride

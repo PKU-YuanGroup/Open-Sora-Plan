@@ -3,19 +3,9 @@ WEIGHT_PATH="/home/opensora/shebin/pre_weights/"
 env
 export WANDB_MODE='offline'
 
-COMMON_TASK_ARGS='--use-distributed-optimizer \
-                  --train-iters 200 \
-                  --micro-batch-size 1 \
-                  --data-parallel-size ${NUM_PROCESSES} \
-                  --lr-decay-style constant \
-                  --accumulate-allreduce-grads-in-fp32 \
-                  --bf16'
-
 accelerate launch \
     --config_file scripts/accelerate_configs/multi_node_example_on_npu.yaml \
-    --machine_rank=${MACHINE_RANK} \
-    --main_process_ip=${MAIN_PROCESS_IP_VALUE} \
-    opensora/train/train_t2v_diffusers.py \
+    opensora/train/train_t2v_data.py \
     --model LatteT2V-S/122 \
     --text_encoder_name ${WEIGHT_PATH}/DeepFloyd/t5-v1_1-xxl \
     --cache_dir "../cache_dir" \
@@ -33,25 +23,18 @@ accelerate launch \
     --interpolation_scale_w 0.5 \
     --attention_mode xformers \
     --gradient_checkpointing \
-    --train_batch_size=1 \
-    --dataloader_num_workers 15 \
+    --train_batch_size=4 \
+    --dataloader_num_workers 10 \
     --gradient_accumulation_steps=1 \
-    --max_train_steps=200 \
+    --max_train_steps=1000000 \
     --learning_rate=4e-5 \
-    --seed=10 \
-    --lr_scheduler="constant" \
+    --lr_scheduler="cosine" \
     --lr_warmup_steps=0 \
     --mixed_precision="bf16" \
     --report_to="wandb" \
-    --checkpointing_steps=250 \
+    --checkpointing_steps=500 \
     --output_dir="/home/image_data/checkpoints/${PROJECT}/" \
     --allow_tf32 \
     --model_max_length 512 \
     --use_image_num 0 \
-    --snr_gamma 5.0 \
-    --use_ema \
-    --ema_start_step 0 \
-    --pretrained "${WEIGHT_PATH}/t2v.pt" \
-    --cfg 0.1 \
-    --resume_from_checkpoint="latest" \
-    $COMMON_TASK_ARGS
+    --enable_tiling
