@@ -20,6 +20,7 @@ from opensora.models.ae import ae_stride_config, getae, getae_wrapper
 from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModelWrapper
 from opensora.models.diffusion.opensora.modeling_opensora import OpenSoraT2V
 from opensora.models.diffusion.latte.modeling_latte import LatteT2V
+from opensora.models.diffusion.udit.modeling_udit import UDiTT2V
 
 from opensora.models.text_encoder import get_text_enc
 from opensora.utils.utils import save_video_grid
@@ -48,9 +49,13 @@ def main(args):
     #     transformer_model = LatteT2V.from_pretrained(args.model_path, subfolder=args.version, cache_dir=args.cache_dir, low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
     
     if args.model_3d:
-        transformer_model = OpenSoraT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
+        # transformer_model = OpenSoraT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, 
+        #                                                 low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
+        transformer_model = UDiTT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, 
+                                                        low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
     else:
-        transformer_model = LatteT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
+        transformer_model = LatteT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, low_cpu_mem_usage=False, 
+                                                     device_map=None, torch_dtype=weight_dtype)
 
     text_encoder = T5EncoderModel.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir, low_cpu_mem_usage=True, torch_dtype=weight_dtype)
     tokenizer = T5Tokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)

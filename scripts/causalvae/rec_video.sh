@@ -1,5 +1,5 @@
 CUDA_VISIBLE_DEVICES=0 python examples/rec_video.py \
-    --ae_path "/storage/dataset/6_10_latent8" \
+    --ae_path "/storage/dataset/test140k" \
     --video_path /storage/dataset/mixkit/Trains/mixkit-train-passing-the-rails-4462_resize1080p.mp4 \
     --rec_path rec.mp4 \
     --device cuda \

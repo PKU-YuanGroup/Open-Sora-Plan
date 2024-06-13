@@ -82,17 +82,17 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
     for prompt in validation_prompt:
         logger.info('Processing the ({}) prompt'.format(prompt))
         video = opensora_pipeline(prompt,
-                                  num_frames=args.num_frames,
-                                  # num_frames=1,
-                                  height=args.max_height,
-                                  width=args.max_width,
-                                  num_inference_steps=args.num_sampling_steps,
-                                  guidance_scale=args.guidance_scale,
-                                  enable_temporal_attentions=True,
-                                  num_images_per_prompt=1,
-                                  mask_feature=True,
-                                  max_sequence_length=50,
-                                  ).images
+                                num_frames=args.num_frames,
+                                # num_frames=1,
+                                height=args.max_height,
+                                width=args.max_width,
+                                num_inference_steps=args.num_sampling_steps,
+                                guidance_scale=args.guidance_scale,
+                                enable_temporal_attentions=True,
+                                num_images_per_prompt=1,
+                                mask_feature=True,
+                                max_sequence_length=150,
+                                ).images
         videos.append(video[0])
     # import ipdb;ipdb.set_trace()
     gc.collect()
@@ -790,7 +790,7 @@ if __name__ == "__main__":
 
     # validation & logs
     parser.add_argument("--num_sampling_steps", type=int, default=50)
-    parser.add_argument('--guidance_scale', type=float, default=2.5)
+    parser.add_argument('--guidance_scale', type=float, default=5.0)
     parser.add_argument("--enable_tracker", action="store_true")
     parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
     parser.add_argument("--output_dir", type=str, default=None, help="The output directory where the model predictions and checkpoints will be written.")

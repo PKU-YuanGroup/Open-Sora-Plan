@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from transformers import T5EncoderModel, CLIPModel, CLIPProcessor
+from transformers import CLIPModel, CLIPProcessor
 
 from opensora.utils.utils import get_precision
 
@@ -9,8 +9,15 @@ class T5Wrapper(nn.Module):
     def __init__(self, args, **kwargs):
         super(T5Wrapper, self).__init__()
         self.model_name = args.text_encoder_name
-        self.text_enc = T5EncoderModel.from_pretrained(self.model_name, cache_dir=args.cache_dir, **kwargs).eval()
-        # self.text_enc = T5EncoderModel.from_pretrained(r'/storage/ongoing/new/Open-Sora-Plan/cache_dir/models--google--umt5-xxl/snapshots/66cb9e7e85526fe440a945569e42c72fb6cbc0ad', cache_dir=args.cache_dir, **kwargs).eval()
+        if 'umt5' in self.model_name:
+            from transformers import UMT5EncoderModel
+            self.text_enc = UMT5EncoderModel.from_pretrained(self.model_name, cache_dir=args.cache_dir, **kwargs).eval()
+        elif 'mt5' in self.model_name:
+            from transformers import MT5EncoderModel
+            self.text_enc = MT5EncoderModel.from_pretrained(self.model_name, cache_dir=args.cache_dir, **kwargs).eval()
+        elif 't5' in self.model_name:
+            from transformers import T5EncoderModel
+            self.text_enc = T5EncoderModel.from_pretrained(self.model_name, cache_dir=args.cache_dir, **kwargs).eval()
 
     def forward(self, input_ids, attention_mask):
         text_encoder_embs = self.text_enc(input_ids=input_ids, attention_mask=attention_mask)['last_hidden_state']
@@ -31,6 +38,9 @@ class CLIPWrapper(nn.Module):
 
 
 text_encoder = {
+    'google/mt5-xl': T5Wrapper,
+    'google/mt5-xxl': T5Wrapper,
+    'google/umt5-xl': T5Wrapper,
     'google/umt5-xxl': T5Wrapper,
     'DeepFloyd/t5-v1_1-xxl': T5Wrapper,
     'openai/clip-vit-large-patch14': CLIPWrapper
