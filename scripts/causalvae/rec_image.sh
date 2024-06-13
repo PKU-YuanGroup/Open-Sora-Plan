@@ -4,5 +4,5 @@ CUDA_VISIBLE_DEVICES=0 python examples/rec_image.py \
     --rec_path rec.jpg \
     --device cuda \
     --short_size 512 \
-    --ae CausalVAEModel_D8_4x8x8 \
+    --ae CausalVAEModel_4x8x8 \
     --enable_tiling

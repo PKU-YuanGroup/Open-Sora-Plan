@@ -4,8 +4,8 @@ CUDA_VISIBLE_DEVICES=0 python examples/rec_video.py \
     --rec_path rec.mp4 \
     --device cuda \
     --sample_rate 1 \
-    --num_frames 61 \
-    --height 512 \
-    --width 512 \
-    --ae CausalVAEModel_D8_4x8x8 \
+    --num_frames 125 \
+    --height 480 \
+    --width 640 \
+    --ae CausalVAEModel_4x8x8 \
     --enable_tiling
