@@ -3,11 +3,15 @@ WEIGHT_PATH="/home/opensora/pre_weights/"
 export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$(pwd)"
 export MASTER_PORT=12359
 
+if [ -z "$SAMPLE_SAVE_PATH" ]; then
+  export SAMPLE_SAVE_PATH="/home/image_data/sample_videos"
+fi
+
 torchrun --nproc_per_node=8 opensora/sample/sample_t2v_on_npu.py \
     --model_path /home/image_data/checkpoints/${PROJECT_NAME} \
     --num_frames ${NUM_FRAME} \
-    --height 240 \
-    --width 320 \
+    --height 480 \
+    --width 640 \
     --cache_dir "./cache_dir" \
     --text_encoder_name ${WEIGHT_PATH}/DeepFloyd/t5-v1_1-xxl \
     --text_prompt examples/prompt_list_0.txt \

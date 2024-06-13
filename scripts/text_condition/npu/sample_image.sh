@@ -3,6 +3,10 @@ WEIGHT_PATH="/home/opensora/pre_weights/"
 export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$(pwd)"
 export MASTER_PORT=12359
 
+if [ -z "$SAMPLE_SAVE_PATH" ]; then
+  export SAMPLE_SAVE_PATH="/home/image_data/sample_videos"
+fi
+
 torchrun --nproc_per_node=8 opensora/sample/sample_t2v_on_npu.py \
     --model_path /home/image_data/checkpoints/${PROJECT_NAME} \
     --num_frames ${NUM_FRAME} \
