@@ -15,7 +15,7 @@ accelerate launch \
     --cache_dir "../cache_dir" \
     --dataset t2v \
     --ae CausalVAEModel_4x8x8 \
-    --ae_path "${WEIGHT_PATH}/test140k/" \
+    --ae_path "${WEIGHT_PATH}/CausalVAEModel_4x8x8_0430/" \
     --video_data "./scripts/train_data/video_data_on_npu.txt" \
     --image_data "./scripts/train_data/image_data_on_npu.txt" \
     --sample_rate 1 \
@@ -27,7 +27,7 @@ accelerate launch \
     --interpolation_scale_w 1.0 \
     --attention_mode xformers \
     --gradient_checkpointing \
-    --train_batch_size=8 \
+    --train_batch_size=4 \
     --dataloader_num_workers 20 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
@@ -37,7 +37,7 @@ accelerate launch \
     --lr_warmup_steps=0 \
     --mixed_precision="bf16" \
     --report_to="wandb" \
-    --checkpointing_steps=1000 \
+    --checkpointing_steps=250 \
     --output_dir="/home/image_data/checkpoints/${PROJECT}/" \
     --allow_tf32 \
     --model_max_length 512 \

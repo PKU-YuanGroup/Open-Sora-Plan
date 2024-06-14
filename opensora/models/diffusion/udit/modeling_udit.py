@@ -476,11 +476,6 @@ class UDiTT2V(ModelMixin, ConfigMixin):
             encoder_attention_mask = (1 - encoder_attention_mask.to(self.dtype)) * -10000.0
 
 
-        if npu_config is not None and attention_mask is not None:
-            attention_bias = npu_config.get_attention_mask(attention_bias, attention_mask.shape[-1])
-            encoder_attention_mask = npu_config.get_attention_mask(encoder_attention_mask, attention_mask.shape[-1])
-
-
         # 1. Input
         added_cond_kwargs = {"resolution": None, "aspect_ratio": None}
         hidden_states, encoder_hidden_states_1, encoder_hidden_states_2, encoder_hidden_states_3, \
@@ -538,10 +533,6 @@ class UDiTT2V(ModelMixin, ConfigMixin):
         # encoder_2
         out_enc_level2 = inp_enc_level2
 
-        if npu_config is not None and attention_mask is not None:
-            attention_bias = npu_config.get_attention_mask(attention_bias, attention_mask.shape[-1])
-            encoder_attention_mask = npu_config.get_attention_mask(encoder_attention_mask[:, 0:1, :], attention_mask.shape[-1])
-
         if self.training and self.gradient_checkpointing:
 
             ckpt_kwargs: Dict[str, Any] = {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
@@ -574,10 +565,6 @@ class UDiTT2V(ModelMixin, ConfigMixin):
         # import ipdb;ipdb.set_trace()
         inp_enc_level3, attention_bias, attention_mask = self.down2_3(out_enc_level2, attention_mask, frame, height, width, pad_h=pad_h_2, pad_w=pad_w_2)
         frame, height, width = frame // 2 if frame != 1 else frame, (height + pad_h_2) // 2, (width + pad_w_2) // 2
-
-        if npu_config is not None and attention_mask is not None:
-            attention_bias = npu_config.get_attention_mask(attention_bias, attention_mask.shape[-1])
-            encoder_attention_mask = npu_config.get_attention_mask(encoder_attention_mask[:, 0:1, :], attention_mask.shape[-1])
 
         # latent
         latent = inp_enc_level3
@@ -618,10 +605,6 @@ class UDiTT2V(ModelMixin, ConfigMixin):
         inp_dec_level2 = self.reduce_chan_level2(inp_dec_level2)
         out_dec_level2 = inp_dec_level2
 
-        if npu_config is not None and attention_mask is not None:
-            attention_bias = npu_config.get_attention_mask(attention_bias, attention_mask.shape[-1])
-            encoder_attention_mask = npu_config.get_attention_mask(encoder_attention_mask[:, 0:1, :], attention_mask.shape[-1])
-
         if self.training and self.gradient_checkpointing:
 
             ckpt_kwargs: Dict[str, Any] = {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
@@ -658,10 +641,6 @@ class UDiTT2V(ModelMixin, ConfigMixin):
         inp_dec_level1 = torch.cat([inp_dec_level1, out_enc_level1], 2)
         inp_dec_level1 = self.reduce_chan_level1(inp_dec_level1)
         out_dec_level1 = inp_dec_level1
-
-        if npu_config is not None and attention_mask is not None:
-            attention_bias = npu_config.get_attention_mask(attention_bias, attention_mask.shape[-1])
-            encoder_attention_mask = npu_config.get_attention_mask(encoder_attention_mask[:, 0:1, :], attention_mask.shape[-1])
 
         if self.training and self.gradient_checkpointing:
 
@@ -796,8 +775,8 @@ def UDiTT2V_L_211(**kwargs):
                    mlp_ratio=2, norm_type="ada_norm_single", caption_channels=2048, **kwargs)
 
 def UDiTT2V_L_122(**kwargs):
-    return UDiTT2V(depth=[4, 8, 12, 8, 4], attention_head_dim=32, num_attention_heads=24, patch_size_t=1, patch_size=2, 
-                   mlp_ratio=2, norm_type="ada_norm_single", caption_channels=2048, **kwargs)
+    return UDiTT2V(depth=[4, 8, 12, 8, 4], attention_head_dim=32, num_attention_heads=24, patch_size_t=1, patch_size=2,
+                   mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
 
 def UDiTT2V_L_222(**kwargs):
     return UDiTT2V(depth=[4, 8, 12, 8, 4], attention_head_dim=32, num_attention_heads=24, patch_size_t=2, patch_size=2, 

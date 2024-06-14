@@ -252,6 +252,16 @@ class NPUConfig:
     def run_pool_2d(self, operator, x):
         return self._run(operator, x, torch.float16)
 
+    def run_pad_2d(self, operator, x, pad, mode="constant"):
+        if self.on_npu:
+            x_dtype = x.dtype
+            x = x.to(torch.float16)
+            x = operator(x, pad, mode)
+            x = x.to(x_dtype)
+        else:
+            x = operator(x, pad, mode)
+        return x
+
     def seed_everything(self, seed=100):
         seed += self.rank
         random.seed(seed)

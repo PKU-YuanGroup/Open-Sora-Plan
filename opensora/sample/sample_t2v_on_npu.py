@@ -19,6 +19,7 @@ import os, sys
 
 from opensora.models.ae import ae_stride_config, getae, getae_wrapper
 from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModelWrapper
+from opensora.models.diffusion.udit.modeling_udit import UDiTT2V
 from opensora.models.diffusion.opensora.modeling_opensora import OpenSoraT2V
 from opensora.models.diffusion.latte.modeling_latte import LatteT2V
 
@@ -37,7 +38,7 @@ from opensora.npu_config import npu_config
 
 def load_t2v_checkpoint(model_path):
     if args.model_3d:
-        transformer_model = OpenSoraT2V.from_pretrained(model_path, cache_dir=args.cache_dir,
+        transformer_model = UDiTT2V.from_pretrained(model_path, cache_dir=args.cache_dir,
                                                         low_cpu_mem_usage=False, device_map=None,
                                                         torch_dtype=weight_dtype)
     else:
@@ -86,7 +87,7 @@ def run_model_and_save_images(pipeline, model_path):
                           num_images_per_prompt=1,
                           mask_feature=True,
                           device=args.device,
-                          max_sequence_length=100,
+                          max_sequence_length=512,
                           ).images
         print(videos.shape)
         try:
