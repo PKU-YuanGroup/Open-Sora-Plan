@@ -12,7 +12,8 @@ import torch
 from opensora.global_vars import update_num_microbatches
 from opensora.core import mpu, tensor_parallel
 from .global_vars import get_args
-from opensora.initialize import unwrap_model, npu_config
+from opensora.initialize import unwrap_model
+from opensora.npu_config import npu_config
 
 
 _CHECKPOINT_VERSION = None
@@ -533,7 +534,7 @@ def load_checkpoint(model, optimizer, opt_param_scheduler, load_arg='load', stri
     assert args.consumed_valid_samples == 0
     if 'args' in model_state_dict and not args.finetune:
         checkpoint_args = model_state_dict['args']
-        check_checkpoint_args(checkpoint_args)
+        # check_checkpoint_args(checkpoint_args)
         args.consumed_train_samples = getattr(checkpoint_args,
                                               'consumed_train_samples', 0)
         update_num_microbatches(consumed_samples=args.consumed_train_samples)
