@@ -1,0 +1,11 @@
+CUDA_VISIBLE_DEVICES=0 python examples/rec_video.py \
+    --ae_path "/storage/dataset/test140k" \
+    --video_path /storage/dataset/mixkit/Trains/mixkit-train-passing-the-rails-4462_resize1080p.mp4 \
+    --rec_path rec.mp4 \
+    --device cuda \
+    --sample_rate 1 \
+    --num_frames 125 \
+    --height 480 \
+    --width 640 \
+    --ae CausalVAEModel_4x8x8 \
+    --enable_tiling

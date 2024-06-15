@@ -27,6 +27,10 @@ from deepspeed.checkpoint.constants import (DS_VERSION, PARTITION_COUNT, BASE_OP
 setattr(sys.modules[__name__], 'fragment_address', fragment_address)
 
 
+def contigous_flatten(tensors):
+    return _flatten_dense_tensors([tensor.contiguous() for tensor in tensors])
+
+
 class BF16_Optimizer(ZeROOptimizer):
 
     def __init__(self,
@@ -40,7 +44,10 @@ class BF16_Optimizer(ZeROOptimizer):
                  timers=None,
                  grad_acc_dtype=None,
                  graph_harvesting=False):
-        super().__init__()
+        # super().__init__()
+        # base_class = ZeROOptimizer.__bases__[0]
+        # # 直接调用基类的 __init__ 方法
+        # base_class.__init__()
         see_memory_usage('begin bf16_optimizer', force=True)
         self.timers = timers
         self.optimizer = init_optimizer
@@ -60,12 +67,11 @@ class BF16_Optimizer(ZeROOptimizer):
         self.real_dp_process_group = [dp_process_group for i in range(len(self.optimizer.param_groups))]
 
         # Use torch (un)flatten ops
-        self.flatten = _flatten_dense_tensors
+        self.flatten = contigous_flatten
         self.unflatten = _unflatten_dense_tensors
 
         #align nccl all-gather send buffers to 4-bye boundary
         self.nccl_start_alignment_factor = 512
-        print("Set nccl_start_alignment_factor = 52...")# 4-byte alignment/sizeof(fp16) = 2
 
         # Build BF16/FP32 groups
         self.bf16_groups = []

@@ -6,6 +6,7 @@ from .block import Block
 from .ops import cast_tuple
 from einops import rearrange
 from .ops import video_to_image
+from torch.utils.checkpoint import checkpoint
 try:
     import torch_npu
     from opensora.npu_config import npu_config
@@ -113,3 +114,16 @@ class CausalConv3d(nn.Module):
             )  # b c t h w
             x = torch.concatenate((first_frame_pad, x), dim=2)  # 3 + 16
             return self.conv(x)
+        
+
+
+class CausalConv3d_GC(CausalConv3d):
+    def __init__(self, chan_in, chan_out, kernel_size: Union[int, Tuple[int]], init_method="random", **kwargs):
+        super().__init__(chan_in, chan_out, kernel_size, init_method, **kwargs)
+    def forward(self, x):
+        # 1 + 16   16 as video, 1 as image
+        first_frame_pad = x[:, :, :1, :, :].repeat(
+            (1, 1, self.time_kernel_size - 1, 1, 1)
+        )   # b c t h w
+        x = torch.concatenate((first_frame_pad, x), dim=2)  # 3 + 16
+        return checkpoint(self.conv, x)

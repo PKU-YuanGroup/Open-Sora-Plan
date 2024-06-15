@@ -77,4 +77,4 @@ class VideoBaseAE_PL(pl.LightningModule, ModelMixin, ConfigMixin):
             model.init_from_ckpt(last_ckpt_file)
             return model
         else:
-            return super().from_pretrained(pretrained_model_name_or_path, **kwargs)
+            return super().from_pretrained(pretrained_model_name_or_path, low_cpu_mem_usage=False, device_map=None, **kwargs)

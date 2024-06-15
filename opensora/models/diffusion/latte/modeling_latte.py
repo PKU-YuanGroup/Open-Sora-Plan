@@ -94,6 +94,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
             interpolation_scale_h: float = None,
             interpolation_scale_w: float = None,
             interpolation_scale_t: float = None,
+            downsampler: str = None,
     ):
         super().__init__()
         self.interpolation_scale_t = interpolation_scale_t
@@ -638,14 +639,12 @@ def LatteT2V_L_122(**kwargs):
 Latte_models = {
     "LatteT2V-S/122": LatteT2V_S_122,
     # "LatteT2V-D64-XL/122": LatteT2V_D64_XL_122,
-    # "LatteT2V/122": LatteT2V_122,
     "LatteT2V-L/122": LatteT2V_L_122,
 }
 
 Latte_models_class = {
     "LatteT2V-S/122": LatteT2V,
     # "LatteT2V-D64-XL/122": LatteT2V_D64_XL_122,
-    "LatteT2V/122": LatteT2V,
     "LatteT2V-L/122": LatteT2V,
 }
 
@@ -679,7 +678,7 @@ if __name__ == '__main__':
         num_frames = args.num_frames // ae_stride_t
 
     device = torch.device('cuda:6')
-    model = LatteT2V_L_122(
+    model = LatteT2V_S_122(
         in_channels=ae_channel_config[args.ae],
         out_channels=ae_channel_config[args.ae] * 2,
         # caption_channels=4096,
@@ -705,30 +704,26 @@ if __name__ == '__main__':
     ).to(device)
 
     try:
-        path = "/storage/ongoing/Open-Sora-Plan/testimg_/checkpoint-100/model/diffusion_pytorch_model.safetensors"
-        from safetensors.torch import load_file as safe_load
-        ckpt = safe_load(path, device="cpu")
-        # import ipdb;ipdb.set_trace()
-        new_ckpt = {}
-        for k, v in ckpt.items():
-            if 'transformer_blocks' in k:
-                split = k.split('.')
-                idx = int(split[1])
-                if idx % 2 == 0:
-                    split[1] = str(idx//2)
-                else:
-                    split[0] = 'temporal_transformer_blocks'
-                    split[1] = str((idx-1)//2)
-                new_k = '.'.join(split)
-            else:
-                new_k = k
-            new_ckpt[new_k] = v
+        path = "/storage/t2v.pt"
+        # from safetensors.torch import load_file as safe_load
+        # ckpt = safe_load(path, device="cpu")
+        # new_ckpt = {}
+        # for k, v in ckpt.items():
+        #     if 'transformer_blocks' in k:
+        #         split = k.split('.')
+        #         idx = int(split[1])
+        #         if idx % 2 == 0:
+        #             split[1] = str(idx//2)
+        #         else:
+        #             split[0] = 'temporal_transformer_blocks'
+        #             split[1] = str((idx-1)//2)
+        #         new_k = '.'.join(split)
+        #     else:
+        #         new_k = k
+        #     new_ckpt[new_k] = v
 
-        # import ipdb;ipdb.set_trace()
-        # if ckpt['pos_embed.proj.weight'].shape != model.pos_embed.proj.weight.shape and ckpt['pos_embed.proj.weight'].ndim == 4:
-        #     repeat = model.pos_embed.proj.weight.shape[2]
-        #     ckpt['pos_embed.proj.weight'] = ckpt['pos_embed.proj.weight'].unsqueeze(2).repeat(1, 1, repeat, 1, 1) / float(repeat)
-        #     del ckpt['proj_out.weight'], ckpt['proj_out.bias']
+        new_ckpt = torch.load(path)['model']
+        import ipdb;ipdb.set_trace()
         msg = model.load_state_dict(new_ckpt, strict=False)
         print(msg)
     except Exception as e:

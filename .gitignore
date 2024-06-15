@@ -31,11 +31,11 @@ private*
 caption*
 .deepspeed_env
 256*
-sample*
+sample_images/
 taming*
 *test*
 sft*
 flash*
 65x256*
 alpha_vae
-new_bs32*
+*bs32*

@@ -124,8 +124,8 @@ class T2V_dataset(Dataset):
             # 打印异常堆栈
             if idx in self.vid_cap_list:
                 print(f"Caught an exception! {self.vid_cap_list[idx]}")
-            traceback.print_exc()
-            traceback.print_stack()
+            # traceback.print_exc()
+            # traceback.print_stack()
             return self.__getitem__(random.randint(0, self.__len__() - 1))
 
     def get_video(self, idx):

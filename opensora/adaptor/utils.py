@@ -967,8 +967,8 @@ def all_gather_into_tensor_dp_groups(groups_flat, partitioned_param_groups, dp_p
 
 def all_gather_dp_groups(groups_flat, partitioned_param_groups, dp_process_group, start_alignment_factor,
                          allgather_bucket_size):
-    if dist.has_all_gather_into_tensor():
-        return all_gather_into_tensor_dp_groups(groups_flat, partitioned_param_groups, dp_process_group)
+    # if dist.has_all_gather_into_tensor():
+    #     return all_gather_into_tensor_dp_groups(groups_flat, partitioned_param_groups, dp_process_group)
 
     for group_id, partitioned_params in enumerate(partitioned_param_groups):
         # Sequential AllGather Best of both worlds
@@ -1000,8 +1000,7 @@ def all_gather_dp_groups(groups_flat, partitioned_param_groups, dp_process_group
                 curr_shard = partitioned_params[dp_id].narrow(0, shard_id * shard_size, num_elements).detach()
                 shard_list.append(curr_shard)
 
-
-            dist.all_gather(shard_list, shard_list[partition_id], dp_process_group[group_id])
+            dist.all_gather(shard_list, shard_list[partition_id].contiguous(), dp_process_group[group_id])
 
 
 class TLinear(torch.nn.Linear):

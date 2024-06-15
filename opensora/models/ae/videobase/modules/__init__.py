@@ -9,7 +9,7 @@ from .attention import (
 )
 from .conv import CausalConv3d, Conv2d
 from .normalize import GroupNorm, Normalize
-from .resnet_block import ResnetBlock2D, ResnetBlock3D
+from .resnet_block import ResnetBlock2D, ResnetBlock3D, ResnetBlock3D_GC
 from .updownsample import (
     SpatialDownsample2x,
     SpatialUpsample2x,
@@ -20,5 +20,9 @@ from .updownsample import (
     TimeDownsampleRes2x,
     TimeUpsampleRes2x,
     TimeDownsampleResAdv2x,
-    TimeUpsampleResAdv2x
+    TimeUpsampleResAdv2x, 
+    Spatial2x3DDownsample,
+    Spatial2x3DUpsample,
+    Spatial2xTime2x3DDownsample,
+    Spatial2xTime2x3DUpsample
 )
