@@ -13,7 +13,7 @@ def parse_args(extra_args_provider=None, ignore_unknown_args=False):
                                      allow_abbrev=False)
 
     # Standard arguments.
-    parser = _add_network_size_args(parser)
+    # parser = _add_network_size_args(parser)
     parser = _add_regularization_args(parser)
     parser = _add_training_args(parser)
     parser = _add_initialization_args(parser)
@@ -21,14 +21,14 @@ def parse_args(extra_args_provider=None, ignore_unknown_args=False):
     parser = _add_checkpointing_args(parser)
     parser = _add_mixed_precision_args(parser)
     parser = _add_distributed_args(parser)
-    parser = _add_validation_args(parser)
-    parser = _add_data_args(parser)
+    # parser = _add_validation_args(parser)
+    # parser = _add_data_args(parser)
     parser = _add_autoresume_args(parser)
-    parser = _add_biencoder_args(parser)
-    parser = _add_vision_args(parser)
+    # parser = _add_biencoder_args(parser)
+    # parser = _add_vision_args(parser)
     parser = _add_logging_args(parser)
-    parser = _add_inference_args(parser)
-    parser = _add_transformer_engine_args(parser)
+    # parser = _add_inference_args(parser)
+    # parser = _add_transformer_engine_args(parser)
 
     # Custom arguments.
     if extra_args_provider is not None:
@@ -306,16 +306,16 @@ def validate_args(args, defaults={}):
             'pytorch version is v%s.%s.' % (TORCH_MAJOR, TORCH_MINOR)
 
     # Tranformer-Engine/FP8 related checking
-    if args.fp8_e4m3 or args.fp8_hybrid:
-        assert args.transformer_impl == 'transformer_engine', \
-            'transformer-engine required for fp8 training and inference'
+    # if args.fp8_e4m3 or args.fp8_hybrid:
+    #     assert args.transformer_impl == 'transformer_engine', \
+    #         'transformer-engine required for fp8 training and inference'
+    #
+    # assert not (args.fp8_e4m3 and args.fp8_hybrid), \
+    #     'cannot train with both fp8 e4m3 and hybrid formatting'
 
-    assert not (args.fp8_e4m3 and args.fp8_hybrid), \
-        'cannot train with both fp8 e4m3 and hybrid formatting'
-
-    if args.fp16:
-        assert args.transformer_impl == 'local', \
-            'transformer-engine not yet approved for fp16 training and inference'
+    # if args.fp16:
+    #     assert args.transformer_impl == 'local', \
+    #         'transformer-engine not yet approved for fp16 training and inference'
 
     if args.recompute_granularity == 'selective':
         assert args.recompute_method is None, \

@@ -155,7 +155,7 @@ def main(args):
 
     if torch_npu is not None and npu_config is not None:
         npu_config.print_msg(args)
-        npu_config.seed_everything()
+        npu_config.seed_everything(args.seed)
     accelerator_project_config = ProjectConfiguration(project_dir=args.output_dir, logging_dir=logging_dir)
 
     accelerator = Accelerator(
@@ -345,7 +345,7 @@ def main(args):
                 args.learning_rate * args.gradient_accumulation_steps * args.train_batch_size * accelerator.num_processes
         )
 
-    params_to_optimize = model.parameters()
+    # params_to_optimize = model.parameters()
     # Optimizer creation
     # if not (args.optimizer.lower() == "prodigy" or args.optimizer.lower() == "adamw"):
     #     logger.warning(
@@ -431,6 +431,18 @@ def main(args):
     #     num_training_steps=args.max_train_steps * args.gradient_accumulation_steps,
     # )
 
+    from opensora.initialize import initialize_megatron
+    initialize_megatron()
+    from opensora.global_vars import get_args, get_timers, get_num_microbatches
+    dist_args = get_args()
+    timers = get_timers()
+    from opensora.optimizer import get_megatron_optimizer, get_optimizer_param_scheduler
+    from opensora.model import DistributedDataParallel as LocalDDP
+    model.to(weight_dtype).to(accelerator.device)
+    model = LocalDDP(model, dist_args.accumulate_allreduce_grads_in_fp32, dist_args.use_contiguous_buffers_in_local_ddp)
+    optimizer = get_megatron_optimizer([model], no_weight_decay_cond=None, scale_lr_cond=None, lr_mult=1.0)
+    lr_scheduler = get_optimizer_param_scheduler(optimizer)
+
     # Prepare everything with our `accelerator`.
     # model, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
     #     model, optimizer, train_dataloader, lr_scheduler
@@ -515,7 +527,7 @@ def main(args):
         progress_info.global_step += 1
         end_time = time.time()
         one_step_duration = end_time - start_time
-        accelerator.log({"train_loss": progress_info.train_loss}, step=progress_info.global_step)
+        npu_config.print_with_rank({"train_loss": progress_info.train_loss}, rank=0, save=True)
         if torch_npu is not None and npu_config is not None:
             # npu_config.print_with_rank(f"train_loss={progress_info.train_loss}", rank=0, save=True)
             npu_config.print_msg(f"Step: [{progress_info.global_step}], local_loss={loss.detach().item()}, "
@@ -676,7 +688,7 @@ def main(args):
 
     def train_one_step(step_, data_item_, prof_=None):
         train_loss = 0.0
-        x, attn_mask, input_ids, cond_mask = data_item_
+        x, attn_mask, input_ids, cond_mask, _ = data_item_
         # Sample noise that we'll add to the latents
 
         if not args.multi_scale:

@@ -15,7 +15,7 @@ from opensora.core import mpu, tensor_parallel
 from opensora.model import DistributedDataParallel as LocalDDP
 from opensora.model import Float16Module
 from opensora.model.module import param_is_not_shared
-from opensora.npu_config import unwrap_model
+from opensora.initialize import unwrap_model
 from opensora.npu_config import npu_config
 
 from .clip_grads import clip_grad_norm_fp32, count_zeros_fp32

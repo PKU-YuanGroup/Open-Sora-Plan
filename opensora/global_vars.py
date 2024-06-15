@@ -70,14 +70,38 @@ def set_global_variables(args):
 
     _ensure_var_is_not_initialized(_GLOBAL_ARGS, 'args')
     set_args(args)
+
     _build_num_microbatches_calculator(args)
+    # if args.vocab_file:
+    #     _ = _build_tokenizer(args)
+    # _set_tensorboard_writer(args)
+    _set_adlr_autoresume(args)
     _set_timers(args)
+
+    # if args.exit_signal_handler:
+    #     _set_signal_handler()
     
 
 def set_args(args):
     global _GLOBAL_ARGS
     _GLOBAL_ARGS = args
 
+def _set_adlr_autoresume(args):
+    """Initialize ADLR autoresume."""
+    global _GLOBAL_ADLR_AUTORESUME
+    _ensure_var_is_not_initialized(_GLOBAL_ADLR_AUTORESUME, 'adlr autoresume')
+
+    if args.adlr_autoresume:
+        if args.rank == 0:
+            print('enabling autoresume ...', flush=True)
+        sys.path.append(os.environ.get('SUBMIT_SCRIPTS', '.'))
+        try:
+            from userlib.auto_resume import AutoResume
+        except BaseException:
+            print('ADLR autoresume is not available, exiting ...')
+            sys.exit()
+
+        _GLOBAL_ADLR_AUTORESUME = AutoResume
 
 def _set_timers(args):
     """Initialize timers."""

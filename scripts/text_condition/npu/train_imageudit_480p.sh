@@ -5,8 +5,21 @@ export WANDB_MODE='offline'
 export HCCL_OP_BASE_FFTS_MODE_ENABLE=TRUE
 export HCCL_ALGO="level0:NA;level1:H-D_R"
 
+batch_size=8
+max_train_steps=1000000
+save_checkpoint="/home/image_data/checkpoints/${PROJECT}"
+COMMON_TASK_ARGS="--use-distributed-optimizer \
+                  --train-iters ${max_train_steps} \
+                  --micro-batch-size ${batch_size} \
+                  --data-parallel-size ${NUM_PROCESSES} \
+                  --lr-decay-style cosine \
+                  --accumulate-allreduce-grads-in-fp32 \
+                  --save ${save_checkpoint} \
+                  --load ${save_checkpoint} \
+                  --bf16"
+
 accelerate launch \
-    --config_file scripts/accelerate_configs/multi_node_example_by_deepspeed.yaml \
+    --config_file scripts/accelerate_configs/multi_node_example_by_ddp.yaml \
     --machine_rank=${MACHINE_RANK} \
     --main_process_ip=${MAIN_PROCESS_IP_VALUE} \
     opensora/train/train_t2v_diffusers.py \
@@ -27,10 +40,10 @@ accelerate launch \
     --interpolation_scale_w 1.0 \
     --attention_mode xformers \
     --gradient_checkpointing \
-    --train_batch_size=4 \
-    --dataloader_num_workers 20 \
+    --train_batch_size=${batch_size} \
+    --dataloader_num_workers 16 \
     --gradient_accumulation_steps=1 \
-    --max_train_steps=1000000 \
+    --max_train_steps=${max_train_steps} \
     --learning_rate=1e-4 \
     --lr_scheduler="cosine" \
     --seed=10 \
@@ -38,7 +51,7 @@ accelerate launch \
     --mixed_precision="bf16" \
     --report_to="wandb" \
     --checkpointing_steps=250 \
-    --output_dir="/home/image_data/checkpoints/${PROJECT}/" \
+    --output_dir=${save_checkpoint} \
     --allow_tf32 \
     --model_max_length 512 \
     --use_image_num 0 \
@@ -48,4 +61,5 @@ accelerate launch \
     --cfg 0.1 \
     --noise_offset 0.02 \
     --downsampler "k33_s22"  \
-    --resume_from_checkpoint="latest"
+    --resume_from_checkpoint="latest" \
+    ${COMMON_TASK_ARGS}

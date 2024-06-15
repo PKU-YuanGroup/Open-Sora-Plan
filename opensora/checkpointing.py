@@ -12,7 +12,7 @@ import torch
 from opensora.global_vars import update_num_microbatches
 from opensora.core import mpu, tensor_parallel
 from .global_vars import get_args
-from opensora.npu_config import unwrap_model, npu_config
+from opensora.initialize import unwrap_model, npu_config
 
 
 _CHECKPOINT_VERSION = None

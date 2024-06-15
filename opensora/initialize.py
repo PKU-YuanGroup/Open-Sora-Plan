@@ -13,8 +13,23 @@ from datetime import timedelta
 from opensora.global_vars import get_args
 from opensora.core import mpu, tensor_parallel
 from opensora.arguments import (parse_args, validate_args)
-from opensora.global_vars import set_global_variables
+from opensora.global_vars import set_global_variables, get_adlr_autoresume
 
+from torch.nn.parallel import DistributedDataParallel as torchDDP
+
+def unwrap_model(model, module_instances=(torchDDP)):
+    return_list = True
+    if not isinstance(model, list):
+        model = [model]
+        return_list = False
+    unwrapped_model = []
+    for model_module in model:
+        while isinstance(model_module, module_instances):
+            model_module = model_module.module
+        unwrapped_model.append(model_module)
+    if not return_list:
+        return unwrapped_model[0]
+    return unwrapped_model
 
 def initialize_megatron(extra_args_provider=None, args_defaults={},
                         ignore_unknown_args=True, allow_no_cuda=False):
@@ -55,7 +70,7 @@ def initialize_megatron(extra_args_provider=None, args_defaults={},
         _set_random_seed(args.seed, args.data_parallel_random_init)
 
     args = get_args()
-    if  args.lazy_mpu_init:
+    if args.lazy_mpu_init:
         # TODO is this still a necessary option?
         args.use_cpu_initialization=True
         # delayed initialization of DDP-related stuff
@@ -70,7 +85,7 @@ def initialize_megatron(extra_args_provider=None, args_defaults={},
         finish_mpu_init()
 
         # Autoresume.
-        # _init_autoresume()
+        _init_autoresume()
 
         # Compile dependencies.
         # _compile_dependencies()
