@@ -1,14 +1,14 @@
 CUDA_VISIBLE_DEVICES=2 python opensora/sample/sample_t2v.py \
-    --model_path /storage/ongoing/new/Open-Sora-Plan/bs32_2node_480p_lr1e-4_snr5_ema_ps11_ds11_udit22_umt5/checkpoint-19000/model \
+    --model_path /storage/ongoing/new/Open-Sora-Plan/bs8_4node_480p_lr1e-4_snr5_noioff0.02_ema_udit22_ds22_qknorm_mt5xxl/checkpoint-8000/model \
     --version 65x512x512 \
     --num_frames 1 \
     --height 480 \
     --width 640 \
     --cache_dir "cache_dir" \
-    --text_encoder_name google/umt5-xxl \
+    --text_encoder_name google/mt5-xxl \
     --text_prompt examples/prompt_list_0.txt \
     --ae CausalVAEModel_4x8x8 \
-    --ae_path "/storage/CausalVAEModel_4x8x8" \
+    --ae_path "/storage/dataset/test140k" \
     --save_img_path "./sample_image480p_ps22_ds11_udit_ckpt19k" \
     --fps 24 \
     --guidance_scale 5.0 \

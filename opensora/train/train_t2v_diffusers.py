@@ -58,6 +58,7 @@ from opensora.models.ae import ae_stride_config, ae_channel_config
 from opensora.models.diffusion import Diffusion_models, Diffusion_models_class
 from opensora.sample.pipeline_opensora import OpenSoraPipeline
 
+
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 check_min_version("0.24.0")
 logger = get_logger(__name__)
@@ -66,14 +67,13 @@ logger = get_logger(__name__)
 @torch.inference_mode()
 def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weight_dtype, global_step, ema=False):
     validation_prompt = [
-        '在游泳馆里充当救生员的戴眼镜的猫',
-        '在珊瑚礁旁边游过一只海龟',
+        "a word \"你好\" in the blackboard", 
         "a cat wearing sunglasses and working as a lifeguard at pool.",
         "A serene underwater scene featuring a sea turtle swimming through a coral reef. The turtle, with its greenish-brown shell, is the main focus of the video, swimming gracefully towards the right side of the frame. The coral reef, teeming with life, is visible in the background, providing a vibrant and colorful backdrop to the turtle's journey. Several small fish, darting around the turtle, add a sense of movement and dynamism to the scene."
         ]
     logger.info(f"Running validation....\n")
     model = accelerator.unwrap_model(model)
-    scheduler = DDPMScheduler()
+    scheduler = DPMSolverMultistepScheduler()
     opensora_pipeline = OpenSoraPipeline(vae=vae,
                                          text_encoder=text_encoder,
                                          tokenizer=tokenizer,
@@ -268,10 +268,10 @@ def main(args):
             from safetensors.torch import load_file as safe_load
             # import ipdb;ipdb.set_trace()
             checkpoint = safe_load(args.pretrained, device="cpu")
-            if checkpoint['pos_embed.proj.weight'].shape != model.pos_embed.proj.weight.shape and checkpoint['pos_embed.proj.weight'].ndim == 4:
-                logger.info(f"Resize pos_embed, {checkpoint['pos_embed.proj.weight'].shape} -> {model.pos_embed.proj.weight.shape}")
-                repeat = model.pos_embed.proj.weight.shape[2]
-                checkpoint['pos_embed.proj.weight'] = checkpoint['pos_embed.proj.weight'].unsqueeze(2).repeat(1, 1, repeat, 1, 1) / float(repeat)
+            # if checkpoint['pos_embed.proj.weight'].shape != model.pos_embed.proj.weight.shape and checkpoint['pos_embed.proj.weight'].ndim == 4:
+            #     logger.info(f"Resize pos_embed, {checkpoint['pos_embed.proj.weight'].shape} -> {model.pos_embed.proj.weight.shape}")
+            #     repeat = model.pos_embed.proj.weight.shape[2]
+            #     checkpoint['pos_embed.proj.weight'] = checkpoint['pos_embed.proj.weight'].unsqueeze(2).repeat(1, 1, repeat, 1, 1) / float(repeat)
                 # del checkpoint['proj_out.weight'], checkpoint['proj_out.bias']
         else:  # latest stage training weight
             checkpoint = torch.load(args.pretrained, map_location='cpu')['model']
@@ -289,8 +289,8 @@ def main(args):
     noise_scheduler = DDPMScheduler()
     # Move unet, vae and text_encoder to device and cast to weight_dtype
     # The VAE is in float32 to avoid NaN losses.
-    # ae.to(accelerator.device, dtype=torch.float32)
-    ae.vae.to(accelerator.device, dtype=weight_dtype)
+    ae.vae.to(accelerator.device, dtype=torch.float32)
+    # ae.vae.to(accelerator.device, dtype=weight_dtype)
     text_enc.to(accelerator.device, dtype=weight_dtype)
 
     # Create EMA for the unet.
@@ -410,10 +410,11 @@ def main(args):
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
         shuffle=True,
-        pin_memory=True,
+        # pin_memory=True,
         collate_fn=Collate(args),
         batch_size=args.train_batch_size,
         num_workers=args.dataloader_num_workers,
+        prefetch_factor=8
     )
 
     # Scheduler and math around the number of training steps.
@@ -565,6 +566,7 @@ def main(args):
 
         # Add noise to the model input according to the noise magnitude at each timestep
         # (this is the forward diffusion process)
+
         noisy_model_input = noise_scheduler.add_noise(model_input, noise, timesteps)
 
         model_pred = model(
@@ -665,7 +667,9 @@ def main(args):
 
         if not args.multi_scale:
             assert torch.all(attn_mask)
-        x = x.to(accelerator.device, dtype=weight_dtype)  # B C T+num_images H W, 16 + 4
+        assert not torch.any(torch.isnan(x)), 'torch.any(torch.isnan(x))'
+        x = x.to(accelerator.device, dtype=ae.vae.dtype)  # B C T+num_images H W, 16 + 4
+
         attn_mask = attn_mask.to(accelerator.device)  # B T+num_images H W
         input_ids = input_ids.to(accelerator.device)  # B 1+num_images L
         cond_mask = cond_mask.to(accelerator.device)  # B 1+num_images L
@@ -695,6 +699,8 @@ def main(args):
                 x = torch.cat([videos, images], dim=2)  # b c 17+4, h, w
 
         with accelerator.accumulate(model):
+            assert not torch.any(torch.isnan(x)), 'after vae'
+            x = x.to(weight_dtype)
             model_kwargs = dict(encoder_hidden_states=cond, attention_mask=attn_mask,
                                 encoder_attention_mask=cond_mask, use_image_num=args.use_image_num)
             run(x, model_kwargs, prof_)
@@ -711,7 +717,6 @@ def main(args):
                 return True
 
             for step, data_item in enumerate(train_dataloader):
-
                 if train_one_step(step, data_item, prof_):
                     break
 

@@ -108,6 +108,8 @@ class Collate:
             pad_batch_tubes = rearrange(pad_batch_tubes_img, '(b i) c 1 h w -> b c i h w', i=1)
             attention_mask = rearrange(attention_mask_img, '(b i) 1 h w -> b i h w', i=1)
             input_ids, cond_mask = input_ids_img, cond_mask_img  # b 1 l
+        
+        assert not torch.any(torch.isnan(pad_batch_tubes)), 'after pad_batch_tubes'
         return pad_batch_tubes, attention_mask, input_ids, cond_mask
 
     def process(self, batch_tubes, t_ds_stride, ds_stride, max_thw, ae_stride_thw, patch_size_thw, extra_1):

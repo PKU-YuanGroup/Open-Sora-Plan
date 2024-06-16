@@ -382,6 +382,9 @@ class Attention(Attention_):
                                             padding=downsampler_padding, groups=kwags['query_dim'], down_factor=down_factor,
                                             down_shortcut=True, num_frames=num_frames, height=height, width=width)
         
+        self.q_norm = nn.LayerNorm(kwags['dim_head'], elementwise_affine=True, eps=1e-6)
+        self.k_norm = nn.LayerNorm(kwags['dim_head'], elementwise_affine=True, eps=1e-6) 
+        
 
 class DownSampler3d(nn.Module):
     def __init__(self, *args, **kwargs):
@@ -540,6 +543,11 @@ class AttnProcessor2_0:
 
             key = key.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
             value = value.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
+
+            # qk norm
+            query = attn.q_norm(query)
+            key = attn.k_norm(key)
+            query = query * (head_dim ** -0.5)
 
             if attention_mask is None or not torch.all(attention_mask.bool()):  # 0 mean visible
                 attention_mask = None
@@ -1056,7 +1064,6 @@ class BasicTransformerBlock(nn.Module):
                 **cross_attention_kwargs,
             )
             hidden_states = attn_output + hidden_states
-
         # 4. Feed-forward
         # i2vgen doesn't have this norm 🤷‍♂️
         if self.norm_type == "ada_norm_continuous":
@@ -1076,7 +1083,6 @@ class BasicTransformerBlock(nn.Module):
             ff_output = _chunked_feed_forward(self.ff, norm_hidden_states, self._chunk_dim, self._chunk_size)
         else:
             ff_output = self.ff(norm_hidden_states)
-
         if self.norm_type == "ada_norm_zero":
             ff_output = gate_mlp.unsqueeze(1) * ff_output
         elif self.norm_type == "ada_norm_single":
