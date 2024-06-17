@@ -29,6 +29,7 @@ from opensora.utils.utils import save_video_grid
 from opensora.sample.pipeline_opensora import OpenSoraPipeline
 
 import imageio
+
 try:
     import torch_npu
 except:
@@ -36,9 +37,13 @@ except:
 import time
 from opensora.npu_config import npu_config
 
+
 def load_t2v_checkpoint(model_path):
     if args.model_3d:
-        transformer_model = UDiTT2V.from_pretrained(model_path, cache_dir=args.cache_dir,
+        # transformer_model = UDiTT2V.from_pretrained(model_path, cache_dir=args.cache_dir,
+        #                                                 low_cpu_mem_usage=False, device_map=None,
+        #                                                 torch_dtype=weight_dtype)
+        transformer_model = OpenSoraT2V.from_pretrained(model_path, cache_dir=args.cache_dir,
                                                         low_cpu_mem_usage=False, device_map=None,
                                                         torch_dtype=weight_dtype)
     else:
@@ -56,6 +61,7 @@ def load_t2v_checkpoint(model_path):
 
     return pipeline
 
+
 def get_latest_path():
     # Get the most recent checkpoint
     dirs = os.listdir(args.model_path)
@@ -64,6 +70,8 @@ def get_latest_path():
     path = dirs[-1] if len(dirs) > 0 else None
 
     return path
+
+
 def run_model_and_save_images(pipeline, model_path):
     video_grids = []
     if not isinstance(args.text_prompt, list):
@@ -100,9 +108,11 @@ def run_model_and_save_images(pipeline, model_path):
             else:
                 imageio.mimwrite(
                     os.path.join(
-                        args.save_img_path, f'{args.sample_method}_{index}_{checkpoint_name}__gs{args.guidance_scale}_s{args.num_sampling_steps}.{ext}'
+                        args.save_img_path,
+                        f'{args.sample_method}_{index}_{checkpoint_name}__gs{args.guidance_scale}_s{args.num_sampling_steps}.{ext}'
                     ), videos[0],
-                    fps=args.fps, quality=9, codec='libx264', output_params=['-threads', '20'])  # highest quality is 10, lowest is 0
+                    fps=args.fps, quality=9, codec='libx264',
+                    output_params=['-threads', '20'])  # highest quality is 10, lowest is 0
         except:
             print('Error when saving {}'.format(prompt))
         video_grids.append(videos)
@@ -113,12 +123,14 @@ def run_model_and_save_images(pipeline, model_path):
     gathered_tensor = torch.zeros(shape, dtype=video_grids.dtype, device=device)
     dist.all_gather_into_tensor(gathered_tensor, video_grids.contiguous())
     video_grids = gathered_tensor.cpu()
+
     # video_grids = video_grids.repeat(world_size, 1, 1, 1)
     # output = torch.zeros(video_grids.shape, dtype=video_grids.dtype, device=device)
     # dist.all_to_all_single(output, video_grids)
     # video_grids = output.cpu()
     def get_file_name():
-        return os.path.join(args.save_img_path, f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}_{checkpoint_name}.{ext}')
+        return os.path.join(args.save_img_path,
+                            f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}_{checkpoint_name}.{ext}')
 
     if args.num_frames == 1:
         save_image(video_grids / 255.0, get_file_name(),
@@ -204,7 +216,6 @@ if __name__ == "__main__":
     elif args.sample_method == 'KDPM2AncestralDiscrete':  #########
         scheduler = KDPM2AncestralDiscreteScheduler()
 
-
     if not os.path.exists(args.save_img_path):
         os.makedirs(args.save_img_path, exist_ok=True)
 
@@ -219,10 +230,10 @@ if __name__ == "__main__":
     while True:
         cur_path = get_latest_path()
         if cur_path == latest_path:
-            time.sleep(80)
+            time.sleep(5)
             continue
 
-        time.sleep(180)
+        time.sleep(1)
         latest_path = cur_path
         npu_config.print_msg(f"The latest_path is {latest_path}")
         full_path = f"{args.model_path}/{latest_path}/model_ema"

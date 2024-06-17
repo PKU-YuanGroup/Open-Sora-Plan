@@ -953,54 +953,54 @@ def align_dense_tensors(tensor_list, alignment):
     return padded_tensor_list
 
 
-def all_gather_into_tensor_dp_groups(groups_flat, partitioned_param_groups, dp_process_group):
+def all_gather_into_tensor_dp_groups(groups_flat, partitioned_param_groups, zp_process_group, dp_process_group=None):
+
     for group_id, (group_flat, partitioned_params) in enumerate(zip(groups_flat, partitioned_param_groups)):
-        partition_id = dist.get_rank(group=dp_process_group[group_id])
-        dp_world_size = dist.get_world_size(group=dp_process_group[group_id])
+        partition_id = dist.get_rank(group=zp_process_group[group_id])
+        dp_world_size = dist.get_world_size(group=dp_process_group)
         if dp_world_size == 1:
             # no groups share optimizer states
             # pipeline parallel with bf16 will default call this even if dp size = 1.
             continue
         # print("call contiguous for all_gather_into_tensor_dp_groups")
-        dist.all_gather_into_tensor(group_flat, partitioned_params[partition_id].contiguous(), dp_process_group[group_id])
+        dist.all_gather_into_tensor(group_flat, partitioned_params[partition_id].contiguous(), dp_process_group)
 
 
-def all_gather_dp_groups(groups_flat, partitioned_param_groups, dp_process_group, start_alignment_factor,
-                         allgather_bucket_size):
+def all_gather_dp_groups(groups_flat, partitioned_param_groups, zp_process_group, start_alignment_factor,
+                         allgather_bucket_size, dp_process_group=None):
     # if dist.has_all_gather_into_tensor():
-    #     return all_gather_into_tensor_dp_groups(groups_flat, partitioned_param_groups, dp_process_group)
+    return all_gather_into_tensor_dp_groups(groups_flat, partitioned_param_groups, zp_process_group, dp_process_group)
 
-    for group_id, partitioned_params in enumerate(partitioned_param_groups):
-        # Sequential AllGather Best of both worlds
-        partition_id = dist.get_rank(group=dp_process_group[group_id])
-        dp_world_size = dist.get_world_size(group=dp_process_group[group_id])
-
-        if dp_world_size == 1:
-            # no groups share optimizer states
-            # pipeline parallel with bf16 will default call this even if dp size = 1.
-            continue
-        num_shards = max(1, partitioned_params[partition_id].numel() * dp_world_size // allgather_bucket_size)
-
-        shard_size = partitioned_params[partition_id].numel() // num_shards
-
-        # Enforce nccl/rccl alignment of start location of each shard
-        shard_size = shard_size - (shard_size % start_alignment_factor)
-
-        num_elements = shard_size
-
-        assert shard_size * num_shards <= partitioned_params[partition_id].numel()
-
-        for shard_id in range(num_shards):
-
-            if shard_id == (num_shards - 1):
-                num_elements = partitioned_params[partition_id].numel() - shard_id * shard_size
-
-            shard_list = []
-            for dp_id in range(dp_world_size):
-                curr_shard = partitioned_params[dp_id].narrow(0, shard_id * shard_size, num_elements).detach()
-                shard_list.append(curr_shard)
-
-            dist.all_gather(shard_list, shard_list[partition_id].contiguous(), dp_process_group[group_id])
+    # for group_id, partitioned_params in enumerate(partitioned_param_groups):
+    #     # Sequential AllGather Best of both worlds
+    #     partition_id = dist.get_rank(group=dp_process_group[group_id])
+    #     dp_world_size = dist.get_world_size(group=dp_process_group[group_id])
+    #
+    #     if dp_world_size == 1:
+    #         # no groups share optimizer states
+    #         # pipeline parallel with bf16 will default call this even if dp size = 1.
+    #         continue
+    #     num_shards = max(1, partitioned_params[partition_id].numel() * dp_world_size // allgather_bucket_size)
+    #
+    #     shard_size = partitioned_params[partition_id].numel() // num_shards
+    #
+    #     # Enforce nccl/rccl alignment of start location of each shard
+    #     shard_size = shard_size - (shard_size % start_alignment_factor)
+    #
+    #     num_elements = shard_size
+    #
+    #     assert shard_size * num_shards <= partitioned_params[partition_id].numel()
+    #
+    #     for shard_id in range(num_shards):
+    #
+    #         if shard_id == (num_shards - 1):
+    #             num_elements = partitioned_params[partition_id].numel() - shard_id * shard_size
+    #
+    #         shard_list = []
+    #         for dp_id in range(dp_world_size):
+    #             curr_shard = partitioned_params[dp_id].narrow(0, shard_id * shard_size, num_elements).detach()
+    #             shard_list.append(curr_shard)
+    #         dist.all_gather(shard_list, shard_list[partition_id].contiguous(), dp_process_group[group_id])
 
 
 class TLinear(torch.nn.Linear):

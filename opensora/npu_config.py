@@ -7,6 +7,9 @@ import numpy as np
 import torch
 import subprocess
 import torch.distributed as dist
+
+from opensora.adaptor.zp_manager import zp_manager
+
 try:
     import torch_npu
 
@@ -64,7 +67,7 @@ class NPUConfig:
         self.use_small_dataset = False
         self.current_run_dtype = None
         self.original_run_dtype = None
-
+        self.zp_manager = zp_manager
         if self.enable_FA and self.enable_FP32:
             self.inf_float = -10000.0
         else:
@@ -95,6 +98,10 @@ class NPUConfig:
             import deepspeed.runtime.zero.stage_1_and_2 as stage_1_and_2
             self.replace_methods(stage_1_and_2.DeepSpeedZeroOptimizer, DeepSpeedZeroOptimizer, ['_has_inf_or_nan'])
 
+            import deepspeed.runtime.engine as engine
+            from opensora.adaptor.engine import DeepSpeedEngine
+            self.replace_methods(engine.DeepSpeedEngine, DeepSpeedEngine, skip_fcns=['__init__', '_copy_recovery_script', '_change_recovery_script_permissions'])
+
         if "RANK" in os.environ:
             self.rank = int(os.environ["RANK"])
             self.world_size = int(os.environ["WORLD_SIZE"])
@@ -104,12 +111,21 @@ class NPUConfig:
             self.world_size = self.N_NPU_PER_NODE
         self.print_with_rank(f"The npu_config.on_npu is {self.on_npu}")
 
-    def replace_methods(self, target_class, source_class, skip_fcns=[]):
+    def replace_methods(self, target_class, source_class, skip_fcns=[], only_include_fcns=None):
         for attr_name in dir(source_class):
             attr_value = getattr(source_class, attr_name)
-            if isinstance(attr_value, (staticmethod, classmethod)) or attr_name in skip_fcns:
+            if attr_name in source_class.__dict__:
+                attr_class_value = source_class.__dict__[attr_name]
+            else:
+                attr_class_value = attr_value
+            if (isinstance(attr_class_value, staticmethod) or isinstance(attr_class_value, classmethod)
+                    or attr_name in skip_fcns):
                 print(f"skip replace {attr_name}")
                 continue
+
+            if only_include_fcns is not None and attr_name not in only_include_fcns:
+                continue
+
             elif isinstance(attr_value, types.FunctionType):
                 setattr(target_class, attr_name, attr_value)
 
@@ -148,7 +164,7 @@ class NPUConfig:
         return self.rank % self.N_NPU_PER_NODE
 
     def get_pickle_path(self, file_name):
-        return f"/home/opensora/yancen/Open-Sora-Plan-dev/pickles/{file_name}_local_n63"
+        return f"{self.pickle_save_path}/{file_name}_local_n63"
 
     def free_mm(self):
         for key, value in self.mm.items():

@@ -19,6 +19,9 @@ import numpy as np
 from einops import rearrange
 from tqdm import tqdm
 
+import torch_npu
+from opensora.npu_config import npu_config
+
 try:
     import torch_npu
     from opensora.npu_config import npu_config
@@ -620,8 +623,6 @@ def main(args):
         optimizer.step()
         lr_scheduler.step()
         optimizer.zero_grad()
-        if prof is not None:
-            prof.step()
 
         avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
         progress_info.train_loss += avg_loss.detach().item() / args.gradient_accumulation_steps
@@ -655,6 +656,10 @@ def main(args):
                                        weight_dtype, progress_info.global_step, ema=True)
                     # Switch back to the original UNet parameters.
                     ema_model.restore(model.parameters())
+
+        if prof is not None:
+            prof.step()
+
 
         return loss
 
@@ -781,7 +786,7 @@ if __name__ == "__main__":
     parser.add_argument("--cache_dir", type=str, default='./cache_dir')
     parser.add_argument("--pretrained", type=str, default=None)
     parser.add_argument("--gradient_checkpointing", action="store_true", help="Whether or not to use gradient checkpointing to save memory at the expense of slower backward pass.")
-    
+
     # diffusion setting
     parser.add_argument("--snr_gamma", type=float, default=None, help="SNR weighting gamma to be used if rebalancing the loss. Recommended value is 5.0. More details here: https://arxiv.org/abs/2303.09556.")
     parser.add_argument("--use_ema", action="store_true", help="Whether to use EMA model.")

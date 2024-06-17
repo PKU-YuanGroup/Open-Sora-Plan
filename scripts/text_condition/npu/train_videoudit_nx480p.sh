@@ -47,5 +47,6 @@ accelerate launch \
     --use_ema \
     --ema_start_step 0 \
     --cfg 0.1 \
+    --noise_offset 0.02 \
     --downsampler "k333_s222"  \
     --resume_from_checkpoint="latest"

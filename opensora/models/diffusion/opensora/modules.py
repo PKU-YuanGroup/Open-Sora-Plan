@@ -554,11 +554,7 @@ class DownSampler2d(nn.Module):
         # import ipdb;ipdb.set_trace()
         b = x.shape[0]
         x = rearrange(x, 'b (t h w) d -> (b t) d h w', t=t, h=h, w=w)
-        if npu_config is None:
-            x = self.layer(x) + (x if self.down_shortcut else 0)
-        else:
-            x_dtype = x.dtype
-            x = npu_config.run_conv2d(self.layer, x, x_dtype) + (x if self.down_shortcut else 0)
+        x = self.layer(x) + (x if self.down_shortcut else 0)
         x = rearrange(x, 'b d (h dh) (w dw) -> (b dh dw) (h w) d', 
                       h=h//self.down_factor[0], w=w//self.down_factor[1], 
                       dh=self.down_factor[0], dw=self.down_factor[1])
@@ -777,24 +773,14 @@ class FeedForward_Conv2d(nn.Module):
 
     def forward(self, x, t, h, w):
         # import ipdb;ipdb.set_trace()
-        if npu_config is None:
-            x = self.project_in(x)
-            x = rearrange(x, 'b (t h w) d -> (b t) d h w', t=t, h=h, w=w)
-            x = F.gelu(x)
-            out = x
-            for module in self.dwconv:
-                out = out + module(x)
-            out = rearrange(out, '(b t) d h w -> b (t h w) d', t=t, h=h, w=w)
-            x = self.project_out(out)
-        else:
-            x_dtype = x.dtype
-            x = npu_config.run_conv2d(self.project_in, x, torch.float16)
-            x = F.gelu(x)
-            out = x
-            for module in self.dwconv:
-                out = out + npu_config.run_conv2d(module, x, torch.float16)
-            out = rearrange(out, '(b t) d h w -> b (t h w) d', t=t, h=h, w=w)
-            x = npu_config.run_conv2d(self.project_out, out, x_dtype)
+        x = self.project_in(x)
+        x = rearrange(x, 'b (t h w) d -> (b t) d h w', t=t, h=h, w=w)
+        x = F.gelu(x)
+        out = x
+        for module in self.dwconv:
+            out = out + module(x)
+        out = rearrange(out, '(b t) d h w -> b (t h w) d', t=t, h=h, w=w)
+        x = self.project_out(out)
         return x
 
 @maybe_allow_in_graph

@@ -103,6 +103,8 @@ from deepspeed.accelerator import get_accelerator
 
 from deepspeed.runtime.config import DtypeEnum
 
+from opensora.adaptor.zp_manager import zp_manager
+
 MEMORY_OPT_ALLREDUCE_SIZE = 500000000
 
 DeepSpeedOptimizerCallable = \
@@ -209,6 +211,7 @@ class DeepSpeedEngine(Module):
         self._config = config_class
         self.loaded_checkpoint_mp_world_size = None
         self.loaded_checkpoint_dp_world_size = None
+        self.loaded_checkpoint_zp_world_size = None
         self.enable_backward_allreduce = True
         self.progressive_layer_drop = None
         self.eigenvalue = None
@@ -931,7 +934,7 @@ class DeepSpeedEngine(Module):
                                                         and self.is_first_weights_partition_group())
 
         if self.zero_optimization() or self.bfloat16_enabled():
-            param_rank = dist.get_rank(group=self.optimizer.dp_process_group)
+            param_rank = dist.get_rank(group=self.optimizer.zp_process_group)
 
             # Only the first parameter parallel process needs to store the
             # optimizer state checkpoints for zero
@@ -1122,6 +1125,7 @@ class DeepSpeedEngine(Module):
             self.local_all_to_all_group = groups._get_local_all_to_all_group()
         self.data_parallel_group = groups._get_data_parallel_group()
         self.dp_world_size = groups._get_data_parallel_world_size()
+        self.zp_world_size = zp_manager.zp_size
         self.seq_data_parallel_group = groups._get_sequence_data_parallel_group()
         self.seq_dp_world_size = groups._get_sequence_data_parallel_world_size()
         self.mp_world_size = groups._get_model_parallel_world_size()
@@ -2618,7 +2622,7 @@ class DeepSpeedEngine(Module):
 
     def _get_zero_ckpt_name(self, checkpoints_path, tag):
         mp_rank = 0 if self.mpu is None else self.mpu.get_model_parallel_rank()
-        pp_rank = dist.get_rank(group=self.optimizer.dp_process_group)
+        pp_rank = dist.get_rank(group=self.optimizer.zp_process_group)
         bf16_mode = self.bfloat16_enabled()
         return self._get_rank_zero_ckpt_name(checkpoints_path, tag, mp_rank, pp_rank, bf16_mode)
 
@@ -2630,7 +2634,7 @@ class DeepSpeedEngine(Module):
             mp_rank_str = f"{mp_rank:02d}"
 
         if self.zero_optimization_partition_weights():
-            filename = "zero_pp_rank_{}".format(dist.get_rank(group=self.optimizer.dp_process_group))
+            filename = "zero_pp_rank_{}".format(dist.get_rank(group=self.optimizer.zp_process_group))
             ckpt_name = os.path.join(
                 checkpoints_path,
                 str(tag),
@@ -2800,6 +2804,9 @@ class DeepSpeedEngine(Module):
                                         fetch_z3_params=fetch_z3_params)
 
         self.loaded_checkpoint_dp_world_size = checkpoint['dp_world_size']
+        if 'zp_world_size' not in checkpoint:
+            checkpoint['zp_world_size'] = self.zp_world_size
+        self.loaded_checkpoint_zp_world_size = checkpoint['zp_world_size']
 
         optim_checkpoint = None
         if load_module_only:
@@ -2868,8 +2875,8 @@ class DeepSpeedEngine(Module):
             self.skipped_steps = checkpoint['skipped_steps']
             self.loaded_checkpoint_mp_world_size = checkpoint['mp_world_size']
             deepspeed_states = [
-                'module', 'sparse_tensor_module_names', 'skipped_steps', 'global_steps', 'dp_world_size',
-                'mp_world_size', 'data_sampler', 'random_ltd'
+                'module', 'sparse_tensor_module_names', 'skipped_steps', 'global_steps', 'zp_world_size',
+                'mp_world_size', 'data_sampler', 'random_ltd', 'dp_world_size',
             ]
         client_state = {}
 
@@ -2900,10 +2907,10 @@ class DeepSpeedEngine(Module):
             zero_sd_list = None
             checkpoint_folder = f'{os.path.join(load_dir, tag)}'
         else:
-            if load_optimizer_states and self.seq_dp_world_size != self.loaded_checkpoint_dp_world_size:
+            if load_optimizer_states and self.zp_world_size != self.loaded_checkpoint_zp_world_size:
                 raise ZeRORuntimeException("The checkpoint being loaded used a DP " \
-                    f"world size of {self.loaded_checkpoint_dp_world_size} but the " \
-                    f"current world size is {self.seq_dp_world_size}. Automatic adjustment " \
+                    f"world size of {self.loaded_checkpoint_zp_world_size} but the " \
+                    f"current world size is {self.zp_world_size}. Automatic adjustment " \
                     "of ZeRO's optimizer state partitioning with a new world size is not " \
                     "currently supported.")
             checkpoint_folder = None
@@ -2978,7 +2985,7 @@ class DeepSpeedEngine(Module):
             if ckpt_name is None:
                 _state = {OPTIMIZER_STATE_DICT: None}
             # Fully load state for current rank
-            elif self.zero_elastic_checkpoint() or dist.get_rank(group=self.optimizer.dp_process_group) == i:
+            elif self.zero_elastic_checkpoint() or dist.get_rank(group=self.optimizer.zp_process_group) == i:
                 _state = self.checkpoint_engine.load(
                     ckpt_name,
                     map_location='cpu',
@@ -3205,6 +3212,8 @@ class DeepSpeedEngine(Module):
                 self.global_steps,
                 'global_samples':
                 self.global_samples,
+                'zp_world_size':
+                self.zp_world_size,
                 'dp_world_size':
                 self.dp_world_size,
                 'mp_world_size':
@@ -3231,11 +3240,11 @@ class DeepSpeedEngine(Module):
     def _create_zero_checkpoint_files(self, save_dir, tag):
         success = True
         # zero checkpoint files are created sequentially
-        for rank in range(dist.get_world_size(self.optimizer.dp_process_group)):
+        for rank in range(dist.get_world_size(self.optimizer.zp_process_group)):
             if rank == self.global_rank:
                 success = self._create_checkpoint_file(save_dir, tag, True)
 
-            dist.barrier(group=self.optimizer.dp_process_group)
+            dist.barrier(group=self.optimizer.zp_process_group)
 
         return success
 
