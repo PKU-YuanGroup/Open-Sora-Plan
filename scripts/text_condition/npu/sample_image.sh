@@ -22,5 +22,5 @@ torchrun --nproc_per_node=8 opensora/sample/sample_t2v_on_npu.py \
     --guidance_scale 5.0 \
     --num_sampling_steps 50 \
     --enable_tiling \
-    --sample_method DDPM \
+    --sample_method PNDM \
     --model_3d

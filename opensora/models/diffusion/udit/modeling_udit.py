@@ -487,6 +487,7 @@ class UDiTT2V(ModelMixin, ConfigMixin):
             (height + pad_h_0) // (self.config.patch_size), (width + pad_w_0) // (self.config.patch_size)
 
 
+        assert not torch.any(torch.isnan(hidden_states)), 'after _operate_on_patched_inputs'
         def create_custom_forward(module, return_dict=None):
             def custom_forward(*inputs):
                 if return_dict is not None:
@@ -670,7 +671,7 @@ class UDiTT2V(ModelMixin, ConfigMixin):
                     class_labels=class_labels,
                 )
 
-        # import ipdb;ipdb.set_trace()
+        assert not torch.any(torch.isnan(out_dec_level1)), 'after out_dec_level1'
         # 3. Output
         output = self._get_output_for_patched_inputs(
             hidden_states=out_dec_level1,
@@ -682,6 +683,7 @@ class UDiTT2V(ModelMixin, ConfigMixin):
             width=width,
         )  # b c t h w
         
+        assert not torch.any(torch.isnan(output)), 'after output'
         frame, height, width = frame * self.config.patch_size_t, height * self.config.patch_size - pad_h_0, width * self.config.patch_size - pad_w_0
         output = output[:, :, :frame, :height, :width]
         if not return_dict:
@@ -760,19 +762,19 @@ class UDiTT2V(ModelMixin, ConfigMixin):
 
 def UDiTT2V_S_111(**kwargs):
     return UDiTT2V(depth=[2, 5, 8, 5, 2], attention_head_dim=16, num_attention_heads=16, patch_size_t=1, patch_size=1, 
-                   mlp_ratio=2, norm_type="ada_norm_single", caption_channels=2048, **kwargs)
+                   mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
 
 def UDiTT2V_B_111(**kwargs):
     return UDiTT2V(depth=[2, 5, 8, 5, 2], attention_head_dim=32, num_attention_heads=16, patch_size_t=1, patch_size=1, 
-                   mlp_ratio=2, norm_type="ada_norm_single", caption_channels=2048, **kwargs)
+                   mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
 
 def UDiTT2V_L_111(**kwargs):
     return UDiTT2V(depth=[4, 8, 12, 8, 4], attention_head_dim=32, num_attention_heads=24, patch_size_t=1, patch_size=1, 
-                   mlp_ratio=2, norm_type="ada_norm_single", caption_channels=2048, **kwargs)
+                   mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
 
 def UDiTT2V_L_211(**kwargs):
     return UDiTT2V(depth=[4, 8, 12, 8, 4], attention_head_dim=32, num_attention_heads=24, patch_size_t=2, patch_size=1, 
-                   mlp_ratio=2, norm_type="ada_norm_single", caption_channels=2048, **kwargs)
+                   mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
 
 def UDiTT2V_L_122(**kwargs):
     return UDiTT2V(depth=[4, 8, 12, 8, 4], attention_head_dim=32, num_attention_heads=24, patch_size_t=1, patch_size=2,
@@ -780,11 +782,11 @@ def UDiTT2V_L_122(**kwargs):
 
 def UDiTT2V_L_222(**kwargs):
     return UDiTT2V(depth=[4, 8, 12, 8, 4], attention_head_dim=32, num_attention_heads=24, patch_size_t=2, patch_size=2, 
-                   mlp_ratio=2, norm_type="ada_norm_single", caption_channels=2048, **kwargs)
+                   mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
 
 def UDiTT2V_XL_111(**kwargs):
     return UDiTT2V(depth=[4, 10, 16, 10, 4], attention_head_dim=32, num_attention_heads=32, patch_size_t=1, patch_size=1, 
-                   mlp_ratio=2, norm_type="ada_norm_single", caption_channels=2048, **kwargs)
+                   mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
 
 def UDiTT2V_XXL_111(**kwargs):
     return UDiTT2V(depth=[4, 20, 32, 20, 4], attention_head_dim=32, num_attention_heads=32, patch_size_t=1, patch_size=1, 

@@ -503,7 +503,6 @@ class Attention(Attention_):
                 self.downsampler = DownSampler3d(kwags['query_dim'], kwags['query_dim'], kernel_size=downsampler_ker_size, stride=1,
                                             padding=downsampler_padding, groups=kwags['query_dim'], down_factor=down_factor,
                                             down_shortcut=True)
-        
 
 
 
@@ -641,7 +640,6 @@ class AttnProcessor2_0:
             encoder_hidden_states = hidden_states
         elif attn.norm_cross:
             encoder_hidden_states = attn.norm_encoder_hidden_states(encoder_hidden_states)
-        # import ipdb;ipdb.set_trace()
         key = attn.to_k(encoder_hidden_states)
         value = attn.to_v(encoder_hidden_states)
 
@@ -662,8 +660,8 @@ class AttnProcessor2_0:
                 hidden_states = npu_config.restore_dtype(hidden_states)
         else:
             query = query.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
-
             key = key.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
+
             value = value.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
 
             if attention_mask is None or not torch.all(attention_mask.bool()):  # 0 mean visible

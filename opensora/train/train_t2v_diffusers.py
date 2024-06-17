@@ -290,8 +290,8 @@ def main(args):
     noise_scheduler = DDPMScheduler()
     # Move unet, vae and text_encoder to device and cast to weight_dtype
     # The VAE is in float32 to avoid NaN losses.
-    # ae.to(accelerator.device, dtype=torch.float32)
-    ae.vae.to(accelerator.device, dtype=weight_dtype)
+    ae.vae.to(accelerator.device, dtype=torch.float32)
+    # ae.vae.to(accelerator.device, dtype=weight_dtype)
     text_enc.to(accelerator.device, dtype=weight_dtype)
 
     # Create EMA for the unet.
@@ -411,10 +411,11 @@ def main(args):
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
         shuffle=True,
-        pin_memory=True,
+        # pin_memory=True,
         collate_fn=Collate(args),
         batch_size=args.train_batch_size,
         num_workers=args.dataloader_num_workers,
+        prefetch_factor=8
     )
 
     # Scheduler and math around the number of training steps.
@@ -693,7 +694,9 @@ def main(args):
 
         if not args.multi_scale:
             assert torch.all(attn_mask)
-        x = x.to(accelerator.device, dtype=weight_dtype)  # B C T+num_images H W, 16 + 4
+        assert not torch.any(torch.isnan(x)), 'torch.any(torch.isnan(x))'
+        x = x.to(accelerator.device, dtype=ae.vae.dtype)  # B C T+num_images H W, 16 + 4
+
         attn_mask = attn_mask.to(accelerator.device)  # B T+num_images H W
         input_ids = input_ids.to(accelerator.device)  # B 1+num_images L
         cond_mask = cond_mask.to(accelerator.device)  # B 1+num_images L
@@ -723,6 +726,8 @@ def main(args):
                 x = torch.cat([videos, images], dim=2)  # b c 17+4, h, w
 
         with accelerator.accumulate(model):
+            assert not torch.any(torch.isnan(x)), 'after vae'
+            x = x.to(weight_dtype)
             model_kwargs = dict(encoder_hidden_states=cond, attention_mask=attn_mask,
                                 encoder_attention_mask=cond_mask, use_image_num=args.use_image_num)
             run(x, model_kwargs, prof_)
