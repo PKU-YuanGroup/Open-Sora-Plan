@@ -193,11 +193,7 @@ class OverlapPatchEmbed3D(nn.Module):
         num_frames = latent.shape[-3] // self.patch_size_t
         height, width = latent.shape[-2] // self.patch_size, latent.shape[-1] // self.patch_size
         # latent = rearrange(latent, 'b c t h w -> (b t) c h w')
-        if npu_config is None:
-            latent = self.proj(latent)
-        else:
-            latent_dtype = latent.dtype
-            latent = npu_config.run_conv3d(self.proj, latent, latent_dtype)
+        latent = self.proj(latent)
 
         if self.flatten:
             # latent = latent.flatten(2).transpose(1, 2)  # BT C H W -> BT N C
@@ -438,7 +434,11 @@ class DownSampler2d(nn.Module):
         # import ipdb;ipdb.set_trace()
         b = x.shape[0]
         x = rearrange(x, 'b (t h w) d -> (b t) d h w', t=self.t, h=self.h, w=self.w)
-        x = self.layer(x) + (x if self.down_shortcut else 0)
+        if npu_config is None:
+            x = self.layer(x) + (x if self.down_shortcut else 0)
+        else:
+            x_dtype = x.dtype
+            x = npu_config.run_conv2d(self.layer, x, x_dtype) + (x if self.down_shortcut else 0)
         x = rearrange(x, 'b d (h dh) (w dw) -> (b dh dw) (h w) d', 
                       h=self.h//self.down_factor[0], w=self.w//self.down_factor[1], 
                       dh=self.down_factor[0], dw=self.down_factor[1])
@@ -506,9 +506,6 @@ class AttnProcessor2_0:
                 attention_mask = attention_mask.view(batch_size, attn.heads, -1, attention_mask.shape[-1])
             else:
                 attention_mask = attention_mask.view(batch_size, 1, -1, attention_mask.shape[-1])
-                attention_mask = attention_mask.repeat(1, 1, hidden_states.shape[1], 1)
-                if npu_config.enable_FA:
-                    attention_mask = attention_mask.to(torch.bool)
 
         if attn.group_norm is not None:
             hidden_states = attn.group_norm(hidden_states.transpose(1, 2)).transpose(1, 2)
@@ -691,16 +688,17 @@ class Downsample2d(nn.Module):
 
     def forward(self, x, attention_mask, frames, height, width, pad_h=0, pad_w=0):
         x = rearrange(x, 'b (t h w) d -> (b t) d h w', t=frames, h=height, w=width)
+        x = F.pad(x, (0, pad_w, 0, pad_h), mode='reflect')
         if npu_config is None:
-            x = F.pad(x, (0, pad_w, 0, pad_h), mode='reflect')
+            x = self.body(x)
         else:
-            x = npu_config.run_pad_2d(F.pad, x, pad=(0, pad_w, 0, pad_h), mode='reflect')
-        x = self.body(x)
+            x_dtype = x.dtype
+            x = npu_config.run_conv2d(self.body, x, x_dtype)
         x = rearrange(x, '(b t) d h w -> b (t h w) d', t=frames)
         
         attention_mask = rearrange(attention_mask, 'b 1 (t h w) -> (b t) 1 h w', t=frames, h=height, w=width)
         attention_mask = F.pad(attention_mask, (0, pad_w, 0, pad_h))
-        attention_mask = F.max_pool2d(attention_mask.float(), kernel_size=2, stride=2)
+        attention_mask = F.max_pool2d(attention_mask, kernel_size=2, stride=2)
         attention_mask = rearrange(attention_mask, '(b t) 1 h w -> b 1 (t h w)', t=frames)
         attention_bias = (1 - attention_mask.bool().to(x.dtype)) * -10000.0
 
@@ -715,7 +713,11 @@ class Upsample2d(nn.Module):
 
     def forward(self, x, attention_mask, frames, height, width, pad_h=0, pad_w=0):
         x = rearrange(x, 'b (t h w) d -> (b t) d h w', t=frames, h=height, w=width)
-        x = self.body(x)
+        if npu_config is None:
+            x = self.body(x)
+        else:
+            x_dtype = x.dtype
+            x = npu_config.run_conv2d(self.body, x, x_dtype)
         x = x[:, :, :height*2-pad_h, :width*2-pad_w]
         x = rearrange(x, '(b t) d h w -> b (t h w) d', t=frames)
 
@@ -753,14 +755,24 @@ class FeedForward_Conv2d(nn.Module):
 
     def forward(self, x):
         # import ipdb;ipdb.set_trace()
-        x = self.project_in(x)
-        x = rearrange(x, 'b (t h w) d -> (b t) d h w', t=self.t, h=self.h, w=self.w)
-        x = F.gelu(x)
-        out = x
-        for module in self.dwconv:
-            out = out + module(x)
-        out = rearrange(out, '(b t) d h w -> b (t h w) d', t=self.t, h=self.h, w=self.w)
-        x = self.project_out(out)
+        if npu_config is None:
+            x = self.project_in(x)
+            x = rearrange(x, 'b (t h w) d -> (b t) d h w', t=self.t, h=self.h, w=self.w)
+            x = F.gelu(x)
+            out = x
+            for module in self.dwconv:
+                out = out + module(x)
+            out = rearrange(out, '(b t) d h w -> b (t h w) d', t=self.t, h=self.h, w=self.w)
+            x = self.project_out(out)
+        else:
+            x_dtype = x.dtype
+            x = npu_config.run_conv2d(self.project_in, x, torch.float16)
+            x = F.gelu(x)
+            out = x
+            for module in self.dwconv:
+                out = out + npu_config.run_conv2d(module, x, torch.float16)
+            out = rearrange(out, '(b t) d h w -> b (t h w) d', t=self.t, h=self.h, w=self.w)
+            x = npu_config.run_conv2d(self.project_out, out, x_dtype)
         return x
 
 @maybe_allow_in_graph

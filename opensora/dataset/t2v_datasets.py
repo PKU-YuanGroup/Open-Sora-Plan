@@ -179,10 +179,17 @@ class T2V_dataset(Dataset):
 
         image = [Image.open(i['path']).convert('RGB') for i in image_data]  # num_img [h, w, c]
         image = [torch.from_numpy(np.array(i)) for i in image]  # num_img [h, w, c]
+
+        for i in image:
+            assert not torch.any(torch.isnan(i)), 'before transform0'
         image = [rearrange(i, 'h w c -> c h w').unsqueeze(0) for i in image]  # num_img [1 c h w]
+        for i in image:
+            assert not torch.any(torch.isnan(i)), 'before transform1'
         image = [self.transform(i) for i in image]  # num_img [1 C H W] -> num_img [1 C H W]
 
-        # image = [torch.rand(1, 3, 256, 256) for i in image_data]
+        for i in image:
+            assert not torch.any(torch.isnan(i)), 'after transform'
+        # image = [torch.rand(1, 3, 480, 640) for i in image_data]
         image = [i.transpose(0, 1) for i in image]  # num_img [1 C H W] -> num_img [C 1 H W]
 
         caps = [i['cap'] for i in image_data]
