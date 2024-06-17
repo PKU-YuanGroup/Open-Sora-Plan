@@ -19,9 +19,6 @@ import numpy as np
 from einops import rearrange
 from tqdm import tqdm
 
-import torch_npu
-from opensora.npu_config import npu_config
-
 try:
     import torch_npu
     from opensora.npu_config import npu_config
