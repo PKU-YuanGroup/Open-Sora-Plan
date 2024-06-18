@@ -257,7 +257,7 @@ def main(args):
         interpolation_scale_t=args.interpolation_scale_t,
         downsampler=args.downsampler,
         # compress_kv_factor=args.compress_kv_factor,
-        # use_rope=args.use_rope,
+        use_rope=args.use_rope,
         # model_max_length=args.model_max_length,
     )
     model.gradient_checkpointing = args.gradient_checkpointing
