@@ -6,6 +6,8 @@ import random
 import numpy as np
 import torch
 import subprocess
+import sys
+import threading
 import torch.distributed as dist
 
 from opensora.adaptor.zp_manager import zp_manager
@@ -110,6 +112,32 @@ class NPUConfig:
             self.rank = torch.cuda.current_device()
             self.world_size = self.N_NPU_PER_NODE
         self.print_with_rank(f"The npu_config.on_npu is {self.on_npu}")
+        self.bind_thread_to_cpu()
+
+    def get_total_cores(self):
+        try:
+            total_cores = os.sysconf('SC_NPROCESSORS_ONLN')
+        except (AttributeError, ValueError):
+            total_cores = os.cpu_count()
+        return total_cores
+
+
+    def bind_thread_to_cpu(self):
+        total_cores = self.get_total_cores()
+        # 每个卡的核心数量
+        cores_per_rank = total_cores // 8
+        # 计算本地rank
+        local_rank = self.rank % 8
+        # 计算当前 rank 的 CPU 核范围
+        start_core = local_rank * cores_per_rank
+        end_core = start_core + cores_per_rank - 1
+        # 构建 CPU 核范围字符串
+        cpu_cores_range = f"{start_core}-{end_core}"
+        pid = os.getpid()
+        command = f"taskset -cp {cpu_cores_range} {pid}"
+
+        subprocess.run(command, shell=True, check=True)
+        return f"Binding Cores:{self.rank}:{pid}:{cpu_cores_range}"
 
     def replace_methods(self, target_class, source_class, skip_fcns=[], only_include_fcns=None):
         for attr_name in dir(source_class):
