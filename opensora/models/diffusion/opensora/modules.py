@@ -525,7 +525,6 @@ class DownSampler3d(nn.Module):
         self.layer = nn.Conv3d(*args, **kwargs)
 
     def forward(self, x, attention_mask, t, h, w):
-        # import ipdb;ipdb.set_trace()
         b = x.shape[0]
         x = rearrange(x, 'b (t h w) d -> b d t h w', t=t, h=h, w=w)
         if npu_config is None:
@@ -547,10 +546,10 @@ class DownSampler3d(nn.Module):
                       t=t//self.down_factor[0], h=h//self.down_factor[1], w=w//self.down_factor[2], 
                          dt=self.down_factor[0], dh=self.down_factor[1], dw=self.down_factor[2])
         return x, attention_mask
+        
     def reverse(self, x, t, h, w):
-        # import ipdb;ipdb.set_trace()
         x = rearrange(x, '(b dt dh dw) (t h w) d -> b (t dt h dh w dw) d', 
-                      t=t//self.down_factor[0], h=h//self.down_factor[1], w=w//self.down_factor[2], 
+                      t=t, h=h, w=w, 
                          dt=self.down_factor[0], dh=self.down_factor[1], dw=self.down_factor[2])
         return x
 
@@ -564,7 +563,6 @@ class DownSampler2d(nn.Module):
         self.layer = nn.Conv2d(*args, **kwargs)
 
     def forward(self, x, attention_mask, t, h, w):
-        # import ipdb;ipdb.set_trace()
         b = x.shape[0]
         x = rearrange(x, 'b (t h w) d -> (b t) d h w', t=t, h=h, w=w)
         if npu_config is None:
@@ -586,10 +584,10 @@ class DownSampler2d(nn.Module):
                       h=h//self.down_factor[0], w=w//self.down_factor[1], 
                          dh=self.down_factor[0], dw=self.down_factor[1])
         return x, attention_mask
+    
     def reverse(self, x, t, h, w):
-        # import ipdb;ipdb.set_trace()
         x = rearrange(x, '(b t dh dw) (h w) d -> b (t h dh w dw) d', 
-                      t=t, h=h//self.down_factor[0], w=w//self.down_factor[1], 
+                      t=t, h=h, w=w, 
                       dh=self.down_factor[0], dw=self.down_factor[1])
         return x
     
@@ -609,8 +607,8 @@ class AttnProcessor2_0:
 
 
     def _init_rope(self, interpolation_scale_thw):
-        self.rope = RoPE3D()
-        self.position_getter = PositionGetter3D(interpolation_scale_thw)
+        self.rope = RoPE3D(interpolation_scale_thw=interpolation_scale_thw)
+        self.position_getter = PositionGetter3D()
     
     def __call__(
         self,
@@ -978,7 +976,7 @@ class BasicTransformerBlock(nn.Module):
                 out_bias=attention_out_bias,
                 attention_mode=attention_mode, 
                 downsampler=False, 
-                use_rope=use_rope, 
+                use_rope=False, 
                 interpolation_scale_thw=interpolation_scale_thw, 
             )  # is self-attn if encoder_hidden_states is none
         else:
@@ -1014,7 +1012,7 @@ class BasicTransformerBlock(nn.Module):
             self.ff = FeedForward_Conv2d(
                 downsampler, 
                 dim,
-                4 * dim,
+                2 * dim,
                 bias=ff_bias,
             )
         else:

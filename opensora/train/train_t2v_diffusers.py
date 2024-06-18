@@ -616,6 +616,7 @@ def main(args):
             loss = loss.mean(dim=list(range(1, len(loss.shape)))) * mse_loss_weights
             loss = loss.mean()
 
+
         # Gather the losses across all processes for logging (if we use distributed training).
         avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
         progress_info.train_loss += avg_loss.detach().item() / args.gradient_accumulation_steps
@@ -628,9 +629,6 @@ def main(args):
         optimizer.step()
         lr_scheduler.step()
         optimizer.zero_grad()
-
-        avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
-        progress_info.train_loss += avg_loss.detach().item() / args.gradient_accumulation_steps
 
         if accelerator.sync_gradients:
             sync_gradients_info(loss)

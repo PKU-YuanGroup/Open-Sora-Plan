@@ -666,9 +666,6 @@ def main(args):
         if prof is not None:
             prof.step()
 
-        avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
-        progress_info.train_loss += avg_loss.detach().item() / args.gradient_accumulation_steps
-
         if accelerator.sync_gradients:
             sync_gradients_info(loss)
 

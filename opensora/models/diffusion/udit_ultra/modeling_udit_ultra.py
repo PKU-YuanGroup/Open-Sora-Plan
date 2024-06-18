@@ -88,11 +88,13 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
         interpolation_scale_t: float = None,
         use_additional_conditions: Optional[bool] = None,
         attention_mode: str = 'xformers', 
-        downsampler: str = 'k333_s222'
+        downsampler: str = 'k333_s222', 
+        use_rope: bool = False, 
     ):
         super().__init__()
 
         # Set some common variables used across the board.
+        self.use_rope = use_rope
         self.downsampler = downsampler
         self.use_linear_projection = use_linear_projection
         self.interpolation_scale_t = interpolation_scale_t
@@ -166,6 +168,7 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
                 embed_dim=self.inner_dim,
                 interpolation_scale=interpolation_scale, 
                 interpolation_scale_t=interpolation_scale_t,
+                use_abs_pos=not self.config.use_rope, 
             )
         elif self.config.downsampler is not None and len(self.config.downsampler) == 7:
             is_video_model = False
@@ -179,25 +182,24 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
                 embed_dim=self.inner_dim,
                 interpolation_scale=interpolation_scale, 
                 interpolation_scale_t=interpolation_scale_t,
+                use_abs_pos=not self.config.use_rope, 
             )
         layer_thw = [[self.config.sample_size_t//self.config.patch_size_t, 
                       (self.config.sample_size[0] + self.config.sample_size[0] % (self.config.patch_size*2))//self.config.patch_size, 
                       (self.config.sample_size[1] + self.config.sample_size[1] % (self.config.patch_size*2))//self.config.patch_size]]
-        
+        interpolation_scale_thw = (interpolation_scale_t, *interpolation_scale)
         for i in range((len(self.config.depth)-1)//2):
             t = layer_thw[i][0] // 2 if layer_thw[i][0] != 1 else 1
             h = (layer_thw[i][1] + layer_thw[i][1] % 4) // 2  # why mod 4, because downsample and downsampler in attention
             w = (layer_thw[i][2] + layer_thw[i][2] % 4) // 2
             layer_thw.append([t, h, w])
+        self.layer_thw = layer_thw
         self.encoder_level_1 = nn.ModuleList(
             [
                 BasicTransformerBlock(
                     self.inner_dim,
                     self.config.num_attention_heads,
                     self.config.attention_head_dim,
-                    num_frames=layer_thw[0][0],
-                    height=layer_thw[0][1],
-                    width=layer_thw[0][2],
                     downsampler=self.config.downsampler, 
                     mlp_ratio=self.config.mlp_ratio, 
                     dropout=self.config.dropout,
@@ -213,6 +215,8 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
                     norm_eps=self.config.norm_eps,
                     attention_type=self.config.attention_type,
                     attention_mode=self.config.attention_mode, 
+                    use_rope=self.config.use_rope, 
+                    interpolation_scale_thw=interpolation_scale_thw, 
                 )
                 for _ in range(self.config.depth[0])
             ]
@@ -225,9 +229,6 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
                     self.inner_dim * 2,
                     self.config.num_attention_heads,
                     self.config.attention_head_dim * 2,
-                    num_frames=layer_thw[1][0],
-                    height=layer_thw[1][1],
-                    width=layer_thw[1][2],
                     downsampler=self.config.downsampler, 
                     mlp_ratio=self.config.mlp_ratio, 
                     dropout=self.config.dropout,
@@ -243,6 +244,8 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
                     norm_eps=self.config.norm_eps,
                     attention_type=self.config.attention_type,
                     attention_mode=self.config.attention_mode, 
+                    use_rope=self.config.use_rope, 
+                    interpolation_scale_thw=interpolation_scale_thw, 
                 )
                 for _ in range(self.config.depth[1])
             ]
@@ -255,9 +258,6 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
                     self.inner_dim * 4,
                     self.config.num_attention_heads,
                     self.config.attention_head_dim * 4,
-                    num_frames=layer_thw[2][0],
-                    height=layer_thw[2][1],
-                    width=layer_thw[2][2],
                     downsampler=self.config.downsampler, 
                     mlp_ratio=self.config.mlp_ratio, 
                     dropout=self.config.dropout,
@@ -273,6 +273,8 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
                     norm_eps=self.config.norm_eps,
                     attention_type=self.config.attention_type,
                     attention_mode=self.config.attention_mode, 
+                    use_rope=self.config.use_rope, 
+                    interpolation_scale_thw=interpolation_scale_thw, 
                 )
                 for _ in range(self.config.depth[2])
             ]
@@ -287,9 +289,6 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
                     self.inner_dim * 2,
                     self.config.num_attention_heads,
                     self.config.attention_head_dim * 2,
-                    num_frames=layer_thw[1][0],
-                    height=layer_thw[1][1],
-                    width=layer_thw[1][2],
                     downsampler=self.config.downsampler, 
                     mlp_ratio=self.config.mlp_ratio, 
                     dropout=self.config.dropout,
@@ -305,6 +304,8 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
                     norm_eps=self.config.norm_eps,
                     attention_type=self.config.attention_type,
                     attention_mode=self.config.attention_mode, 
+                    use_rope=self.config.use_rope, 
+                    interpolation_scale_thw=interpolation_scale_thw, 
                 )
                 for _ in range(self.config.depth[3])
             ]
@@ -319,9 +320,6 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
                     self.inner_dim,
                     self.config.num_attention_heads,
                     self.config.attention_head_dim,
-                    num_frames=layer_thw[0][0],
-                    height=layer_thw[0][1],
-                    width=layer_thw[0][2],
                     downsampler=self.config.downsampler, 
                     mlp_ratio=self.config.mlp_ratio, 
                     dropout=self.config.dropout,
@@ -337,6 +335,8 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
                     norm_eps=self.config.norm_eps,
                     attention_type=self.config.attention_type,
                     attention_mode=self.config.attention_mode, 
+                    use_rope=self.config.use_rope, 
+                    interpolation_scale_thw=interpolation_scale_thw, 
                 )
                 for _ in range(self.config.depth[4])
             ]
@@ -515,6 +515,9 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
                     timestep_1,
                     cross_attention_kwargs,
                     class_labels,
+                    frame, 
+                    height, 
+                    width, 
                     **ckpt_kwargs,
                 )
         else:
@@ -527,6 +530,9 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
                     timestep=timestep_1,
                     cross_attention_kwargs=cross_attention_kwargs,
                     class_labels=class_labels,
+                    frame=frame, 
+                    height=height, 
+                    width=width, 
                 )
         pad_h_1, pad_w_1 = height % 4, width % 4
         
@@ -550,6 +556,9 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
                     timestep_2,
                     cross_attention_kwargs,
                     class_labels,
+                    frame, 
+                    height, 
+                    width, 
                     **ckpt_kwargs,
                 )
         else:
@@ -562,6 +571,9 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
                     timestep=timestep_2,
                     cross_attention_kwargs=cross_attention_kwargs,
                     class_labels=class_labels,
+                    frame=frame, 
+                    height=height, 
+                    width=width, 
                 )
         pad_h_2, pad_w_2 = height % 4, width % 4
         
@@ -585,6 +597,9 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
                     timestep_3,
                     cross_attention_kwargs,
                     class_labels,
+                    frame, 
+                    height, 
+                    width, 
                     **ckpt_kwargs,
                 )
         else:
@@ -597,6 +612,9 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
                     timestep=timestep_3,
                     cross_attention_kwargs=cross_attention_kwargs,
                     class_labels=class_labels,
+                    frame=frame, 
+                    height=height, 
+                    width=width, 
                 )
 
         # decoder_2
@@ -623,6 +641,9 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
                     timestep_2,
                     cross_attention_kwargs,
                     class_labels,
+                    frame, 
+                    height, 
+                    width, 
                     **ckpt_kwargs,
                 )
         else:
@@ -635,6 +656,9 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
                     timestep=timestep_2,
                     cross_attention_kwargs=cross_attention_kwargs,
                     class_labels=class_labels,
+                    frame=frame, 
+                    height=height, 
+                    width=width, 
                 )
 
         # decoder_1
@@ -661,6 +685,9 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
                     timestep_1,
                     cross_attention_kwargs,
                     class_labels,
+                    frame, 
+                    height, 
+                    width, 
                     **ckpt_kwargs,
                 )
         else:
@@ -673,6 +700,9 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
                     timestep=timestep_1,
                     cross_attention_kwargs=cross_attention_kwargs,
                     class_labels=class_labels,
+                    frame=frame, 
+                    height=height, 
+                    width=width, 
                 )
 
         assert not torch.any(torch.isnan(out_dec_level1)), 'after out_dec_level1'
@@ -766,39 +796,39 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
 
 
 def UDiTUltraT2V_S_111(**kwargs):
-    return UDiTUltraT2V(depth=[2, 5, 8, 5, 2], attention_head_dim=16, num_attention_heads=16, patch_size_t=1, patch_size=1, 
+    return UDiTUltraT2V(depth=[2, 5, 8, 5, 2], attention_head_dim=24, num_attention_heads=16, patch_size_t=1, patch_size=1, 
                    mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
 
 def UDiTUltraT2V_S_122(**kwargs):
-    return UDiTUltraT2V(depth=[2, 5, 8, 5, 2], attention_head_dim=16, num_attention_heads=16, patch_size_t=1, patch_size=2, 
+    return UDiTUltraT2V(depth=[2, 5, 8, 5, 2], attention_head_dim=24, num_attention_heads=16, patch_size_t=1, patch_size=2, 
                    mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
 
 def UDiTUltraT2V_B_111(**kwargs):
-    return UDiTUltraT2V(depth=[2, 5, 8, 5, 2], attention_head_dim=32, num_attention_heads=16, patch_size_t=1, patch_size=1, 
+    return UDiTUltraT2V(depth=[2, 5, 8, 5, 2], attention_head_dim=24, num_attention_heads=16, patch_size_t=1, patch_size=1, 
                    mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
 
 def UDiTUltraT2V_L_111(**kwargs):
-    return UDiTUltraT2V(depth=[4, 8, 12, 8, 4], attention_head_dim=32, num_attention_heads=24, patch_size_t=1, patch_size=1, 
+    return UDiTUltraT2V(depth=[4, 8, 12, 8, 4], attention_head_dim=24, num_attention_heads=24, patch_size_t=1, patch_size=1, 
                    mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
 
 def UDiTUltraT2V_L_211(**kwargs):
-    return UDiTUltraT2V(depth=[4, 8, 12, 8, 4], attention_head_dim=32, num_attention_heads=24, patch_size_t=2, patch_size=1, 
+    return UDiTUltraT2V(depth=[4, 8, 12, 8, 4], attention_head_dim=24, num_attention_heads=24, patch_size_t=2, patch_size=1, 
                    mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
 
 def UDiTUltraT2V_L_122(**kwargs):
-    return UDiTUltraT2V(depth=[4, 8, 12, 8, 4], attention_head_dim=32, num_attention_heads=24, patch_size_t=1, patch_size=2, 
+    return UDiTUltraT2V(depth=[4, 8, 12, 8, 4], attention_head_dim=24, num_attention_heads=24, patch_size_t=1, patch_size=2, 
                    mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
 
 def UDiTUltraT2V_L_222(**kwargs):
-    return UDiTUltraT2V(depth=[4, 8, 12, 8, 4], attention_head_dim=32, num_attention_heads=24, patch_size_t=2, patch_size=2, 
+    return UDiTUltraT2V(depth=[4, 8, 12, 8, 4], attention_head_dim=24, num_attention_heads=24, patch_size_t=2, patch_size=2, 
                    mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
 
 def UDiTUltraT2V_XL_111(**kwargs):
-    return UDiTUltraT2V(depth=[4, 10, 16, 10, 4], attention_head_dim=32, num_attention_heads=32, patch_size_t=1, patch_size=1, 
+    return UDiTUltraT2V(depth=[4, 10, 16, 10, 4], attention_head_dim=24, num_attention_heads=32, patch_size_t=1, patch_size=1, 
                    mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
 
 def UDiTUltraT2V_XXL_111(**kwargs):
-    return UDiTUltraT2V(depth=[4, 20, 32, 20, 4], attention_head_dim=32, num_attention_heads=32, patch_size_t=1, patch_size=1, 
+    return UDiTUltraT2V(depth=[4, 20, 32, 20, 4], attention_head_dim=24, num_attention_heads=32, patch_size_t=1, patch_size=1, 
                    mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
 
 UDiT_Ultra_models = {
@@ -875,13 +905,16 @@ if __name__ == '__main__':
     {
         'ae': 'CausalVAEModel_4x8x8', 
         'attention_mode': 'xformers', 
-        'use_rope': False, 
+        'use_rope': True, 
         'model_max_length': 300, 
-        'max_height': 480, 
-        'max_width': 640, 
-        'num_frames': 125, 
+        'max_height': 240, 
+        'max_width': 320, 
+        'num_frames': 1, 
         'use_image_num': 0, 
-        'compress_kv_factor': 1
+        'compress_kv_factor': 1, 
+        'interpolation_scale_t': 1,
+        'interpolation_scale_h': 1,
+        'interpolation_scale_w': 1,
     }
     )
     b = 2
@@ -912,7 +945,11 @@ if __name__ == '__main__':
                             upcast_attention=False,
                             use_linear_projection=False,
                             use_additional_conditions=False, 
-                            downsampler='k333_s222').to(device)
+                            downsampler='k33_s11', 
+                            interpolation_scale_t=args.interpolation_scale_t, 
+                            interpolation_scale_h=args.interpolation_scale_h, 
+                            interpolation_scale_w=args.interpolation_scale_w, 
+                            use_rope=args.use_rope).to(device)
 
     print(model)
     print(f'{sum(p.numel() for p in model.parameters() if p.requires_grad)/1e9} B')
@@ -942,7 +979,7 @@ if __name__ == '__main__':
                 new_v = v
             new_ckpt[k] = new_v
         msg = model.load_state_dict(new_ckpt, strict=False)
-        print(msg)
+        # print(msg)
     except Exception as e:
         print(e)
     # import sys;sys.exit()
@@ -951,7 +988,12 @@ if __name__ == '__main__':
     attn_mask = torch.randint(0, 2, (b, 1+(args.num_frames-1)//ae_stride_t+args.use_image_num, args.max_height//ae_stride_h, args.max_width//ae_stride_w)).to(device)  # B L or B 1+num_images L
     cond_mask = torch.randint(0, 2, (b, 1+args.use_image_num, args.model_max_length)).to(device)  # B L or B 1+num_images L
     timestep = torch.randint(0, 1000, (b,), device=device)
-
+    model_kwargs = dict(hidden_states=x, encoder_hidden_states=cond, attention_mask=attn_mask, 
+                        encoder_attention_mask=cond_mask, use_image_num=args.use_image_num, timestep=timestep)
+    with torch.no_grad():
+        output = model(**model_kwargs)
+    print(output[0].shape)
+    sys.exit()
     from peft import LoraConfig, PeftModel
     from peft import get_peft_model
     lora_save_path = 'lora'
@@ -1027,8 +1069,6 @@ if __name__ == '__main__':
 
     print('Merging LoRA weights...')
     model_load_lora_merge = model_load_lora.merge_and_unload()
-    model_kwargs = dict(hidden_states=x, encoder_hidden_states=cond, attention_mask=attn_mask, 
-                        encoder_attention_mask=cond_mask, use_image_num=args.use_image_num, timestep=timestep)
     with torch.no_grad():
         output = model_lora(**model_kwargs)
     print(output[0].shape)
