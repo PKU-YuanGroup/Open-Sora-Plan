@@ -18,6 +18,7 @@ from diffusers.models.attention import FeedForward, GatedSelfAttentionDense
 from diffusers.models.attention_processor import Attention as Attention_
 from diffusers.models.embeddings import SinusoidalPositionalEmbedding
 from diffusers.models.normalization import AdaLayerNorm, AdaLayerNormContinuous, AdaLayerNormZero, RMSNorm
+from .rope import PositionGetter3D, RoPE3D
 try:
     import torch_npu
     from opensora.npu_config import npu_config, set_run_dtype
@@ -151,9 +152,11 @@ class PatchEmbed2D(nn.Module):
         bias=True,
         interpolation_scale=(1, 1),
         interpolation_scale_t=1,
+        use_abs_pos=True, 
     ):
         super().__init__()
         # assert num_frames == 1
+        self.use_abs_pos = use_abs_pos
         self.flatten = flatten
         self.layer_norm = layer_norm
 
@@ -199,46 +202,47 @@ class PatchEmbed2D(nn.Module):
         if self.layer_norm:
             latent = self.norm(latent)
 
-        # import ipdb;ipdb.set_trace()
-        # Interpolate positional embeddings if needed.
-        # (For PixArt-Alpha: https://github.com/PixArt-alpha/PixArt-alpha/blob/0f55e922376d8b797edd44d25d0e7464b260dcab/diffusion/model/nets/PixArtMS.py#L162C151-L162C160)
-        if self.height != height or self.width != width:
-            # raise NotImplementedError
-            pos_embed = get_2d_sincos_pos_embed(
-                embed_dim=self.pos_embed.shape[-1],
-                grid_size=(height, width),
-                base_size=self.base_size,
-                interpolation_scale=self.interpolation_scale,
-            )
-            pos_embed = torch.from_numpy(pos_embed)
-            pos_embed = pos_embed.float().unsqueeze(0).to(latent.device)
-        else:
-            pos_embed = self.pos_embed
+        if self.use_abs_pos:
+            # Interpolate positional embeddings if needed.
+            # (For PixArt-Alpha: https://github.com/PixArt-alpha/PixArt-alpha/blob/0f55e922376d8b797edd44d25d0e7464b260dcab/diffusion/model/nets/PixArtMS.py#L162C151-L162C160)
+            if self.height != height or self.width != width:
+                # raise NotImplementedError
+                pos_embed = get_2d_sincos_pos_embed(
+                    embed_dim=self.pos_embed.shape[-1],
+                    grid_size=(height, width),
+                    base_size=self.base_size,
+                    interpolation_scale=self.interpolation_scale,
+                )
+                pos_embed = torch.from_numpy(pos_embed)
+                pos_embed = pos_embed.float().unsqueeze(0).to(latent.device)
+            else:
+                pos_embed = self.pos_embed
 
 
-        if self.num_frames != num_frames:
-            # import ipdb;ipdb.set_trace()
-            # raise NotImplementedError
-            temp_pos_embed = get_1d_sincos_pos_embed(
-                embed_dim=self.temp_pos_embed.shape[-1],
-                grid_size=num_frames,
-                base_size=self.base_size_t,
-                interpolation_scale=self.interpolation_scale_t,
-            )
-            temp_pos_embed = torch.from_numpy(temp_pos_embed)
-            temp_pos_embed = temp_pos_embed.float().unsqueeze(0).to(latent.device)
-        else:
-            temp_pos_embed = self.temp_pos_embed
+            if self.num_frames != num_frames:
+                # import ipdb;ipdb.set_trace()
+                # raise NotImplementedError
+                temp_pos_embed = get_1d_sincos_pos_embed(
+                    embed_dim=self.temp_pos_embed.shape[-1],
+                    grid_size=num_frames,
+                    base_size=self.base_size_t,
+                    interpolation_scale=self.interpolation_scale_t,
+                )
+                temp_pos_embed = torch.from_numpy(temp_pos_embed)
+                temp_pos_embed = temp_pos_embed.float().unsqueeze(0).to(latent.device)
+            else:
+                temp_pos_embed = self.temp_pos_embed
 
-        latent = (latent + pos_embed).to(latent.dtype)
+            latent = (latent + pos_embed).to(latent.dtype)
         
         latent = rearrange(latent, '(b t) n c -> b t n c', b=b)
         video_latent, image_latent = latent[:, :num_frames], latent[:, num_frames:]
 
-        # temp_pos_embed = temp_pos_embed.unsqueeze(2) * self.temp_embed_gate.tanh()
-        temp_pos_embed = temp_pos_embed.unsqueeze(2)
-        video_latent = (video_latent + temp_pos_embed).to(video_latent.dtype) if video_latent is not None and video_latent.numel() > 0 else None
-        image_latent = (image_latent + temp_pos_embed[:, :1]).to(image_latent.dtype) if image_latent is not None and image_latent.numel() > 0 else None
+        if self.use_abs_pos:
+            # temp_pos_embed = temp_pos_embed.unsqueeze(2) * self.temp_embed_gate.tanh()
+            temp_pos_embed = temp_pos_embed.unsqueeze(2)
+            video_latent = (video_latent + temp_pos_embed).to(video_latent.dtype) if video_latent is not None and video_latent.numel() > 0 else None
+            image_latent = (image_latent + temp_pos_embed[:, :1]).to(image_latent.dtype) if image_latent is not None and image_latent.numel() > 0 else None
 
         video_latent = rearrange(video_latent, 'b t n c -> b (t n) c') if video_latent is not None and video_latent.numel() > 0 else None
         image_latent = rearrange(image_latent, 'b t n c -> (b t) n c') if image_latent is not None and image_latent.numel() > 0 else None
@@ -267,9 +271,11 @@ class OverlapPatchEmbed3D(nn.Module):
         bias=True,
         interpolation_scale=(1, 1),
         interpolation_scale_t=1,
+        use_abs_pos=True, 
     ):
         super().__init__()
         # assert patch_size_t == 1 and patch_size == 1
+        self.use_abs_pos = use_abs_pos
         self.flatten = flatten
         self.layer_norm = layer_norm
 
@@ -316,46 +322,47 @@ class OverlapPatchEmbed3D(nn.Module):
         if self.layer_norm:
             latent = self.norm(latent)
 
-        # import ipdb;ipdb.set_trace()
-        # Interpolate positional embeddings if needed.
-        # (For PixArt-Alpha: https://github.com/PixArt-alpha/PixArt-alpha/blob/0f55e922376d8b797edd44d25d0e7464b260dcab/diffusion/model/nets/PixArtMS.py#L162C151-L162C160)
-        if self.height != height or self.width != width:
-            # raise NotImplementedError
-            pos_embed = get_2d_sincos_pos_embed(
-                embed_dim=self.pos_embed.shape[-1],
-                grid_size=(height, width),
-                base_size=self.base_size,
-                interpolation_scale=self.interpolation_scale,
-            )
-            pos_embed = torch.from_numpy(pos_embed)
-            pos_embed = pos_embed.float().unsqueeze(0).to(latent.device)
-        else:
-            pos_embed = self.pos_embed
+        if self.use_abs_pos:
+            # Interpolate positional embeddings if needed.
+            # (For PixArt-Alpha: https://github.com/PixArt-alpha/PixArt-alpha/blob/0f55e922376d8b797edd44d25d0e7464b260dcab/diffusion/model/nets/PixArtMS.py#L162C151-L162C160)
+            if self.height != height or self.width != width:
+                # raise NotImplementedError
+                pos_embed = get_2d_sincos_pos_embed(
+                    embed_dim=self.pos_embed.shape[-1],
+                    grid_size=(height, width),
+                    base_size=self.base_size,
+                    interpolation_scale=self.interpolation_scale,
+                )
+                pos_embed = torch.from_numpy(pos_embed)
+                pos_embed = pos_embed.float().unsqueeze(0).to(latent.device)
+            else:
+                pos_embed = self.pos_embed
 
 
-        if self.num_frames != num_frames:
-            # import ipdb;ipdb.set_trace()
-            # raise NotImplementedError
-            temp_pos_embed = get_1d_sincos_pos_embed(
-                embed_dim=self.temp_pos_embed.shape[-1],
-                grid_size=num_frames,
-                base_size=self.base_size_t,
-                interpolation_scale=self.interpolation_scale_t,
-            )
-            temp_pos_embed = torch.from_numpy(temp_pos_embed)
-            temp_pos_embed = temp_pos_embed.float().unsqueeze(0).to(latent.device)
-        else:
-            temp_pos_embed = self.temp_pos_embed
+            if self.num_frames != num_frames:
+                # import ipdb;ipdb.set_trace()
+                # raise NotImplementedError
+                temp_pos_embed = get_1d_sincos_pos_embed(
+                    embed_dim=self.temp_pos_embed.shape[-1],
+                    grid_size=num_frames,
+                    base_size=self.base_size_t,
+                    interpolation_scale=self.interpolation_scale_t,
+                )
+                temp_pos_embed = torch.from_numpy(temp_pos_embed)
+                temp_pos_embed = temp_pos_embed.float().unsqueeze(0).to(latent.device)
+            else:
+                temp_pos_embed = self.temp_pos_embed
 
-        latent = (latent + pos_embed).to(latent.dtype)
+            latent = (latent + pos_embed).to(latent.dtype)
         
         latent = rearrange(latent, '(b t) n c -> b t n c', b=b)
         video_latent, image_latent = latent[:, :num_frames], latent[:, num_frames:]
 
-        # temp_pos_embed = temp_pos_embed.unsqueeze(2) * self.temp_embed_gate.tanh()
-        # temp_pos_embed = temp_pos_embed.unsqueeze(2)
-        # video_latent = (video_latent + temp_pos_embed).to(video_latent.dtype) if video_latent is not None and video_latent.numel() > 0 else None
-        # image_latent = (image_latent + temp_pos_embed[:, :1]).to(image_latent.dtype) if image_latent is not None and image_latent.numel() > 0 else None
+        if self.use_abs_pos:
+            # temp_pos_embed = temp_pos_embed.unsqueeze(2) * self.temp_embed_gate.tanh()
+            temp_pos_embed = temp_pos_embed.unsqueeze(2)
+            video_latent = (video_latent + temp_pos_embed).to(video_latent.dtype) if video_latent is not None and video_latent.numel() > 0 else None
+            image_latent = (image_latent + temp_pos_embed[:, :1]).to(image_latent.dtype) if image_latent is not None and image_latent.numel() > 0 else None
 
 
         video_latent = rearrange(video_latent, 'b t n c -> b (t n) c') if video_latent is not None and video_latent.numel() > 0 else None
@@ -385,9 +392,11 @@ class OverlapPatchEmbed2D(nn.Module):
         bias=True,
         interpolation_scale=(1, 1),
         interpolation_scale_t=1,
+        use_abs_pos=True, 
     ):
         super().__init__()
         assert patch_size_t == 1
+        self.use_abs_pos = use_abs_pos
         self.flatten = flatten
         self.layer_norm = layer_norm
 
@@ -433,46 +442,47 @@ class OverlapPatchEmbed2D(nn.Module):
         if self.layer_norm:
             latent = self.norm(latent)
 
-        # import ipdb;ipdb.set_trace()
-        # Interpolate positional embeddings if needed.
-        # (For PixArt-Alpha: https://github.com/PixArt-alpha/PixArt-alpha/blob/0f55e922376d8b797edd44d25d0e7464b260dcab/diffusion/model/nets/PixArtMS.py#L162C151-L162C160)
-        if self.height != height or self.width != width:
-            # raise NotImplementedError
-            pos_embed = get_2d_sincos_pos_embed(
-                embed_dim=self.pos_embed.shape[-1],
-                grid_size=(height, width),
-                base_size=self.base_size,
-                interpolation_scale=self.interpolation_scale,
-            )
-            pos_embed = torch.from_numpy(pos_embed)
-            pos_embed = pos_embed.float().unsqueeze(0).to(latent.device)
-        else:
-            pos_embed = self.pos_embed
+        if self.use_abs_pos:
+            # Interpolate positional embeddings if needed.
+            # (For PixArt-Alpha: https://github.com/PixArt-alpha/PixArt-alpha/blob/0f55e922376d8b797edd44d25d0e7464b260dcab/diffusion/model/nets/PixArtMS.py#L162C151-L162C160)
+            if self.height != height or self.width != width:
+                # raise NotImplementedError
+                pos_embed = get_2d_sincos_pos_embed(
+                    embed_dim=self.pos_embed.shape[-1],
+                    grid_size=(height, width),
+                    base_size=self.base_size,
+                    interpolation_scale=self.interpolation_scale,
+                )
+                pos_embed = torch.from_numpy(pos_embed)
+                pos_embed = pos_embed.float().unsqueeze(0).to(latent.device)
+            else:
+                pos_embed = self.pos_embed
 
 
-        if self.num_frames != num_frames:
-            # import ipdb;ipdb.set_trace()
-            # raise NotImplementedError
-            temp_pos_embed = get_1d_sincos_pos_embed(
-                embed_dim=self.temp_pos_embed.shape[-1],
-                grid_size=num_frames,
-                base_size=self.base_size_t,
-                interpolation_scale=self.interpolation_scale_t,
-            )
-            temp_pos_embed = torch.from_numpy(temp_pos_embed)
-            temp_pos_embed = temp_pos_embed.float().unsqueeze(0).to(latent.device)
-        else:
-            temp_pos_embed = self.temp_pos_embed
+            if self.num_frames != num_frames:
+                # import ipdb;ipdb.set_trace()
+                # raise NotImplementedError
+                temp_pos_embed = get_1d_sincos_pos_embed(
+                    embed_dim=self.temp_pos_embed.shape[-1],
+                    grid_size=num_frames,
+                    base_size=self.base_size_t,
+                    interpolation_scale=self.interpolation_scale_t,
+                )
+                temp_pos_embed = torch.from_numpy(temp_pos_embed)
+                temp_pos_embed = temp_pos_embed.float().unsqueeze(0).to(latent.device)
+            else:
+                temp_pos_embed = self.temp_pos_embed
 
-        latent = (latent + pos_embed).to(latent.dtype)
+            latent = (latent + pos_embed).to(latent.dtype)
         
         latent = rearrange(latent, '(b t) n c -> b t n c', b=b)
         video_latent, image_latent = latent[:, :num_frames], latent[:, num_frames:]
 
-        # temp_pos_embed = temp_pos_embed.unsqueeze(2) * self.temp_embed_gate.tanh()
-        # temp_pos_embed = temp_pos_embed.unsqueeze(2)
-        # video_latent = (video_latent + temp_pos_embed).to(video_latent.dtype) if video_latent is not None and video_latent.numel() > 0 else None
-        # image_latent = (image_latent + temp_pos_embed[:, :1]).to(image_latent.dtype) if image_latent is not None and image_latent.numel() > 0 else None
+        if self.use_abs_pos:
+            # temp_pos_embed = temp_pos_embed.unsqueeze(2) * self.temp_embed_gate.tanh()
+            temp_pos_embed = temp_pos_embed.unsqueeze(2)
+            video_latent = (video_latent + temp_pos_embed).to(video_latent.dtype) if video_latent is not None and video_latent.numel() > 0 else None
+            image_latent = (image_latent + temp_pos_embed[:, :1]).to(image_latent.dtype) if image_latent is not None and image_latent.numel() > 0 else None
 
 
         video_latent = rearrange(video_latent, 'b t n c -> b (t n) c') if video_latent is not None and video_latent.numel() > 0 else None
@@ -484,8 +494,8 @@ class OverlapPatchEmbed2D(nn.Module):
         return video_latent, image_latent
     
 class Attention(Attention_):
-    def __init__(self, downsampler, attention_mode, **kwags):
-        processor = AttnProcessor2_0(attention_mode=attention_mode)
+    def __init__(self, downsampler, attention_mode, use_rope, interpolation_scale_thw, **kwags):
+        processor = AttnProcessor2_0(attention_mode=attention_mode, use_rope=use_rope, interpolation_scale_thw=interpolation_scale_thw)
         super().__init__(processor=processor, **kwags)
         self.downsampler = None
         if downsampler: # downsampler  k155_s122
@@ -523,6 +533,10 @@ class DownSampler3d(nn.Module):
         else:
             x_dtype = x.dtype
             x = npu_config.run_conv3d(self.layer, x, x_dtype) + (x if self.down_shortcut else 0)
+        
+        self.t = t//self.down_factor[0]
+        self.h = h//self.down_factor[1]
+        self.w = w//self.down_factor[2]
         x = rearrange(x, 'b d (t dt) (h dh) (w dw) -> (b dt dh dw) (t h w) d', 
                       t=t//self.down_factor[0], h=h//self.down_factor[1], w=w//self.down_factor[2], 
                          dt=self.down_factor[0], dh=self.down_factor[1], dw=self.down_factor[2])
@@ -553,12 +567,20 @@ class DownSampler2d(nn.Module):
         # import ipdb;ipdb.set_trace()
         b = x.shape[0]
         x = rearrange(x, 'b (t h w) d -> (b t) d h w', t=t, h=h, w=w)
-        x = self.layer(x) + (x if self.down_shortcut else 0)
+        if npu_config is None:
+            x = self.layer(x) + (x if self.down_shortcut else 0)
+        else:
+            x_dtype = x.dtype
+            x = npu_config.run_conv2d(self.layer, x, x_dtype) + (x if self.down_shortcut else 0)
+
+        self.t = 1
+        self.h = h//self.down_factor[0]
+        self.w = w//self.down_factor[1]
+
         x = rearrange(x, 'b d (h dh) (w dw) -> (b dh dw) (h w) d', 
                       h=h//self.down_factor[0], w=w//self.down_factor[1], 
                       dh=self.down_factor[0], dw=self.down_factor[1])
     
-
         attention_mask = rearrange(attention_mask, 'b 1 (t h w) -> (b t) 1 h w', h=h, w=w)
         attention_mask = rearrange(attention_mask, 'b 1 (h dh) (w dw) -> (b dh dw) 1 (h w)',
                       h=h//self.down_factor[0], w=w//self.down_factor[1], 
@@ -576,12 +598,20 @@ class AttnProcessor2_0:
     Processor for implementing scaled dot-product attention (enabled by default if you're using PyTorch 2.0).
     """
 
-    def __init__(self, attention_mode='xformers'):
-
+    def __init__(self, attention_mode='xformers', use_rope=False, interpolation_scale_thw=(1, 1, 1)):
+        self.use_rope = use_rope
+        self.interpolation_scale_thw = interpolation_scale_thw
+        if self.use_rope:
+            self._init_rope(interpolation_scale_thw)
         self.attention_mode = attention_mode
         if not hasattr(F, "scaled_dot_product_attention"):
             raise ImportError("AttnProcessor2_0 requires PyTorch 2.0, to use it, please upgrade PyTorch to 2.0.")
 
+
+    def _init_rope(self, interpolation_scale_thw):
+        self.rope = RoPE3D()
+        self.position_getter = PositionGetter3D(interpolation_scale_thw)
+    
     def __call__(
         self,
         attn: Attention,
@@ -602,6 +632,7 @@ class AttnProcessor2_0:
 
         if attn.downsampler is not None:
             hidden_states, attention_mask = attn.downsampler(hidden_states, attention_mask, t=frame, h=height, w=width)
+            frame, height, width = attn.downsampler.t, attn.downsampler.h, attn.downsampler.w
 
         residual = hidden_states
 
@@ -657,7 +688,14 @@ class AttnProcessor2_0:
         else:
             query = query.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
             key = key.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
-
+            
+            if self.use_rope:
+                # require the shape of (batch_size x nheads x ntokens x dim)
+                pos_thw = self.position_getter(batch_size, t=frame, h=height, w=width, device=query.device)
+                query = self.rope(query, pos_thw)
+                if query.shape == key.shape:
+                    key = self.rope(key, pos_thw)
+                
             value = value.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
 
             if attention_mask is None or not torch.all(attention_mask.bool()):  # 0 mean visible
@@ -844,6 +882,8 @@ class BasicTransformerBlock(nn.Module):
         attention_out_bias: bool = True,
         attention_mode: str = "xformers", 
         downsampler: str = None, 
+        use_rope: bool = False, 
+        interpolation_scale_thw: Tuple[int] = (1, 1, 1), 
     ):
         super().__init__()
         self.only_cross_attention = only_cross_attention
@@ -904,6 +944,8 @@ class BasicTransformerBlock(nn.Module):
             out_bias=attention_out_bias,
             attention_mode=attention_mode, 
             downsampler=downsampler, 
+            use_rope=use_rope, 
+            interpolation_scale_thw=interpolation_scale_thw, 
         )
 
         # 2. Cross-Attn
@@ -935,7 +977,9 @@ class BasicTransformerBlock(nn.Module):
                 upcast_attention=upcast_attention,
                 out_bias=attention_out_bias,
                 attention_mode=attention_mode, 
-                downsampler=False
+                downsampler=False, 
+                use_rope=use_rope, 
+                interpolation_scale_thw=interpolation_scale_thw, 
             )  # is self-attn if encoder_hidden_states is none
         else:
             self.norm2 = None

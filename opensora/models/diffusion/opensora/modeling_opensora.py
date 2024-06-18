@@ -83,6 +83,7 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
         use_additional_conditions: Optional[bool] = None,
         attention_mode: str = 'xformers', 
         downsampler: str = None, 
+        use_rope: bool = False, 
     ):
         super().__init__()
 
@@ -98,6 +99,7 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
                 )
 
         # Set some common variables used across the board.
+        self.use_rope = use_rope
         self.use_linear_projection = use_linear_projection
         self.interpolation_scale_t = interpolation_scale_t
         self.interpolation_scale_h = interpolation_scale_h
@@ -181,6 +183,7 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
                 embed_dim=self.inner_dim,
                 interpolation_scale=interpolation_scale, 
                 interpolation_scale_t=interpolation_scale_t,
+                use_abs_pos=not self.config.use_rope, 
             )
         elif self.config.downsampler is not None and len(self.config.downsampler) == 7:
             self.pos_embed = OverlapPatchEmbed2D(
@@ -193,6 +196,7 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
                 embed_dim=self.inner_dim,
                 interpolation_scale=interpolation_scale, 
                 interpolation_scale_t=interpolation_scale_t,
+                use_abs_pos=not self.config.use_rope, 
             )
         
         else:
@@ -206,8 +210,9 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
                 embed_dim=self.inner_dim,
                 interpolation_scale=interpolation_scale, 
                 interpolation_scale_t=interpolation_scale_t,
+                use_abs_pos=not self.config.use_rope, 
             )
-
+        interpolation_scale_thw = (interpolation_scale_t, *interpolation_scale)
         self.transformer_blocks = nn.ModuleList(
             [
                 BasicTransformerBlock(
@@ -228,6 +233,8 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
                     attention_type=self.config.attention_type,
                     attention_mode=self.config.attention_mode, 
                     downsampler=self.config.downsampler, 
+                    use_rope=self.config.use_rope, 
+                    interpolation_scale_thw=interpolation_scale_thw, 
                 )
                 for _ in range(self.config.num_layers)
             ]
@@ -663,13 +670,16 @@ if __name__ == '__main__':
     {
         'ae': 'CausalVAEModel_4x8x8', 
         'attention_mode': 'xformers', 
-        'use_rope': False, 
+        'use_rope': True, 
         'model_max_length': 300, 
         'max_height': 512, 
         'max_width': 512, 
         'num_frames': 1, 
         'use_image_num': 0, 
-        'compress_kv_factor': 1
+        'compress_kv_factor': 1, 
+        'interpolation_scale_t': 1,
+        'interpolation_scale_h': 1,
+        'interpolation_scale_w': 1,
     }
     )
     b = 2
@@ -685,7 +695,7 @@ if __name__ == '__main__':
 
     device = torch.device('cuda:0')
     model = OpenSoraT2V_B_122(in_channels=c, 
-                              out_channels=8, 
+                              out_channels=c, 
                               sample_size=latent_size, 
                               sample_size_t=num_frames, 
                               activation_fn="gelu-approximate",

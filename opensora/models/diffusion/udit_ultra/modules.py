@@ -378,8 +378,8 @@ class Attention(Attention_):
                                             padding=downsampler_padding, groups=kwags['query_dim'], down_factor=down_factor,
                                             down_shortcut=True, num_frames=num_frames, height=height, width=width)
         
-        self.q_norm = nn.LayerNorm(kwags['dim_head'], elementwise_affine=True, eps=1e-6)
-        self.k_norm = nn.LayerNorm(kwags['dim_head'], elementwise_affine=True, eps=1e-6) 
+        # self.q_norm = nn.LayerNorm(kwags['dim_head'], elementwise_affine=True, eps=1e-6)
+        # self.k_norm = nn.LayerNorm(kwags['dim_head'], elementwise_affine=True, eps=1e-6) 
         
 
 class DownSampler3d(nn.Module):
@@ -394,6 +394,7 @@ class DownSampler3d(nn.Module):
         self.layer = nn.Conv3d(*args, **kwargs)
 
     def forward(self, x, attention_mask):
+        # import ipdb;ipdb.set_trace()
         b = x.shape[0]
         x = rearrange(x, 'b (t h w) d -> b d t h w', t=self.t, h=self.h, w=self.w)
         if npu_config is None:
@@ -480,7 +481,7 @@ class AttnProcessor2_0:
         if len(args) > 0 or kwargs.get("scale", None) is not None:
             deprecation_message = "The `scale` argument is deprecated and will be ignored. Please remove it, as passing it will raise an error in the future. `scale` should directly be passed while calling the underlying pipeline component i.e., via `cross_attention_kwargs`."
             deprecate("scale", "1.0.0", deprecation_message)
-
+        
         if attn.downsampler is not None:
             hidden_states, attention_mask = attn.downsampler(hidden_states, attention_mask)
 
@@ -542,9 +543,9 @@ class AttnProcessor2_0:
             value = value.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
 
             # qk norm
-            query = attn.q_norm(query)
-            key = attn.k_norm(key)
-            query = query * (head_dim ** -0.5)
+            # query = attn.q_norm(query)
+            # key = attn.k_norm(key)
+            # query = query * (head_dim ** -0.5)
 
             if attention_mask is None or not torch.all(attention_mask.bool()):  # 0 mean visible
                 attention_mask = None
@@ -637,7 +638,8 @@ class Downsample3d(nn.Module):
 
     def forward(self, x, attention_mask, frames, height, width, pad_h=0, pad_w=0):
         x = rearrange(x, 'b (t h w) d -> b d t h w', t=frames, h=height, w=width)
-        x = F.pad(x, (0, pad_w, 0, pad_h, 0, 0), mode='reflect')
+        # x = F.pad(x, (0, pad_w, 0, pad_h, 0, 0), mode='reflect')
+        x = F.pad(x, (0, pad_w, 0, pad_h, 0, 0))
         if npu_config is None:
             x = self.body(x)
         else:
@@ -688,7 +690,8 @@ class Downsample2d(nn.Module):
 
     def forward(self, x, attention_mask, frames, height, width, pad_h=0, pad_w=0):
         x = rearrange(x, 'b (t h w) d -> (b t) d h w', t=frames, h=height, w=width)
-        x = F.pad(x, (0, pad_w, 0, pad_h), mode='reflect')
+        # x = F.pad(x, (0, pad_w, 0, pad_h), mode='reflect')
+        x = F.pad(x, (0, pad_w, 0, pad_h))
         if npu_config is None:
             x = self.body(x)
         else:

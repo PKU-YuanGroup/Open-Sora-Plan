@@ -38,5 +38,4 @@ sft*
 flash*
 65x256*
 alpha_vae
-*bs32*
-*bs64*
+*node*

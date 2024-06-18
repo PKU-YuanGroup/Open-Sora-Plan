@@ -96,10 +96,13 @@ def main(args: argparse.Namespace):
     with torch.no_grad():
         x_vae = preprocess(read_video(args.video_path, args.num_frames, args.sample_rate), args.height,
                            args.width)
+        print(x_vae.shape)
         x_vae = x_vae.to(device, dtype=torch.float16)  # b c t h w
         latents = vae.encode(x_vae)
+        print(latents.shape)
         latents = latents.to(torch.float16)
         video_recon = vae.decode(latents)  # b t c h w
+        print(video_recon.shape)
 
     custom_to_video(video_recon[0], fps=args.fps, output_file=args.rec_path)
 
@@ -118,6 +121,7 @@ if __name__ == '__main__':
     parser.add_argument('--sample_rate', type=int, default=1)
     parser.add_argument('--device', type=str, default="cuda")
     parser.add_argument('--tile_overlap_factor', type=float, default=0.25)
+    parser.add_argument('--tile_sample_min_size', type=int, default=256)
     parser.add_argument('--enable_tiling', action='store_true')
 
     args = parser.parse_args()

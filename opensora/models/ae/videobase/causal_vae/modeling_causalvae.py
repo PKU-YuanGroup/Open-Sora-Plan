@@ -331,8 +331,10 @@ class CausalVAEModel(VideoBaseAE_PL):
         self.tile_sample_min_size = 256
         self.tile_sample_min_size_t = 65
         self.tile_latent_min_size = int(self.tile_sample_min_size / (2 ** (len(hidden_size_mult) - 1)))
-        t_down_ratio = [i for i in encoder_temporal_downsample if len(i) > 0]
-        self.tile_latent_min_size_t = int((self.tile_sample_min_size_t-1) / (2 ** len(t_down_ratio))) + 1
+        
+        # t_down_ratio = [i for i in encoder_temporal_downsample if len(i) > 0]
+        # self.tile_latent_min_size_t = int((self.tile_sample_min_size_t-1) / (2 ** len(t_down_ratio))) + 1
+        self.tile_latent_min_size_t = 17
         self.tile_overlap_factor = 0.25
         self.use_tiling = False
 
@@ -662,7 +664,6 @@ class CausalVAEModel(VideoBaseAE_PL):
         overlap_size = int(self.tile_latent_min_size * (1 - self.tile_overlap_factor))
         blend_extent = int(self.tile_sample_min_size * self.tile_overlap_factor)
         row_limit = self.tile_sample_min_size - blend_extent
-
         # Split z into overlapping 64x64 tiles and decode them separately.
         # The tiles have an overlap to avoid seams between tiles.
         rows = []

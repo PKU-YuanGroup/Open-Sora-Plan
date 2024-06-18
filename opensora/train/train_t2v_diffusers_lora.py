@@ -289,8 +289,9 @@ def main(args):
     # Freeze vae and text encoders.
     ae.vae.requires_grad_(False)
     text_enc.requires_grad_(False)
-    # Set model as trainable.
-    model.train()
+    model.requires_grad_(False)
+    # # Set model as trainable.
+    # model.train()
 
     noise_scheduler = DDPMScheduler()
     # Move unet, vae and text_encoder to device and cast to weight_dtype
@@ -299,11 +300,29 @@ def main(args):
     # ae.vae.to(accelerator.device, dtype=weight_dtype)
     text_enc.to(accelerator.device, dtype=weight_dtype)
 
+
+
+
+    # now we will add new LoRA weights to the attention layers
+    # Set correct lora layers
+    if args.enable_lora:
+        lora_config = LoraConfig(
+            r=args.rank,
+            lora_alpha=args.rank,
+            init_lora_weights="gaussian",
+            target_modules=["to_k", "to_q", "to_v", "to_out.0"],
+        )
+        model = get_peft_model(model, lora_config)
     # Create EMA for the unet.
     if args.use_ema:
         ema_model = deepcopy(model)
-        ema_model = EMAModel(ema_model.parameters(), update_after_step=args.ema_start_step,
-                             model_cls=Diffusion_models_class[args.model], model_config=ema_model.config)
+        if args.enable_ema:
+            ema_model = EMAModel_LoRA(lora_config, parameters=ema_model.parameters(), update_after_step=args.ema_start_step,  
+                                      model_cls=Diffusion_models_class[args.model], model_config=ema_model.config)
+        else:
+            ema_model = EMAModel(ema_model.parameters(), update_after_step=args.ema_start_step,
+                                model_cls=Diffusion_models_class[args.model], model_config=ema_model.config)
+            
 
     # `accelerate` 0.16.0 will have better support for customized saving
     if version.parse(accelerate.__version__) >= version.parse("0.16.0"):
@@ -311,31 +330,47 @@ def main(args):
         def save_model_hook(models, weights, output_dir):
             if accelerator.is_main_process:
                 if args.use_ema:
-                    ema_model.save_pretrained(os.path.join(output_dir, "model_ema"))
+                    if args.enable_lora:
+                        ema_model.save_pretrained(os.path.join(output_dir, "model_ema_lora"))
+                    else:
+                        ema_model.save_pretrained(os.path.join(output_dir, "model_ema"))
 
                 for i, model in enumerate(models):
-                    model.save_pretrained(os.path.join(output_dir, "model"))
+                    if args.enable_lora:
+                        state_dict = get_peft_state_maybe_zero_3(model.named_parameters(), lora_config.bias)
+                        model.save_pretrained(os.path.join(output_dir, "model_lora"), state_dict=state_dict)
+                    else:
+                        model.save_pretrained(os.path.join(output_dir, "model"))
                     if weights:  # Don't pop if empty
                         # make sure to pop weight so that corresponding model is not saved again
                         weights.pop()
 
         def load_model_hook(models, input_dir):
             if args.use_ema:
-                load_model = EMAModel.from_pretrained(os.path.join(input_dir, "model_ema"), Diffusion_models_class[args.model])
-                ema_model.load_state_dict(load_model.state_dict())
-                ema_model.to(accelerator.device)
-                del load_model
+                if args.enable_lora:
+                    load_model = EMAModel_LoRA.from_pretrained(os.path.join(input_dir, "model_ema_lora"), Diffusion_models_class[args.model], lora_config)
+                    ema_model.load_state_dict(load_model.state_dict())
+                    ema_model.to(accelerator.device)
+                    del load_model
+
+                else:
+                    load_model = EMAModel.from_pretrained(os.path.join(input_dir, "model_ema"), Diffusion_models_class[args.model])
+                    ema_model.load_state_dict(load_model.state_dict())
+                    ema_model.to(accelerator.device)
+                    del load_model
 
             for i in range(len(models)):
                 # pop models so that they are not loaded again
                 model = models.pop()
+                if args.enable_lora:
+                    model = PeftModel.from_pretrained(model, os.path.join(input_dir, "model_lora"))
+                else:
+                    # load diffusers style into model
+                    load_model = Diffusion_models_class[args.model].from_pretrained(input_dir, subfolder="model")
+                    model.register_to_config(**load_model.config)
 
-                # load diffusers style into model
-                load_model = Diffusion_models_class[args.model].from_pretrained(input_dir, subfolder="model")
-                model.register_to_config(**load_model.config)
-
-                model.load_state_dict(load_model.state_dict())
-                del load_model
+                    model.load_state_dict(load_model.state_dict())
+                    del load_model
 
         accelerator.register_save_state_pre_hook(save_model_hook)
         accelerator.register_load_state_pre_hook(load_model_hook)
@@ -628,6 +663,8 @@ def main(args):
         optimizer.step()
         lr_scheduler.step()
         optimizer.zero_grad()
+        if prof is not None:
+            prof.step()
 
         avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
         progress_info.train_loss += avg_loss.detach().item() / args.gradient_accumulation_steps
@@ -661,10 +698,6 @@ def main(args):
                                        weight_dtype, progress_info.global_step, ema=True)
                     # Switch back to the original UNet parameters.
                     ema_model.restore(model.parameters())
-
-        if prof is not None:
-            prof.step()
-
 
         return loss
 
@@ -794,7 +827,7 @@ if __name__ == "__main__":
     parser.add_argument("--cache_dir", type=str, default='./cache_dir')
     parser.add_argument("--pretrained", type=str, default=None)
     parser.add_argument("--gradient_checkpointing", action="store_true", help="Whether or not to use gradient checkpointing to save memory at the expense of slower backward pass.")
-
+    
     # diffusion setting
     parser.add_argument("--snr_gamma", type=float, default=None, help="SNR weighting gamma to be used if rebalancing the loss. Recommended value is 5.0. More details here: https://arxiv.org/abs/2303.09556.")
     parser.add_argument("--use_ema", action="store_true", help="Whether to use EMA model.")

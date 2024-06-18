@@ -880,7 +880,6 @@ class BasicTransformerBlock(nn.Module):
             )
         else:
             self.norm1 = nn.LayerNorm(dim, elementwise_affine=norm_elementwise_affine, eps=norm_eps)
-
         self.attn1 = Attention(
             query_dim=dim,
             heads=num_attention_heads,
