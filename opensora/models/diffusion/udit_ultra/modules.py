@@ -355,7 +355,7 @@ class OverlapPatchEmbed2D(nn.Module):
         image_latent = latent
 
         if self.use_abs_pos:
-            temp_pos_embed = temp_pos_embed.unsqueeze(2) * self.temp_embed_gate.tanh()
+            # temp_pos_embed = temp_pos_embed.unsqueeze(2) * self.temp_embed_gate.tanh()
             temp_pos_embed = temp_pos_embed.unsqueeze(2)
             video_latent = (video_latent + temp_pos_embed).to(video_latent.dtype) if video_latent is not None and video_latent.numel() > 0 else None
             image_latent = (image_latent + temp_pos_embed[:, :1]).to(image_latent.dtype) if image_latent is not None and image_latent.numel() > 0 else None
@@ -440,11 +440,7 @@ class DownSampler2d(nn.Module):
         # import ipdb;ipdb.set_trace()
         b = x.shape[0]
         x = rearrange(x, 'b (t h w) d -> (b t) d h w', t=t, h=h, w=w)
-        if npu_config is None:
-            x = self.layer(x) + (x if self.down_shortcut else 0)
-        else:
-            x_dtype = x.dtype
-            x = npu_config.run_conv2d(self.layer, x, x_dtype) + (x if self.down_shortcut else 0)
+        x = self.layer(x) + (x if self.down_shortcut else 0)
 
         self.t = 1
         self.h = h//self.down_factor[0]
@@ -528,6 +524,9 @@ class AttnProcessor2_0:
                 attention_mask = attention_mask.view(batch_size, attn.heads, -1, attention_mask.shape[-1])
             else:
                 attention_mask = attention_mask.view(batch_size, 1, -1, attention_mask.shape[-1])
+                attention_mask = attention_mask.repeat(1, 1, hidden_states.shape[1], 1)
+                if npu_config.enable_FA:
+                    attention_mask = attention_mask.to(torch.bool)
 
         if attn.group_norm is not None:
             hidden_states = attn.group_norm(hidden_states.transpose(1, 2)).transpose(1, 2)
@@ -550,6 +549,17 @@ class AttnProcessor2_0:
                 dtype = torch.bfloat16
             else:
                 dtype = None
+
+            if self.use_rope:
+                query = query.view(batch_size, -1, attn.heads, head_dim)
+                key = key.view(batch_size, -1, attn.heads, head_dim)
+                # require the shape of (batch_size x nheads x ntokens x dim)
+                pos_thw = self.position_getter(batch_size, t=frame, h=height, w=width, device=query.device)
+                query = self.rope(query, pos_thw)
+                if query.shape == key.shape:
+                    key = self.rope(key, pos_thw)
+                query = query.view(batch_size, -1, attn.heads * head_dim)
+                key = key.view(batch_size, -1, attn.heads * head_dim)
 
             with set_run_dtype(query, dtype):
                 query, key, value = npu_config.set_current_run_dtype([query, key, value])
@@ -722,15 +732,15 @@ class Downsample2d(nn.Module):
         # x = F.pad(x, (0, pad_w, 0, pad_h), mode='reflect')
         x = F.pad(x, (0, pad_w, 0, pad_h))
         if npu_config is None:
-            x = self.body(x)
+            x = F.pad(x, (0, pad_w, 0, pad_h))
         else:
-            x_dtype = x.dtype
-            x = npu_config.run_conv2d(self.body, x, x_dtype)
+            x = npu_config.run_pad_2d(F.pad, x, pad=(0, pad_w, 0, pad_h))
+        x = self.body(x)
         x = rearrange(x, '(b t) d h w -> b (t h w) d', t=frames)
         
         attention_mask = rearrange(attention_mask, 'b 1 (t h w) -> (b t) 1 h w', t=frames, h=height, w=width)
         attention_mask = F.pad(attention_mask, (0, pad_w, 0, pad_h))
-        attention_mask = F.max_pool2d(attention_mask, kernel_size=2, stride=2)
+        attention_mask = F.max_pool2d(attention_mask.float(), kernel_size=2, stride=2)
         attention_mask = rearrange(attention_mask, '(b t) 1 h w -> b 1 (t h w)', t=frames)
         attention_bias = (1 - attention_mask.bool().to(x.dtype)) * -10000.0
 
@@ -745,11 +755,7 @@ class Upsample2d(nn.Module):
 
     def forward(self, x, attention_mask, frames, height, width, pad_h=0, pad_w=0):
         x = rearrange(x, 'b (t h w) d -> (b t) d h w', t=frames, h=height, w=width)
-        if npu_config is None:
-            x = self.body(x)
-        else:
-            x_dtype = x.dtype
-            x = npu_config.run_conv2d(self.body, x, x_dtype)
+        x = self.body(x)
         x = x[:, :, :height*2-pad_h, :width*2-pad_w]
         x = rearrange(x, '(b t) d h w -> b (t h w) d', t=frames)
 
@@ -784,24 +790,14 @@ class FeedForward_Conv2d(nn.Module):
 
     def forward(self, x, t, h, w):
         # import ipdb;ipdb.set_trace()
-        if npu_config is None:
-            x = self.project_in(x)
-            x = rearrange(x, 'b (t h w) d -> (b t) d h w', t=t, h=h, w=w)
-            x = F.gelu(x)
-            out = x
-            for module in self.dwconv:
-                out = out + module(x)
-            out = rearrange(out, '(b t) d h w -> b (t h w) d', t=t, h=h, w=w)
-            x = self.project_out(out)
-        else:
-            x_dtype = x.dtype
-            x = npu_config.run_conv2d(self.project_in, x, torch.float16)
-            x = F.gelu(x)
-            out = x
-            for module in self.dwconv:
-                out = out + npu_config.run_conv2d(module, x, torch.float16)
-            out = rearrange(out, '(b t) d h w -> b (t h w) d', t=t, h=h, w=w)
-            x = npu_config.run_conv2d(self.project_out, out, x_dtype)
+        x = self.project_in(x)
+        x = rearrange(x, 'b (t h w) d -> (b t) d h w', t=t, h=h, w=w)
+        x = F.gelu(x)
+        out = x
+        for module in self.dwconv:
+            out = out + module(x)
+        out = rearrange(out, '(b t) d h w -> b (t h w) d', t=t, h=h, w=w)
+        x = self.project_out(out)
         return x
 
 @maybe_allow_in_graph
