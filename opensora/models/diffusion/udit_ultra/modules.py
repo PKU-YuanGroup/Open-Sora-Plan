@@ -729,7 +729,7 @@ class Downsample2d(nn.Module):
     def forward(self, x, attention_mask, frames, height, width, pad_h=0, pad_w=0):
         x = rearrange(x, 'b (t h w) d -> (b t) d h w', t=frames, h=height, w=width)
         # x = F.pad(x, (0, pad_w, 0, pad_h), mode='reflect')
-        x = F.pad(x, (0, pad_w, 0, pad_h))
+        # x = F.pad(x, (0, pad_w, 0, pad_h))
         if npu_config is None:
             x = F.pad(x, (0, pad_w, 0, pad_h))
         else:
