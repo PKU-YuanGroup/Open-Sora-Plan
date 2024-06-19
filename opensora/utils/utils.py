@@ -342,10 +342,10 @@ def collect_env():
 
 bad_punct_regex = re.compile(r'['+'#®•©™&@·º½¾¿¡§~'+'\)'+'\('+'\]'+'\['+'\}'+'\{'+'\|'+'\\'+'\/'+'\*' + r']{1,}')  # noqa
 
-def text_preprocessing(text):
+def text_preprocessing(text, support_Chinese=True):
     # The exact text cleaning as was in the training stage:
-    text = clean_caption(text)
-    text = clean_caption(text)
+    text = clean_caption(text, support_Chinese=support_Chinese)
+    text = clean_caption(text, support_Chinese=support_Chinese)
     return text
 
 def basic_clean(text):
@@ -353,7 +353,7 @@ def basic_clean(text):
     text = html.unescape(html.unescape(text))
     return text.strip()
 
-def clean_caption(caption):
+def clean_caption(caption, support_Chinese=True):
     caption = str(caption)
     caption = ul.unquote_plus(caption)
     caption = caption.strip().lower()
@@ -384,7 +384,8 @@ def clean_caption(caption):
     caption = re.sub(r'[\u3300-\u33ff]+', '', caption)
     caption = re.sub(r'[\u3400-\u4dbf]+', '', caption)
     caption = re.sub(r'[\u4dc0-\u4dff]+', '', caption)
-    caption = re.sub(r'[\u4e00-\u9fff]+', '', caption)
+    if not support_Chinese:
+        caption = re.sub(r'[\u4e00-\u9fff]+', '', caption)  # Chinese
     #######################################################
 
     # все виды тире / all types of dash --> "-"
@@ -461,5 +462,10 @@ def clean_caption(caption):
     return caption.strip()
 
 
-
+if __name__ == '__main__':
+    
+    # caption = re.sub(r'[\u4e00-\u9fff]+', '', caption)
+    a = "Below that, there is another line of text that says \"\u5c0f\u989d\u6148\u5584\u51a0\u540d\u57fa\u91d1\u7b7e\u5b57\u4eea\u5f0f,\" which translates to \"Small Charity Crown Name Fund Signature Ceremony.\" The names \"\u4eba\u58eb\u738b\u519b\" are also visible, which translates to \"Person King Wu,\" likely indicating the name of one of the individuals or a title. In the bottom right corner, there is a logo with the text \"\u9655\u897f\u5934\u6761@\u897f\u90e8\u7f51,\" which translates to \"Shaanxi Headline@West China Network,\" suggesting that this event is being covered or sponsored by a media outlet or news network. The overall setting suggests a formal agreement or partnership signing between the two individuals, possibly related to the charity fund mentioned on the curtain."
+    print(a)
+    print(text_preprocessing(a))
 
