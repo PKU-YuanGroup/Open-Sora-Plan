@@ -145,13 +145,14 @@ class LatteT2V(ModelMixin, ConfigMixin):
         self.width = self.config.sample_size[1]
         self.patch_size_t = self.config.patch_size_t
         self.patch_size = self.config.patch_size
-        interpolation_scale_t = ((self.config.sample_size_t - 1) // 16 + 1) if self.config.sample_size_t % 2 == 1 else self.config.sample_size_t / 16
-        interpolation_scale_t = (
+        # interpolation_scale_t = ((self.config.sample_size_t - 1) // 16 + 1) if self.config.sample_size_t % 2 == 1 else self.config.sample_size_t / 16
+        interpolation_scale_t = ((self.config.sample_size_t - 1) // 16) if self.config.sample_size_t % 2 == 1 else self.config.sample_size_t // 16
+        self.interpolation_scale_t = (
             self.config.interpolation_scale_t if self.config.interpolation_scale_t is not None else interpolation_scale_t
         )
-        interpolation_scale = (
-            self.config.interpolation_scale_h if self.config.interpolation_scale_h is not None else self.config.sample_size[0] / 30, 
-            self.config.interpolation_scale_w if self.config.interpolation_scale_w is not None else self.config.sample_size[1] / 40, 
+        self.interpolation_scale = (
+            self.config.interpolation_scale_h if self.config.interpolation_scale_h is not None else self.config.sample_size[0] / 64, # 30
+            self.config.interpolation_scale_w if self.config.interpolation_scale_w is not None else self.config.sample_size[1] / 64, # 40
         )
         self.pos_embed = PatchEmbed(
             height=sample_size[0],
@@ -159,7 +160,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
             patch_size=patch_size,
             in_channels=in_channels,
             embed_dim=inner_dim,
-            interpolation_scale=interpolation_scale,
+            interpolation_scale=self.interpolation_scale,
         )
 
         # # define temporal positional embedding
@@ -176,7 +177,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
         if self.use_rope:
             self.position_getter_2d = PositionGetter2D()
             self.position_getter_1d = PositionGetter1D()
-            rope_scaling = dict(type=rope_scaling_type, factor_2d=interpolation_scale, factor_1d=interpolation_scale_t)
+            rope_scaling = dict(type=rope_scaling_type, factor_2d=self.interpolation_scale, factor_1d=interpolation_scale_t)
 
         # 3. Define transformers blocks, spatial attention
         self.transformer_blocks = nn.ModuleList(

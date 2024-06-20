@@ -15,6 +15,7 @@ from torchvision.utils import save_image
 from transformers import T5EncoderModel, T5Tokenizer, AutoTokenizer
 
 import os, sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
 from opensora.models.ae import ae_stride_config, getae, getae_wrapper
 from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModelWrapper
@@ -32,6 +33,7 @@ import imageio
 
 def main(args):
     # torch.manual_seed(args.seed)
+    torch.set_grad_enabled(False)
     weight_dtype = torch.float16
     device = torch.device(args.device)
 
@@ -54,13 +56,13 @@ def main(args):
         transformer_model = UDiTT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, 
                                                         low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
     else:
-        transformer_model = LatteT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, low_cpu_mem_usage=False, 
+        transformer_model = LatteT2V.from_pretrained(args.model_path, subfolder=args.version, cache_dir=args.cache_dir, low_cpu_mem_usage=False, 
                                                      device_map=None, torch_dtype=weight_dtype)
 
     # text_encoder = T5EncoderModel.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir, low_cpu_mem_usage=True, torch_dtype=weight_dtype)
     # tokenizer = T5Tokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
-    text_encoder = T5EncoderModel.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir, low_cpu_mem_usage=True, torch_dtype=weight_dtype)
-    tokenizer = T5Tokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir)
+    text_encoder = T5EncoderModel.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir, low_cpu_mem_usage=True, torch_dtype=weight_dtype)
+    tokenizer = T5Tokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
     
     
     # set eval mode
@@ -92,6 +94,8 @@ def main(args):
         scheduler = EulerDiscreteScheduler.from_pretrained("stabilityai/stable-video-diffusion-img2vid", 
                                                         subfolder="scheduler", cache_dir=args.cache_dir)
 
+    print(args.sample_method, scheduler.__class__.__name__)
+
     pipeline = OpenSoraPipeline(vae=vae,
                                 text_encoder=text_encoder,
                                 tokenizer=tokenizer,
@@ -120,7 +124,7 @@ def main(args):
                         num_images_per_prompt=1,
                         mask_feature=True,
                         device=args.device, 
-                        max_sequence_length=100, 
+                        max_sequence_length=300, 
                         ).images
         try:
             if args.num_frames == 1:
