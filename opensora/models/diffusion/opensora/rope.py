@@ -2,6 +2,7 @@ import torch
 try:
     import torch_npu
     from opensora.npu_config import npu_config, set_run_dtype
+    from opensora.acceleration.parallel_states import get_sequence_parallel_state
 except:
     torch_npu = None
     npu_config = None
@@ -18,7 +19,10 @@ class PositionGetter3D(object):
             y = torch.arange(h, device=device)
             z = torch.arange(t, device=device)
             pos = torch.cartesian_prod(z, y, x)
-            pos = pos.reshape(t * h * w, 3).transpose(0, 1).reshape(3, 1, -1).contiguous().expand(3, b, -1).clone()
+            if npu_config is not None and get_sequence_parallel_state():
+                pos = pos.reshape(t * h * w, 3).transpose(0, 1).reshape(3, -1, 1).contiguous().expand(3, -1, b).clone()
+            else:
+                pos = pos.reshape(t * h * w, 3).transpose(0, 1).reshape(3, 1, -1).contiguous().expand(3, b, -1).clone()
             poses = (pos[0].contiguous(), pos[1].contiguous(), pos[2].contiguous())
             max_poses = (int(poses[0].max()), int(poses[1].max()), int(poses[2].max()))
 

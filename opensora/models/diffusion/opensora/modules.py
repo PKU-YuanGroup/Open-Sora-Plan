@@ -22,6 +22,8 @@ from .rope import PositionGetter3D, RoPE3D
 try:
     import torch_npu
     from opensora.npu_config import npu_config, set_run_dtype
+    from opensora.acceleration.parallel_states import get_sequence_parallel_state, hccl_info
+    from opensora.acceleration.communications import all_to_all_SBH
 except:
     torch_npu = None
     npu_config = None
@@ -222,12 +224,25 @@ class PatchEmbed2D(nn.Module):
             if self.num_frames != num_frames:
                 # import ipdb;ipdb.set_trace()
                 # raise NotImplementedError
-                temp_pos_embed = get_1d_sincos_pos_embed(
-                    embed_dim=self.temp_pos_embed.shape[-1],
-                    grid_size=num_frames,
-                    base_size=self.base_size_t,
-                    interpolation_scale=self.interpolation_scale_t,
-                )
+                if npu_config is not None and get_sequence_parallel_state():
+                    sp_size = hccl_info.world_size
+                    temp_pos_embed = get_1d_sincos_pos_embed(
+                        embed_dim=self.temp_pos_embed.shape[-1],
+                        grid_size=num_frames * sp_size,
+                        base_size=self.base_size_t,
+                        interpolation_scale=self.interpolation_scale_t,
+                    )
+                    rank = hccl_info.rank % sp_size
+                    st_frame = rank * num_frames
+                    ed_frame = st_frame + num_frames
+                    temp_pos_embed = temp_pos_embed[st_frame: ed_frame]
+                else:
+                    temp_pos_embed = get_1d_sincos_pos_embed(
+                        embed_dim=self.temp_pos_embed.shape[-1],
+                        grid_size=num_frames,
+                        base_size=self.base_size_t,
+                        interpolation_scale=self.interpolation_scale_t,
+                    )
                 temp_pos_embed = torch.from_numpy(temp_pos_embed)
                 temp_pos_embed = temp_pos_embed.float().unsqueeze(0).to(latent.device)
             else:
@@ -565,11 +580,7 @@ class DownSampler2d(nn.Module):
     def forward(self, x, attention_mask, t, h, w):
         b = x.shape[0]
         x = rearrange(x, 'b (t h w) d -> (b t) d h w', t=t, h=h, w=w)
-        if npu_config is None:
-            x = self.layer(x) + (x if self.down_shortcut else 0)
-        else:
-            x_dtype = x.dtype
-            x = npu_config.run_conv2d(self.layer, x, x_dtype) + (x if self.down_shortcut else 0)
+        x = self.layer(x) + (x if self.down_shortcut else 0)
 
         self.t = 1
         self.h = h//self.down_factor[0]
@@ -643,9 +654,14 @@ class AttnProcessor2_0:
             batch_size, channel, height, width = hidden_states.shape
             hidden_states = hidden_states.view(batch_size, channel, height * width).transpose(1, 2)
 
-        batch_size, sequence_length, _ = (
-            hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
-        )
+        if npu_config is not None and get_sequence_parallel_state():
+            sequence_length, batch_size, _ = (
+                hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
+            )
+        else:
+            batch_size, sequence_length, _ = (
+                hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
+            )
 
         if attention_mask is not None:
             if npu_config is None:
@@ -672,29 +688,56 @@ class AttnProcessor2_0:
         head_dim = inner_dim // attn.heads
 
         if npu_config is not None and npu_config.on_npu:
-            if npu_config.enable_FA and query.dtype == torch.float32:
-                dtype = torch.bfloat16
-            else:
-                dtype = None
-
-            if self.use_rope:
-                query = query.view(batch_size, -1, attn.heads, head_dim)
-                key = key.view(batch_size, -1, attn.heads, head_dim)
-                # require the shape of (batch_size x nheads x ntokens x dim)
-                pos_thw = self.position_getter(batch_size, t=frame, h=height, w=width, device=query.device)
-                query = self.rope(query, pos_thw)
-                if query.shape == key.shape:
+            if get_sequence_parallel_state():
+                query = query.view(-1, attn.heads, head_dim)  # [s // sp, b, h * d] -> [s // sp * b, h, d]
+                key = key.view(-1, attn.heads, head_dim)
+                value = value.view(-1, attn.heads, head_dim)
+                h_size = attn.heads * head_dim
+                sp_size = hccl_info.world_size
+                h_size_sp = h_size // sp_size
+                # apply all_to_all to gather sequence and split attention heads [s // sp * b, h, d] -> [s * b, h // sp, d]
+                query = all_to_all_SBH(query, scatter_dim=1, gather_dim=0).view(-1, batch_size, h_size_sp)
+                key = all_to_all_SBH(key, scatter_dim=1, gather_dim=0).view(-1, batch_size, h_size_sp)
+                value = all_to_all_SBH(value, scatter_dim=1, gather_dim=0).view(-1, batch_size, h_size_sp)
+                if self.use_rope:
+                    query = query.view(-1, batch_size, attn.heads // sp_size, head_dim)
+                    key = key.view(-1, batch_size, attn.heads // sp_size, head_dim)
+                    # require the shape of (batch_size x nheads x ntokens x dim)
+                    pos_thw = self.position_getter(batch_size, t=frame * sp_size, h=height, w=width, device=query.device)
+                    query = self.rope(query, pos_thw)
                     key = self.rope(key, pos_thw)
+                query = query.view(-1, batch_size, h_size_sp)
+                key = key.view(-1, batch_size, h_size_sp)
+                value = value.view(-1, batch_size, h_size_sp)
+                hidden_states = npu_config.run_attention(query, key, value, attention_mask, "SBH",
+                                                         head_dim, attn.heads // sp_size)
 
-                query = query.view(batch_size, -1, attn.heads * head_dim)
-                key = key.view(batch_size, -1, attn.heads * head_dim)
+                hidden_states = hidden_states.view(-1, attn.heads // sp_size, head_dim)
 
-            with set_run_dtype(query, dtype):
-                query, key, value = npu_config.set_current_run_dtype([query, key, value])
-                hidden_states = npu_config.run_attention(query, key, value, attention_mask, "BSH",
-                                                         head_dim, attn.heads)
+                # [s * b, h // sp, d] -> [s // sp * b, h, d] -> [s // sp, b, h * d]
+                hidden_states = all_to_all_SBH(hidden_states, scatter_dim=0, gather_dim=1).view(-1, batch_size, h_size)
+            else:
+                if npu_config.enable_FA and query.dtype == torch.float32:
+                    dtype = torch.bfloat16
+                else:
+                    dtype = None
 
-                hidden_states = npu_config.restore_dtype(hidden_states)
+                if self.use_rope:
+                    query = query.view(batch_size, -1, attn.heads, head_dim)
+                    key = key.view(batch_size, -1, attn.heads, head_dim)
+                    # require the shape of (batch_size x nheads x ntokens x dim)
+                    pos_thw = self.position_getter(batch_size, t=frame, h=height, w=width, device=query.device)
+                    query = self.rope(query, pos_thw)
+                    key = self.rope(key, pos_thw)
+                    query = query.view(batch_size, -1, attn.heads * head_dim)
+                    key = key.view(batch_size, -1, attn.heads * head_dim)
+
+                with set_run_dtype(query, dtype):
+                    query, key, value = npu_config.set_current_run_dtype([query, key, value])
+                    hidden_states = npu_config.run_attention(query, key, value, attention_mask, "BSH",
+                                                             head_dim, attn.heads)
+
+                    hidden_states = npu_config.restore_dtype(hidden_states)
         else:
             query = query.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
             key = key.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
@@ -1088,12 +1131,18 @@ class BasicTransformerBlock(nn.Module):
             norm_hidden_states = self.norm1(hidden_states, added_cond_kwargs["pooled_text_emb"])
         elif self.norm_type == "ada_norm_single":
             # import ipdb;ipdb.set_trace()
-            shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
-                self.scale_shift_table[None] + timestep.reshape(batch_size, 6, -1)
-            ).chunk(6, dim=1)
+            if npu_config is not None and get_sequence_parallel_state():
+                batch_size = hidden_states.shape[1]
+                shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
+                        self.scale_shift_table[:, None] + timestep.reshape(6, batch_size, -1)
+                ).chunk(6, dim=0)
+            else:
+                shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
+                        self.scale_shift_table[None] + timestep.reshape(batch_size, 6, -1)
+                ).chunk(6, dim=1)
             norm_hidden_states = self.norm1(hidden_states)
             norm_hidden_states = norm_hidden_states * (1 + scale_msa) + shift_msa
-            norm_hidden_states = norm_hidden_states.squeeze(1)
+            # norm_hidden_states = norm_hidden_states.squeeze(1)
         else:
             raise ValueError("Incorrect norm used")
 

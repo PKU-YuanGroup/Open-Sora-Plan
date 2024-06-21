@@ -16,6 +16,7 @@ from opensora.utils.utils import to_2tuple
 try:
     import torch_npu
     from opensora.npu_config import npu_config
+    from opensora.acceleration.parallel_states import get_sequence_parallel_state, hccl_info
 except:
     torch_npu = None
     npu_config = None
@@ -347,8 +348,12 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
             # b, frame+use_image_num, h, w -> a video with images
             # b, 1, h, w -> only images
             attention_mask = attention_mask.to(self.dtype)
-            attention_mask_vid = attention_mask[:, :frame]  # b, frame, h, w
-            attention_mask_img = attention_mask[:, frame:]  # b, use_image_num, h, w
+            if npu_config is not None and get_sequence_parallel_state():
+                attention_mask_vid = attention_mask[:, :frame * hccl_info.world_size]  # b, frame, h, w
+                attention_mask_img = attention_mask[:, frame * hccl_info.world_size:]  # b, use_image_num, h, w
+            else:
+                attention_mask_vid = attention_mask[:, :frame]  # b, frame, h, w
+                attention_mask_img = attention_mask[:, frame:]  # b, use_image_num, h, w
 
             if attention_mask_vid.numel() > 0:
                 attention_mask_vid_first_frame = attention_mask_vid[:, :1].repeat(1, self.patch_size_t-1, 1, 1)
@@ -404,6 +409,13 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
             hidden_states, encoder_hidden_states, timestep, added_cond_kwargs, batch_size, frame, use_image_num
         )
         # 2. Blocks
+        # import ipdb;ipdb.set_trace()
+        if npu_config is not None and get_sequence_parallel_state():
+            if hidden_states_vid is not None:
+                hidden_states_vid = rearrange(hidden_states_vid, 'b s h -> s b h', b=batch_size).contiguous()
+                encoder_hidden_states_vid = rearrange(encoder_hidden_states_vid, 'b s h -> s b h',
+                                                      b=batch_size).contiguous()
+                timestep_vid = timestep_vid.view(batch_size, 6, -1).transpose(0, 1).contiguous()
         for block in self.transformer_blocks:
             if self.training and self.gradient_checkpointing:
 
@@ -476,6 +488,10 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
                         height=height, 
                         width=width, 
                     )
+
+        if npu_config is not None and get_sequence_parallel_state():
+            if hidden_states_vid is not None:
+                hidden_states_vid = rearrange(hidden_states_vid, 's b h -> b s h', b=batch_size).contiguous()
 
         # 3. Output
         output_vid, output_img = None, None 
