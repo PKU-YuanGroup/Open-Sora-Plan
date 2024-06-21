@@ -1,4 +1,10 @@
 import torch
+try:
+    import torch_npu
+    from opensora.npu_config import npu_config, set_run_dtype
+except:
+    torch_npu = None
+    npu_config = None
 
 class PositionGetter3D(object):
     """ return positions of patches """
@@ -11,8 +17,14 @@ class PositionGetter3D(object):
             x = torch.arange(w, device=device)
             y = torch.arange(h, device=device)
             z = torch.arange(t, device=device)
-            self.cache_positions[t,h,w] = torch.cartesian_prod(z, y, x) # (t, h, w, 3)
-        pos = self.cache_positions[t,h,w].view(1, t*h*w, 3).expand(b, -1, 3).clone()
+            pos = torch.cartesian_prod(z, y, x)
+            pos = pos.reshape(t * h * w, 3).transpose(0, 1).reshape(3, 1, -1).contiguous().expand(3, b, -1).clone()
+            poses = (pos[0].contiguous(), pos[1].contiguous(), pos[2].contiguous())
+            max_poses = (int(poses[0].max()), int(poses[1].max()), int(poses[2].max()))
+
+            self.cache_positions[t, h, w] = (poses, max_poses)
+        pos = self.cache_positions[t, h, w]
+
         return pos
     
 
@@ -45,8 +57,15 @@ class RoPE3D(torch.nn.Module):
 
     def apply_rope1d(self, tokens, pos1d, cos, sin):
         assert pos1d.ndim == 2
-        cos = torch.nn.functional.embedding(pos1d, cos)[:, None, :, :]
-        sin = torch.nn.functional.embedding(pos1d, sin)[:, None, :, :]
+        if npu_config is None:
+            # for (batch_size x nheads x ntokens x dim)
+            cos = torch.nn.functional.embedding(pos1d, cos)[:, None, :, :]
+            sin = torch.nn.functional.embedding(pos1d, sin)[:, None, :, :]
+        else:
+            # for (batch_size x ntokens x nheads x dim)
+            cos = torch.nn.functional.embedding(pos1d, cos)[:, :, None, :]
+            sin = torch.nn.functional.embedding(pos1d, sin)[:, :, None, :]
+
         return (tokens * cos) + (self.rotate_half(tokens) * sin)
 
     def forward(self, tokens, positions):
@@ -55,18 +74,19 @@ class RoPE3D(torch.nn.Module):
             * tokens: batch_size x nheads x ntokens x dim
             * positions: batch_size x ntokens x 3 (t, y and x position of each token)
         output:
-            * tokens after appplying RoPE3D (batch_size x nheads x ntokens x dim)
+            * tokens after appplying RoPE3D (batch_size x nheads x ntokens x x dim)
         """
         assert tokens.size(3) % 3 == 0, "number of dimensions should be a multiple of three"
         D = tokens.size(3) // 3
-        assert positions.ndim == 3 and positions.shape[-1] == 3  # Batch, Seq, 3
-        cos_t, sin_t = self.get_cos_sin(D, int(positions[:, :, 0].max()) + 1, tokens.device, tokens.dtype, self.interpolation_scale_t)
-        cos_y, sin_y = self.get_cos_sin(D, int(positions[:, :, 1].max()) + 1, tokens.device, tokens.dtype, self.interpolation_scale_h)
-        cos_x, sin_x = self.get_cos_sin(D, int(positions[:, :, 2].max()) + 1, tokens.device, tokens.dtype, self.interpolation_scale_w)
+        poses, max_poses = positions
+        assert len(poses) == 3 and poses[0].ndim == 2# Batch, Seq, 3
+        cos_t, sin_t = self.get_cos_sin(D, max_poses[0] + 1, tokens.device, tokens.dtype, self.interpolation_scale_t)
+        cos_y, sin_y = self.get_cos_sin(D, max_poses[1] + 1, tokens.device, tokens.dtype, self.interpolation_scale_h)
+        cos_x, sin_x = self.get_cos_sin(D, max_poses[2] + 1, tokens.device, tokens.dtype, self.interpolation_scale_w)
         # split features into three along the feature dimension, and apply rope1d on each half
         t, y, x = tokens.chunk(3, dim=-1)
-        t = self.apply_rope1d(t, positions[:, :, 0], cos_t, sin_t)
-        y = self.apply_rope1d(y, positions[:, :, 1], cos_y, sin_y)
-        x = self.apply_rope1d(x, positions[:, :, 2], cos_x, sin_x)
+        t = self.apply_rope1d(t, poses[0], cos_t, sin_t)
+        y = self.apply_rope1d(y, poses[1], cos_y, sin_y)
+        x = self.apply_rope1d(x, poses[2], cos_x, sin_x)
         tokens = torch.cat((t, y, x), dim=-1)
         return tokens

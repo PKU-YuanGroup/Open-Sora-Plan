@@ -576,8 +576,7 @@ class AttnProcessor2_0:
                 # require the shape of (batch_size x nheads x ntokens x dim)
                 pos_thw = self.position_getter(batch_size, t=frame, h=height, w=width, device=query.device)
                 query = self.rope(query, pos_thw)
-                if query.shape == key.shape:
-                    key = self.rope(key, pos_thw)
+                key = self.rope(key, pos_thw)
                     
             value = value.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
 
@@ -730,6 +729,11 @@ class Downsample2d(nn.Module):
     def forward(self, x, attention_mask, frames, height, width, pad_h=0, pad_w=0):
         x = rearrange(x, 'b (t h w) d -> (b t) d h w', t=frames, h=height, w=width)
         # x = F.pad(x, (0, pad_w, 0, pad_h), mode='reflect')
+        # x = F.pad(x, (0, pad_w, 0, pad_h))
+        if npu_config is None:
+            x = F.pad(x, (0, pad_w, 0, pad_h))
+        else:
+            x = npu_config.run_pad_2d(F.pad, x, pad=(0, pad_w, 0, pad_h))
         x = F.pad(x, (0, pad_w, 0, pad_h))
         x = self.body(x)
         x = rearrange(x, '(b t) d h w -> b (t h w) d', t=frames)

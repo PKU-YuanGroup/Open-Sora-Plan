@@ -10,7 +10,7 @@ accelerate launch \
     --machine_rank=${MACHINE_RANK} \
     --main_process_ip=${MAIN_PROCESS_IP_VALUE} \
     opensora/train/train_t2v_diffusers.py \
-    --model OpenSoraT2V-L/122 \
+    --model OpenSoraT2V-ROPE-L/122 \
     --text_encoder_name ${WEIGHT_PATH}/google/umt5-xxl \
     --cache_dir "../cache_dir" \
     --dataset t2v \
@@ -20,8 +20,8 @@ accelerate launch \
     --image_data "./scripts/train_data/image_data_on_npu.txt" \
     --sample_rate 1 \
     --num_frames 1 \
-    --max_height 240 \
-    --max_width 320 \
+    --max_height 256 \
+    --max_width 256 \
     --interpolation_scale_t 1.0 \
     --interpolation_scale_h 0.5 \
     --interpolation_scale_w 0.5 \
@@ -46,5 +46,6 @@ accelerate launch \
     --use_ema \
     --ema_start_step 0 \
     --cfg 0.1 \
+    --use_rope \
     --noise_offset 0.02 \
     --resume_from_checkpoint="latest"
