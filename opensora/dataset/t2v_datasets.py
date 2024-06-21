@@ -47,6 +47,59 @@ def random_video_noise(t, c, h, w):
     return vid
 
 
+class SingletonMeta(type):
+    """
+    这是一个元类，用于创建单例类。
+    """
+    _instances = {}
+
+    def __call__(cls, *args, **kwargs):
+        if cls not in cls._instances:
+            instance = super().__call__(*args, **kwargs)
+            cls._instances[cls] = instance
+        return cls._instances[cls]
+
+
+class DataSetProg(metaclass=SingletonMeta):
+    def __init__(self):
+        self.vid_cap_list = []
+        self.img_cap_list = []
+        self.elements = []
+        self.num_workers = 1
+        self.n_elements = 0
+        self.worker_elements = dict()
+        self.n_used_elements = dict()
+
+    def set_cap_list(self, num_workers, img_cap_list, vid_cap_list, n_elements):
+        self.num_workers = num_workers
+        self.img_cap_list = img_cap_list
+        self.vid_cap_list = vid_cap_list
+        self.n_elements = n_elements
+        self.elements = list(range(n_elements))
+        random.shuffle(self.elements)
+        print(f"n_elements: {len(self.elements)}", flush=True)
+
+        for i in range(self.num_workers):
+            self.n_used_elements[i] = 0
+            per_worker = int(math.ceil(len(self.elements) / float(self.num_workers)))
+            start = i * per_worker
+            end = min(start + per_worker, len(self.elements))
+            self.worker_elements[i] = self.elements[start: end]
+
+    def get_item(self, work_info):
+        if work_info is None:
+            worker_id = 0
+        else:
+            worker_id = work_info.id
+
+        idx = self.worker_elements[worker_id][self.n_used_elements[worker_id] % len(self.worker_elements[worker_id])]
+        self.n_used_elements[worker_id] += 1
+        return idx
+
+
+dataset_prog = DataSetProg()
+
+
 class T2V_dataset(Dataset):
     def __init__(self, args, transform, temporal_sample, tokenizer):
         self.image_data = args.image_data
@@ -66,51 +119,35 @@ class T2V_dataset(Dataset):
             self.support_Chinese = False
 
         if self.num_frames != 1:
-            self.vid_cap_list = self.get_vid_cap_list()
+            vid_cap_list = self.get_vid_cap_list()
             if self.use_image_num != 0 and not self.use_img_from_vid:
-                self.img_cap_list = self.get_img_cap_list()
+                img_cap_list = self.get_img_cap_list()
             else:
-                self.img_cap_list = []
+                img_cap_list = []
         else:
-            self.img_cap_list = self.get_img_cap_list()
-            self.vid_cap_list = []
+            img_cap_list = self.get_img_cap_list()
+            vid_cap_list = []
 
-        if npu_config is not None:
-            self.n_used_elements = 0
-            self.elements = list(range(self.__len__()))
-            self.worker_elements = None
+        if self.num_frames != 1:
+            n_elements = len(vid_cap_list)
+        else:
+            n_elements = len(img_cap_list)
+        dataset_prog.set_cap_list(args.dataloader_num_workers, img_cap_list, vid_cap_list, n_elements)
 
-            random.shuffle(self.elements)
-            print(f"n_elements: {len(self.elements)}")
-
-        print(f"video length: {len(self.vid_cap_list)}")
-        print(f"image length: {len(self.img_cap_list)}")
+        print(f"video length: {len(dataset_prog.vid_cap_list)}", flush=True)
+        print(f"image length: {len(dataset_prog.img_cap_list)}", flush=True)
 
     def set_checkpoint(self, n_used_elements):
-        self.n_used_elements = n_used_elements
+        for i in range(len(dataset_prog.n_used_elements)):
+            dataset_prog.n_used_elements[i] = n_used_elements
 
     def __len__(self):
-        if self.num_frames != 1:
-            return len(self.vid_cap_list)
-        else:
-            return len(self.img_cap_list)
+        return dataset_prog.n_elements
 
     def __getitem__(self, idx):
         if npu_config is not None:
             worker_info = get_worker_info()
-            if worker_info is None:  # single-process data loading, return a regular index
-                idx = self.elements[self.n_used_elements % len(self.elements)]
-                self.n_used_elements += 1
-            else:  # in a worker process
-                # split workload
-                if self.worker_elements is None:
-                    per_worker = int(math.ceil(len(self.elements) / float(worker_info.num_workers)))
-                    worker_id = worker_info.id
-                    start = worker_id * per_worker
-                    end = min(start + per_worker, len(self.elements))
-                    self.worker_elements = self.elements[start:end]
-                idx = self.worker_elements[self.n_used_elements % len(self.worker_elements)]
-                self.n_used_elements += 1
+            idx = dataset_prog.get_item(worker_info)
         try:
             video_data, image_data = {}, {}
             if self.num_frames != 1:
@@ -126,8 +163,8 @@ class T2V_dataset(Dataset):
         except Exception as e:
             # print(f'Error with {e}')
             # 打印异常堆栈
-            if idx in self.vid_cap_list:
-                print(f"Caught an exception! {self.vid_cap_list[idx]}")
+            if idx in dataset_prog.vid_cap_list:
+                print(f"Caught an exception! {dataset_prog.vid_cap_list[idx]}")
             # traceback.print_exc()
             # traceback.print_stack()
             return self.__getitem__(random.randint(0, self.__len__() - 1))
@@ -139,9 +176,9 @@ class T2V_dataset(Dataset):
         # input_ids = torch.ones(1, 120).to(torch.long).squeeze(0)
         # cond_mask = torch.cat([torch.ones(1, 60).to(torch.long), torch.ones(1, 60).to(torch.long)], dim=1).squeeze(0)
 
-        video_path = self.vid_cap_list[idx]['path']
+        video_path = dataset_prog.vid_cap_list[idx]['path']
         assert os.path.exists(video_path) and os.path.getsize(video_path) > 10240, f"file {video_path} has wrong size!"
-        frame_idx = self.vid_cap_list[idx]['frame_idx'] if hasattr(self.vid_cap_list[idx], 'frame_idx') else None
+        frame_idx = dataset_prog.vid_cap_list[idx]['frame_idx'] if hasattr(dataset_prog.vid_cap_list[idx], 'frame_idx') else None
         video = self.decord_read(video_path, frame_idx)
 
         h, w = video.shape[-2:]
@@ -153,7 +190,7 @@ class T2V_dataset(Dataset):
         # video = torch.rand(221, 3, 480, 640)
 
         video = video.transpose(0, 1)  # T C H W -> C T H W
-        text = self.vid_cap_list[idx]['cap']
+        text = dataset_prog.vid_cap_list[idx]['cap']
 
         text = text_preprocessing(text, support_Chinese=self.support_Chinese) if random.random() > self.cfg else ""
         text_tokens_and_mask = self.tokenizer(
@@ -178,8 +215,8 @@ class T2V_dataset(Dataset):
         return dict(image=image, input_ids=input_ids, cond_mask=cond_mask)
 
     def get_image(self, idx):
-        idx = idx % len(self.img_cap_list)  # out of range
-        image_data = self.img_cap_list[idx]  # [{'path': path, 'cap': cap}, ...]
+        idx = idx % len(dataset_prog.img_cap_list)  # out of range
+        image_data = dataset_prog.img_cap_list[idx]  # [{'path': path, 'cap': cap}, ...]
 
         image = [Image.open(i['path']).convert('RGB') for i in image_data]  # num_img [h, w, c]
         image = [torch.from_numpy(np.array(i)) for i in image]  # num_img [h, w, c]
@@ -256,7 +293,7 @@ class T2V_dataset(Dataset):
             img_cap_lists = self.read_jsons(self.image_data, postfix=".jpg")
             img_cap_lists = [img_cap_lists[i: i + use_image_num] for i in range(0, len(img_cap_lists), use_image_num)]
         else:
-            img_cap_lists = npu_config.try_load_pickle("img_cap_lists",
+            img_cap_lists = npu_config.try_load_pickle("img_cap_lists5",
                                                        lambda: self.read_jsons(self.image_data, postfix=".jpg"))
             img_cap_lists = [img_cap_lists[i: i + use_image_num] for i in range(0, len(img_cap_lists), use_image_num)]
             img_cap_lists = img_cap_lists[npu_config.get_local_rank()::npu_config.N_NPU_PER_NODE]
