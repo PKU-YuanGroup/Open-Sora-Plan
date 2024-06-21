@@ -6,7 +6,7 @@ from torchvision import transforms
 from torchvision.transforms import Lambda
 
 from .t2v_datasets import T2V_dataset
-from .transform import ToTensorVideo, TemporalRandomCrop, RandomHorizontalFlipVideo, CenterCropResizeVideo, LongSideResizeVideo, SpatialStrideCropVideo
+from .transform import ToTensorVideo, TemporalRandomCrop, RandomHorizontalFlipVideo, CenterCropResizeVideo, LongSideResizeVideo, SpatialStrideCropVideo, RandomResize
 
 
 ae_norm = {
@@ -58,6 +58,14 @@ def getdataset(args):
             ToTensorVideo(),
             *resize, 
             # RandomHorizontalFlipVideo(p=0.5),  # in case their caption have position decription
+            norm_fun
+        ])
+        tokenizer = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
+        return T2V_dataset(args, transform=transform, temporal_sample=temporal_sample, tokenizer=tokenizer)
+    elif args.dataset == 't2v_navit':
+        transform = transforms.Compose([
+            ToTensorVideo(),
+            RandomResize(),
             norm_fun
         ])
         tokenizer = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)

@@ -1583,9 +1583,18 @@ class BasicTransformerBlock(nn.Module):
         elif self.use_layer_norm:
             norm_hidden_states = self.norm1(hidden_states)
         elif self.use_ada_layer_norm_single:
-            shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
-                self.scale_shift_table[None] + timestep.reshape(batch_size, 6, -1)
-            ).chunk(6, dim=1)
+            # (B, T, 6 * D) when NaViT spatial attention
+            if timestep.ndim == 3:
+                # (B, T, 1, D)
+                params = (
+                    self.scale_shift_table[None, None] + timestep.reshape(batch_size, timestep.shape[1], 6, -1)
+                ).chunk(6, dim=-2)
+                # (B, T, D)
+                shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = [param.squeeze(-2) for param in params]
+            else:
+                shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
+                    self.scale_shift_table[None] + timestep.reshape(batch_size, 6, -1)
+                ).chunk(6, dim=1)
             norm_hidden_states = self.norm1(hidden_states)
             norm_hidden_states = norm_hidden_states * (1 + scale_msa) + shift_msa
             norm_hidden_states = norm_hidden_states.squeeze(1)

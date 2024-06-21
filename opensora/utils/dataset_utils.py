@@ -3,7 +3,7 @@ from einops import rearrange
 import decord
 from torch.nn import functional as F
 import torch
-
+from opensora.dataset.transform import resize
 
 IMG_EXTENSIONS = ['.jpg', '.JPG', '.jpeg', '.JPEG', '.png', '.PNG']
 
@@ -158,3 +158,82 @@ class Collate:
         # attention_mask = torch.stack(attention_mask)  # b t h w
 
         return pad_batch_tubes, attention_mask
+
+
+
+class NaViTCollate(Collate):
+    def __init__(self, args):
+        self.max_image_size = args.max_image_size
+        self.ae_stride = args.ae_stride
+        self.ae_stride_t = args.ae_stride_t
+        self.ae_stride_thw = (self.ae_stride_t, self.ae_stride, self.ae_stride)
+        self.ae_stride_1hw = (1, self.ae_stride, self.ae_stride)
+
+        self.patch_size = args.patch_size
+        self.patch_size_t = args.patch_size_t
+        self.patch_size_thw = (self.patch_size_t, self.patch_size, self.patch_size)
+        self.patch_size_1hw = (1, self.patch_size, self.patch_size)
+
+        self.num_frames = args.num_frames
+        self.use_image_num = args.use_image_num
+        self.max_thw = (self.num_frames, self.max_image_size, self.max_image_size)
+        self.max_1hw = (1, self.max_image_size, self.max_image_size)
+    
+    def process(self, ds_stride, batch_tubes_vid, batch_tubes_img=None):
+        """
+        Resize video to minimum multiple of ds_stride
+        Args:
+            batch_tubes_img List[torch.tensor]: Video to be resized. Size of B(C, T, H, W)
+            batch_tubes_img List[torch.tensor]: Image to be resized. Size is B*num_img(C, 1, H, W)
+        Returns:
+            torch.tensor: Resized video batches.
+                size is B(C, 1+T+num_img, new_h, new_w)
+        """
+        batch_tubes_resized = []
+        for i, vid in enumerate(batch_tubes_vid):
+            vid_h,vid_w = vid.shape[-2:]
+
+            if vid_h%ds_stride==0:
+                new_h=vid_h
+            else:
+                new_h=(vid_h//ds_stride+1)*ds_stride
+            if vid_w%ds_stride==0:
+                new_w=vid_w
+            else:
+                new_w=(vid_w//ds_stride+1)*ds_stride
+
+            vid_resized = resize(vid, target_size=(new_h,new_w),
+                                interpolation_mode="bilinear")
+
+            vid_resized = F.pad(vid_resized,
+                                   (0, 0,
+                                    0, 0,
+                                    0, 1), value=0)
+            if batch_tubes_img is not None:
+                imgs = batch_tubes_img[i*self.use_image_num: (i+1)*self.use_image_num]
+                imgs_resized = [resize(img, target_size=(new_h,new_w),
+                                interpolation_mode="bilinear") for img in imgs]
+                vid_resized = torch.cat([vid_resized,] + imgs_resized, dim=1)
+
+            batch_tubes_resized.append(vid_resized)
+
+        return batch_tubes_resized
+
+    def __call__(self, batch):
+        batch_tubes_vid, input_ids_vid, cond_mask_vid, batch_tubes_img, input_ids_img, cond_mask_img = self.package(batch)
+
+        # import ipdb;ipdb.set_trace()
+        ds_stride = self.ae_stride * self.patch_size
+        t_ds_stride = self.ae_stride_t * self.patch_size_t
+        if self.use_image_num == 0:
+            batch_tubes = self.process(ds_stride, batch_tubes_vid)
+            # attention_mask: b t h w
+            input_ids, cond_mask = input_ids_vid.squeeze(1), cond_mask_vid.squeeze(1)  # b 1 l -> b l
+        else:
+            # B(C, 1+T+num_img, new_h, img_w)
+            batch_tubes = self.process(ds_stride, batch_tubes_vid, batch_tubes_img)
+            input_ids = torch.cat([input_ids_vid, input_ids_img], dim=1)  # b 1+num_img hw
+            cond_mask = torch.cat([cond_mask_vid, cond_mask_img], dim=1)  # b 1+num_img hw
+        return batch_tubes, input_ids, cond_mask
+
+
