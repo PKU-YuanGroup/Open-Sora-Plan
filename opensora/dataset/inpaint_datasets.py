@@ -169,10 +169,10 @@ class Inpaint_dataset(Dataset):
             for i in tqdm(range(len(vid_cap_list))):
                 path = opj(folder, vid_cap_list[i]['path'])
                 # For testing, some data has not been utilized.
-                if not os.path.exists(path):
-                    continue
-                elif os.path.exists(path.replace('.mp4', '_resize_1080p.mp4')):
-                    path = path.replace('.mp4', '_resize_1080p.mp4')
+                if not os.path.exists(path) and not os.path.exists(path.replace('.mp4', '_resize1080p.mp4')):
+                    break
+                elif os.path.exists(path.replace('.mp4', '_resize1080p.mp4')):
+                    path = path.replace('.mp4', '_resize1080p.mp4')
                 new_vid_cap_list.append(
                     {
                         'path': path,
@@ -195,7 +195,7 @@ if __name__ == "__main__":
 
     class Args:
         def __init__(self):
-            self.video_data = '/data01/transition/Open-Sora-Plan/scripts/train_data/video_data.txt'
+            self.video_data = '/storage/gyy/hw/Open-Sora-Plan/scripts/train_data/video_data_debug.txt'
             self.num_frames = 65
             self.model_max_length = 300
             self.cfg = 0.1
@@ -205,7 +205,7 @@ if __name__ == "__main__":
             self.max_image_size = 512
             self.sample_rate = 1
             self.text_encoder_name = "DeepFloyd/t5-v1_1-xxl"
-            self.cache_dir = "./cache"
+            self.cache_dir = "/storage/cache_dir"
         
     args = Args()
     resize = [CenterCropResizeVideo((args.max_image_size, args.max_image_size))]

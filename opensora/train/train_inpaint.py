@@ -150,7 +150,23 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
     for idx, video in enumerate(videos):
         save_video(video, os.path.join(save_dir, f"video_{idx:06d}.mp4"))
 
-    print("deleta validation pipeline...")
+    videos = torch.stack(videos).numpy()
+    videos = rearrange(videos, 'b t h w c -> b t c h w')
+    
+    for tracker in accelerator.trackers:
+        if tracker.name == "wandb":
+            import wandb
+            
+            logs = {
+                f"{'ema_' if ema else ''}validation_videos": [
+                    wandb.Video(video, caption=f"{i}: {prompt}", fps=24)
+                    for i, (video, prompt) in enumerate(zip(videos, validation_prompt))
+                ],
+            }
+
+            tracker.log(logs, step=global_step)
+
+    print("delete validation pipeline...")
     del pipeline
     gc.collect()
     torch.cuda.empty_cache()
@@ -456,8 +472,15 @@ def main(args):
 
     # We need to initialize the trackers we use, and also store our configuration.
     # The trackers initializes automatically on the main process.
-    # if accelerator.is_main_process:
-    #     accelerator.init_trackers(os.path.basename(args.output_dir), config=vars(args))
+    if accelerator.is_main_process:
+        project_name = os.getenv('PROJECT', os.path.basename(args.output_dir))
+        entity = os.getenv('ENTITY', None)
+        run_name = os.getenv('WANDB_NAME', None)
+        init_kwargs = {
+            "entity": entity,
+            "run_name": run_name,
+        }
+        accelerator.init_trackers(project_name=project_name, config=vars(args), init_kwargs=init_kwargs)
 
     # Train!
     total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
@@ -647,20 +670,11 @@ def main(args):
             sync_gradients_info(loss)
 
         if accelerator.is_main_process:
-            # for tracker in accelerator.trackers:
-            #     if tracker.name == "wandb":
-            #         if progress_info.global_step % args.checkpointing_steps != 0:
-            #             if hasattr(model, 'module') and hasattr(model.module.pos_embed, 'temp_embed_gate'):
-            #                 tracker.log(
-            #                     {'temp_embed_gate (tanh)': float(model.module.pos_embed.temp_embed_gate.tanh().item())})
-            #             elif hasattr(model, 'pos_embed') and hasattr(model.pos_embed, 'temp_embed_gate'):
-            #                 tracker.log(
-            #                     {'temp_embed_gate (tanh)': float(model.pos_embed.temp_embed_gate.tanh().item())})
 
             if progress_info.global_step % args.checkpointing_steps == 0:
 
-                # if args.enable_tracker:
-                log_validation(args, model, ae, text_enc.text_enc, train_dataset.tokenizer, accelerator,
+                if args.enable_tracker:
+                    log_validation(args, model, ae, text_enc.text_enc, train_dataset.tokenizer, accelerator,
                                    weight_dtype, progress_info.global_step)
 
                 if args.use_ema:
@@ -746,6 +760,12 @@ def main(args):
                 return True
 
             for step, data_item in enumerate(train_dataloader):
+                if accelerator.is_main_process:
+                    if step == 0:
+                        print("before training, we need to check the validation mode...")
+                        log_validation(
+                            args, model, ae, text_enc.text_enc, train_dataset.tokenizer, accelerator, weight_dtype, global_step=0, ema=False
+                        )
                 if train_one_step(step, data_item, prof_):
                     break
 
