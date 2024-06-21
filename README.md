@@ -356,7 +356,7 @@ python -m opensora.serve.gradio_web_server --version 221x512x512
 #### CLI Inference
 
 ```bash
-sh scripts/text_condition/sample_video.sh
+sh scripts/text_condition/sample_image.sh
 ```
 
 ### Datasets
