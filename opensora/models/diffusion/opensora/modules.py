@@ -677,6 +677,18 @@ class AttnProcessor2_0:
             else:
                 dtype = None
 
+            if self.use_rope:
+                query = query.view(batch_size, -1, attn.heads, head_dim)
+                key = key.view(batch_size, -1, attn.heads, head_dim)
+                # require the shape of (batch_size x nheads x ntokens x dim)
+                pos_thw = self.position_getter(batch_size, t=frame, h=height, w=width, device=query.device)
+                query = self.rope(query, pos_thw)
+                if query.shape == key.shape:
+                    key = self.rope(key, pos_thw)
+
+                query = query.view(batch_size, -1, attn.heads * head_dim)
+                key = key.view(batch_size, -1, attn.heads * head_dim)
+
             with set_run_dtype(query, dtype):
                 query, key, value = npu_config.set_current_run_dtype([query, key, value])
                 hidden_states = npu_config.run_attention(query, key, value, attention_mask, "BSH",
