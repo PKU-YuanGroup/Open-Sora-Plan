@@ -404,7 +404,6 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
             hidden_states, encoder_hidden_states, timestep, added_cond_kwargs, batch_size, frame, use_image_num
         )
         # 2. Blocks
-        # import ipdb;ipdb.set_trace()
         for block in self.transformer_blocks:
             if self.training and self.gradient_checkpointing:
 
@@ -638,7 +637,7 @@ def OpenSoraT2V_B_222(**kwargs):
 #                        norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=5120, **kwargs)
 
 OpenSora_models = {
-    "OpenSoraT2V-S/122": OpenSoraT2V_S_122,
+    "OpenSoraT2V-S/122": OpenSoraT2V_S_122,  #       1.1B
     "OpenSoraT2V-B/122": OpenSoraT2V_B_122,
     "OpenSoraT2V-L/122": OpenSoraT2V_L_122,
     "OpenSoraT2V-ROPE-L/122": OpenSoraT2V_ROPE_L_122,
@@ -677,9 +676,9 @@ if __name__ == '__main__':
         'attention_mode': 'xformers', 
         'use_rope': True, 
         'model_max_length': 300, 
-        'max_height': 512, 
-        'max_width': 512, 
-        'num_frames': 1, 
+        'max_height': 480,
+        'max_width': 640,
+        'num_frames': 61,
         'use_image_num': 0, 
         'compress_kv_factor': 1, 
         'interpolation_scale_t': 1,
@@ -715,7 +714,7 @@ if __name__ == '__main__':
                             upcast_attention=False,
                             use_linear_projection=False,
                             use_additional_conditions=False, 
-                            downsampler='k33_s11', 
+                            downsampler=None,
                             interpolation_scale_t=args.interpolation_scale_t, 
                             interpolation_scale_h=args.interpolation_scale_h, 
                             interpolation_scale_w=args.interpolation_scale_w, 
@@ -737,6 +736,7 @@ if __name__ == '__main__':
         print(e)
     print(model)
     print(f'{sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e9} B')
+    import sys;sys.exit()
     x = torch.randn(b, c,  1+(args.num_frames-1)//ae_stride_t+args.use_image_num, args.max_height//ae_stride_h, args.max_width//ae_stride_w).to(device)
     cond = torch.randn(b, 1+args.use_image_num, args.model_max_length, cond_c).to(device)
     attn_mask = torch.randint(0, 2, (b, 1+(args.num_frames-1)//ae_stride_t+args.use_image_num, args.max_height//ae_stride_h, args.max_width//ae_stride_w)).to(device)  # B L or B 1+num_images L

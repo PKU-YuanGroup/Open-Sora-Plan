@@ -22,9 +22,9 @@ accelerate launch \
     --ae CausalVAEModel_4x8x8 \
     --ae_path "/storage/dataset/test140k" \
     --video_data "scripts/train_data/video_data_debug.txt" \
-    --image_data "scripts/train_data/image_data_notext.txt" \
+    --image_data "scripts/train_data/image_data_debug.txt" \
     --sample_rate 1 \
-    --num_frames 125 \
+    --num_frames 221 \
     --max_height 480 \
     --max_width 640 \
     --interpolation_scale_t 1.0 \
@@ -32,7 +32,7 @@ accelerate launch \
     --interpolation_scale_w 1.0 \
     --attention_mode xformers \
     --gradient_checkpointing \
-    --train_batch_size=2 \
+    --train_batch_size=1 \
     --dataloader_num_workers 10 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
@@ -42,7 +42,7 @@ accelerate launch \
     --mixed_precision="bf16" \
     --report_to="wandb" \
     --checkpointing_steps=500 \
-    --output_dir="bs2_1node_125x480p_lr1e-4_snr5_noioff0.02_ema_uditultra22_ds22_mt5xxl" \
+    --output_dir="debug" \
     --allow_tf32 \
     --model_max_length 512 \
     --use_image_num 0 \
@@ -56,4 +56,4 @@ accelerate launch \
     --downsampler "k333_s222"  \
     --resume_from_checkpoint="latest" \
     --checkpoints_total_limit 3 \
-    --pretrained "/storage/ongoing/new/Open-Sora-Plan/convert_weight.pt"
+    --tile_overlap_factor 0.125 

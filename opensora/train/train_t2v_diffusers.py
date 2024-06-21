@@ -420,7 +420,7 @@ def main(args):
         collate_fn=Collate(args),
         batch_size=args.train_batch_size,
         num_workers=args.dataloader_num_workers,
-        prefetch_factor=8
+        # prefetch_factor=8
     )
 
     # Scheduler and math around the number of training steps.

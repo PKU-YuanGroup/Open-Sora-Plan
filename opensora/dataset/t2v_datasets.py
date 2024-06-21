@@ -61,6 +61,10 @@ class T2V_dataset(Dataset):
         self.cfg = args.cfg
         self.v_decoder = DecordInit()
 
+        self.support_Chinese = True
+        if not ('mt5' in args.text_encoder_name):
+            self.support_Chinese = False
+
         if self.num_frames != 1:
             self.vid_cap_list = self.get_vid_cap_list()
             if self.use_image_num != 0 and not self.use_img_from_vid:
@@ -146,12 +150,12 @@ class T2V_dataset(Dataset):
         video = video[:(t - 1) // 4 * 4 + 1]
         video = self.transform(video)  # T C H W -> T C H W
 
-        # video = torch.rand(125, 3, 480, 640)
+        # video = torch.rand(221, 3, 480, 640)
 
         video = video.transpose(0, 1)  # T C H W -> C T H W
         text = self.vid_cap_list[idx]['cap']
 
-        text = text_preprocessing(text) if random.random() > self.cfg else ""
+        text = text_preprocessing(text, support_Chinese=self.support_Chinese) if random.random() > self.cfg else ""
         text_tokens_and_mask = self.tokenizer(
             text,
             max_length=self.model_max_length,
@@ -193,7 +197,7 @@ class T2V_dataset(Dataset):
         image = [i.transpose(0, 1) for i in image]  # num_img [1 C H W] -> num_img [C 1 H W]
 
         caps = [i['cap'] for i in image_data]
-        text = [text_preprocessing(cap) for cap in caps]
+        text = [text_preprocessing(cap, support_Chinese=self.support_Chinese) for cap in caps]
         input_ids, cond_mask = [], []
         for t in text:
             t = t if random.random() > self.cfg else ""

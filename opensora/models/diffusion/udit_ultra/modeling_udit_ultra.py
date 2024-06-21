@@ -804,55 +804,56 @@ def UDiTUltraT2V_S_122(**kwargs):
                    mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
 
 def UDiTUltraT2V_B_111(**kwargs):
-    return UDiTUltraT2V(depth=[2, 5, 8, 5, 2], attention_head_dim=24, num_attention_heads=16, patch_size_t=1, patch_size=1, 
+    return UDiTUltraT2V(depth=[2, 5, 10, 5, 2], attention_head_dim=24, num_attention_heads=24, patch_size_t=1, patch_size=1, 
+                   mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
+
+def UDiTUltraT2V_B_122(**kwargs):
+    return UDiTUltraT2V(depth=[2, 5, 10, 5, 2], attention_head_dim=24, num_attention_heads=24, patch_size_t=1, patch_size=2, 
                    mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
 
 def UDiTUltraT2V_L_111(**kwargs):
-    return UDiTUltraT2V(depth=[4, 8, 12, 8, 4], attention_head_dim=24, num_attention_heads=24, patch_size_t=1, patch_size=1, 
+    return UDiTUltraT2V(depth=[4, 8, 12, 8, 4], attention_head_dim=24, num_attention_heads=32, patch_size_t=1, patch_size=1, 
                    mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
 
 def UDiTUltraT2V_L_211(**kwargs):
-    return UDiTUltraT2V(depth=[4, 8, 12, 8, 4], attention_head_dim=24, num_attention_heads=24, patch_size_t=2, patch_size=1, 
+    return UDiTUltraT2V(depth=[4, 8, 12, 8, 4], attention_head_dim=24, num_attention_heads=32, patch_size_t=2, patch_size=1, 
                    mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
 
 def UDiTUltraT2V_L_122(**kwargs):
-    return UDiTUltraT2V(depth=[4, 8, 12, 8, 4], attention_head_dim=24, num_attention_heads=24, patch_size_t=1, patch_size=2, 
+    return UDiTUltraT2V(depth=[4, 8, 12, 8, 4], attention_head_dim=24, num_attention_heads=32, patch_size_t=1, patch_size=2, 
                    mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
 
 def UDiTUltraT2V_L_222(**kwargs):
-    return UDiTUltraT2V(depth=[4, 8, 12, 8, 4], attention_head_dim=24, num_attention_heads=24, patch_size_t=2, patch_size=2, 
+    return UDiTUltraT2V(depth=[4, 8, 12, 8, 4], attention_head_dim=24, num_attention_heads=32, patch_size_t=2, patch_size=2, 
                    mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
 
 def UDiTUltraT2V_XL_111(**kwargs):
-    return UDiTUltraT2V(depth=[4, 10, 16, 10, 4], attention_head_dim=24, num_attention_heads=32, patch_size_t=1, patch_size=1, 
+    return UDiTUltraT2V(depth=[4, 8, 12, 8, 4], attention_head_dim=24, num_attention_heads=48, patch_size_t=1, patch_size=1, 
                    mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
 
-def UDiTUltraT2V_XXL_111(**kwargs):
-    return UDiTUltraT2V(depth=[4, 20, 32, 20, 4], attention_head_dim=24, num_attention_heads=32, patch_size_t=1, patch_size=1, 
-                   mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
 
 UDiT_Ultra_models = {
-    "UDiTUltraT2V-S/111": UDiTUltraT2V_S_111,  # 0.2B    0.3B if video
-    "UDiTUltraT2V-S/122": UDiTUltraT2V_S_122,  # 0.2B    0.3B if video
-    "UDiTUltraT2V-B/111": UDiTUltraT2V_B_111,  # 0.7B    1.1B if video
+    "UDiTUltraT2V-S/111": UDiTUltraT2V_S_111,  # 0.4B    0.7B if video
+    "UDiTUltraT2V-S/122": UDiTUltraT2V_S_122,  # 0.4B    0.7B if video
+    "UDiTUltraT2V-B/111": UDiTUltraT2V_B_111,  # 1.0B    1.6B if video
+    "UDiTUltraT2V-B/122": UDiTUltraT2V_B_122,  # 1.0B    1.6B if video
     "UDiTUltraT2V-L/111": UDiTUltraT2V_L_111,  # 2.2B    3.3B if video
     "UDiTUltraT2V-L/211": UDiTUltraT2V_L_211,  # 2.2B    3.3B if video
     "UDiTUltraT2V-L/122": UDiTUltraT2V_L_122,  # 2.2B    3.3B if video
     "UDiTUltraT2V-L/222": UDiTUltraT2V_L_222,  # 2.2B    3.3B if video
-    "UDiTUltraT2V-XL/111": UDiTUltraT2V_XL_111,  # 5.1B    7B if video
-    "UDiTUltraT2V-XXL/111": UDiTUltraT2V_XXL_111,  # 9.3B    11.2B if video
+    "UDiTUltraT2V-XL/111": UDiTUltraT2V_XL_111,  # 5.0B    7.4B if video
 }
 
 UDiT_Ultra_models_class = {
     "UDiTUltraT2V-S/111": UDiTUltraT2V,
     "UDiTUltraT2V-S/122": UDiTUltraT2V,
     "UDiTUltraT2V-B/111": UDiTUltraT2V,
+    "UDiTUltraT2V-B/122": UDiTUltraT2V,
     "UDiTUltraT2V-L/111": UDiTUltraT2V,
     "UDiTUltraT2V-L/211": UDiTUltraT2V,
     "UDiTUltraT2V-L/122": UDiTUltraT2V,
     "UDiTUltraT2V-L/222": UDiTUltraT2V,
     "UDiTUltraT2V-XL/111": UDiTUltraT2V,
-    "UDiTUltraT2V-XXL/111": UDiTUltraT2V,
 }
 
 
@@ -929,7 +930,7 @@ if __name__ == '__main__':
         num_frames = args.num_frames // ae_stride_t
 
     device = torch.device('cuda:1')
-    model = UDiTUltraT2V_S_122(in_channels=c, 
+    model = UDiTUltraT2V_L_122(in_channels=c, 
                               out_channels=c, 
                               sample_size=latent_size, 
                               sample_size_t=num_frames, 
@@ -945,7 +946,7 @@ if __name__ == '__main__':
                             upcast_attention=False,
                             use_linear_projection=False,
                             use_additional_conditions=False, 
-                            downsampler='k33_s11', 
+                            downsampler='k33_s22', 
                             interpolation_scale_t=args.interpolation_scale_t, 
                             interpolation_scale_h=args.interpolation_scale_h, 
                             interpolation_scale_w=args.interpolation_scale_w, 
@@ -953,6 +954,7 @@ if __name__ == '__main__':
 
     print(model)
     print(f'{sum(p.numel() for p in model.parameters() if p.requires_grad)/1e9} B')
+    # import sys;sys.exit()
     try:
         path = "bs32_1node_480p_lr1e-4_snr5_noioff0.02_ema_uditultra22_ds22_mt5xxl/checkpoint-500/model/diffusion_pytorch_model.safetensors"
         from safetensors.torch import load_file as safe_load
@@ -982,7 +984,6 @@ if __name__ == '__main__':
         # print(msg)
     except Exception as e:
         print(e)
-    # import sys;sys.exit()
     x = torch.randn(b, c,  1+(args.num_frames-1)//ae_stride_t+args.use_image_num, args.max_height//ae_stride_h, args.max_width//ae_stride_w).to(device)
     cond = torch.randn(b, 1+args.use_image_num, args.model_max_length, cond_c).to(device)
     attn_mask = torch.randint(0, 2, (b, 1+(args.num_frames-1)//ae_stride_t+args.use_image_num, args.max_height//ae_stride_h, args.max_width//ae_stride_w)).to(device)  # B L or B 1+num_images L
