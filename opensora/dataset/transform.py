@@ -477,6 +477,37 @@ class RandomHorizontalFlipVideo:
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(p={self.p})"
+    
+class RandomResize:
+    """
+        Resize the video randomly in (64, orig_size)
+    """
+    def __init__(
+            self,
+            interpolation_mode="bilinear",
+    ):
+        self.interpolation_mode = interpolation_mode
+
+    def __call__(self, clip):
+        """
+        Args:
+            clip (torch.tensor): Video clip to be resized. Size is (T, C, H, W)
+        Returns:
+            torch.tensor: Resized video clip.
+                size is (T, C, new_h, img_w)
+        """
+        img_h,img_w = clip.shape[-2:]
+        if img_h > 64:
+            new_h = random.randint(64, img_h)
+        if img_w > 64:
+            new_w = random.randint(64, img_w)
+
+        clip_resized = resize(clip, target_size=(new_h,new_w),
+                            interpolation_mode=self.interpolation_mode)
+        return clip_resized
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(patch_size={self.patch_size}, interpolation_mode={self.interpolation_mode}"
 
 
 #  ------------------------------------------------------------

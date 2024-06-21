@@ -7,7 +7,17 @@ import numpy as np
 import torch as th
 
 from .gaussian_diffusion import GaussianDiffusion
-from .gaussian_diffusion_t2v import GaussianDiffusion_T
+
+from opensora.models.diffusion.latte.modeling_latte_navit import pack_target_as
+from .gaussian_diffusion_t2v import (
+    GaussianDiffusion_T,
+    LossType,
+    ModelMeanType,
+    ModelVarType,
+    discretized_gaussian_log_likelihood,
+    mean_flat,
+    normal_kl,
+)
 
 
 def space_timesteps(num_timesteps, section_counts):
@@ -196,3 +206,54 @@ class _WrappedModel:
         # if self.rescale_timesteps:
         #     new_ts = new_ts.float() * (1000.0 / self.original_num_steps)
         return self.model(x, new_ts, **kwargs)
+    
+
+class NaViTSpacedDiffusion_T(SpacedDiffusion_T):
+    def training_losses(self, model, x_start, t, model_kwargs=None, noise=None):
+        """
+        Compute training losses for a single timestep.
+        :param model: the model to evaluate loss on.
+        :param x_start: List[C x ...] for videos of different resolution.
+        :param t: a batch of timestep indices.
+        :param model_kwargs: if not None, a dict of extra keyword arguments to
+            pass to the model. This can be used for conditioning.
+        :param noise: if specified, the specific Gaussian noise to try to remove.
+        :return: a dict with the key "loss" containing a tensor of shape [N].
+                 Some mean or variance settings may also have other keys.
+        """
+        model = self._wrap_model(model)
+        if model_kwargs is None:
+            model_kwargs = {}
+        # For video of different resolution case like NaViT training.
+        assert isinstance(x_start, list)
+        noise = list(map(th.randn_like, x_start))
+        x_t = list(map(self.q_sample, *(x_start, t, noise)))
+        terms = {}
+
+        if self.loss_type == LossType.KL or self.loss_type == LossType.RESCALED_KL:
+            raise NotImplementedError("NaViT only supports `loss_type` == MSE")
+        elif self.loss_type == LossType.MSE or self.loss_type == LossType.RESCALED_MSE:
+            # [b, F, T, p*p*c]
+            model_output, video_ids, token_kept_ids = model(x_t, t, **model_kwargs)
+            _, _, _, out_dim = model_output.shape
+            model_output, model_var_values = th.split(model_output, out_dim // 2, dim=-1)
+
+            if self.model_var_type in [
+                ModelVarType.LEARNED,
+                ModelVarType.LEARNED_RANGE,
+            ]:
+                # TODO: support vb loss
+                raise NotImplementedError("NaViT only supports fixed `model_var_type`")
+
+
+            assert self.model_mean_type == ModelMeanType.EPSILON, "NaViT only supports `ModelMeanType.EPSILON`"
+            # [b, F, T, p*p*c]
+            target = pack_target_as(noise, video_ids, model.model.patch_size, token_kept_ids).to(model_output.dtype)
+
+            assert model_output.shape == target.shape, f"{model_output.shape}, {target.shape}"
+
+            terms["loss"] = torch.nn.functional.mse_loss(target, model_output)
+        else:
+            raise NotImplementedError(self.loss_type)
+
+        return terms

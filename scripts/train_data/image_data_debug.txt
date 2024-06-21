@@ -1,0 +1,1 @@
+/mnt_zhexin/zhexin.lzx/dataset/Open-Sora-Plan-v1.1.0/human_image/images,/mnt_zhexin/zhexin.lzx/dataset/Open-Sora-Plan-v1.1.0/anno_jsons/human_images_162094.json
