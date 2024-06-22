@@ -22,7 +22,6 @@ except:
 
 from contextlib import contextmanager
 import types
-# from opensora.acceleration.parallel_states import enable_LCCL, hccl_info, lccl_info
 
 
 def compress_video(input_file, output_file, out_size):
@@ -159,9 +158,9 @@ class NPUConfig:
 
     def get_attention_mask(self, attention_mask, repeat_num):
         if self.on_npu and attention_mask is not None:
-            attention_mask = attention_mask.repeat(1, repeat_num, 1)
             if npu_config.enable_FA:
                 attention_mask = attention_mask.to(torch.bool)
+            attention_mask = attention_mask.repeat(1, repeat_num, 1)
         return attention_mask
     def set_current_run_dtype(self, variables):
         if variables[0].dtype != self.current_run_dtype and self.current_run_dtype is not None:
@@ -173,13 +172,6 @@ class NPUConfig:
         if x.dtype != self.original_run_dtype and self.original_run_dtype is not None:
             x = x.to(self.original_run_dtype)
         return x
-
-    def get_sp_size(self):
-        if enable_LCCL:
-            sp_size = lccl_info.world_size
-        else:
-            sp_size = hccl_info.world_size
-        return sp_size
 
     def get_output_video_path(self, name):
         os.makedirs(f"{self.work_path}/output_videos", exist_ok=True)
