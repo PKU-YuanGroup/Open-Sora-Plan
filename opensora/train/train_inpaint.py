@@ -64,7 +64,7 @@ from PIL import Image
 from torchvision import transforms
 from torchvision.transforms import Lambda
 from opensora.dataset.transform import ToTensorVideo, CenterCropResizeVideo, TemporalRandomCrop, LongSideResizeVideo, SpatialStrideCropVideo
-from opensora.sample.pipeline_i2v import OpenSoraImage2VideoPipeline
+from opensora.sample.pipeline_inpaint import OpenSoraInpaintPipeline
 
 
 
@@ -97,9 +97,16 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
     with open(prompt_file, 'r') as f:
         validation_prompt = f.readlines()
 
-    validation_images = glob.glob(os.path.join(validation_dir, "*.png"))
-    validation_images = sorted(validation_images)
-
+    index = 0
+    validation_images_list = []
+    while True:
+        temp = glob.glob(os.path.join(validation_dir, f"*_{index:04d}*.png"))
+        print(temp)
+        if len(temp) > 0:
+            validation_images_list.append(sorted(temp))
+            index += 1
+        else:
+            break
 
     resize = [CenterCropResizeVideo((args.max_height, args.max_width)),]
     norm_fun = Lambda(lambda x: 2. * x - 1.)
@@ -114,7 +121,7 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
     model = accelerator.unwrap_model(model)
 
     scheduler = PNDMScheduler()
-    pipeline = OpenSoraImage2VideoPipeline(
+    pipeline = OpenSoraInpaintPipeline(
         vae=vae,
         text_encoder=text_encoder,
         tokenizer=tokenizer,
@@ -122,16 +129,31 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
         transformer=model
     ).to(device=accelerator.device)
 
+    def preprocess_images(images):
+        if len(images) == 1:
+            condition_images_indices = [0]
+        elif len(images) == 2:
+            condition_images_indices = [0, -1]
+        condition_images = [Image.open(image).convert("RGB") for image in images]
+        condition_images = [torch.from_numpy(np.copy(np.array(image))) for image in condition_images]
+        condition_images = [rearrange(image, 'h w c -> c h w').unsqueeze(0) for image in condition_images]
+        condition_images = [transform(image).to(accelerator.device, dtype=torch.float32) for image in condition_images]
+        return dict(condition_images=condition_images, condition_images_indices=condition_images_indices)
+    
     videos = []
-    for prompt, init_image in zip(validation_prompt, validation_images):
-        logger.info('Processing the ({}) prompt and the init image ({})'.format(prompt, init_image))
-        init_image = Image.open(init_image).convert("RGB")
-        init_image = torch.from_numpy(np.copy(np.array(init_image)))
-        init_image = rearrange(init_image, 'h w c -> c h w').unsqueeze(0)
-        init_image = transform(init_image).to(accelerator.device, dtype=torch.float32)
+    for prompt, images in zip(validation_prompt, validation_images_list):
+        if not isinstance(images, list):
+            images = [images]
+        logger.info('Processing the ({}) prompt and the images ({})'.format(prompt, images))
+        
+        pre_results = preprocess_images(images)
+        condition_images = pre_results['condition_images']
+        condition_images_indices = pre_results['condition_images_indices']
+
         video = pipeline(
             prompt=prompt,
-            init_image=init_image,
+            condition_images=condition_images,
+            condition_images_indices=condition_images_indices,
             num_frames=args.num_frames,
             height=args.max_height,
             width=args.max_width,

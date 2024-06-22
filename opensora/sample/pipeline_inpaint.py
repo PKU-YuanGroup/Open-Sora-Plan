@@ -108,7 +108,7 @@ def retrieve_timesteps(
     return timesteps, num_inference_steps
 
 
-class OpenSoraImage2VideoPipeline(DiffusionPipeline):
+class OpenSoraInpaintPipeline(DiffusionPipeline):
     r"""
     Pipeline for text-to-image generation using PixArt-Sigma.
     """
@@ -550,7 +550,8 @@ class OpenSoraImage2VideoPipeline(DiffusionPipeline):
     @replace_example_docstring(EXAMPLE_DOC_STRING)
     def __call__(
         self,
-        init_image: torch.Tensor,
+        condition_images: torch.Tensor,
+        condition_images_indices: List,
         prompt: Union[str, List[str]] = None,
         negative_prompt: str = "",
         num_inference_steps: int = 20,
@@ -733,18 +734,23 @@ class OpenSoraImage2VideoPipeline(DiffusionPipeline):
         # 7. Denoising loop
         num_warmup_steps = max(len(timesteps) - num_inference_steps * self.scheduler.order, 0)
 
-        # NOTE I2V
-        if len(init_image.shape) == 3:
-            init_image = init_image.unsqueeze(1) # C H W -> C 1 H W
-        elif len(init_image.shape) == 4:
-            init_image = init_image.transpose(0, 1) # 1 C H W -> C 1 H W
+        # NOTE inpaint
+        assert isinstance(condition_images_indices, list) and len(condition_images_indices) == len(condition_images) and isinstance(condition_images_indices[0], int), "condition_images_indices should be a list of int" 
+        if isinstance(condition_images, list) and isinstance(condition_images[0], torch.Tensor):
+            if len(condition_images[0].shape) == 3:
+                condition_images = [condition_image.unsqueeze(1) for condition_image in condition_images] # C H W -> C 1 H W
+            elif len(condition_images[0].shape) == 4:
+                condition_images = [condition_image.transpose(0, 1) for condition_image in condition_images] # 1 C H W -> C 1 H W
+        else:
+            raise ValueError("condition_images should be a list of torch.Tensor")
         
-        init_image = init_image.unsqueeze(0).repeat((batch_size * num_images_per_prompt, 1, 1, 1, 1))
-        input_video = torch.zeros([batch_size * num_images_per_prompt, 3, num_frames, height, width], device=device)
-        input_video = torch.cat([init_image, input_video[:, :, 1:]], dim=2)
+
+        input_video = torch.zeros([3, num_frames, height, width], device=device)
+        input_video[:, condition_images_indices] = torch.cat(condition_images, dim=1).to(device) # C 1/2 H W -> C F H W
+        input_video = input_video.unsqueeze(0).repeat(batch_size * num_images_per_prompt, 1, 1, 1, 1)
         
         mask = torch.ones_like(input_video, device=device)
-        mask[:, :, 0] = 0
+        mask[:, :, condition_images_indices] = 0
 
         masked_video = input_video * (mask < 0.5)
 
