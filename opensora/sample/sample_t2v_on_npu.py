@@ -168,6 +168,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     npu_config.print_msg(args)
+    npu_config.conv_dtype = torch.bfloat16
     replace_with_fp32_forwards()
 
     # 初始化分布式环境
@@ -242,6 +243,7 @@ if __name__ == "__main__":
             time.sleep(1200)
 
         latest_path = cur_path
+
         npu_config.print_msg(f"The latest_path is {latest_path}")
         full_path = f"{args.model_path}/{latest_path}/model_ema"
         pipeline = load_t2v_checkpoint(full_path)

@@ -71,6 +71,7 @@ class NPUConfig:
         self.original_run_dtype = None
         self.zp_manager = zp_manager
         self.replaced_type = torch.float32
+        self.conv_dtype = torch.float16
         if self.enable_FA and self.enable_FP32:
             self.inf_float = -10000.0
         else:
@@ -252,7 +253,7 @@ class NPUConfig:
                 out_dtype = x.dtype
 
             with torch.cuda.amp.autocast(enabled=False):
-                x = operator.to(tmp_dtype)(x.to(tmp_dtype))
+                x = operator.to(device=x.device, dtype=tmp_dtype)(x.to(tmp_dtype))
                 x = x.to(out_dtype)
                 if out_nd_format:
                     return self.npu_format_cast(x)
@@ -289,7 +290,7 @@ class NPUConfig:
             f"Median: {median_val}, Std: {std_val}, Shape: {shape}, Type: {x_dtype}")
 
     def run_conv3d(self, operator, x, out_dtype):
-        return self._run(operator, x, torch.float16, out_dtype, out_nd_format=True)
+        return self._run(operator, x, self.conv_dtype, out_dtype, out_nd_format=True)
 
     def run_pool_2d(self, operator, x):
         return self._run(operator, x, self.replaced_type)

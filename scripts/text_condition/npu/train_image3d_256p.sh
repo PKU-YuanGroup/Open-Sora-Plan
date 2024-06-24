@@ -11,7 +11,7 @@ accelerate launch \
     --main_process_ip=${MAIN_PROCESS_IP_VALUE} \
     opensora/train/train_t2v_diffusers.py \
     --model OpenSoraT2V-L/122 \
-    --text_encoder_name ${WEIGHT_PATH}/google/umt5-xxl \
+    --text_encoder_name ${WEIGHT_PATH}/google/mt5-xxl \
     --cache_dir "../cache_dir" \
     --dataset t2v \
     --ae CausalVAEModel_4x8x8 \
