@@ -523,10 +523,10 @@ class AttnProcessor2_0:
                 # (batch, heads, source_length, target_length)
                 attention_mask = attention_mask.view(batch_size, attn.heads, -1, attention_mask.shape[-1])
             else:
-                attention_mask = attention_mask.view(batch_size, 1, -1, attention_mask.shape[-1])
-                attention_mask = attention_mask.repeat(1, 1, hidden_states.shape[1], 1)
                 if npu_config.enable_FA:
                     attention_mask = attention_mask.to(torch.bool)
+                attention_mask = attention_mask.view(batch_size, 1, -1, attention_mask.shape[-1])
+                attention_mask = attention_mask.repeat(1, 1, hidden_states.shape[1], 1)
 
         if attn.group_norm is not None:
             hidden_states = attn.group_norm(hidden_states.transpose(1, 2)).transpose(1, 2)
@@ -556,8 +556,7 @@ class AttnProcessor2_0:
                 # require the shape of (batch_size x nheads x ntokens x dim)
                 pos_thw = self.position_getter(batch_size, t=frame, h=height, w=width, device=query.device)
                 query = self.rope(query, pos_thw)
-                if query.shape == key.shape:
-                    key = self.rope(key, pos_thw)
+                key = self.rope(key, pos_thw)
                 query = query.view(batch_size, -1, attn.heads * head_dim)
                 key = key.view(batch_size, -1, attn.heads * head_dim)
 
@@ -734,6 +733,7 @@ class Downsample2d(nn.Module):
             x = F.pad(x, (0, pad_w, 0, pad_h))
         else:
             x = npu_config.run_pad_2d(F.pad, x, pad=(0, pad_w, 0, pad_h))
+        x = F.pad(x, (0, pad_w, 0, pad_h))
         x = self.body(x)
         x = rearrange(x, '(b t) d h w -> b (t h w) d', t=frames)
         

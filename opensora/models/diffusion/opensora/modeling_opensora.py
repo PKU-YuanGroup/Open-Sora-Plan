@@ -16,6 +16,7 @@ from opensora.utils.utils import to_2tuple
 try:
     import torch_npu
     from opensora.npu_config import npu_config
+    from opensora.acceleration.parallel_states import get_sequence_parallel_state, hccl_info
 except:
     torch_npu = None
     npu_config = None
@@ -347,8 +348,12 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
             # b, frame+use_image_num, h, w -> a video with images
             # b, 1, h, w -> only images
             attention_mask = attention_mask.to(self.dtype)
-            attention_mask_vid = attention_mask[:, :frame]  # b, frame, h, w
-            attention_mask_img = attention_mask[:, frame:]  # b, use_image_num, h, w
+            if npu_config is not None and get_sequence_parallel_state():
+                attention_mask_vid = attention_mask[:, :frame * hccl_info.world_size]  # b, frame, h, w
+                attention_mask_img = attention_mask[:, frame * hccl_info.world_size:]  # b, use_image_num, h, w
+            else:
+                attention_mask_vid = attention_mask[:, :frame]  # b, frame, h, w
+                attention_mask_img = attention_mask[:, frame:]  # b, use_image_num, h, w
 
             if attention_mask_vid.numel() > 0:
                 attention_mask_vid_first_frame = attention_mask_vid[:, :1].repeat(1, self.patch_size_t-1, 1, 1)
@@ -404,6 +409,13 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
             hidden_states, encoder_hidden_states, timestep, added_cond_kwargs, batch_size, frame, use_image_num
         )
         # 2. Blocks
+        # import ipdb;ipdb.set_trace()
+        if npu_config is not None and get_sequence_parallel_state():
+            if hidden_states_vid is not None:
+                hidden_states_vid = rearrange(hidden_states_vid, 'b s h -> s b h', b=batch_size).contiguous()
+                encoder_hidden_states_vid = rearrange(encoder_hidden_states_vid, 'b s h -> s b h',
+                                                      b=batch_size).contiguous()
+                timestep_vid = timestep_vid.view(batch_size, 6, -1).transpose(0, 1).contiguous()
         for block in self.transformer_blocks:
             if self.training and self.gradient_checkpointing:
 
@@ -476,6 +488,10 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
                         height=height, 
                         width=width, 
                     )
+
+        if npu_config is not None and get_sequence_parallel_state():
+            if hidden_states_vid is not None:
+                hidden_states_vid = rearrange(hidden_states_vid, 's b h -> b s h', b=batch_size).contiguous()
 
         # 3. Output
         output_vid, output_img = None, None 
@@ -609,9 +625,12 @@ def OpenSoraT2V_B_122(**kwargs):
                        norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=1920, **kwargs)
 
 def OpenSoraT2V_L_122(**kwargs):
+    return OpenSoraT2V(num_layers=40, attention_head_dim=128, num_attention_heads=16, patch_size_t=1, patch_size=2,
+                       norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=2048, **kwargs)
+
+def OpenSoraT2V_ROPE_L_122(**kwargs):
     return OpenSoraT2V(num_layers=32, attention_head_dim=96, num_attention_heads=24, patch_size_t=1, patch_size=2,
                        norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=2304, **kwargs)
-
 # def OpenSoraT2V_S_222(**kwargs):
 #     return OpenSoraT2V(num_layers=28, attention_head_dim=72, num_attention_heads=16, patch_size_t=2, patch_size=2,
 #                        norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=1152, **kwargs)
@@ -636,7 +655,8 @@ def OpenSoraT2V_B_222(**kwargs):
 OpenSora_models = {
     "OpenSoraT2V-S/122": OpenSoraT2V_S_122,  #       1.1B
     "OpenSoraT2V-B/122": OpenSoraT2V_B_122,
-    "OpenSoraT2V-L/122": OpenSoraT2V_L_122,  # 2.8B  2.8B
+    "OpenSoraT2V-L/122": OpenSoraT2V_L_122,
+    "OpenSoraT2V-ROPE-L/122": OpenSoraT2V_ROPE_L_122,
     "OpenSoraT2V-S/111": OpenSoraT2V_S_111,
     "OpenSoraT2V-B/111": OpenSoraT2V_B_111,
     "OpenSoraT2V-L/111": OpenSoraT2V_L_111,
@@ -653,6 +673,7 @@ OpenSora_models_class = {
     "OpenSoraT2V-S/122": OpenSoraT2V,
     "OpenSoraT2V-B/122": OpenSoraT2V,
     "OpenSoraT2V-L/122": OpenSoraT2V,
+    "OpenSoraT2V-ROPE-L/122": OpenSoraT2V,
     "OpenSoraT2V-S/111": OpenSoraT2V,
     "OpenSoraT2V-B/111": OpenSoraT2V,
     "OpenSoraT2V-L/111": OpenSoraT2V,
@@ -671,9 +692,9 @@ if __name__ == '__main__':
         'attention_mode': 'xformers', 
         'use_rope': True, 
         'model_max_length': 300, 
-        'max_height': 480, 
-        'max_width': 640, 
-        'num_frames': 61, 
+        'max_height': 480,
+        'max_width': 640,
+        'num_frames': 61,
         'use_image_num': 0, 
         'compress_kv_factor': 1, 
         'interpolation_scale_t': 1,
@@ -709,7 +730,7 @@ if __name__ == '__main__':
                             upcast_attention=False,
                             use_linear_projection=False,
                             use_additional_conditions=False, 
-                            downsampler=None, 
+                            downsampler=None,
                             interpolation_scale_t=args.interpolation_scale_t, 
                             interpolation_scale_h=args.interpolation_scale_h, 
                             interpolation_scale_w=args.interpolation_scale_w, 
