@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 
 from diffusers.models.attention import FeedForward
-from diffusers.models.attention_processor import Attention
+from .modules import Attention
 
 class BasicQFormerBlock(nn.Module):
     def __init__(
@@ -18,6 +18,9 @@ class BasicQFormerBlock(nn.Module):
         norm_elementwise_affine=True,
         norm_eps=1e-5,
         activation_fn="gelu",
+        attention_mode="xformers", 
+        use_rope=False,
+        rope_scaling=None,
         final_dropout=False,
         ff_inner_dim=None,
         ff_bias=False,
@@ -37,8 +40,12 @@ class BasicQFormerBlock(nn.Module):
             bias=attention_bias,
             cross_attention_dim=dim,
             upcast_attention=upcast_attention,
+            attention_mode=attention_mode,
+            use_rope=use_rope, 
+            rope_scaling=rope_scaling, 
             out_bias=attention_out_bias
         )
+
         self.only_visual_attention = only_visual_attention
         if not only_visual_attention:
             # cross attn if cross_attention_dim is not None, otherwise self attn
@@ -47,14 +54,19 @@ class BasicQFormerBlock(nn.Module):
 
             self.attn2 = Attention(
                 query_dim=dim,
+                cross_attention_dim=dim,
                 heads=num_attention_heads,
                 dim_head=attention_head_dim,
                 dropout=dropout,
                 bias=attention_bias,
-                cross_attention_dim=dim,
                 upcast_attention=upcast_attention,
-                out_bias=attention_out_bias
-            )
+                attention_mode=attention_mode,  
+                use_rope=False,  
+            ) 
+        else:
+            self.norm2_latents = None
+            self.norm2_encoder_hidden_states = None
+            self.attn2 = None
 
         self.norm3 = nn.LayerNorm(dim, elementwise_affine=norm_elementwise_affine, eps=norm_eps)
         self.ff = FeedForward(
@@ -66,7 +78,17 @@ class BasicQFormerBlock(nn.Module):
             bias=ff_bias,
         )
 
-    def forward(self, latents, visual_context, encoder_hidden_states=None, attention_mask=None):
+    def forward(
+        self, 
+        latents, 
+        visual_context, 
+        attention_mask=None,
+        encoder_hidden_states=None, 
+        encoder_attention_mask=None,
+        position_q=None,
+        position_k=None,
+        last_shape=None,
+    ):
         '''
             params:
                 latents: queries of q former 
@@ -88,6 +110,9 @@ class BasicQFormerBlock(nn.Module):
             norm_latents,
             encoder_hidden_states=kv_input,
             attention_mask=attention_mask,
+            position_q=position_q,
+            position_k=position_k,
+            last_shape=last_shape,                                                     
         )
 
         latents = latents + attn_output
@@ -104,7 +129,10 @@ class BasicQFormerBlock(nn.Module):
             attn_output = self.attn2(
                 norm_latents,
                 encoder_hidden_states=kv_input,
-                attention_mask=attention_mask
+                attention_mask=encoder_attention_mask,
+                position_q=None,
+                position_k=None,
+                last_shape=None,
             )
 
             latents = latents + attn_output
@@ -130,18 +158,15 @@ class QFormer(nn.Module):
         num_attention_heads=16,
         attention_head_dim=64,
         dropout=0.0,
-        max_seq_length=257,
-        apply_pos_emb=False,
         only_visual_attention=True,
         encoder_hidden_states_dim=None,
+        use_rope=False,
+        rope_scaling=None,
+        attention_mode="xformers",
+        compress_kv_factor=1,
     ):
         super().__init__()
 
-        self.apply_pos_emb = apply_pos_emb
-        self.pos_emb_visual_context = nn.Embedding(max_seq_length, visual_context_dim) if apply_pos_emb else None
-        if not only_visual_attention:
-            self.pos_emb_encoder_hidden_states = nn.Embedding(max_seq_length, encoder_hidden_states_dim) if apply_pos_emb else None
-        
         self.only_visual_attention = only_visual_attention
 
         self.latents = nn.Parameter(torch.randn(1, num_queries, dim) / dim ** 0.5)
@@ -162,6 +187,10 @@ class QFormer(nn.Module):
                     attention_head_dim=attention_head_dim,
                     dropout=dropout,
                     only_visual_attention=only_visual_attention,
+                    attention_mode=attention_mode, 
+                    use_rope=use_rope, 
+                    rope_scaling=rope_scaling, 
+                    compress_kv_factor=(compress_kv_factor, compress_kv_factor) if d >= num_layers // 2 and compress_kv_factor != 1 else None, # follow pixart-sigma, apply in second-half layers
                 )
             )
             
@@ -169,17 +198,6 @@ class QFormer(nn.Module):
 
     def forward(self, visual_context, encoder_hidden_states=None):
 
-        def add_pos_emb(x):
-            n, device = x.shape[1], x.device
-            pos_emb = self.pos_emb(torch.arange(n, device=device))
-            x = x + pos_emb
-            return x
-
-        if self.apply_pos_emb:
-            visual_context = add_pos_emb(visual_context)
-            if not self.only_visual_attention:
-                encoder_hidden_states = add_pos_emb(encoder_hidden_states)
-        
         b = visual_context.shape[0]
         latents = self.latents.repeat(b, 1, 1)
 
