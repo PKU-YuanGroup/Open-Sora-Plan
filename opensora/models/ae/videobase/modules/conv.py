@@ -101,7 +101,7 @@ class CausalConv3d(nn.Module):
     def forward(self, x):
         if npu_config is not None and npu_config.on_npu:
             x_dtype = x.dtype
-            x = x.to(torch.float16)
+            x = x.to(npu_config.replaced_type)
             n, c, d, h, w = x.shape
             x = x.reshape(n * c, d, h * w)
             x = self.pad(x)

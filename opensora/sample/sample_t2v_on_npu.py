@@ -17,6 +17,7 @@ from transformers import T5EncoderModel, T5Tokenizer, AutoTokenizer
 
 import os, sys
 
+from opensora.adaptor.modules import replace_with_fp32_forwards
 from opensora.models.ae import ae_stride_config, getae, getae_wrapper
 from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModelWrapper
 from opensora.models.diffusion.udit.modeling_udit import UDiTT2V
@@ -167,6 +168,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     npu_config.print_msg(args)
+    replace_with_fp32_forwards()
 
     # 初始化分布式环境
     local_rank = int(os.getenv('RANK', 0))
@@ -176,7 +178,7 @@ if __name__ == "__main__":
     dist.init_process_group(backend='hccl', init_method='env://', world_size=8, rank=local_rank)
 
     # torch.manual_seed(args.seed)
-    weight_dtype = torch.float16
+    weight_dtype = torch.float32
     device = torch.cuda.current_device()
 
     # vae = getae_wrapper(args.ae)(args.model_path, subfolder="vae", cache_dir=args.cache_dir)
@@ -227,13 +229,18 @@ if __name__ == "__main__":
 
     latest_path = None
     save_img_path = args.save_img_path
+    first_in = False
     while True:
         cur_path = get_latest_path()
         if cur_path == latest_path:
-            time.sleep(5)
+            time.sleep(60)
             continue
 
-        time.sleep(1)
+        if not first_in:
+            first_in = True
+        else:
+            time.sleep(1200)
+
         latest_path = cur_path
         npu_config.print_msg(f"The latest_path is {latest_path}")
         full_path = f"{args.model_path}/{latest_path}/model_ema"

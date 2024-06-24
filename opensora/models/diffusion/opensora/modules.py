@@ -828,12 +828,12 @@ class FeedForward_Conv3d(nn.Module):
             x = self.project_out(out)
         else:
             x_dtype = x.dtype
-            x = npu_config.run_conv3d(self.project_in, x, torch.float16)
+            x = npu_config.run_conv3d(self.project_in, x, npu_config.replaced_type)
             x = rearrange(x, 'b (t h w) d -> b d t h w', t=t, h=h, w=w)
             x = F.gelu(x)
             out = x
             for module in self.dwconv:
-                out = out + npu_config.run_conv3d(module, x, torch.float16)
+                out = out + npu_config.run_conv3d(module, x, npu_config.replaced_type)
             out = rearrange(out, 'b d t h w -> b (t h w) d', t=t, h=h, w=w)
             x = npu_config.run_conv3d(self.project_out, out, x_dtype)
         return x

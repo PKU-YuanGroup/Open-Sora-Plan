@@ -293,7 +293,7 @@ class T2V_dataset(Dataset):
             img_cap_lists = self.read_jsons(self.image_data, postfix=".jpg")
             img_cap_lists = [img_cap_lists[i: i + use_image_num] for i in range(0, len(img_cap_lists), use_image_num)]
         else:
-            img_cap_lists = npu_config.try_load_pickle("img_cap_lists5",
+            img_cap_lists = npu_config.try_load_pickle("img_cap_lists_only_mj_with_cn",
                                                        lambda: self.read_jsons(self.image_data, postfix=".jpg"))
             img_cap_lists = [img_cap_lists[i: i + use_image_num] for i in range(0, len(img_cap_lists), use_image_num)]
             img_cap_lists = img_cap_lists[npu_config.get_local_rank()::npu_config.N_NPU_PER_NODE]

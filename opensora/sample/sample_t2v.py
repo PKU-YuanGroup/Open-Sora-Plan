@@ -16,6 +16,7 @@ from transformers import T5EncoderModel, T5Tokenizer, AutoTokenizer
 
 import os, sys
 
+from opensora.adaptor.modules import replace_with_fp32_forwards
 from opensora.models.ae import ae_stride_config, getae, getae_wrapper
 from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModelWrapper
 from opensora.models.diffusion.opensora.modeling_opensora import OpenSoraT2V
@@ -32,6 +33,7 @@ import imageio
 
 def main(args):
     # torch.manual_seed(args.seed)
+    replace_with_fp32_forwards()
     weight_dtype = torch.float16
     device = torch.device(args.device)
 

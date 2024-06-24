@@ -19,6 +19,8 @@ import numpy as np
 from einops import rearrange
 from tqdm import tqdm
 
+from opensora.adaptor.modules import replace_with_fp32_forwards
+
 try:
     import torch_npu
     from opensora.npu_config import npu_config
@@ -155,6 +157,8 @@ class ProgressInfo:
 def main(args):
     logging_dir = Path(args.output_dir, args.logging_dir)
 
+    # use LayerNorm, GeLu, SiLu always as fp32 mode
+    replace_with_fp32_forwards()
     if torch_npu is not None and npu_config is not None:
         npu_config.print_msg(args)
         npu_config.seed_everything(args.seed)
@@ -658,13 +662,12 @@ def main(args):
                     log_validation(args, model, ae, text_enc.text_enc, train_dataset.tokenizer, accelerator,
                                    weight_dtype, progress_info.global_step)
 
-                if args.use_ema:
+                if args.use_ema and npu_config is None:
                     # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
                     ema_model.store(model.parameters())
                     ema_model.copy_to(model.parameters())
-                    if npu_config is None:
-                        log_validation(args, model, ae, text_enc.text_enc, train_dataset.tokenizer, accelerator,
-                                       weight_dtype, progress_info.global_step, ema=True)
+                    log_validation(args, model, ae, text_enc.text_enc, train_dataset.tokenizer, accelerator,
+                                   weight_dtype, progress_info.global_step, ema=True)
                     # Switch back to the original UNet parameters.
                     ema_model.restore(model.parameters())
 
