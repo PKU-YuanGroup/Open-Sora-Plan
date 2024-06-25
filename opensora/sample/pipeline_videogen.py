@@ -16,7 +16,7 @@ import html
 import inspect
 import re
 import urllib.parse as ul
-from typing import Callable, List, Optional, Tuple, Union
+from typing import Callable, List, Optional, Tuple, Union, Any, Dict
 
 import torch
 import einops
@@ -104,7 +104,7 @@ class VideoGenPipeline(DiffusionPipeline):
             vae: AutoencoderKL,
             transformer: Transformer2DModel,
             scheduler: DPMSolverMultistepScheduler,
-    ):
+    ) -> None:
         super().__init__()
 
         self.register_modules(
@@ -114,7 +114,7 @@ class VideoGenPipeline(DiffusionPipeline):
         # self.vae_scale_factor = 2 ** (len(self.vae.config.block_out_channels) - 1)
 
     # Adapted from https://github.com/PixArt-alpha/PixArt-alpha/blob/master/diffusion/model/utils.py
-    def mask_text_embeddings(self, emb, mask):
+    def mask_text_embeddings(self, emb: torch.Tensor, mask: torch.Tensor) -> Tuple[torch.Tensor, int]:
         if emb.shape[0] == 1:
             keep_index = mask.sum().item()
             return emb[:, :, :keep_index, :], keep_index  # 1, 120, 4096 -> 1 7 4096
@@ -134,7 +134,7 @@ class VideoGenPipeline(DiffusionPipeline):
             negative_prompt_embeds: Optional[torch.FloatTensor] = None,
             clean_caption: bool = False,
             mask_feature: bool = True,
-    ):
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         r"""
         Encodes the prompt into text encoder hidden states.
 
@@ -280,19 +280,17 @@ class VideoGenPipeline(DiffusionPipeline):
             # masked_negative_prompt_embeds_ = F.pad(masked_negative_prompt_embeds, padding, "constant", 0)
 
             # print(masked_prompt_embeds == masked_prompt_embeds_[:, :masked_negative_prompt_embeds.shape[1], ...])
-
             return masked_prompt_embeds, masked_negative_prompt_embeds
             # return masked_prompt_embeds_, masked_negative_prompt_embeds_
 
         return prompt_embeds, negative_prompt_embeds
 
     # Copied from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion.StableDiffusionPipeline.prepare_extra_step_kwargs
-    def prepare_extra_step_kwargs(self, generator, eta):
+    def prepare_extra_step_kwargs(self, generator: Optional[Union[torch.Generator, List[torch.Generator]]], eta: float) -> Dict[str, Any]:
         # prepare extra kwargs for the scheduler step, since not all schedulers have the same signature
         # eta (η) is only used with the DDIMScheduler, it will be ignored for other schedulers.
         # eta corresponds to η in DDIM paper: https://arxiv.org/abs/2010.02502
         # and should be between [0, 1]
-
         accepts_eta = "eta" in set(inspect.signature(self.scheduler.step).parameters.keys())
         extra_step_kwargs = {}
         if accepts_eta:
@@ -302,18 +300,19 @@ class VideoGenPipeline(DiffusionPipeline):
         accepts_generator = "generator" in set(inspect.signature(self.scheduler.step).parameters.keys())
         if accepts_generator:
             extra_step_kwargs["generator"] = generator
+
         return extra_step_kwargs
 
     def check_inputs(
             self,
-            prompt,
-            height,
-            width,
-            negative_prompt,
-            callback_steps,
-            prompt_embeds=None,
-            negative_prompt_embeds=None,
-    ):
+            prompt: Union[str, List[str]],
+            height: Optional[int],
+            width: Optional[int],
+            negative_prompt: Optional[torch.FloatTensor],
+            callback_steps: Optional[Callable[[int, int, torch.FloatTensor], None]],
+            prompt_embeds: Optional[torch.FloatTensor] = None,
+            negative_prompt_embeds: Optional[torch.FloatTensor] = None,
+    ) -> None:
         if height % 8 != 0 or width % 8 != 0:
             raise ValueError(f"`height` and `width` have to be divisible by 8 but are {height} and {width}.")
 
@@ -358,7 +357,7 @@ class VideoGenPipeline(DiffusionPipeline):
                 )
 
     # Copied from diffusers.pipelines.deepfloyd_if.pipeline_if.IFPipeline._text_preprocessing
-    def _text_preprocessing(self, text, clean_caption=False):
+    def _text_preprocessing(self, text: Union[str, List[str]], clean_caption: bool=False) -> List[str]:
         if clean_caption and not is_bs4_available():
             logger.warn(BACKENDS_MAPPING["bs4"][-1].format("Setting `clean_caption=True`"))
             logger.warn("Setting `clean_caption` to False...")
@@ -379,11 +378,11 @@ class VideoGenPipeline(DiffusionPipeline):
             else:
                 text = text.lower().strip()
             return text
-
+        
         return [process(t) for t in text]
 
     # Copied from diffusers.pipelines.deepfloyd_if.pipeline_if.IFPipeline._clean_caption
-    def _clean_caption(self, caption):
+    def _clean_caption(self, caption: str) -> str:
         caption = str(caption)
         caption = ul.unquote_plus(caption)
         caption = caption.strip().lower()
@@ -501,8 +500,8 @@ class VideoGenPipeline(DiffusionPipeline):
         return caption.strip()
 
     # Copied from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion.StableDiffusionPipeline.prepare_latents
-    def prepare_latents(self, batch_size, num_channels_latents, num_frames, height, width, dtype, device, generator,
-                        latents=None):
+    def prepare_latents(self, batch_size: int, num_channels_latents: int, num_frames: int, height: Optional[int], width: Optional[int], dtype: torch.float16, device: torch.device, generator: Optional[Union[torch.Generator, List[torch.Generator]]],
+                        latents: Optional[torch.FloatTensor]=None) -> torch.Tensor:
         shape = (
             batch_size,
             num_channels_latents,
@@ -755,7 +754,7 @@ class VideoGenPipeline(DiffusionPipeline):
 
         return VideoPipelineOutput(video=video)
 
-    def decode_latents(self, latents):
+    def decode_latents(self, latents: torch.Tensor) -> torch.Tensor:
         video = self.vae.decode(latents) # b t c h w
         # b t c h w -> b t h w c
         video = ((video / 2.0 + 0.5).clamp(0, 1) * 255).to(dtype=torch.uint8).cpu().permute(0, 1, 3, 4, 2).contiguous()
