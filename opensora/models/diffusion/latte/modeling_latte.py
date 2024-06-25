@@ -5,7 +5,7 @@ import json
 
 from dataclasses import dataclass
 from einops import rearrange, repeat
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, Union
 from diffusers.models import Transformer2DModel
 from diffusers.utils import USE_PEFT_BACKEND, BaseOutput, deprecate
 from diffusers.models.embeddings import get_1d_sincos_pos_embed_from_grid, ImagePositionalEmbeddings
@@ -86,7 +86,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
             rope_scaling_type: str = 'linear', 
             compress_kv_factor: int = 1, 
             interpolation_scale_1d: float = None, 
-    ):
+    ) -> None:
         super().__init__()
         self.use_linear_projection = use_linear_projection
         self.num_attention_heads = num_attention_heads
@@ -249,15 +249,15 @@ class LatteT2V(ModelMixin, ConfigMixin):
 
         self.gradient_checkpointing = False
 
-    def _set_gradient_checkpointing(self, module, value=False):
+    def _set_gradient_checkpointing(self, value: bool=False) -> None:
         self.gradient_checkpointing = value
 
-    def make_position(self, b, t, use_image_num, h, w, device):
+    def make_position(self, b: int, t: int, use_image_num: int, h: int, w: int, device: torch.device) -> Tuple[torch.Tensor, torch.Tensor]:
         pos_hw = self.position_getter_2d(b*(t+use_image_num), h, w, device)  # fake_b = b*(t+use_image_num)
         pos_t = self.position_getter_1d(b*h*w, t, device)  # fake_b = b*h*w
         return pos_hw, pos_t
 
-    def make_attn_mask(self, attention_mask, frame, dtype):
+    def make_attn_mask(self, attention_mask: torch.Tensor, frame: int, dtype: torch.dtype) -> torch.Tensor:
         attention_mask = rearrange(attention_mask, 'b t h w -> (b t) 1 (h w)') 
         # assume that mask is expressed as:
         #   (1 = keep,      0 = discard)
@@ -267,7 +267,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
         attention_mask = attention_mask.to(self.dtype)
         return attention_mask
 
-    def vae_to_diff_mask(self, attention_mask, use_image_num):
+    def vae_to_diff_mask(self, attention_mask: torch.Tensor, use_image_num: int) -> torch.Tensor:
         dtype = attention_mask.dtype
         # b, t+use_image_num, h, w, assume t as channel
         # this version do not use 3d patch embedding
@@ -288,7 +288,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
             use_image_num: int = 0,
             enable_temporal_attentions: bool = True,
             return_dict: bool = True,
-    ):
+    ) -> Union[Tuple[torch.Tensor,], Transformer3DModelOutput]:
         """
         The [`Transformer2DModel`] forward method.
 
@@ -571,14 +571,14 @@ class LatteT2V(ModelMixin, ConfigMixin):
                 shape=(-1, self.out_channels, height * self.patch_size, width * self.patch_size)
             )
             output = rearrange(output, '(b f) c h w -> b c f h w', b=input_batch_size).contiguous()
-
+   
         if not return_dict:
             return (output,)
 
         return Transformer3DModelOutput(sample=output)
 
     @classmethod
-    def from_pretrained_2d(cls, pretrained_model_path, subfolder=None, **kwargs):
+    def from_pretrained_2d(cls, pretrained_model_path: str, subfolder=None, **kwargs):
         if subfolder is not None:
             pretrained_model_path = os.path.join(pretrained_model_path, subfolder)
 
@@ -592,10 +592,10 @@ class LatteT2V(ModelMixin, ConfigMixin):
         return model
 
 # depth = num_layers * 2
-def LatteT2V_XL_122(**kwargs):
+def LatteT2V_XL_122(**kwargs) -> LatteT2V:
     return LatteT2V(num_layers=28, attention_head_dim=72, num_attention_heads=16, patch_size_t=1, patch_size=2,
                     norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=1152, **kwargs)
-def LatteT2V_D64_XL_122(**kwargs):
+def LatteT2V_D64_XL_122(**kwargs) -> LatteT2V:
     return LatteT2V(num_layers=28, attention_head_dim=64, num_attention_heads=18, patch_size_t=1, patch_size=2,
                     norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=1152, **kwargs)
 
