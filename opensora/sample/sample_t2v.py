@@ -34,6 +34,8 @@ import imageio
 
 def main(args):
     # torch.manual_seed(args.seed)
+    if args.enable_stable_fp32:
+        replace_with_fp32_forwards()
     weight_dtype = torch.bfloat16
     device = torch.device(args.device)
 
@@ -190,6 +192,7 @@ if __name__ == "__main__":
     parser.add_argument('--tile_overlap_factor', type=float, default=0.25)
     parser.add_argument('--enable_tiling', action='store_true')
     parser.add_argument('--model_3d', action='store_true')
+    parser.add_argument('--enable_stable_fp32', action='store_true')
     args = parser.parse_args()
 
     main(args)

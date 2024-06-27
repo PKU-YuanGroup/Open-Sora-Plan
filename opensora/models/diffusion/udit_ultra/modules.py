@@ -748,7 +748,7 @@ class Downsample2d(nn.Module):
             x = F.pad(x, (0, pad_w, 0, pad_h))
         else:
             x = npu_config.run_pad_2d(F.pad, x, pad=(0, pad_w, 0, pad_h))
-        x = F.pad(x, (0, pad_w, 0, pad_h))
+        # x = F.pad(x, (0, pad_w, 0, pad_h))
         x = self.body(x)
         x = rearrange(x, '(b t) d h w -> b (t h w) d', t=frames)
         

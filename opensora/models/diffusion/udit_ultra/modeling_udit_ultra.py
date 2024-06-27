@@ -137,8 +137,8 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
         # 2. Initialize the right blocks.
         # Initialize the output blocks and other projection blocks when necessary.
         self._init_patched_inputs(norm_type=norm_type)
-        if self.use_stable_fp32:
-            self._replace_fp32_layers()
+        # if self.use_stable_fp32:
+        #     self._replace_fp32_layers()
 
     def _init_patched_inputs(self, norm_type):
         assert self.config.sample_size_t is not None, "OpenSoraT2V over patched input must provide sample_size_t"
@@ -388,26 +388,26 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
             in_features=self.caption_channels, hidden_size=self.inner_dim * 4
         )
 
-    def _replace_fp32_layers(self, module=None):
-        if module is None:
-            module = self
-        for name, submodule in module.named_children():
-            if isinstance(submodule, nn.LayerNorm):
-                print(f"Replacing LayerNorm in {name}")
-                new_layer = FP32_Layernorm(submodule.normalized_shape, submodule.eps, submodule.elementwise_affine)
-                if submodule.elementwise_affine:
-                    new_layer.weight.data.copy_(submodule.weight.data.float())
-                    if submodule.bias is not None:
-                        new_layer.bias.data.copy_(submodule.bias.data.float()) 
-                setattr(module, name, new_layer)
-            elif isinstance(submodule, nn.SiLU):
-                print(f"Replacing SiLU in {name}")
-                setattr(module, name, FP32_SiLU(submodule.inplace))
-            elif isinstance(submodule, nn.GELU):
-                print(f"Replacing GELU in {name}")
-                setattr(module, name, FP32_GELU(submodule.approximate))
-            else:
-                self._replace_fp32_layers(submodule) 
+    # def _replace_fp32_layers(self, module=None):
+    #     if module is None:
+    #         module = self
+    #     for name, submodule in module.named_children():
+    #         if isinstance(submodule, nn.LayerNorm):
+    #             print(f"Replacing LayerNorm in {name}")
+    #             new_layer = FP32_Layernorm(submodule.normalized_shape, submodule.eps, submodule.elementwise_affine)
+    #             if submodule.elementwise_affine:
+    #                 new_layer.weight.data.copy_(submodule.weight.data.float())
+    #                 if submodule.bias is not None:
+    #                     new_layer.bias.data.copy_(submodule.bias.data.float()) 
+    #             setattr(module, name, new_layer)
+    #         elif isinstance(submodule, nn.SiLU):
+    #             print(f"Replacing SiLU in {name}")
+    #             setattr(module, name, FP32_SiLU(submodule.inplace))
+    #         elif isinstance(submodule, nn.GELU):
+    #             print(f"Replacing GELU in {name}")
+    #             setattr(module, name, FP32_GELU(submodule.approximate))
+    #         else:
+    #             self._replace_fp32_layers(submodule) 
 
     def _set_gradient_checkpointing(self, module, value=False):
         if hasattr(module, "gradient_checkpointing"):

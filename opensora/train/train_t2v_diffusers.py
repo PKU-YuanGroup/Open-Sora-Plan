@@ -163,7 +163,8 @@ def main(args):
     logging_dir = Path(args.output_dir, args.logging_dir)
 
     # use LayerNorm, GeLu, SiLu always as fp32 mode
-    replace_with_fp32_forwards()
+    if args.enable_stable_fp32:
+        replace_with_fp32_forwards()
     if torch_npu is not None and npu_config is not None:
         npu_config.print_msg(args)
         npu_config.seed_everything(args.seed)
