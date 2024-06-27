@@ -72,10 +72,15 @@ logger = get_logger(__name__)
 @torch.inference_mode()
 def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weight_dtype, global_step, ema=False):
     validation_prompt = [
-        "a word \"你好\" in the blackboard", 
         "a cat wearing sunglasses and working as a lifeguard at pool.",
         "A serene underwater scene featuring a sea turtle swimming through a coral reef. The turtle, with its greenish-brown shell, is the main focus of the video, swimming gracefully towards the right side of the frame. The coral reef, teeming with life, is visible in the background, providing a vibrant and colorful backdrop to the turtle's journey. Several small fish, darting around the turtle, add a sense of movement and dynamism to the scene."
         ]
+    if 'mt5' in args.text_encoder_name:
+        validation_prompt_cn = [
+            "一只戴着墨镜在泳池当救生员的猫咪。",
+            "这是一个宁静的水下场景，一只海龟游过珊瑚礁。海龟带着绿褐色的龟壳，优雅地游向画面右侧，成为视频的焦点。背景中的珊瑚礁生机盎然，为海龟的旅程提供了生动多彩的背景。几条小鱼在海龟周围穿梭，为画面增添了动感和活力。"
+            ]
+        validation_prompt += validation_prompt_cn
     logger.info(f"Running validation....\n")
     model = accelerator.unwrap_model(model)
     scheduler = DPMSolverMultistepScheduler()
@@ -269,6 +274,7 @@ def main(args):
         # compress_kv_factor=args.compress_kv_factor,
         use_rope=args.use_rope,
         # model_max_length=args.model_max_length,
+        use_stable_fp32=args.enable_stable_fp32, 
     )
     model.gradient_checkpointing = args.gradient_checkpointing
 
@@ -430,7 +436,7 @@ def main(args):
         collate_fn=Collate(args),
         batch_size=args.train_batch_size,
         num_workers=args.dataloader_num_workers,
-        # prefetch_factor=8
+        prefetch_factor=8
     )
 
     # Scheduler and math around the number of training steps.
@@ -802,7 +808,7 @@ if __name__ == "__main__":
     # text encoder & vae & diffusion model
     parser.add_argument("--model", type=str, choices=list(Diffusion_models.keys()), default="Latte-XL/122")
     parser.add_argument('--enable_8bit_t5', action='store_true')
-    parser.add_argument('--tile_overlap_factor', type=float, default=0.25)
+    parser.add_argument('--tile_overlap_factor', type=float, default=0.125)
     parser.add_argument('--enable_tiling', action='store_true')
     parser.add_argument("--compress_kv", action="store_true")
     parser.add_argument("--attention_mode", type=str, choices=['xformers', 'math', 'flash'], default="xformers")
@@ -817,6 +823,7 @@ if __name__ == "__main__":
     parser.add_argument("--text_encoder_name", type=str, default='DeepFloyd/t5-v1_1-xxl')
     parser.add_argument("--cache_dir", type=str, default='./cache_dir')
     parser.add_argument("--pretrained", type=str, default=None)
+    parser.add_argument('--enable_stable_fp32', action='store_true')
     parser.add_argument("--gradient_checkpointing", action="store_true", help="Whether or not to use gradient checkpointing to save memory at the expense of slower backward pass.")
 
     # diffusion setting
@@ -827,8 +834,8 @@ if __name__ == "__main__":
     parser.add_argument("--prediction_type", type=str, default=None, help="The prediction_type that shall be used for training. Choose between 'epsilon' or 'v_prediction' or leave `None`. If left to `None` the default prediction type of the scheduler: `noise_scheduler.config.prediciton_type` is chosen.")
 
     # validation & logs
-    parser.add_argument("--num_sampling_steps", type=int, default=50)
-    parser.add_argument('--guidance_scale', type=float, default=5.0)
+    parser.add_argument("--num_sampling_steps", type=int, default=20)
+    parser.add_argument('--guidance_scale', type=float, default=2.5)
     parser.add_argument("--enable_tracker", action="store_true")
     parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
     parser.add_argument("--output_dir", type=str, default=None, help="The output directory where the model predictions and checkpoints will be written.")

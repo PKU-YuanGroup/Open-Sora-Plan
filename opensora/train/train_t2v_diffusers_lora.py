@@ -42,6 +42,8 @@ from packaging import version
 from tqdm.auto import tqdm
 from transformers import HfArgumentParser, TrainingArguments, AutoTokenizer
 
+from peft import LoraConfig, PeftModel, get_peft_model
+
 import diffusers
 from diffusers import DDPMScheduler, PNDMScheduler, DPMSolverMultistepScheduler
 from diffusers.optimization import get_scheduler
@@ -54,6 +56,7 @@ from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModel
 from opensora.models.diffusion.latte.modeling_latte import LatteT2V
 from opensora.models.text_encoder import get_text_enc, get_text_warpper
 from opensora.utils.dataset_utils import Collate
+from opensora.utils.lora_utils import EMAModel_LoRA, maybe_zero_3, get_peft_state_maybe_zero_3
 from opensora.models.ae import ae_stride_config, ae_channel_config
 from opensora.models.diffusion import Diffusion_models, Diffusion_models_class
 from opensora.sample.pipeline_opensora import OpenSoraPipeline
@@ -67,10 +70,15 @@ logger = get_logger(__name__)
 @torch.inference_mode()
 def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weight_dtype, global_step, ema=False):
     validation_prompt = [
-        "a word \"你好\" in the blackboard", 
         "a cat wearing sunglasses and working as a lifeguard at pool.",
         "A serene underwater scene featuring a sea turtle swimming through a coral reef. The turtle, with its greenish-brown shell, is the main focus of the video, swimming gracefully towards the right side of the frame. The coral reef, teeming with life, is visible in the background, providing a vibrant and colorful backdrop to the turtle's journey. Several small fish, darting around the turtle, add a sense of movement and dynamism to the scene."
         ]
+    if 'mt5' in args.text_encoder_name:
+        validation_prompt_cn = [
+            "一只戴着墨镜在泳池当救生员的猫咪。",
+            "这是一个宁静的水下场景，一只海龟游过珊瑚礁。海龟带着绿褐色的龟壳，优雅地游向画面右侧，成为视频的焦点。背景中的珊瑚礁生机盎然，为海龟的旅程提供了生动多彩的背景。几条小鱼在海龟周围穿梭，为画面增添了动感和活力。"
+            ]
+        validation_prompt += validation_prompt_cn
     logger.info(f"Running validation....\n")
     model = accelerator.unwrap_model(model)
     scheduler = DPMSolverMultistepScheduler()
@@ -257,8 +265,9 @@ def main(args):
         interpolation_scale_t=args.interpolation_scale_t,
         downsampler=args.downsampler,
         # compress_kv_factor=args.compress_kv_factor,
-        # use_rope=args.use_rope,
+        use_rope=args.use_rope,
         # model_max_length=args.model_max_length,
+        use_stable_fp32=args.enable_stable_fp32, 
     )
     model.gradient_checkpointing = args.gradient_checkpointing
 
@@ -316,7 +325,7 @@ def main(args):
     # Create EMA for the unet.
     if args.use_ema:
         ema_model = deepcopy(model)
-        if args.enable_ema:
+        if args.enable_lora:  # ema the whole lora_model
             ema_model = EMAModel_LoRA(lora_config, parameters=ema_model.parameters(), update_after_step=args.ema_start_step,  
                                       model_cls=Diffusion_models_class[args.model], model_config=ema_model.config)
         else:
@@ -330,15 +339,14 @@ def main(args):
         def save_model_hook(models, weights, output_dir):
             if accelerator.is_main_process:
                 if args.use_ema:
-                    if args.enable_lora:
+                    if args.enable_lora:  # only save lora weight
                         ema_model.save_pretrained(os.path.join(output_dir, "model_ema_lora"))
                     else:
                         ema_model.save_pretrained(os.path.join(output_dir, "model_ema"))
 
                 for i, model in enumerate(models):
-                    if args.enable_lora:
-                        state_dict = get_peft_state_maybe_zero_3(model.named_parameters(), lora_config.bias)
-                        model.save_pretrained(os.path.join(output_dir, "model_lora"), state_dict=state_dict)
+                    if args.enable_lora:  # only save lora weight
+                        model.save_pretrained(os.path.join(output_dir, "model_lora"))
                     else:
                         model.save_pretrained(os.path.join(output_dir, "model"))
                     if weights:  # Don't pop if empty
@@ -348,7 +356,8 @@ def main(args):
         def load_model_hook(models, input_dir):
             if args.use_ema:
                 if args.enable_lora:
-                    load_model = EMAModel_LoRA.from_pretrained(os.path.join(input_dir, "model_ema_lora"), Diffusion_models_class[args.model], lora_config)
+                    load_model = EMAModel_LoRA.from_pretrained(os.path.join(input_dir, "model_ema_lora"), Diffusion_models_class[args.model], 
+                                                               lora_config, os.path.splitext(args.pretrained))
                     ema_model.load_state_dict(load_model.state_dict())
                     ema_model.to(accelerator.device)
                     del load_model
@@ -455,7 +464,7 @@ def main(args):
         collate_fn=Collate(args),
         batch_size=args.train_batch_size,
         num_workers=args.dataloader_num_workers,
-        prefetch_factor=8
+        prefetch_factor=4
     )
 
     # Scheduler and math around the number of training steps.
@@ -663,8 +672,6 @@ def main(args):
         optimizer.step()
         lr_scheduler.step()
         optimizer.zero_grad()
-        if prof is not None:
-            prof.step()
 
         if accelerator.sync_gradients:
             sync_gradients_info(loss)
@@ -695,6 +702,10 @@ def main(args):
                                        weight_dtype, progress_info.global_step, ema=True)
                     # Switch back to the original UNet parameters.
                     ema_model.restore(model.parameters())
+
+        if prof is not None:
+            prof.step()
+
 
         return loss
 
@@ -823,6 +834,9 @@ if __name__ == "__main__":
     parser.add_argument("--text_encoder_name", type=str, default='DeepFloyd/t5-v1_1-xxl')
     parser.add_argument("--cache_dir", type=str, default='./cache_dir')
     parser.add_argument("--pretrained", type=str, default=None)
+    parser.add_argument('--enable_stable_fp32', action='store_true')
+    parser.add_argument("--enable_lora", action="store_true")
+    parser.add_argument('--rank', type=int, default=64)
     parser.add_argument("--gradient_checkpointing", action="store_true", help="Whether or not to use gradient checkpointing to save memory at the expense of slower backward pass.")
     
     # diffusion setting

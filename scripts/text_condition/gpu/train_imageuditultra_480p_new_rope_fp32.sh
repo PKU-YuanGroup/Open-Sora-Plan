@@ -1,7 +1,7 @@
 export WANDB_KEY="953e958793b218efb850fa194e85843e2c3bd88b"
 # export WANDB_MODE="offline"
 export ENTITY="linbin"
-export PROJECT="bs16_4node_240p_lr1e-4_snr5_noioff0.02_ema_rope_uditultra22_ds22_mt5xxl"
+export PROJECT="bs16_4node_240p_lr2e-5_snr5_noioff0.01_ema_rope_uditultra22_qknorm_ds22_mt5xxl_mj_mjcn_czhan"
 export HF_DATASETS_OFFLINE=1 
 export TRANSFORMERS_OFFLINE=1
 # NCCL setting
@@ -19,17 +19,17 @@ accelerate launch \
     --text_encoder_name google/mt5-xxl \
     --cache_dir "./cache_dir" \
     --dataset t2v \
-    --ae CausalVAEModel_4x8x8 \
-    --ae_path "/storage/dataset/test140k" \
     --video_data "scripts/train_data/video_data.txt" \
     --image_data "scripts/train_data/image_data.txt" \
+    --ae CausalVAEModel_4x8x8 \
+    --ae_path "/storage/dataset/test140k" \
     --sample_rate 1 \
     --num_frames 1 \
-    --max_height 240 \
-    --max_width 320 \
+    --max_height 480 \
+    --max_width 640 \
     --interpolation_scale_t 1.0 \
-    --interpolation_scale_h 0.5 \
-    --interpolation_scale_w 0.5 \
+    --interpolation_scale_h 2.0 \
+    --interpolation_scale_w 2.0 \
     --attention_mode xformers \
     --gradient_checkpointing \
     --train_batch_size=16 \
@@ -42,20 +42,20 @@ accelerate launch \
     --mixed_precision="bf16" \
     --report_to="wandb" \
     --checkpointing_steps=500 \
-    --output_dir="bs16_4node_240p_lr1e-4_snr5_noioff0.02_ema_rope_uditultra22_ds22_mt5xxl" \
     --allow_tf32 \
     --model_max_length 512 \
     --use_image_num 0 \
-    --enable_tracker \
-    --enable_tiling \
     --tile_overlap_factor 0.125 \
+    --enable_tiling \
     --snr_gamma 5.0 \
     --use_ema \
     --ema_start_step 0 \
     --cfg 0.1 \
     --noise_offset 0.02 \
+    --use_rope \
     --downsampler "k33_s22"  \
     --resume_from_checkpoint="latest" \
-    --checkpoints_total_limit 3 \
-    --use_rope \
-    --pretrained "bs16_4node_480p_lr2e-5_snr5_noioff0.02_ema_rope_uditultra22_ds22_mt5xxl/checkpoint-19000/model/diffusion_pytorch_model.safetensors"
+    --enable_tracker \
+    --enable_stable_fp32 \
+    --pretrained "bs16_4node_240p_lr1e-4_snr5_noioff0.02_ema_rope_uditultra22_qknorm_ds22_mt5xxl_mjencn_czhan_humanimg/checkpoint-30000/model_ema/diffusion_pytorch_model.safetensors" \
+    --output_dir="bs16_4node_480p_lr1e-4_snr5_noioff0.02_ema_rope_uditultra22_qknorm_ds22_mt5xxl_mjencn_czhan_humanimg" 

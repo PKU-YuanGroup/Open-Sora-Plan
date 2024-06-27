@@ -12,7 +12,7 @@ from diffusers.schedulers.scheduling_dpmsolver_singlestep import DPMSolverSingle
 from diffusers.models import AutoencoderKL, AutoencoderKLTemporalDecoder, Transformer2DModel
 from omegaconf import OmegaConf
 from torchvision.utils import save_image
-from transformers import T5EncoderModel, T5Tokenizer, AutoTokenizer
+from transformers import T5EncoderModel, MT5EncoderModel, UMT5EncoderModel, AutoTokenizer
 
 import os, sys
 
@@ -22,6 +22,7 @@ from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModel
 from opensora.models.diffusion.opensora.modeling_opensora import OpenSoraT2V
 from opensora.models.diffusion.latte.modeling_latte import LatteT2V
 from opensora.models.diffusion.udit.modeling_udit import UDiTT2V
+from opensora.models.diffusion.udit_ultra.modeling_udit_ultra import UDiTUltraT2V
 
 from opensora.models.text_encoder import get_text_enc
 from opensora.utils.utils import save_video_grid
@@ -33,8 +34,7 @@ import imageio
 
 def main(args):
     # torch.manual_seed(args.seed)
-    replace_with_fp32_forwards()
-    weight_dtype = torch.float16
+    weight_dtype = torch.bfloat16
     device = torch.device(args.device)
 
     # vae = getae_wrapper(args.ae)(args.model_path, subfolder="vae", cache_dir=args.cache_dir)
@@ -53,16 +53,16 @@ def main(args):
     if args.model_3d:
         # transformer_model = OpenSoraT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, 
         #                                                 low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
-        transformer_model = UDiTT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, 
+        transformer_model = UDiTUltraT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, 
                                                         low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
     else:
         transformer_model = LatteT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, low_cpu_mem_usage=False, 
                                                      device_map=None, torch_dtype=weight_dtype)
 
-    # text_encoder = T5EncoderModel.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir, low_cpu_mem_usage=True, torch_dtype=weight_dtype)
-    # tokenizer = T5Tokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
-    text_encoder = T5EncoderModel.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir, low_cpu_mem_usage=True, torch_dtype=weight_dtype)
-    tokenizer = T5Tokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir)
+    # text_encoder = UMT5EncoderModel.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir, low_cpu_mem_usage=True, torch_dtype=weight_dtype)
+    # tokenizer = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
+    text_encoder = MT5EncoderModel.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir, low_cpu_mem_usage=True, torch_dtype=weight_dtype)
+    tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir)
     
     
     # set eval mode
@@ -77,6 +77,20 @@ def main(args):
     elif args.sample_method == 'DDPM':  #############
         scheduler = DDPMScheduler(clip_sample=False)
     elif args.sample_method == 'DPMSolverMultistep':
+        '''
+        DPM++ 2M	        DPMSolverMultistepScheduler	
+        DPM++ 2M Karras	    DPMSolverMultistepScheduler	init with use_karras_sigmas=True
+        DPM++ 2M SDE	    DPMSolverMultistepScheduler	init with algorithm_type="sde-dpmsolver++"
+        DPM++ 2M SDE Karras	DPMSolverMultistepScheduler	init with use_karras_sigmas=True and algorithm_type="sde-dpmsolver++"
+        
+        DPM++ SDE	        DPMSolverSinglestepScheduler	
+        DPM++ SDE Karras	DPMSolverSinglestepScheduler	init with use_karras_sigmas=True
+        DPM2	            KDPM2DiscreteScheduler	
+        DPM2 Karras	        KDPM2DiscreteScheduler	init with use_karras_sigmas=True
+        DPM2 a	            KDPM2AncestralDiscreteScheduler	
+        DPM2 a Karras	    KDPM2AncestralDiscreteScheduler	init with use_karras_sigmas=True
+        '''
+        # scheduler = DPMSolverMultistepScheduler(use_karras_sigmas=True)
         scheduler = DPMSolverMultistepScheduler()
     elif args.sample_method == 'DPMSolverSinglestep':
         scheduler = DPMSolverSinglestepScheduler()
@@ -93,7 +107,6 @@ def main(args):
     elif args.sample_method == 'EulerDiscreteSVD':
         scheduler = EulerDiscreteScheduler.from_pretrained("stabilityai/stable-video-diffusion-img2vid", 
                                                         subfolder="scheduler", cache_dir=args.cache_dir)
-
     pipeline = OpenSoraPipeline(vae=vae,
                                 text_encoder=text_encoder,
                                 tokenizer=tokenizer,
@@ -111,19 +124,23 @@ def main(args):
         text_prompt = open(args.text_prompt[0], 'r').readlines()
         text_prompt = [i.strip() for i in text_prompt]
 
+    positive_prompt = "(masterpiece), (best quality), (ultra-detailed), {}. emotional, harmonious, vignette, 4k epic detailed, shot on kodak, 35mm photo, sharp focus, high budget, cinemascope, moody, epic, gorgeous"
+    negative_prompt = """nsfw, lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry, 
+                        """
     video_grids = []
     for idx, prompt in enumerate(text_prompt):
-        videos = pipeline(prompt,
-                        num_frames=args.num_frames,
-                        height=args.height,
-                        width=args.width,
-                        num_inference_steps=args.num_sampling_steps,
-                        guidance_scale=args.guidance_scale,
-                        num_images_per_prompt=1,
-                        mask_feature=True,
-                        device=args.device, 
-                        max_sequence_length=100, 
-                        ).images
+        videos = pipeline(positive_prompt.format(prompt),
+                          negative_prompt=negative_prompt, 
+                          num_frames=args.num_frames,
+                          height=args.height,
+                          width=args.width,
+                          num_inference_steps=args.num_sampling_steps,
+                          guidance_scale=args.guidance_scale,
+                          num_images_per_prompt=1,
+                          mask_feature=True,
+                          device=args.device, 
+                          max_sequence_length=200, 
+                          ).images
         try:
             if args.num_frames == 1:
                 ext = 'jpg'

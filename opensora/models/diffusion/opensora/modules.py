@@ -528,6 +528,9 @@ class Attention(Attention_):
                 self.downsampler = DownSampler3d(kwags['query_dim'], kwags['query_dim'], kernel_size=downsampler_ker_size, stride=1,
                                             padding=downsampler_padding, groups=kwags['query_dim'], down_factor=down_factor,
                                             down_shortcut=True)
+                
+        self.q_norm = nn.LayerNorm(kwags['dim_head'], elementwise_affine=True, eps=1e-6)
+        self.k_norm = nn.LayerNorm(kwags['dim_head'], elementwise_affine=True, eps=1e-6) 
 
 
 
@@ -742,6 +745,10 @@ class AttnProcessor2_0:
             query = query.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
             key = key.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
             
+            # qk norm
+            query = attn.q_norm(query)
+            key = attn.k_norm(key)
+
             if self.use_rope:
                 # require the shape of (batch_size x nheads x ntokens x dim)
                 pos_thw = self.position_getter(batch_size, t=frame, h=height, w=width, device=query.device)

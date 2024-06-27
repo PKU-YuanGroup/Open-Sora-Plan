@@ -101,13 +101,14 @@ dataset_prog = DataSetProg()
 
 
 class T2V_dataset(Dataset):
-    def __init__(self, args, transform, temporal_sample, tokenizer):
+    def __init__(self, args, transform, temporal_sample, tokenizer, transform_topcrop):
         self.image_data = args.image_data
         self.video_data = args.video_data
         self.num_frames = args.num_frames
         self.use_image_num = args.use_image_num
         self.use_img_from_vid = args.use_img_from_vid
         self.transform = transform
+        self.transform_topcrop = transform_topcrop
         self.temporal_sample = temporal_sample
         self.tokenizer = tokenizer
         self.model_max_length = args.model_max_length
@@ -161,7 +162,7 @@ class T2V_dataset(Dataset):
                 image_data = self.get_image(idx)  # 1 frame video as image
             return dict(video_data=video_data, image_data=image_data)
         except Exception as e:
-            # print(f'Error with {e}')
+            print(f'Error with {e}')
             # 打印异常堆栈
             if idx in dataset_prog.vid_cap_list:
                 print(f"Caught an exception! {dataset_prog.vid_cap_list[idx]}")
@@ -191,6 +192,7 @@ class T2V_dataset(Dataset):
 
         video = video.transpose(0, 1)  # T C H W -> C T H W
         text = dataset_prog.vid_cap_list[idx]['cap']
+        text = [random.choice(text)]
 
         text = text_preprocessing(text, support_Chinese=self.support_Chinese) if random.random() > self.cfg else ""
         text_tokens_and_mask = self.tokenizer(
@@ -221,19 +223,23 @@ class T2V_dataset(Dataset):
         image = [Image.open(i['path']).convert('RGB') for i in image_data]  # num_img [h, w, c]
         image = [torch.from_numpy(np.array(i)) for i in image]  # num_img [h, w, c]
 
-        for i in image:
-            assert not torch.any(torch.isnan(i)), 'before transform0'
+        # for i in image:
+        #     assert not torch.any(torch.isnan(i)), 'before transform0'
         image = [rearrange(i, 'h w c -> c h w').unsqueeze(0) for i in image]  # num_img [1 c h w]
-        for i in image:
-            assert not torch.any(torch.isnan(i)), 'before transform1'
-        image = [self.transform(i) for i in image]  # num_img [1 C H W] -> num_img [1 C H W]
+        # for i in image:
+        #     assert not torch.any(torch.isnan(i)), 'before transform1'
+        # for i in image:
+        #     h, w = i.shape[-2:]
+        #     assert h / w <= 17 / 16 and h / w >= 8 / 16, f'Only image with a ratio (h/w) less than 17/16 and more than 8/16 are supported. But found ratio is {round(h / w, 2)} with the shape of {i.shape}'
+        
+        image = [self.transform_topcrop(i) if 'human_images' in j['path'] else self.transform(i) for i, j in zip(image, image_data)]  # num_img [1 C H W] -> num_img [1 C H W]
 
-        for i in image:
-            assert not torch.any(torch.isnan(i)), 'after transform'
+        # for i in image:
+        #     assert not torch.any(torch.isnan(i)), 'after transform'
         # image = [torch.rand(1, 3, 480, 640) for i in image_data]
         image = [i.transpose(0, 1) for i in image]  # num_img [1 C H W] -> num_img [C 1 H W]
 
-        caps = [i['cap'] for i in image_data]
+        caps = [[random.choice(i['cap'])] for i in image_data]
         text = [text_preprocessing(cap, support_Chinese=self.support_Chinese) for cap in caps]
         input_ids, cond_mask = [], []
         for t in text:
