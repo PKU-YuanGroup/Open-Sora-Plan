@@ -1399,6 +1399,7 @@ class BasicTransformerBlock_(nn.Module):
         # 2. Prepare GLIGEN inputs
         cross_attention_kwargs = cross_attention_kwargs.copy() if cross_attention_kwargs is not None else {}
         gligen_kwargs = cross_attention_kwargs.pop("gligen", None)
+
         # import ipdb;ipdb.set_trace()
         attn_output = self.attn1(
             norm_hidden_states,
@@ -1665,8 +1666,8 @@ class BasicTransformerBlock(nn.Module):
     ) -> torch.FloatTensor:
         # Notice that normalization is always applied before the real computation in the following blocks.
         # 0. Self-Attention
-        batch_size = hidden_states.shape[0]
 
+        batch_size = hidden_states.shape[0]
         if self.use_ada_layer_norm:
             norm_hidden_states = self.norm1(hidden_states, timestep)
         elif self.use_ada_layer_norm_zero:
@@ -1687,7 +1688,6 @@ class BasicTransformerBlock(nn.Module):
 
         if self.pos_embed is not None:
             norm_hidden_states = self.pos_embed(norm_hidden_states)
-
         # 1. Retrieve lora scale.
         lora_scale = cross_attention_kwargs.get("scale", 1.0) if cross_attention_kwargs is not None else 1.0
 
@@ -1703,6 +1703,7 @@ class BasicTransformerBlock(nn.Module):
             last_shape=hw, 
             **cross_attention_kwargs,
         )
+
         if self.use_ada_layer_norm_zero:
             attn_output = gate_msa.unsqueeze(1) * attn_output
         elif self.use_ada_layer_norm_single:

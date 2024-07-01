@@ -34,6 +34,8 @@ from diffusers.utils import (
 from diffusers.utils.torch_utils import randn_tensor
 from diffusers.pipelines.pipeline_utils import DiffusionPipeline, ImagePipelineOutput
 
+from einops import rearrange
+import torch.nn.functional as F
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
@@ -746,21 +748,34 @@ class OpenSoraInpaintPipeline(DiffusionPipeline):
         
 
         input_video = torch.zeros([3, num_frames, height, width], device=device)
-        input_video[:, condition_images_indices] = torch.cat(condition_images, dim=1).to(device) # C 1/2 H W -> C F H W
+        condition_images = torch.cat(condition_images, dim=1).to(device=device) # C 1/2 H W -> C F H W
+        input_video[:, condition_images_indices] = condition_images
+
+        print(condition_images_indices)
+        assert torch.equal(input_video[:, condition_images_indices[0]], condition_images[:, 0]), "input_video should be the same as condition_images"
+        assert torch.equal(input_video[:, condition_images_indices[-1]], condition_images[:, -1]), "input_video should be the same as condition_images"
+
         input_video = input_video.unsqueeze(0).repeat(batch_size * num_images_per_prompt, 1, 1, 1, 1)
         
-        mask = torch.ones_like(input_video, device=device)
+        B, C, T, H, W = input_video.shape
+        mask = torch.ones([B, 1, T, H, W], device=device)
         mask[:, :, condition_images_indices] = 0
-
-        masked_video = input_video * (mask < 0.5)
-
+        masked_video = input_video * (mask < 0.5) 
         masked_video = self.vae.encode(masked_video).to(device)
-        mask = self.vae.encode(mask).to(device)
+
+        mask = rearrange(mask, 'b c t h w -> (b c t) 1 h w')
+        latent_size = ((int(num_frames) - 1) // self.vae.vae_scale_factor[0] + 1, height // self.vae.vae_scale_factor[1], width // self.vae.vae_scale_factor[2])
+        mask = F.interpolate(mask, size=(latent_size[1], latent_size[2]), mode='bilinear')
+        mask = rearrange(mask, '(b c t) 1 h w -> b c t h w', t=T, b=B)
+        mask_first_frame = mask[:, :, 0:1].repeat(1, 1, self.vae.vae_scale_factor[0], 1, 1).contiguous()
+        mask = torch.cat([mask_first_frame, mask[:, :, 1:]], dim=2)
+        mask = mask.view(batch_size, self.vae.vae_scale_factor[0], *latent_size).contiguous()
+
 
         with self.progress_bar(total=num_inference_steps) as progress_bar:
             for i, t in enumerate(timesteps):
                 latent_model_input = torch.cat([latents, masked_video, mask], dim=1)
-                latent_model_input = torch.cat([latent_model_input] * 2) if do_classifier_free_guidance else latents
+                latent_model_input = torch.cat([latent_model_input] * 2) if do_classifier_free_guidance else latent_model_input
                 latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
 
                 current_timestep = t

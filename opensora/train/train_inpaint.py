@@ -167,7 +167,7 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
     # import ipdb;ipdb.set_trace()
 
     # Save the generated videos
-    save_dir = os.path.join(validation_dir, f"val_{global_step:09d}" if not ema else f"val_ema_{global_step:09d}")
+    save_dir = os.path.join(args.output_dir, f"val_{global_step:09d}" if not ema else f"val_ema_{global_step:09d}")
     os.makedirs(save_dir, exist_ok=True)
     for idx, video in enumerate(videos):
         save_video(video, os.path.join(save_dir, f"video_{idx:06d}.mp4"))
@@ -752,10 +752,20 @@ def main(args):
 
             # Map input images to latent space + normalize latents
             assert args.use_image_num == 0, 'Inpainting mode does not support image joint training'
-                    
-            x, masked_x, mask = x[:, :3], x[:, 3:6], x[:, 6:9]
-            x, masked_x, mask = ae.encode(x), ae.encode(masked_x), ae.encode(mask)
 
+            if args.use_vae_preprocessed_mask:
+                x, masked_x, mask = x[:, :3], x[:, 3:6], x[:, 6:9]
+                x, masked_x, mask = ae.encode(x), ae.encode(masked_x), ae.encode(mask)
+            else:
+                x, masked_x, mask = x[:, :3], x[:, 3:6], x[:, 6:7]
+                x, masked_x = ae.encode(x), ae.encode(masked_x)
+                batch_size, channels, frame, height, width = mask.shape
+                mask = rearrange(mask, 'b c t h w -> (b c t) 1 h w')
+                mask = F.interpolate(mask, size=latent_size, mode='bilinear')
+                mask = rearrange(mask, '(b c t) 1 h w -> b c t h w', t=frame, b=batch_size)
+                mask_first_frame = mask[:, :, 0:1].repeat(1, 1, ae_stride_t, 1, 1).contiguous()
+                mask = torch.cat([mask_first_frame, mask[:, :, 1:]], dim=2)
+                mask = mask.view(batch_size, ae_stride_t, latent_size_t, latent_size[0], latent_size[1]).contiguous()
             assert not torch.any(torch.isnan(x)), 'after vae'
             assert not torch.any(torch.isnan(masked_x)), 'after vae'
             assert not torch.any(torch.isnan(mask)), 'after vae'
@@ -949,7 +959,7 @@ if __name__ == "__main__":
     parser.add_argument("--local_rank", type=int, default=-1, help="For distributed training: local_rank")
 
     parser.add_argument("--validation_dir", type=str, default=None, help="Path to the validation dataset.")
-
+    parser.add_argument("--use_vae_preprocessed_mask", action='store_true', help="Use preprocessed mask for VAE.")
 
     args = parser.parse_args()
     main(args)

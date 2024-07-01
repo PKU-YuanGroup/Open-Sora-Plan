@@ -1,5 +1,5 @@
 from torchvision.transforms import Compose
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, AutoImageProcessor
 
 from torchvision import transforms
 from torchvision.transforms import Lambda
@@ -7,6 +7,8 @@ from torchvision.transforms import Lambda
 from .t2v_datasets import T2V_dataset
 
 from .inpaint_datasets import Inpaint_dataset
+
+from .videoip_datasets import VideoIP_dataset
 
 from .transform import ToTensorVideo, TemporalRandomCrop, RandomHorizontalFlipVideo, CenterCropResizeVideo, LongSideResizeVideo, SpatialStrideCropVideo
 
@@ -87,5 +89,23 @@ def getdataset(args):
         ])
         tokenizer = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
         return Inpaint_dataset(args, transform=transform, temporal_sample=temporal_sample, tokenizer=tokenizer)
-    
+    elif args.dataset == 'vip':
+        if args.multi_scale:
+            resize = [
+                LongSideResizeVideo(args.max_image_size, skip_low_resolution=True),
+                SpatialStrideCropVideo(args.stride)
+                ]
+        else:
+            resize = [CenterCropResizeVideo((args.max_height, args.max_width)), ]
+        resize_transform = transforms.Compose(resize)
+        transform = transforms.Compose([
+            ToTensorVideo(),
+            # RandomHorizontalFlipVideo(p=0.5),  # in case their caption have position decription
+            norm_fun
+        ])
+        tokenizer = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
+        image_processor = AutoImageProcessor.from_pretrained(args.image_encoder_name, cache_dir=args.cache_dir)
+        return VideoIP_dataset(args, transform=transform, resize_transform=resize_transform, temporal_sample=temporal_sample, tokenizer=tokenizer, image_processor=image_processor)
+
+
     raise NotImplementedError(args.dataset)

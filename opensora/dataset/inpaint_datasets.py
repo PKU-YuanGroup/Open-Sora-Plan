@@ -1,5 +1,6 @@
 import json
 import os, io, csv, math, random
+from turtle import width
 import numpy as np
 import torchvision
 from einops import rearrange
@@ -117,7 +118,8 @@ class Inpaint_dataset(Dataset):
         return dict(video=video, input_ids=input_ids, cond_mask=cond_mask)
 
     def get_mask_masked_video(self, video):
-        mask = torch.zeros_like(video)
+        channels, frame, height, width = video.shape
+        mask = torch.zeros([1, frame, height, width])
         
         rand_num = random.random()
         # To ensure the effectiveness of the i2v task, it is necessary to guarantee that a certain proportion of samples undergo i2v.
@@ -170,6 +172,7 @@ class Inpaint_dataset(Dataset):
                 path = opj(folder, vid_cap_list[i]['path'])
                 # For testing, some data has not been utilized.
                 if not os.path.exists(path) and not os.path.exists(path.replace('.mp4', '_resize1080p.mp4')):
+                    print(path)
                     break
                 elif os.path.exists(path.replace('.mp4', '_resize1080p.mp4')):
                     path = path.replace('.mp4', '_resize1080p.mp4')
