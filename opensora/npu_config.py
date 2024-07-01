@@ -181,6 +181,9 @@ class NPUConfig:
         os.makedirs(f"{self.work_path}/output_videos", exist_ok=True)
         return f"{self.work_path}/output_videos/{name}"
 
+    def get_node_id(self):
+        return self.rank // self.node_world_size
+
     def get_node_size(self):
         return self.world_size // self.node_world_size
 

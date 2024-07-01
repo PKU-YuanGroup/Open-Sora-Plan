@@ -529,8 +529,8 @@ class Attention(Attention_):
                                             padding=downsampler_padding, groups=kwags['query_dim'], down_factor=down_factor,
                                             down_shortcut=True)
                 
-        self.q_norm = nn.LayerNorm(kwags['dim_head'], elementwise_affine=True, eps=1e-6)
-        self.k_norm = nn.LayerNorm(kwags['dim_head'], elementwise_affine=True, eps=1e-6) 
+        # self.q_norm = nn.LayerNorm(kwags['dim_head'], elementwise_affine=True, eps=1e-6)
+        # self.k_norm = nn.LayerNorm(kwags['dim_head'], elementwise_affine=True, eps=1e-6)
 
 
 
@@ -695,6 +695,8 @@ class AttnProcessor2_0:
                 query = query.view(-1, attn.heads, head_dim)  # [s // sp, b, h * d] -> [s // sp * b, h, d]
                 key = key.view(-1, attn.heads, head_dim)
                 value = value.view(-1, attn.heads, head_dim)
+                # query = attn.q_norm(query)
+                # key = attn.k_norm(key)
                 h_size = attn.heads * head_dim
                 sp_size = hccl_info.world_size
                 h_size_sp = h_size // sp_size
@@ -725,15 +727,17 @@ class AttnProcessor2_0:
                 else:
                     dtype = None
 
+                query = query.view(batch_size, -1, attn.heads, head_dim)
+                key = key.view(batch_size, -1, attn.heads, head_dim)
+                # query = attn.q_norm(query)
+                # key = attn.k_norm(key)
                 if self.use_rope:
-                    query = query.view(batch_size, -1, attn.heads, head_dim)
-                    key = key.view(batch_size, -1, attn.heads, head_dim)
                     # require the shape of (batch_size x nheads x ntokens x dim)
                     pos_thw = self.position_getter(batch_size, t=frame, h=height, w=width, device=query.device)
                     query = self.rope(query, pos_thw)
                     key = self.rope(key, pos_thw)
-                    query = query.view(batch_size, -1, attn.heads * head_dim)
-                    key = key.view(batch_size, -1, attn.heads * head_dim)
+                query = query.view(batch_size, -1, attn.heads * head_dim)
+                key = key.view(batch_size, -1, attn.heads * head_dim)
 
                 with set_run_dtype(query, dtype):
                     query, key, value = npu_config.set_current_run_dtype([query, key, value])

@@ -192,6 +192,8 @@ class T2V_dataset(Dataset):
 
         video = video.transpose(0, 1)  # T C H W -> C T H W
         text = dataset_prog.vid_cap_list[idx]['cap']
+        if not isinstance(text, list):
+            text = [text]
         text = [random.choice(text)]
 
         text = text_preprocessing(text, support_Chinese=self.support_Chinese) if random.random() > self.cfg else ""
@@ -289,7 +291,10 @@ class T2V_dataset(Dataset):
             for i in tqdm(range(len(sub_list))):
                 sub_list[i]['path'] = opj(folder, sub_list[i]['path'])
             if npu_config is not None:
-                sub_list = filter_json_by_existed_files(folder, sub_list, postfix=postfix)
+                if "civitai" in anno or "ideogram" in anno or "human" in anno:
+                    sub_list = sub_list[npu_config.get_node_id()::npu_config.get_node_size()]
+                else:
+                    sub_list = filter_json_by_existed_files(folder, sub_list, postfix=postfix)
             cap_lists += sub_list
         return cap_lists
 

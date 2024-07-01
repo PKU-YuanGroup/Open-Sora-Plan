@@ -84,7 +84,8 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
         use_additional_conditions: Optional[bool] = None,
         attention_mode: str = 'xformers', 
         downsampler: str = None, 
-        use_rope: bool = False, 
+        use_rope: bool = False,
+        use_stable_fp32: bool = False,
     ):
         super().__init__()
 
