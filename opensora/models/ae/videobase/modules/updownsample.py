@@ -52,7 +52,7 @@ class Downsample(Block):
             pad = (0, 1, 0, 1)
             if npu_config is not None and npu_config.on_npu:
                 x_dtype = x.dtype
-                x = x.to(torch.bfloat16)
+                x = x.to(npu_config.replaced_type)
                 x = torch.nn.functional.pad(x, pad, mode="constant", value=0)
                 x = npu_config.run_conv3d(self.conv, x, x_dtype)
             else:
@@ -188,7 +188,7 @@ class TimeDownsampleRes2x(nn.Module):
         if npu_config is not None and npu_config.on_npu:
             n, c, d, h, w = x.shape
             x_dtype = x.dtype
-            x = x.to(torch.float16)
+            x = x.to(npu_config.replaced_type)
             x = self.pad(x)
             pad_x = x.view(n, c, -1, h, w)
             avg_x = self.avg_pool(x.view(n * c, -1, h * w)).view(n, c, -1, h, w).to(x_dtype)
@@ -221,7 +221,7 @@ class TimeUpsampleRes2x(nn.Module):
             x,x_= x[:,:,:1],x[:,:,1:]
             if npu_config is not None and npu_config.on_npu:
                 x_dtype = x_.dtype
-                x_ = x_.to(torch.float16)
+                x_ = x_.to(npu_config.replaced_type)
                 x_ = F.interpolate(x_, scale_factor=(2, 1, 1), mode='trilinear')
                 x_ = x_.to(x_dtype)
             else:
@@ -277,7 +277,7 @@ class TimeUpsampleResAdv2x(nn.Module):
             x,x_= x[:,:,:1],x[:,:,1:]
             if npu_config is not None and npu_config.on_npu:
                 x_dtype = x_.dtype
-                x_ = x_.to(torch.float16)
+                x_ = x_.to(npu_config.replaced_type)
                 x_= F.interpolate(x_, scale_factor=(2,1,1), mode='trilinear')
                 x_ = x_.to(x_dtype)
             else:

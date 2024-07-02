@@ -151,7 +151,7 @@ class VIPNet(ModelMixin, ConfigMixin):
             if name.endswith(".attn2.processor"):
                 new_attn_processor = self.attn_procs[name]
                 if init_from_original_attn_processor: 
-                    print("init from original attn processor...")
+                    print(f"init from original attn processor {name}...")
                     layer_name = name.split(".processor")[0]
                     weights = {
                         "to_k_vip.weight": model_sd[layer_name + ".to_k.weight"],
@@ -302,6 +302,7 @@ def log_validation(
 
     vip = accelerator.unwrap_model(vip)
 
+    model.eval()
     vip.eval()
 
     scheduler = PNDMScheduler()
@@ -416,7 +417,7 @@ def log_validation(
     del pipeline
     gc.collect()
     torch.cuda.empty_cache()
-    vip.train()
+
 
 class ProgressInfo:
     def __init__(self, global_step, train_loss=0.0):
@@ -580,9 +581,11 @@ def main(args):
 
     # load image encoder
     if args.image_encoder_type == 'clip':
+        print("using (clip) as image encoder!")
         # self.image_encoder = CLIPVisionModelWithProjection.from_pretrained("laion/CLIP-ViT-H-14-laion2B-s32B-b79K", cache_dir="/storage/cache_dir")
         image_encoder = CLIPVisionModelWithProjection.from_pretrained(args.image_encoder_name, cache_dir=args.cache_dir)
     elif args.image_encoder_type == 'dino':
+        print("using (dinov2) as image encoder!")
         # self.image_encoder = AutoModel.from_pretrained("facebook/dinov2-giant", cache_dir="/storage/cache_dir")
         image_encoder = AutoModel.from_pretrained(args.image_encoder_name, cache_dir=args.cache_dir)
     else:
@@ -614,8 +617,6 @@ def main(args):
 
     else:
         vip = VIPNet.from_pretrained(args.pretrained_vip_adapter_path)
-
-    vip.train()
 
     init_from_original_attn_processor = True if args.pretrained_vip_adapter_path is None else False
     vip.set_vip_adapter(model, init_from_original_attn_processor=init_from_original_attn_processor)
@@ -658,12 +659,17 @@ def main(args):
 
         def load_model_hook(models, input_dir):
             if args.use_ema:
-                load_model = EMAModel.from_pretrained(os.path.join(input_dir, "model_ema"), VIPNet)
-                ema_vip.load_state_dict(load_model.state_dict())
-                ema_vip.to(accelerator.device)
-                del load_model
+                if os.path.exists(os.path.join(input_dir, "model_ema")):
+                    print("loading ema model...")
+                    load_model = EMAModel.from_pretrained(os.path.join(input_dir, "model_ema"), VIPNet)
+                    ema_vip.load_state_dict(load_model.state_dict())
+                    ema_vip.to(accelerator.device)
+                    del load_model
 
+
+            print("loading model...")
             for i in range(len(models)):
+
                 # pop models so that they are not loaded again
                 model = models.pop()
 
@@ -898,6 +904,10 @@ def main(args):
         progress_bar.set_postfix(**logs)
 
     def run(model_input, model_kwargs, prof):
+
+        vip.train()
+        model.train()
+
         global start_time
         start_time = time.time()
 

@@ -1,4 +1,4 @@
-PROJECT="videoip_65x512x512_1node_bs64_lr1e-4_snrgamma_noiseoffset_mjsam"
+PROJECT="videoip_65x512x512_1node_bs32_lr1e-4_snrgamma_noiseoffset_mj_dino_ema20000"
 export WANDB_API_KEY="720d886d8c437c2142c88056a1eab8ef78d64a1f"
 # # export WANDB_MODE="offline"
 export ENTITY="yunyangge"
@@ -18,22 +18,21 @@ accelerate launch \
     opensora/train/train_videoip.py \
     --model "LatteT2V-S/122" \
     --text_encoder_name DeepFloyd/t5-v1_1-xxl \
-    --image_encoder_type "clip" \
-    --image_encoder_name "laion/CLIP-ViT-H-14-laion2B-s32B-b79K" \
+    --image_encoder_type "dino" \
+    --image_encoder_name "facebook/dinov2-giant" \
     --cache_dir "/storage/cache_dir" \
     --dataset vip \
     --ae CausalVAEModel_4x8x8 \
     --ae_path "/storage/CausalVAEModel_4x8x8" \
     --video_data "scripts/train_data/video_data_debug.txt" \
-    --image_data "scripts/train_data/image_data.txt" \
+    --image_data "scripts/train_data/image_data_debug.txt" \
     --sample_rate 1 \
     --num_frames 1 \
     --use_image_num 0 \
     --max_height 512 \
     --max_width 512 \
     --attention_mode xformers \
-    --gradient_checkpointing \
-    --train_batch_size=64 \
+    --train_batch_size=32 \
     --dataloader_num_workers 10 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=500000 \
@@ -51,7 +50,7 @@ accelerate launch \
     --validation_dir "validation_dir" \
     --guidance_scale 7.5 \
     --num_sampling_steps 50 \
-    --ema_start_step 0 \
+    --ema_start_step 20000 \
     --use_ema \
     --cfg 0.05 \
     --i2v_ratio 0.3 \
@@ -61,6 +60,7 @@ accelerate launch \
     --seed 42 \
     --snr_gamma 5.0 \
     --noise_offset 0.02 \
-    --pretrained "/storage/1.1model/hw_65/model/diffusion_pytorch_model.safetensors"
+    --pretrained "/storage/1.1model/hw_65/model/diffusion_pytorch_model.safetensors" # 基模型权重没有参与训练所以一定要加载
+    # --pretrained_vip_adapter_path "" \
     # --resume_from_checkpoint "latest" \
     # --zero_terminal_snr \

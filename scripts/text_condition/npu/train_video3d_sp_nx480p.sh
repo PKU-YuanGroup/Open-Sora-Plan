@@ -19,7 +19,7 @@ accelerate launch \
     --video_data "./scripts/train_data/video_data_on_npu.txt" \
     --image_data "./scripts/train_data/image_data_on_npu.txt" \
     --sample_rate 1 \
-    --num_frames 1 \
+    --num_frames ${NUM_FRAME} \
     --max_height 480 \
     --max_width 640 \
     --interpolation_scale_t 1.0 \
@@ -27,9 +27,9 @@ accelerate launch \
     --interpolation_scale_w 1.0 \
     --attention_mode xformers \
     --gradient_checkpointing \
-    --train_batch_size=8 \
-    --dataloader_num_workers 20 \
-    --gradient_accumulation_steps=1 \
+    --train_batch_size=1 \
+    --dataloader_num_workers 8 \
+    --gradient_accumulation_steps=8 \
     --max_train_steps=1000000 \
     --learning_rate=4e-5 \
     --lr_scheduler="cosine" \
@@ -50,5 +50,7 @@ accelerate launch \
     --tile_overlap_factor 0.125 \
     --use_rope \
     --noise_offset 0.02 \
-    --pretrained "/home/image_data/checkpoints/image3d_rope_256p_zp_umt5/checkpoint-146000/model_ema/diffusion_pytorch_model.safetensors" \
-    --resume_from_checkpoint="latest"
+    --pretrained "/home/image_data/checkpoints/image3d_rope_480p_from_pretrain/checkpoint-14000/model_ema/diffusion_pytorch_model.safetensors" \
+    --resume_from_checkpoint="latest" \
+    --sp_size 8 \
+    --train_sp_batch_size 1

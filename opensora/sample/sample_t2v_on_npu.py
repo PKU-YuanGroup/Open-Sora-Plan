@@ -13,15 +13,17 @@ from diffusers.schedulers.scheduling_dpmsolver_singlestep import DPMSolverSingle
 from diffusers.models import AutoencoderKL, AutoencoderKLTemporalDecoder, Transformer2DModel
 from omegaconf import OmegaConf
 from torchvision.utils import save_image
-from transformers import T5EncoderModel, T5Tokenizer, AutoTokenizer
+from transformers import T5EncoderModel, MT5EncoderModel, T5Tokenizer, AutoTokenizer
 
 import os, sys
 
+from opensora.adaptor.modules import replace_with_fp32_forwards
 from opensora.models.ae import ae_stride_config, getae, getae_wrapper
 from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModelWrapper
 from opensora.models.diffusion.udit.modeling_udit import UDiTT2V
 from opensora.models.diffusion.opensora.modeling_opensora import OpenSoraT2V
 from opensora.models.diffusion.latte.modeling_latte import LatteT2V
+from opensora.models.diffusion.udit_ultra.modeling_udit_ultra import UDiTUltraT2V
 
 from opensora.models.text_encoder import get_text_enc
 from opensora.utils.utils import save_video_grid
@@ -46,6 +48,10 @@ def load_t2v_checkpoint(model_path):
         transformer_model = OpenSoraT2V.from_pretrained(model_path, cache_dir=args.cache_dir,
                                                         low_cpu_mem_usage=False, device_map=None,
                                                         torch_dtype=weight_dtype)
+    elif args.udit:
+        transformer_model = UDiTUltraT2V.from_pretrained(model_path, cache_dir=args.cache_dir,
+                                                         low_cpu_mem_usage=False, device_map=None,
+                                                         torch_dtype=weight_dtype)
     else:
         transformer_model = LatteT2V.from_pretrained(model_path, cache_dir=args.cache_dir, low_cpu_mem_usage=False,
                                                      device_map=None, torch_dtype=weight_dtype)
@@ -82,11 +88,14 @@ def run_model_and_save_images(pipeline, model_path):
 
     checkpoint_name = f"{os.path.basename(model_path)}"
 
+    positive_prompt = "(masterpiece), (best quality), (ultra-detailed), {}. emotional, harmonious, vignette, 4k epic detailed, shot on kodak, 35mm photo, sharp focus, high budget, cinemascope, moody, epic, gorgeous"
+    negative_prompt = "nsfw, lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry"
     for index, prompt in enumerate(args.text_prompt):
         if index % npu_config.N_NPU_PER_NODE != local_rank:
             continue
         print('Processing the ({}) prompt'.format(prompt))
-        videos = pipeline(prompt,
+        videos = pipeline(positive_prompt.format(prompt),
+                          negative_prompt=negative_prompt,
                           num_frames=args.num_frames,
                           height=args.height,
                           width=args.width,
@@ -164,9 +173,12 @@ if __name__ == "__main__":
     parser.add_argument('--tile_overlap_factor', type=float, default=0.25)
     parser.add_argument('--enable_tiling', action='store_true')
     parser.add_argument('--model_3d', action='store_true')
+    parser.add_argument('--udit', action='store_true')
     args = parser.parse_args()
 
     npu_config.print_msg(args)
+    npu_config.conv_dtype = torch.bfloat16
+    replace_with_fp32_forwards()
 
     # 初始化分布式环境
     local_rank = int(os.getenv('RANK', 0))
@@ -176,7 +188,7 @@ if __name__ == "__main__":
     dist.init_process_group(backend='hccl', init_method='env://', world_size=8, rank=local_rank)
 
     # torch.manual_seed(args.seed)
-    weight_dtype = torch.float16
+    weight_dtype = torch.float32
     device = torch.cuda.current_device()
 
     # vae = getae_wrapper(args.ae)(args.model_path, subfolder="vae", cache_dir=args.cache_dir)
@@ -187,9 +199,9 @@ if __name__ == "__main__":
         vae.vae.tile_overlap_factor = args.tile_overlap_factor
     vae.vae_scale_factor = ae_stride_config[args.ae]
 
-    text_encoder = T5EncoderModel.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir,
-                                                  low_cpu_mem_usage=True, torch_dtype=weight_dtype).to(device)
-    tokenizer = T5Tokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
+    text_encoder = MT5EncoderModel.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir,
+                                                  low_cpu_mem_usage=True, torch_dtype=torch.float16).to(device)
+    tokenizer = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
 
     # set eval mode
     vae.eval()
@@ -227,16 +239,23 @@ if __name__ == "__main__":
 
     latest_path = None
     save_img_path = args.save_img_path
+    first_in = False
     while True:
         cur_path = get_latest_path()
         if cur_path == latest_path:
-            time.sleep(5)
+            time.sleep(60)
             continue
 
-        time.sleep(1)
+        if not first_in:
+            first_in = True
+        else:
+            time.sleep(1200)
+
         latest_path = cur_path
+
         npu_config.print_msg(f"The latest_path is {latest_path}")
         full_path = f"{args.model_path}/{latest_path}/model_ema"
+        # full_path = "/home/opensora/captions/240p_model_ema"
         pipeline = load_t2v_checkpoint(full_path)
 
         if npu_config.on_npu and npu_config.profiling:

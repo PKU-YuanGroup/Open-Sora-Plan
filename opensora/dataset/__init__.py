@@ -55,6 +55,7 @@ def getdataset(args):
     temporal_sample = TemporalRandomCrop(args.num_frames * args.sample_rate)  # 16 x
     norm_fun = ae_norm[args.ae]
     if args.dataset == 't2v':
+        resize_topcrop = [CenterCropResizeVideo((args.max_height, args.max_width), top_crop=True), ]
         if args.multi_scale:
             resize = [
                 LongSideResizeVideo(args.max_image_size, skip_low_resolution=True),
@@ -65,6 +66,12 @@ def getdataset(args):
         transform = transforms.Compose([
             ToTensorVideo(),
             *resize, 
+            # RandomHorizontalFlipVideo(p=0.5),  # in case their caption have position decription
+            norm_fun
+        ])
+        transform_topcrop = transforms.Compose([
+            ToTensorVideo(),
+            *resize_topcrop, 
             # RandomHorizontalFlipVideo(p=0.5),  # in case their caption have position decription
             norm_fun
         ])

@@ -134,6 +134,21 @@ def get_1d_sincos_pos_embed_from_grid(embed_dim, pos):
     emb = np.concatenate([emb_sin, emb_cos], axis=1)  # (M, D)
     return emb
 
+class FP32_Layernorm(nn.LayerNorm):
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        origin_dtype = inputs.dtype
+        return F.layer_norm(inputs.float(), self.normalized_shape, self.weight.float() if self.weight is not None else None, 
+                            self.bias.float() if self.bias is not None else None, self.eps).to(origin_dtype)
+
+
+class FP32_SiLU(nn.SiLU):
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        return torch.nn.functional.silu(inputs.float(), inplace=self.inplace).to(inputs.dtype)
+
+
+class FP32_GELU(nn.GELU):
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        return torch.nn.functional.gelu(inputs.float(), approximate=self.approximate).to(inputs.dtype)
 
 
 
@@ -385,8 +400,8 @@ class Attention(Attention_):
                                             padding=downsampler_padding, groups=kwags['query_dim'], down_factor=down_factor,
                                             down_shortcut=True)
         
-        # self.q_norm = nn.LayerNorm(kwags['dim_head'], elementwise_affine=True, eps=1e-6)
-        # self.k_norm = nn.LayerNorm(kwags['dim_head'], elementwise_affine=True, eps=1e-6) 
+        self.q_norm = nn.LayerNorm(kwags['dim_head'], elementwise_affine=True, eps=1e-6)
+        self.k_norm = nn.LayerNorm(kwags['dim_head'], elementwise_affine=True, eps=1e-6) 
         
 
 class DownSampler3d(nn.Module):
@@ -571,18 +586,18 @@ class AttnProcessor2_0:
 
             key = key.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
 
+            # qk norm
+            query = attn.q_norm(query)
+            key = attn.k_norm(key)
+
             if self.use_rope:
                 # require the shape of (batch_size x nheads x ntokens x dim)
                 pos_thw = self.position_getter(batch_size, t=frame, h=height, w=width, device=query.device)
                 query = self.rope(query, pos_thw)
                 key = self.rope(key, pos_thw)
-                    
+
             value = value.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
 
-            # qk norm
-            # query = attn.q_norm(query)
-            # key = attn.k_norm(key)
-            # query = query * (head_dim ** -0.5)
 
             if attention_mask is None or not torch.all(attention_mask.bool()):  # 0 mean visible
                 attention_mask = None
@@ -733,7 +748,7 @@ class Downsample2d(nn.Module):
             x = F.pad(x, (0, pad_w, 0, pad_h))
         else:
             x = npu_config.run_pad_2d(F.pad, x, pad=(0, pad_w, 0, pad_h))
-        x = F.pad(x, (0, pad_w, 0, pad_h))
+        # x = F.pad(x, (0, pad_w, 0, pad_h))
         x = self.body(x)
         x = rearrange(x, '(b t) d h w -> b (t h w) d', t=frames)
         
@@ -774,7 +789,7 @@ class FeedForward_Conv2d(nn.Module):
         self.bias = bias
 
         self.project_in = nn.Linear(dim, hidden_features, bias=bias)
-
+        self.act = nn.GELU()
         self.dwconv = nn.ModuleList([
             nn.Conv2d(hidden_features, hidden_features, kernel_size=(5, 5), stride=1, padding=(2, 2), dilation=1,
                         groups=hidden_features, bias=bias),
@@ -791,7 +806,8 @@ class FeedForward_Conv2d(nn.Module):
         # import ipdb;ipdb.set_trace()
         x = self.project_in(x)
         x = rearrange(x, 'b (t h w) d -> (b t) d h w', t=t, h=h, w=w)
-        x = F.gelu(x)
+        
+        x = self.act(x)
         out = x
         for module in self.dwconv:
             out = out + module(x)

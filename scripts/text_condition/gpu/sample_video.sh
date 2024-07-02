@@ -1,16 +1,18 @@
-CUDA_VISIBLE_DEVICES=6 python opensora/sample/sample_t2v.py \
-    --model_path "/remote-home/gyy/Open-Sora-Plan/Open-Sora-Plan_models/65x512x512" \
-    --num_frames 65 \
-    --height 512 \
-    --width 512 \
-    --cache_dir "./cache_dir" \
-    --text_encoder_name DeepFloyd/t5-v1_1-xxl \
+CUDA_VISIBLE_DEVICES=2 python opensora/sample/sample_t2v.py \
+    --model_path /storage/ongoing/new/Open-Sora-Plan/bs16_4node_lr1e-4_snr5_ema_ps11_ds22/checkpoint-8000/model \
+    --version 65x512x512 \
+    --num_frames 1 \
+    --height 240 \
+    --width 320 \
+    --cache_dir "cache_dir" \
+    --text_encoder_name google/mt5-xxl \
     --text_prompt examples/prompt_list_0.txt \
     --ae CausalVAEModel_4x8x8 \
-    --ae_path "/remote-home/gyy/Open-Sora-Plan/Open-Sora-Plan_models/vae" \
-    --save_img_path "./sample_video_65x512x512" \
+    --ae_path "/storage/dataset/test140k" \
+    --save_img_path "./sample_image256_256_ps22_ds11_ckpt8000" \
     --fps 24 \
-    --guidance_scale 7.5 \
+    --guidance_scale 2.0 \
     --num_sampling_steps 50 \
     --enable_tiling \
     --sample_method PNDM \
+    --model_3d
