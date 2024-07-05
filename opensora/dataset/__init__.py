@@ -4,6 +4,14 @@ from transformers import AutoTokenizer
 from torchvision import transforms
 from torchvision.transforms import Lambda
 
+# try:
+#     import torch_npu
+#     from opensora.npu_config import npu_config
+# from .t2v_datasets_npu import T2V_dataset
+# except:
+#     torch_npu = None
+#     npu_config = None
+#     from .t2v_datasets import T2V_dataset
 from .t2v_datasets import T2V_dataset
 from .transform import ToTensorVideo, TemporalRandomCrop, RandomHorizontalFlipVideo, CenterCropResizeVideo, LongSideResizeVideo, SpatialStrideCropVideo
 

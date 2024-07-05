@@ -468,8 +468,8 @@ def main(args):
     )
 
     # Prepare everything with our `accelerator`.
-    # model.requires_grad_(False)
-    # model.pos_embed.requires_grad_(True)
+    model.requires_grad_(False)
+    model.pos_embed.requires_grad_(True)
     model, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
         model, optimizer, train_dataloader, lr_scheduler
     )
@@ -601,7 +601,7 @@ def main(args):
         bsz = model_input.shape[0]
         # Sample a random timestep for each image without bias.
         timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=model_input.device)
-        if get_sequence_parallel_state():
+        if npu_config is not None and get_sequence_parallel_state():
             broadcast(timesteps)
 
         # Add noise to the model input according to the noise magnitude at each timestep

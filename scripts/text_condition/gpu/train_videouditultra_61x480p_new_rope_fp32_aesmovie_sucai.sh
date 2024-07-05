@@ -13,11 +13,11 @@ export NCCL_ALGO=Tree
 export OMP_NUM_THREADS=1
 
 accelerate launch \
-    --config_file scripts/accelerate_configs/multi_node_example.yaml \
+    --config_file scripts/accelerate_configs/debug.yaml \
     opensora/train/train_t2v_diffusers.py \
     --model UDiTUltraT2V-L/122 \
     --text_encoder_name google/mt5-xxl \
-    --cache_dir "./cache_dir" \
+    --cache_dir "../cache_dir" \
     --dataset t2v \
     --video_data "scripts/train_data/video_data_aesmovie_sucai.txt" \
     --image_data "scripts/train_data/image_data.txt" \
@@ -58,5 +58,5 @@ accelerate launch \
     --enable_stable_fp32 \
     --group_frame \
     --speed_factor 1.2 \
-    --pretrained "bs2_20node_73000k_480p_61x480p_lr1e-4_snr5_noioff0.02_ema_rope_uditultra122_qknorm_ds222_mt5xxl_aesmovie_sucai_speed1.4/checkpoint-7000/model_ema/diffusion_pytorch_model.safetensors" \
-    --output_dir="bs20x8x2_73k_480p_61x480p_lr1e-4_snr5_noioff0.02_rope_uditultra122_qknorm_ds222_mt5xxl_movie_aes_mo_sucai_mo_speed1.2" 
+    --pretrained "/storage/ongoing/new/Open-Sora-Plan/bs20x8x2_73k_480p_61x480p_lr1e-4_snr5_noioff0.02_rope_uditultra122_qknorm_ds222_mt5xxl_movie_aes_mo_sucai_mo_speed1.2/checkpoint-12500/model_ema/diffusion_pytorch_model.safetensors" \
+    --output_dir="debug" 

@@ -130,7 +130,9 @@ def main(args):
                         """
     video_grids = []
     for idx, prompt in enumerate(text_prompt):
-        videos = pipeline(positive_prompt.format(prompt),
+        videos = pipeline(
+            # positive_prompt.format(prompt),
+            prompt,
                           negative_prompt=negative_prompt, 
                           num_frames=args.num_frames,
                           height=args.height,

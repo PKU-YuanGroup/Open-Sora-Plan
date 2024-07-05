@@ -814,12 +814,12 @@ class OpenSoraPipeline(DiffusionPipeline):
 
     def decode_latents(self, latents):
         device = torch.cuda.current_device()
-        if npu_config is not None:
-            npu_config.print_tensor_stats(latents, f"before vae", rank=0)
+        # if npu_config is not None:
+        #     npu_config.print_tensor_stats(latents, f"before vae", rank=0)
         self.vae = self.vae.to(device)
         video = self.vae.decode(latents.to(self.vae.vae.dtype).to(device))
-        if npu_config is not None:
-            npu_config.print_tensor_stats(video, f"after vae, vae.dtype={self.vae.vae.dtype}", rank=0)
+        # if npu_config is not None:
+        #     npu_config.print_tensor_stats(video, f"after vae, vae.dtype={self.vae.vae.dtype}", rank=0)
         video = ((video / 2.0 + 0.5).clamp(0, 1) * 255).to(dtype=torch.uint8).cpu().permute(0, 1, 3, 4, 2).contiguous() # b t h w c
         # we always cast to float32 as this does not cause significant overhead and is compatible with bfloa16
         return video
