@@ -1,4 +1,4 @@
-PROJECT="videoip_65x512x512_1node_bs32_lr1e-4_snrgamma_noiseoffset_mj_dino_ema20000"
+PROJECT="videoip_65x512x512_1node_bs32_lr1e-5_snrgamma_noiseoffset_mjsam_dino_dim512"
 export WANDB_API_KEY="720d886d8c437c2142c88056a1eab8ef78d64a1f"
 # # export WANDB_MODE="offline"
 export ENTITY="yunyangge"
@@ -36,7 +36,7 @@ accelerate launch \
     --dataloader_num_workers 10 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=500000 \
-    --learning_rate=1e-4 \
+    --learning_rate=1e-5 \
     --lr_scheduler="constant" \
     --lr_warmup_steps=0 \
     --mixed_precision="bf16" \
@@ -50,7 +50,7 @@ accelerate launch \
     --validation_dir "validation_dir" \
     --guidance_scale 7.5 \
     --num_sampling_steps 50 \
-    --ema_start_step 20000 \
+    --ema_start_step 0 \
     --use_ema \
     --cfg 0.05 \
     --i2v_ratio 0.3 \
@@ -60,7 +60,9 @@ accelerate launch \
     --seed 42 \
     --snr_gamma 5.0 \
     --noise_offset 0.02 \
-    --pretrained "/storage/1.1model/hw_65/model/diffusion_pytorch_model.safetensors" # 基模型权重没有参与训练所以一定要加载
-    # --pretrained_vip_adapter_path "" \
+    --vip_num_attention_heads 8 \
+    --pretrained "/storage/1.1model/hw_65/model/diffusion_pytorch_model.safetensors" \
+    # --pretrained_vip_adapter_path "videoip_65x512x512_1node_bs32_lr1e-5_snrgamma_noiseoffset_mjsam_clip_last2layer/checkpoint-50000/model" \
     # --resume_from_checkpoint "latest" \
     # --zero_terminal_snr \
+    # 基模型权重没有参与训练所以一定要加载

@@ -83,6 +83,14 @@ import imageio
 check_min_version("0.24.0")
 logger = get_logger(__name__)
 
+def get_clip_feature(clip_data, image_encoder, image_encoder_type='clip'):
+    if image_encoder_type == 'clip':
+        clip_feature = image_encoder(clip_data, output_hidden_states=True).hidden_states[-2] # B * (T+image_num) N D
+    elif image_encoder_type == 'dino':
+        clip_feature = image_encoder(clip_data).last_hidden_state # B * (T+image_num) N D
+        # clip_feature = image_encoder(clip_data, output_hidden_states=True).hidden_states[-2] # B * (T+image_num) N D
+    return clip_feature
+
 
 class VIPNet(ModelMixin, ConfigMixin):
     @register_to_config
@@ -91,7 +99,8 @@ class VIPNet(ModelMixin, ConfigMixin):
         image_encoder_type='dino',
         cross_attention_dim=1152,
         num_tokens=272,
-        vip_inner_dim=1024,
+        vip_num_attention_heads=16,
+        vip_attention_head_dim=64,
         vip_num_attention_layers=2,
         attention_mode='xformers',
         gradient_checkpointing=False,
@@ -115,7 +124,8 @@ class VIPNet(ModelMixin, ConfigMixin):
         self.vip_adapter = VideoIPAdapter(
             image_encoder_type=image_encoder_type,
             cross_attention_dim=cross_attention_dim,
-            inner_dim=vip_inner_dim,
+            num_attention_heads=vip_num_attention_heads,
+            attention_head_dim=vip_attention_head_dim,
             num_attention_layers=vip_num_attention_layers,
             use_rope=use_rope,
             rope_scaling=rope_scaling,
@@ -175,10 +185,10 @@ class VIPNet(ModelMixin, ConfigMixin):
         images = image_processor(images=images, return_tensors="pt").pixel_values # 1 C H W
         images = images.to(device=device, dtype=weight_dtype)
         negative_images = torch.zeros_like(images, device=device, dtype=weight_dtype)
-
-        images = image_encoder(images).last_hidden_state # 1 N D
+        # NOTE using the second last layer of image encoder
+        images = get_clip_feature(images, image_encoder, image_encoder_type=self.image_encoder_type) # 1 N D
         images = images[:, 1:] # drop cls token
-        negative_images = image_encoder(negative_images).last_hidden_state
+        negative_images = get_clip_feature(negative_images, image_encoder, image_encoder_type=self.image_encoder_type)
         negative_images = negative_images[:, 1:]
 
         height = width = int(sqrt(images.shape[1]))
@@ -211,10 +221,10 @@ class VIPNet(ModelMixin, ConfigMixin):
         video = torch.zeros([num_frames, C, H, W], device=device, dtype=weight_dtype)
         video[condition_images_indices] = condition_images
         negative_video = torch.zeros_like(video, device=device, dtype=weight_dtype)
-
-        video = image_encoder(video).last_hidden_state # F N D
+        # using the second last layer of image encoder
+        video = get_clip_feature(video, image_encoder, image_encoder_type=self.image_encoder_type)
         video = video[:, 1:] # drop cls token
-        negative_video = image_encoder(negative_video).last_hidden_state
+        negative_video = get_clip_feature(negative_video, image_encoder, image_encoder_type=self.image_encoder_type)
         negative_video = negative_video[:, 1:]
 
         height = width = int(sqrt(video.shape[1]))
@@ -323,7 +333,7 @@ def log_validation(
         if not isinstance(images, list):
             images = [images]
         logger.info('Processing the ({}) prompt and the images ({})'.format(prompt, images))
-        if args.num_frames == 1:
+        if args.num_frames != 1:
             if len(images) == 1 and images[0].split('/')[-1].split('_')[0] == 'img': 
                 vip_tokens, vip_cond_mask, negative_vip_tokens, negative_vip_cond_mask = vip.get_image_embeds(
                     images=images, 
@@ -593,32 +603,35 @@ def main(args):
     
     image_encoder.requires_grad_(False)
 
-    if args.pretrained_vip_adapter_path is None:
-        attn_proc_type_dict = {}        
-        for name, attn_processor in model.attn_processors.items():
-            # replace all attn2.processor with VideoIPAttnProcessor
-            if name.endswith('.attn2.processor'):
-                attn_proc_type_dict[name] = 'VideoIPAttnProcessor'
-            else:
-                attn_proc_type_dict[name] = attn_processor.__class__.__name__
+    attn_proc_type_dict = {}        
+    for name, attn_processor in model.attn_processors.items():
+        # replace all attn2.processor with VideoIPAttnProcessor
+        if name.endswith('.attn2.processor'):
+            attn_proc_type_dict[name] = 'VideoIPAttnProcessor'
+        else:
+            attn_proc_type_dict[name] = attn_processor.__class__.__name__
 
-        vip = VIPNet(
-            image_encoder_type=args.image_encoder_type,
-            cross_attention_dim=1152,
-            num_tokens=272, # NOTE should be modified 
-            vip_inner_dim=1024,
-            vip_num_attention_layers=2,
-            attention_mode=args.attention_mode,
-            gradient_checkpointing=args.gradient_checkpointing,
-            vae_scale_factor_t=ae_stride_t,
-            video_length=latent_size_t,
-            attn_proc_type_dict=attn_proc_type_dict,
-        )
+    vip = VIPNet(
+        image_encoder_type=args.image_encoder_type,
+        cross_attention_dim=1152,
+        num_tokens=272, # NOTE should be modified 
+        vip_num_attention_heads=args.vip_num_attention_heads, # for dinov2
+        vip_attention_head_dim=64,
+        vip_num_attention_layers=2,
+        attention_mode=args.attention_mode,
+        gradient_checkpointing=args.gradient_checkpointing,
+        vae_scale_factor_t=ae_stride_t,
+        video_length=latent_size_t,
+        attn_proc_type_dict=attn_proc_type_dict,
+    )
 
-    else:
-        vip = VIPNet.from_pretrained(args.pretrained_vip_adapter_path)
+    if args.pretrained_vip_adapter_path is not None:
+        from safetensors.torch import load_file as safe_load     
+        checkpoint = safe_load(os.path.join(args.pretrained_vip_adapter_path, "diffusion_pytorch_model.safetensors"), device="cpu")
+        vip.load_state_dict(checkpoint)
 
-    init_from_original_attn_processor = True if args.pretrained_vip_adapter_path is None else False
+
+    init_from_original_attn_processor = False if (args.pretrained_vip_adapter_path is not None or args.resume_from_checkpoint is not None) else True
     vip.set_vip_adapter(model, init_from_original_attn_processor=init_from_original_attn_processor)
 
     # for name, module in vip.named_modules():
@@ -1077,7 +1090,8 @@ def main(args):
             cond = cond.reshape(B, N, L, -1) # B 1+image_num L D
 
             clip_data = rearrange(clip_data, 'b t c h w -> (b t) c h w') # B T+image_num C H W -> B * (T+image_num) C H W
-            clip_feature = image_encoder(clip_data).last_hidden_state # B * (T+image_num) N D
+            # NOTE using the second last layer of CLIP or last layer of DINO as clip feature
+            clip_feature = get_clip_feature(clip_data, image_encoder, args.image_encoder_type) # B * (T+image_num) D
             clip_feature = clip_feature[:, 1:] # drop cls token
             clip_feature_height = clip_feature_width = int(sqrt(clip_feature.shape[1]))
             clip_feature = rearrange(clip_feature, '(b t) (h w) c -> b t h w c', b=B, h=clip_feature_height, w=clip_feature_width) # B T+image_num H W D  
@@ -1273,6 +1287,7 @@ if __name__ == "__main__":
     parser.add_argument("--pretrained_vip_adapter_path", type=str, default=None)
     parser.add_argument("--clear_video_ratio", type=float, default=0.0)
     parser.add_argument("--use_image_num", type=int, default=0)
+    parser.add_argument("--vip_num_attention_heads", type=int, default=8)
 
 
     args = parser.parse_args()

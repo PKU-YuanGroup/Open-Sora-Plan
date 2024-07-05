@@ -37,7 +37,8 @@ class VideoIPVideoEncoder(nn.Module):
     def __init__(
         self,
         image_encoder_type="clip",
-        inner_dim=1024,
+        num_attention_heads=16,
+        attention_head_dim=64,
         cross_attention_dim=1152,
         num_attention_layers=2,
         use_rope=False,
@@ -48,6 +49,8 @@ class VideoIPVideoEncoder(nn.Module):
         max_num_tokens=272,
     ):
         super().__init__()
+
+        inner_dim = num_attention_heads * attention_head_dim
 
         self.image_encoder_type = image_encoder_type
     
@@ -109,8 +112,8 @@ class VideoIPVideoEncoder(nn.Module):
             [
                 BasicTransformerBlock(
                     dim=inner_dim,
-                    num_attention_heads=16,
-                    attention_head_dim=64,
+                    num_attention_heads=num_attention_heads,
+                    attention_head_dim=attention_head_dim,
                     dropout=0.0,
                     cross_attention_dim=None,
                     double_self_attention=False,
@@ -131,8 +134,8 @@ class VideoIPVideoEncoder(nn.Module):
             [
                 BasicTransformerBlock(
                     dim=inner_dim,
-                    num_attention_heads=16,
-                    attention_head_dim=64,
+                    num_attention_heads=num_attention_heads,
+                    attention_head_dim=attention_head_dim,
                     dropout=0.0,
                     cross_attention_dim=None,
                     double_self_attention=False,
@@ -217,7 +220,8 @@ class VideoIPAdapter(nn.Module):
     def __init__(
         self,
         image_encoder_type="clip",
-        inner_dim=1024,
+        num_attention_heads=16,
+        attention_head_dim=64,
         cross_attention_dim=1152,
         num_attention_layers=2,
         use_rope=False,
@@ -231,7 +235,8 @@ class VideoIPAdapter(nn.Module):
         self.gradient_checkpointing = gradient_checkpointing
         self.encoder = VideoIPVideoEncoder(
             image_encoder_type=image_encoder_type,
-            inner_dim=inner_dim,
+            num_attention_heads=num_attention_heads,
+            attention_head_dim=attention_head_dim,
             cross_attention_dim=cross_attention_dim,
             num_attention_layers=num_attention_layers,
             use_rope=use_rope,
