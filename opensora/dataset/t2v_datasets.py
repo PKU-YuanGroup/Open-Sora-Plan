@@ -376,6 +376,7 @@ class T2V_dataset(Dataset):
         #import ipdb;ipdb.set_trace()
         # speed up
         max_speed_factor = len(frame_indices) / self.num_frames
+        speed_factor = 1.0
         if self.speed_factor > 1 and max_speed_factor > 1 and not ('MagicTime_Data/' in path):
             speed_factor = random.uniform(1.0, min(self.speed_factor, max_speed_factor))
             target_frame_count = int(len(frame_indices) / speed_factor)
@@ -391,10 +392,10 @@ class T2V_dataset(Dataset):
         # to find a suitable end_frame_idx, to ensure we do not need pad video
         end_frame_idx = find_closest_y(len(frame_indices), vae_stride_t=4, model_ds_t=4)
         if end_frame_idx == -1:  # too short that can not be encoded exactly by videovae
-            raise IndexError(f'video ({path}) has {total_frames} frames, but need to sample {len(frame_indices)} frames ({frame_indices})')
+            raise IndexError(f'video ({path}) has {total_frames} frames, speed_factor: {speed_factor}, but need to sample {len(frame_indices)} frames ({frame_indices})')
         frame_indices = frame_indices[:end_frame_idx]
         if len(frame_indices) < self.num_frames:
-            raise IndexError(f'video ({path}) has {total_frames} frames, but need to sample {len(frame_indices)} frames ({frame_indices})')
+            raise IndexError(f'video ({path}) has {total_frames} frames, speed_factor: {speed_factor}, but need to sample {len(frame_indices)} frames ({frame_indices})')
         video_data = decord_vr.get_batch(frame_indices).asnumpy()
         video_data = torch.from_numpy(video_data)
         video_data = video_data.permute(0, 3, 1, 2)  # (T, H, W, C) -> (T C H W)

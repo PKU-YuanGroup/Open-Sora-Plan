@@ -13,7 +13,7 @@ export NCCL_ALGO=Tree
 export OMP_NUM_THREADS=1
 
 accelerate launch \
-    --config_file scripts/accelerate_configs/debug.yaml \
+    --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
     opensora/train/train_t2v_diffusers.py \
     --model UDiTUltraT2V-L/122 \
     --text_encoder_name google/mt5-xxl \

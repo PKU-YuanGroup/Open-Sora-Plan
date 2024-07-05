@@ -468,8 +468,8 @@ def main(args):
     )
 
     # Prepare everything with our `accelerator`.
-    model.requires_grad_(False)
-    model.pos_embed.requires_grad_(True)
+    # model.requires_grad_(False)
+    # model.pos_embed.requires_grad_(True)
     model, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
         model, optimizer, train_dataloader, lr_scheduler
     )
