@@ -137,17 +137,17 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
         # 2. Initialize the right blocks.
         # Initialize the output blocks and other projection blocks when necessary.
         self._init_patched_inputs(norm_type=norm_type)
-        # if self.use_stable_fp32:
-        #     self._replace_fp32_layers()
+        if self.use_stable_fp32:
+            self._replace_fp32_layers()
 
     def _init_patched_inputs(self, norm_type):
         assert self.config.sample_size_t is not None, "OpenSoraT2V over patched input must provide sample_size_t"
         assert self.config.sample_size is not None, "OpenSoraT2V over patched input must provide sample_size"
 
-        self.num_frames = self.config.sample_size_t
         self.config.sample_size = to_2tuple(self.config.sample_size)
-        self.height = self.config.sample_size[0]
-        self.width = self.config.sample_size[1]
+        # self.num_frames = self.config.sample_size_t
+        # self.height = self.config.sample_size[0]
+        # self.width = self.config.sample_size[1]
         interpolation_scale_t = ((self.config.sample_size_t - 1) // 16 + 1) if self.config.sample_size_t % 2 == 1 else self.config.sample_size_t / 16
         interpolation_scale_t = (
             self.config.interpolation_scale_t if self.config.interpolation_scale_t is not None else interpolation_scale_t
@@ -161,9 +161,9 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
         # down_factor = [int(i) for i in down_factor]
         # down_factor = down_factor if isinstance(self.config.down_factor, list) else [self.config.down_factor] * 5
         # down_factor = [2] * len(self.config.depth)
-        
+        is_video_model = False
         if self.config.downsampler is not None and len(self.config.downsampler) == 9:
-            is_video_model = True
+            is_video_model = True  # to init weight from image
             self.pos_embed = OverlapPatchEmbed3D(
                 num_frames=self.config.sample_size_t,
                 height=self.config.sample_size[0],
@@ -190,16 +190,16 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
                 interpolation_scale_t=interpolation_scale_t,
                 use_abs_pos=not self.config.use_rope, 
             )
-        layer_thw = [[self.config.sample_size_t//self.config.patch_size_t, 
-                      (self.config.sample_size[0] + self.config.sample_size[0] % (self.config.patch_size*2))//self.config.patch_size, 
-                      (self.config.sample_size[1] + self.config.sample_size[1] % (self.config.patch_size*2))//self.config.patch_size]]
+        # layer_thw = [[self.config.sample_size_t//self.config.patch_size_t, 
+        #               (self.config.sample_size[0] + self.config.sample_size[0] % (self.config.patch_size*2))//self.config.patch_size, 
+        #               (self.config.sample_size[1] + self.config.sample_size[1] % (self.config.patch_size*2))//self.config.patch_size]]
         interpolation_scale_thw = (interpolation_scale_t, *interpolation_scale)
-        for i in range((len(self.config.depth)-1)//2):
-            t = layer_thw[i][0] // 2 if layer_thw[i][0] != 1 else 1
-            h = (layer_thw[i][1] + layer_thw[i][1] % 4) // 2  # why mod 4, because downsample and downsampler in attention
-            w = (layer_thw[i][2] + layer_thw[i][2] % 4) // 2
-            layer_thw.append([t, h, w])
-        self.layer_thw = layer_thw
+        # for i in range((len(self.config.depth)-1)//2):
+        #     t = layer_thw[i][0] // 2 if layer_thw[i][0] != 1 else 1
+        #     h = (layer_thw[i][1] + layer_thw[i][1] % 4) // 2  # why mod 4, because downsample and downsampler in attention
+        #     w = (layer_thw[i][2] + layer_thw[i][2] % 4) // 2
+        #     layer_thw.append([t, h, w])
+        # self.layer_thw = layer_thw
         self.encoder_level_1 = nn.ModuleList(
             [
                 BasicTransformerBlock(
@@ -227,7 +227,8 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
                 for _ in range(self.config.depth[0])
             ]
         )
-        self.down1_2 = Downsample3d(self.inner_dim) if is_video_model else Downsample2d(self.inner_dim)
+        # self.down1_2 = Downsample3d(self.inner_dim) if is_video_model else Downsample2d(self.inner_dim)
+        self.down1_2 = Downsample2d(self.inner_dim, is_video_model)
         
         self.encoder_level_2 = nn.ModuleList(
             [
@@ -256,7 +257,8 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
                 for _ in range(self.config.depth[1])
             ]
         )
-        self.down2_3 = Downsample3d(self.inner_dim * 2) if is_video_model else Downsample2d(self.inner_dim * 2)
+        # self.down2_3 = Downsample3d(self.inner_dim * 2) if is_video_model else Downsample2d(self.inner_dim * 2)
+        self.down2_3 = Downsample2d(self.inner_dim * 2, is_video_model)
 
         self.latent = nn.ModuleList(
             [
@@ -286,7 +288,9 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
             ]
         )
 
-        self.up3_2 = Upsample3d(int(self.inner_dim * 4)) if is_video_model else Upsample2d(self.inner_dim * 4)  ## From Level 4 to Level 3
+        # self.up3_2 = Upsample3d(int(self.inner_dim * 4)) if is_video_model else Upsample2d(self.inner_dim * 4)  ## From Level 4 to Level 3
+        self.up3_2 = Upsample2d(self.inner_dim * 4, is_video_model)  ## From Level 4 to Level 3
+        
         self.reduce_chan_level2_norm = nn.LayerNorm(int(self.inner_dim * 4), elementwise_affine=True, eps=1e-6)
         self.reduce_chan_level2 = nn.Linear(int(self.inner_dim * 4), int(self.inner_dim * 2), bias=True)
         self.decoder_level_2 = nn.ModuleList(
@@ -317,7 +321,9 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
             ]
         )
 
-        self.up2_1 = Upsample3d(int(self.inner_dim * 2)) if is_video_model else Upsample2d(self.inner_dim * 2)  ## From Level 4 to Level 3
+        # self.up2_1 = Upsample3d(int(self.inner_dim * 2)) if is_video_model else Upsample2d(self.inner_dim * 2)  ## From Level 4 to Level 3
+        self.up2_1 = Upsample2d(self.inner_dim * 2, is_video_model)  ## From Level 4 to Level 3
+        
         self.reduce_chan_level1_norm = nn.LayerNorm(int(self.inner_dim * 2), elementwise_affine=True, eps=1e-6)
         self.reduce_chan_level1 = nn.Linear(int(self.inner_dim * 2), int(self.inner_dim * 1), bias=True)
         self.decoder_level_1 = nn.ModuleList(
@@ -388,26 +394,26 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
             in_features=self.caption_channels, hidden_size=self.inner_dim * 4
         )
 
-    # def _replace_fp32_layers(self, module=None):
-    #     if module is None:
-    #         module = self
-    #     for name, submodule in module.named_children():
-    #         if isinstance(submodule, nn.LayerNorm):
-    #             print(f"Replacing LayerNorm in {name}")
-    #             new_layer = FP32_Layernorm(submodule.normalized_shape, submodule.eps, submodule.elementwise_affine)
-    #             if submodule.elementwise_affine:
-    #                 new_layer.weight.data.copy_(submodule.weight.data.float())
-    #                 if submodule.bias is not None:
-    #                     new_layer.bias.data.copy_(submodule.bias.data.float()) 
-    #             setattr(module, name, new_layer)
-    #         elif isinstance(submodule, nn.SiLU):
-    #             print(f"Replacing SiLU in {name}")
-    #             setattr(module, name, FP32_SiLU(submodule.inplace))
-    #         elif isinstance(submodule, nn.GELU):
-    #             print(f"Replacing GELU in {name}")
-    #             setattr(module, name, FP32_GELU(submodule.approximate))
-    #         else:
-    #             self._replace_fp32_layers(submodule) 
+    def _replace_fp32_layers(self, module=None):
+        if module is None:
+            module = self
+        for name, submodule in module.named_children():
+            if isinstance(submodule, nn.LayerNorm):
+                # print(f"Replacing LayerNorm in {name}")
+                new_layer = FP32_Layernorm(submodule.normalized_shape, submodule.eps, submodule.elementwise_affine)
+                if submodule.elementwise_affine:
+                    new_layer.weight.data.copy_(submodule.weight.data.float())
+                    if submodule.bias is not None:
+                        new_layer.bias.data.copy_(submodule.bias.data.float()) 
+                setattr(module, name, new_layer)
+            elif isinstance(submodule, nn.SiLU):
+                # print(f"Replacing SiLU in {name}")
+                setattr(module, name, FP32_SiLU(submodule.inplace))
+            elif isinstance(submodule, nn.GELU):
+                # print(f"Replacing GELU in {name}")
+                setattr(module, name, FP32_GELU(submodule.approximate))
+            else:
+                self._replace_fp32_layers(submodule) 
 
     def _set_gradient_checkpointing(self, module, value=False):
         if hasattr(module, "gradient_checkpointing"):
@@ -564,7 +570,8 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
         pad_h_1, pad_w_1 = height % 4, width % 4
         
         inp_enc_level2, attention_bias, attention_mask = self.down1_2(out_enc_level1, attention_mask, frame, height, width, pad_h=pad_h_1, pad_w=pad_w_1)
-        frame, height, width = frame // 2 if frame != 1 else frame, (height + pad_h_1) // 2, (width + pad_w_1) // 2
+        # frame, height, width = frame // 2 if frame != 1 else frame, (height + pad_h_1) // 2, (width + pad_w_1) // 2
+        height, width = (height + pad_h_1) // 2, (width + pad_w_1) // 2
 
         # encoder_2
         out_enc_level2 = inp_enc_level2
@@ -606,7 +613,8 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
         
         # import ipdb;ipdb.set_trace()
         inp_enc_level3, attention_bias, attention_mask = self.down2_3(out_enc_level2, attention_mask, frame, height, width, pad_h=pad_h_2, pad_w=pad_w_2)
-        frame, height, width = frame // 2 if frame != 1 else frame, (height + pad_h_2) // 2, (width + pad_w_2) // 2
+        # frame, height, width = frame // 2 if frame != 1 else frame, (height + pad_h_2) // 2, (width + pad_w_2) // 2
+        height, width = (height + pad_h_2) // 2, (width + pad_w_2) // 2
 
         # latent
         latent = inp_enc_level3
@@ -648,7 +656,8 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
         
         # import ipdb;ipdb.set_trace()
         inp_dec_level2, attention_bias, attention_mask = self.up3_2(latent, attention_mask, frame, height, width, pad_h=pad_h_2, pad_w=pad_w_2)
-        frame, height, width = frame * 2 if frame != 1 else frame, height * 2 - pad_h_2, width * 2 - pad_w_2
+        # frame, height, width = frame * 2 if frame != 1 else frame, height * 2 - pad_h_2, width * 2 - pad_w_2
+        height, width = height * 2 - pad_h_2, width * 2 - pad_w_2
         inp_dec_level2 = torch.cat([inp_dec_level2, out_enc_level2], 2)
         inp_dec_level2 = self.reduce_chan_level2_norm(inp_dec_level2)
         inp_dec_level2 = self.reduce_chan_level2(inp_dec_level2)
@@ -692,7 +701,8 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
         
         # import ipdb;ipdb.set_trace()
         inp_dec_level1, attention_bias, attention_mask = self.up2_1(out_dec_level2, attention_mask, frame, height, width, pad_h=pad_h_1, pad_w=pad_w_1)
-        frame, height, width = frame * 2 if frame != 1 else frame, height * 2 - pad_h_1, width * 2 - pad_w_1
+        # frame, height, width = frame * 2 if frame != 1 else frame, height * 2 - pad_h_1, width * 2 - pad_w_1
+        height, width = height * 2 - pad_h_1, width * 2 - pad_w_1
         inp_dec_level1 = torch.cat([inp_dec_level1, out_enc_level1], 2)
         inp_dec_level1 = self.reduce_chan_level1_norm(inp_dec_level1)
         inp_dec_level1 = self.reduce_chan_level1(inp_dec_level1)
@@ -897,9 +907,9 @@ if __name__ == '__main__':
         'attention_mode': 'xformers', 
         'use_rope': True, 
         'model_max_length': 300, 
-        'max_height': 240, 
-        'max_width': 320, 
-        'num_frames': 1, 
+        'max_height': 480, 
+        'max_width': 640, 
+        'num_frames': 61, 
         'use_image_num': 0, 
         'compress_kv_factor': 1, 
         'interpolation_scale_t': 1,
@@ -922,7 +932,7 @@ if __name__ == '__main__':
 
 
     
-    model = UDiTUltraT2V_S_122(in_channels=c, 
+    model = UDiTUltraT2V_L_122(in_channels=c, 
                               out_channels=c, 
                               sample_size=latent_size, 
                               sample_size_t=num_frames, 
@@ -938,7 +948,7 @@ if __name__ == '__main__':
                             upcast_attention=False,
                             use_linear_projection=False,
                             use_additional_conditions=False, 
-                            downsampler='k33_s22', 
+                            downsampler='k333_s222', 
                             interpolation_scale_t=args.interpolation_scale_t, 
                             interpolation_scale_h=args.interpolation_scale_h, 
                             interpolation_scale_w=args.interpolation_scale_w, 
@@ -946,6 +956,33 @@ if __name__ == '__main__':
 
     print(model)
     print(f'{sum(p.numel() for p in model.parameters() if p.requires_grad)/1e9} B')
+
+
+    model_state_dict = model.state_dict()
+    pretrained = "/storage/ongoing/new/Open-Sora-Plan/bs2_20node_73000k_480p_61x480p_lr5e-5_snr5_noioff0.02_ema_rope_uditultra122_qknorm_ds222_mt5xxl_sucai288w/checkpoint-11500/model_ema/diffusion_pytorch_model.safetensors"
+    if 'safetensors' in pretrained:  # pixart series
+        from safetensors.torch import load_file as safe_load
+        # import ipdb;ipdb.set_trace()
+        pretrained_checkpoint = safe_load(pretrained, device="cpu")
+        pretrained_keys = set(list(pretrained_checkpoint.keys()))
+        model_keys = set(list(model_state_dict.keys()))
+        common_keys = list(pretrained_keys & model_keys)
+        checkpoint = {k: pretrained_checkpoint[k] for k in common_keys if model_state_dict[k].numel() == pretrained_checkpoint[k].numel()}
+        # if checkpoint['pos_embed.proj.weight'].shape != model.pos_embed.proj.weight.shape and checkpoint['pos_embed.proj.weight'].ndim == 4:
+        #     logger.info(f"Resize pos_embed, {checkpoint['pos_embed.proj.weight'].shape} -> {model.pos_embed.proj.weight.shape}")
+        #     repeat = model.pos_embed.proj.weight.shape[2]
+        #     checkpoint['pos_embed.proj.weight'] = checkpoint['pos_embed.proj.weight'].unsqueeze(2).repeat(1, 1, repeat, 1, 1) / float(repeat)
+            # del checkpoint['proj_out.weight'], checkpoint['proj_out.bias']
+    else:  # latest stage training weight
+        checkpoint = torch.load(pretrained, map_location='cpu')
+        if 'model' in checkpoint:
+            checkpoint = checkpoint['model']
+    import ipdb;ipdb.set_trace()
+    missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=False)
+    print(f'missing_keys {len(missing_keys)} {missing_keys}, unexpected_keys {len(unexpected_keys)}')
+    print(f'Successfully load {len(model_state_dict) - len(missing_keys)}/{len(model_state_dict)} keys from {args.pretrained}!')
+
+
     # import sys;sys.exit()
     # try:
     #     path = "bs32_1node_480p_lr1e-4_snr5_noioff0.02_ema_uditultra22_ds22_mt5xxl/checkpoint-500/model/diffusion_pytorch_model.safetensors"

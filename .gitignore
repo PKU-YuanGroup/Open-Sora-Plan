@@ -40,3 +40,7 @@ flash*
 alpha_vae
 *node*
 sample_image*cfg*
+*tmp*
+*pymp*
+check.py
+bucket.py

@@ -208,6 +208,7 @@ class OverlapPatchEmbed3D(nn.Module):
         video_latent, image_latent = None, None
         # b c 1 h w
         # assert latent.shape[-3] == 1 and num_frames == 1
+        
         num_frames = latent.shape[-3] // self.patch_size_t
         height, width = latent.shape[-2] // self.patch_size, latent.shape[-1] // self.patch_size
         # latent = rearrange(latent, 'b c t h w -> (b t) c h w')
@@ -424,6 +425,7 @@ class DownSampler3d(nn.Module):
         self.t = t//self.down_factor[0]
         self.h = h//self.down_factor[1]
         self.w = w//self.down_factor[2]
+        # import ipdb;ipdb.set_trace()
         x = rearrange(x, 'b d (t dt) (h dh) (w dw) -> (b dt dh dw) (t h w) d', 
                       t=t//self.down_factor[0], h=h//self.down_factor[1], w=w//self.down_factor[2], 
                          dt=self.down_factor[0], dh=self.down_factor[1], dw=self.down_factor[2])
@@ -436,6 +438,7 @@ class DownSampler3d(nn.Module):
         return x, attention_mask
     
     def reverse(self, x, t, h, w):
+        # import ipdb;ipdb.set_trace()
         x = rearrange(x, '(b dt dh dw) (t h w) d -> b (t dt h dh w dw) d', 
                       t=t, h=h, w=w, 
                          dt=self.down_factor[0], dh=self.down_factor[1], dw=self.down_factor[2])
@@ -597,15 +600,15 @@ class AttnProcessor2_0:
                 key = self.rope(key, pos_thw)
 
             value = value.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
-
-
-            if attention_mask is None or not torch.all(attention_mask.bool()):  # 0 mean visible
+            # 0, -10000 ->(bool) False, True ->(any) True ->(not) False
+            # 0, 0 ->(bool) False, False ->(any) False ->(not) True
+            if attention_mask is None or not torch.any(attention_mask.bool()):  # 0 mean visible
                 attention_mask = None
             # the output of sdp = (batch, num_heads, seq_len, head_dim)
             # TODO: add support for attn.scale when we move to Torch 2.1
             
             if self.attention_mode == 'flash':
-                assert attention_mask is None or not torch.all(attention_mask.bool()), 'flash-attn do not support attention_mask'
+                assert attention_mask is None, 'flash-attn do not support attention_mask'
                 with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=True, enable_mem_efficient=False):
                     hidden_states = F.scaled_dot_product_attention(
                         query, key, value, dropout_p=0.0, is_causal=False
@@ -647,38 +650,37 @@ class PixelUnshuffle(nn.Module):
     def __init__(self, ratio, ratio_t=None):
         super().__init__()
         self.r = ratio
-        self.r_t = ratio_t if ratio_t else ratio
+        self.r_t = ratio_t if ratio_t else 1
 
     def forward(self, x):
-        if self.r_t is not None and self.r_t != 1:
+        # if self.r_t is not None and self.r_t != 1:
+        if x.ndim == 5:
             b, c, t, h, w = x.shape
+            # import ipdb;ipdb.set_trace()
             assert t % self.r_t == 0 and h % self.r == 0 and w % self.r == 0
-            if self.r > 1:
-                x = rearrange(x, 'b c (t r1) (h r2) (w r3) -> b (c r1 r2 r3) t h w', r1=self.r_t, r2=self.r, r3=self.r)
+            x = rearrange(x, 'b c (t r1) (h r2) (w r3) -> b (c r1 r2 r3) t h w', r1=self.r_t, r2=self.r, r3=self.r)
         else:
             b, c, h, w = x.shape
             assert h % self.r == 0 and w % self.r == 0
-            if self.r > 1:
-                x = rearrange(x, 'b c (h r2) (w r3) -> b (c r2 r3) h w', r2=self.r, r3=self.r)
+            x = rearrange(x, 'b c (h r2) (w r3) -> b (c r2 r3) h w', r2=self.r, r3=self.r)
         return x
     
 class PixelShuffle(nn.Module):
     def __init__(self, ratio, ratio_t=None):
         super().__init__()
         self.r = ratio
-        self.r_t = ratio_t if ratio_t else ratio
+        self.r_t = ratio_t if ratio_t else 1
 
     def forward(self, x):
-        if self.r_t is not None and self.r_t != 1:
+        if x.ndim == 5:
             b, c, t, h, w = x.shape
+            # import ipdb;ipdb.set_trace()
             assert c % (self.r_t*self.r*self.r) == 0
-            if self.r > 1:
-                x = rearrange(x, 'b (c r1 r2 r3) t h w -> b c (t r1) (h r2) (w r3)', r1=self.r_t, r2=self.r, r3=self.r)
+            x = rearrange(x, 'b (c r1 r2 r3) t h w -> b c (t r1) (h r2) (w r3)', r1=self.r_t, r2=self.r, r3=self.r)
         else:
             b, c, h, w = x.shape
             assert c % (self.r*self.r) == 0
-            if self.r > 1:
-                x = rearrange(x, 'b (c r2 r3) h w -> b c (h r2) (w r3)', r2=self.r, r3=self.r)
+            x = rearrange(x, 'b (c r2 r3) h w -> b c (h r2) (w r3)', r2=self.r, r3=self.r)
         return x
 
 class Downsample3d(nn.Module):
@@ -734,13 +736,15 @@ class Upsample3d(nn.Module):
 
 
 class Downsample2d(nn.Module):
-    def __init__(self, n_feat):
+    def __init__(self, n_feat, is_video_model=False):
         super(Downsample2d, self).__init__()
-
-        self.body = nn.Sequential(nn.Conv2d(n_feat, n_feat // 2, kernel_size=3, stride=1, padding=1, bias=False),
+        self.is_video_model = is_video_model
+        Conv = nn.Conv3d if is_video_model else nn.Conv2d
+        self.body = nn.Sequential(Conv(n_feat, n_feat // 2, kernel_size=3, stride=1, padding=1, bias=False),
                                   PixelUnshuffle(2, 1))
 
     def forward(self, x, attention_mask, frames, height, width, pad_h=0, pad_w=0):
+        # import ipdb;ipdb.set_trace()
         x = rearrange(x, 'b (t h w) d -> (b t) d h w', t=frames, h=height, w=width)
         # x = F.pad(x, (0, pad_w, 0, pad_h), mode='reflect')
         # x = F.pad(x, (0, pad_w, 0, pad_h))
@@ -748,9 +752,13 @@ class Downsample2d(nn.Module):
             x = F.pad(x, (0, pad_w, 0, pad_h))
         else:
             x = npu_config.run_pad_2d(F.pad, x, pad=(0, pad_w, 0, pad_h))
-        # x = F.pad(x, (0, pad_w, 0, pad_h))
+        if self.is_video_model:
+            x = rearrange(x, '(b t) d h w -> b d t h w', t=frames)
         x = self.body(x)
-        x = rearrange(x, '(b t) d h w -> b (t h w) d', t=frames)
+        if self.is_video_model:
+            x = rearrange(x, 'b d t h w -> b (t h w) d', t=frames)
+        else:
+            x = rearrange(x, '(b t) d h w -> b (t h w) d', t=frames)
         
         attention_mask = rearrange(attention_mask, 'b 1 (t h w) -> (b t) 1 h w', t=frames, h=height, w=width)
         attention_mask = F.pad(attention_mask, (0, pad_w, 0, pad_h))
@@ -761,15 +769,21 @@ class Downsample2d(nn.Module):
         return x, attention_bias, attention_mask
     
 class Upsample2d(nn.Module):
-    def __init__(self, n_feat):
+    def __init__(self, n_feat, is_video_model=False):
         super(Upsample2d, self).__init__()
-
-        self.body = nn.Sequential(nn.Conv2d(n_feat, n_feat * 2, kernel_size=3, stride=1, padding=1, bias=False),
+        self.is_video_model = is_video_model
+        Conv = nn.Conv3d if is_video_model else nn.Conv2d
+        self.body = nn.Sequential(Conv(n_feat, n_feat * 2, kernel_size=3, stride=1, padding=1, bias=False),
                                   PixelShuffle(2, 1))
 
     def forward(self, x, attention_mask, frames, height, width, pad_h=0, pad_w=0):
-        x = rearrange(x, 'b (t h w) d -> (b t) d h w', t=frames, h=height, w=width)
+        if self.is_video_model:
+            x = rearrange(x, 'b (t h w) d -> b d t h w', t=frames, h=height, w=width)
+        else:
+            x = rearrange(x, 'b (t h w) d -> (b t) d h w', t=frames, h=height, w=width)
         x = self.body(x)
+        if self.is_video_model:
+            x = rearrange(x, 'b d t h w -> (b t) d h w')
         x = x[:, :, :height*2-pad_h, :width*2-pad_w]
         x = rearrange(x, '(b t) d h w -> b (t h w) d', t=frames)
 
@@ -1068,7 +1082,10 @@ class BasicTransformerBlock(nn.Module):
         # 1. Prepare GLIGEN inputs
         cross_attention_kwargs = cross_attention_kwargs.copy() if cross_attention_kwargs is not None else {}
         gligen_kwargs = cross_attention_kwargs.pop("gligen", None)
-
+        
+        # 0, -10000 ->(bool) False, True ->(any) True ->(not) False
+        # 0, 0 ->(bool) False, False ->(any) False ->(not) True
+        # assert attention_mask.bool().float().sum() / attention_mask.bool().float().numel() <= 1/16, 'must ~all visible'
         attn_output = self.attn1(
             norm_hidden_states,
             encoder_hidden_states=encoder_hidden_states if self.only_cross_attention else None,
