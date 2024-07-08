@@ -1,4 +1,4 @@
-PROJECT="videoip_65x512x512_1node_bs32_lr1e-5_snrgamma_noiseoffset_mjsam_dino_video_from_scratch"
+PROJECT="videoip_65x512x512_1node_bs32_lr1e-5_snrgamma_noiseoffset_mjsam_clip_video_from_scratch"
 export WANDB_API_KEY="720d886d8c437c2142c88056a1eab8ef78d64a1f"
 # # export WANDB_MODE="offline"
 export ENTITY="yunyangge"
@@ -18,8 +18,8 @@ accelerate launch \
     opensora/train/train_videoip.py \
     --model "LatteT2V-S/122" \
     --text_encoder_name DeepFloyd/t5-v1_1-xxl \
-    --image_encoder_type "dino" \
-    --image_encoder_name "facebook/dinov2-giant" \
+    --image_encoder_type "clip" \
+    --image_encoder_name "laion/CLIP-ViT-H-14-laion2B-s32B-b79K" \
     --cache_dir "/storage/cache_dir" \
     --dataset vip \
     --ae CausalVAEModel_4x8x8 \
@@ -40,7 +40,6 @@ accelerate launch \
     --lr_scheduler="constant" \
     --lr_warmup_steps=0 \
     --mixed_precision="bf16" \
-    --report_to="wandb" \
     --enable_tracker \
     --checkpointing_steps=1000 \
     --gradient_checkpointing \
@@ -49,7 +48,7 @@ accelerate launch \
     --model_max_length 300 \
     --enable_tiling \
     --validation_dir "validation_dir" \
-    --guidance_scale 3.0 \
+    --guidance_scale 5.0 \
     --num_sampling_steps 50 \
     --ema_start_step 0 \
     --use_ema \
@@ -63,7 +62,7 @@ accelerate launch \
     --noise_offset 0.02 \
     --vip_num_attention_heads 16 \
     --pretrained "/storage/1.1model/hw_65/model/diffusion_pytorch_model.safetensors" \
-    --resume_from_checkpoint "latest" \
-    # --pretrained_vip_adapter_path "videoip_65x512x512_1node_bs32_lr1e-5_snrgamma_noiseoffset_mjsam_clip_last2layer/checkpoint-50000/model" \
+    # --pretrained_vip_adapter_path "/storage/gyy/hw/Open-Sora-Plan/videoip_65x512x512_1node_bs32_lr1e-5_snrgamma_noiseoffset_mjsam_clip_dim512/checkpoint-20000/model" \
+    # --resume_from_checkpoint "latest" \
     # --zero_terminal_snr \
     # 基模型权重没有参与训练所以一定要加载
