@@ -4,6 +4,14 @@ from transformers import AutoTokenizer, AutoImageProcessor
 from torchvision import transforms
 from torchvision.transforms import Lambda
 
+# try:
+#     import torch_npu
+#     from opensora.npu_config import npu_config
+# from .t2v_datasets_npu import T2V_dataset
+# except:
+#     torch_npu = None
+#     npu_config = None
+#     from .t2v_datasets import T2V_dataset
 from .t2v_datasets import T2V_dataset
 
 from .inpaint_datasets import Inpaint_dataset
@@ -52,20 +60,26 @@ ae_denorm = {
 }
 
 def getdataset(args):
-    temporal_sample = TemporalRandomCrop(args.num_frames * args.sample_rate)  # 16 x
+    temporal_sample = TemporalRandomCrop(args.num_frames)  # 16 x
     norm_fun = ae_norm[args.ae]
     if args.dataset == 't2v':
         resize_topcrop = [CenterCropResizeVideo((args.max_height, args.max_width), top_crop=True), ]
-        if args.multi_scale:
-            resize = [
-                LongSideResizeVideo(args.max_image_size, skip_low_resolution=True),
-                SpatialStrideCropVideo(args.stride)
-                ]
-        else:
-            resize = [CenterCropResizeVideo((args.max_height, args.max_width)), ]
+        # if args.multi_scale:
+        #     resize = [
+        #         LongSideResizeVideo(args.max_image_size, skip_low_resolution=True),
+        #         SpatialStrideCropVideo(args.stride)
+        #         ]
+        # else:
+        resize = [CenterCropResizeVideo((args.max_height, args.max_width)), ]
         transform = transforms.Compose([
             ToTensorVideo(),
             *resize, 
+            # RandomHorizontalFlipVideo(p=0.5),  # in case their caption have position decription
+            norm_fun
+        ])
+        transform_topcrop = transforms.Compose([
+            ToTensorVideo(),
+            *resize_topcrop, 
             # RandomHorizontalFlipVideo(p=0.5),  # in case their caption have position decription
             norm_fun
         ])

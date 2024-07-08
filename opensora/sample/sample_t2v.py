@@ -35,8 +35,6 @@ import imageio
 
 def main(args):
     # torch.manual_seed(args.seed)
-    if args.enable_stable_fp32:
-        replace_with_fp32_forwards()
     weight_dtype = torch.bfloat16
     device = torch.device(args.device)
 
@@ -54,14 +52,15 @@ def main(args):
     #     transformer_model = LatteT2V.from_pretrained(args.model_path, subfolder=args.version, cache_dir=args.cache_dir, low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
     
     if args.model_3d:
-        # transformer_model = OpenSoraT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, 
-        #                                                 low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
-        transformer_model = UDiTUltraT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, 
+        transformer_model = OpenSoraT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, 
                                                         low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
+        # transformer_model = UDiTUltraT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, ignore_mismatched_sizes=True, 
+        #                                                 low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
     else:
         transformer_model = LatteT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, low_cpu_mem_usage=False, 
                                                      device_map=None, torch_dtype=weight_dtype)
-
+    # ckpt = torch.load('480p_73000_ema_k3_p1_repeat_wusun.pt')
+    # transformer_model.load_state_dict(ckpt)
     # text_encoder = UMT5EncoderModel.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir, low_cpu_mem_usage=True, torch_dtype=weight_dtype)
     # tokenizer = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
     text_encoder = MT5EncoderModel.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir, low_cpu_mem_usage=True, torch_dtype=weight_dtype)
@@ -132,7 +131,9 @@ def main(args):
                         """
     video_grids = []
     for idx, prompt in enumerate(text_prompt):
-        videos = pipeline(positive_prompt.format(prompt),
+        videos = pipeline(
+            positive_prompt.format(prompt),
+            # prompt,
                           negative_prompt=negative_prompt, 
                           num_frames=args.num_frames,
                           height=args.height,
@@ -142,7 +143,7 @@ def main(args):
                           num_images_per_prompt=1,
                           mask_feature=True,
                           device=args.device, 
-                          max_sequence_length=200, 
+                          max_sequence_length=args.max_sequence_length, 
                           ).images
         try:
             if args.num_frames == 1:
@@ -166,7 +167,7 @@ def main(args):
                    nrow=math.ceil(math.sqrt(len(video_grids))), normalize=True, value_range=(0, 1))
     else:
         video_grids = save_video_grid(video_grids)
-        imageio.mimwrite(os.path.join(args.save_img_path, f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}.{ext}'), video_grids, fps=args.fps, quality=9)
+        imageio.mimwrite(os.path.join(args.save_img_path, f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}.{ext}'), video_grids, fps=args.fps, quality=6)
 
     print('save path {}'.format(args.save_img_path))
 
@@ -184,13 +185,14 @@ if __name__ == "__main__":
     parser.add_argument("--ae_path", type=str, default='CausalVAEModel_4x8x8')
     parser.add_argument("--text_encoder_name", type=str, default='DeepFloyd/t5-v1_1-xxl')
     parser.add_argument("--save_img_path", type=str, default="./sample_videos/t2v")
-    parser.add_argument("--guidance_scale", type=float, default=7.5)
+    parser.add_argument("--guidance_scale", type=float, default=2.5)
     parser.add_argument("--sample_method", type=str, default="PNDM")
+    parser.add_argument("--max_sequence_length", type=int, default=300)
     parser.add_argument("--num_sampling_steps", type=int, default=50)
     parser.add_argument("--fps", type=int, default=24)
     parser.add_argument("--run_time", type=int, default=0)
     parser.add_argument("--text_prompt", nargs='+')
-    parser.add_argument('--tile_overlap_factor', type=float, default=0.25)
+    parser.add_argument('--tile_overlap_factor', type=float, default=0.125)
     parser.add_argument('--enable_tiling', action='store_true')
     parser.add_argument('--model_3d', action='store_true')
     parser.add_argument('--enable_stable_fp32', action='store_true')
