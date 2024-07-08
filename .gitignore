@@ -22,7 +22,7 @@ wandb/
 cache_dir/
 wandb/
 test*
-sample_videos/
+sample_video*/
 512*
 720*
 1024*
@@ -31,7 +31,7 @@ private*
 caption*
 .deepspeed_env
 256*
-sample_images/
+sample_image*/
 taming*
 *test*
 sft*

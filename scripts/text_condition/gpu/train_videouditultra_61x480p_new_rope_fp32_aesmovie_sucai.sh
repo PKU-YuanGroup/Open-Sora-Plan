@@ -24,7 +24,7 @@ accelerate launch \
     --ae CausalVAEModel_4x8x8 \
     --ae_path "/storage/dataset/test140k" \
     --sample_rate 1 \
-    --num_frames 61 \
+    --num_frames 125 \
     --max_height 480 \
     --max_width 640 \
     --interpolation_scale_t 1.0 \
@@ -53,9 +53,8 @@ accelerate launch \
     --cfg 0.1 \
     --noise_offset 0.02 \
     --use_rope \
-    --downsampler "k333_s222"  \
+    --downsampler "k333_s122"  \
     --resume_from_checkpoint="latest" \
-    --enable_stable_fp32 \
     --group_frame \
     --speed_factor 1.2 \
     --pretrained "/storage/ongoing/new/Open-Sora-Plan/bs20x8x2_73k_480p_61x480p_lr1e-4_snr5_noioff0.02_rope_uditultra122_qknorm_ds222_mt5xxl_movie_aes_mo_sucai_mo_speed1.2/checkpoint-12500/model_ema/diffusion_pytorch_model.safetensors" \

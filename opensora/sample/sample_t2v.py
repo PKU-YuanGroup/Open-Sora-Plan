@@ -51,10 +51,10 @@ def main(args):
     #     transformer_model = LatteT2V.from_pretrained(args.model_path, subfolder=args.version, cache_dir=args.cache_dir, low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
     
     if args.model_3d:
-        # transformer_model = OpenSoraT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, 
-        #                                                 low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
-        transformer_model = UDiTUltraT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, ignore_mismatched_sizes=True, 
+        transformer_model = OpenSoraT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, 
                                                         low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
+        # transformer_model = UDiTUltraT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, ignore_mismatched_sizes=True, 
+        #                                                 low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
     else:
         transformer_model = LatteT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, low_cpu_mem_usage=False, 
                                                      device_map=None, torch_dtype=weight_dtype)
@@ -131,8 +131,8 @@ def main(args):
     video_grids = []
     for idx, prompt in enumerate(text_prompt):
         videos = pipeline(
-            # positive_prompt.format(prompt),
-            prompt,
+            positive_prompt.format(prompt),
+            # prompt,
                           negative_prompt=negative_prompt, 
                           num_frames=args.num_frames,
                           height=args.height,
@@ -166,7 +166,7 @@ def main(args):
                    nrow=math.ceil(math.sqrt(len(video_grids))), normalize=True, value_range=(0, 1))
     else:
         video_grids = save_video_grid(video_grids)
-        imageio.mimwrite(os.path.join(args.save_img_path, f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}.{ext}'), video_grids, fps=args.fps, quality=9)
+        imageio.mimwrite(os.path.join(args.save_img_path, f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}.{ext}'), video_grids, fps=args.fps, quality=6)
 
     print('save path {}'.format(args.save_img_path))
 
