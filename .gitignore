@@ -42,3 +42,4 @@ alpha_vae
 cache/
 Open-Sora-Plan_models/
 sample_image*cfg*
+validation_dir/
