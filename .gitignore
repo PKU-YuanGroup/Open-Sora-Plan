@@ -45,3 +45,4 @@ sample_image*cfg*
 check.py
 bucket.py
 whileinf.py
+validation_dir/
