@@ -20,34 +20,10 @@ try:
 except:
     torch_npu = None
     npu_config = None
-class OpenSoraT2V(ModelMixin, ConfigMixin):
-    """
-    A 2D Transformer model for image-like data.
 
-    Parameters:
-        num_attention_heads (`int`, *optional*, defaults to 16): The number of heads to use for multi-head attention.
-        attention_head_dim (`int`, *optional*, defaults to 88): The number of channels in each head.
-        in_channels (`int`, *optional*):
-            The number of channels in the input and output (specify if the input is **continuous**).
-        num_layers (`int`, *optional*, defaults to 1): The number of layers of Transformer blocks to use.
-        dropout (`float`, *optional*, defaults to 0.0): The dropout probability to use.
-        cross_attention_dim (`int`, *optional*): The number of `encoder_hidden_states` dimensions to use.
-        sample_size (`int`, *optional*): The width of the latent images (specify if the input is **discrete**).
-            This is fixed during training since it is used to learn a number of position embeddings.
-        num_vector_embeds (`int`, *optional*):
-            The number of classes of the vector embeddings of the latent pixels (specify if the input is **discrete**).
-            Includes the class for the masked latent pixel.
-        activation_fn (`str`, *optional*, defaults to `"geglu"`): Activation function to use in feed-forward.
-        num_embeds_ada_norm ( `int`, *optional*):
-            The number of diffusion steps used during training. Pass if at least one of the norm_layers is
-            `AdaLayerNorm`. This is fixed during training since it is used to learn a number of embeddings that are
-            added to the hidden states.
+from .modeling_opensora import OpenSoraT2V
 
-            During inference, you can denoise for up to but not more steps than `num_embeds_ada_norm`.
-        attention_bias (`bool`, *optional*):
-            Configure if the `TransformerBlocks` attention should contain a bias parameter.
-    """
-
+class OpenSoraInpaint(OpenSoraT2V):
     _supports_gradient_checkpointing = True
 
     @register_to_config
@@ -87,192 +63,44 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
         use_rope: bool = False,
         use_stable_fp32: bool = False,
     ):
-        super().__init__()
-
-        # Validate inputs.
-        if patch_size is not None:
-            if norm_type not in ["ada_norm", "ada_norm_zero", "ada_norm_single"]:
-                raise NotImplementedError(
-                    f"Forward pass is not implemented when `patch_size` is not None and `norm_type` is '{norm_type}'."
-                )
-            elif norm_type in ["ada_norm", "ada_norm_zero"] and num_embeds_ada_norm is None:
-                raise ValueError(
-                    f"When using a `patch_size` and this `norm_type` ({norm_type}), `num_embeds_ada_norm` cannot be None."
-                )
-
-        # Set some common variables used across the board.
-        self.use_rope = use_rope
-        self.use_linear_projection = use_linear_projection
-        self.interpolation_scale_t = interpolation_scale_t
-        self.interpolation_scale_h = interpolation_scale_h
-        self.interpolation_scale_w = interpolation_scale_w
-        self.downsampler = downsampler
-        self.caption_channels = caption_channels
-        self.num_attention_heads = num_attention_heads
-        self.attention_head_dim = attention_head_dim
-        self.inner_dim = self.config.num_attention_heads * self.config.attention_head_dim
-        self.in_channels = in_channels
-        self.out_channels = in_channels if out_channels is None else out_channels
-        self.gradient_checkpointing = False
-        self.config.hidden_size = self.inner_dim
-        use_additional_conditions = False
-        # if use_additional_conditions is None:
-            # if norm_type == "ada_norm_single" and sample_size == 128:
-            #     use_additional_conditions = True
-            # else:
-            # use_additional_conditions = False
-        self.use_additional_conditions = use_additional_conditions
-
-        # 1. Transformer2DModel can process both standard continuous images of shape `(batch_size, num_channels, width, height)` as well as quantized image embeddings of shape `(batch_size, num_image_vectors)`
-        # Define whether input is continuous or discrete depending on configuration
-        assert in_channels is not None and patch_size is not None
-
-        if norm_type == "layer_norm" and num_embeds_ada_norm is not None:
-            deprecation_message = (
-                f"The configuration file of this model: {self.__class__} is outdated. `norm_type` is either not set or"
-                " incorrectly set to `'layer_norm'`. Make sure to set `norm_type` to `'ada_norm'` in the config."
-                " Please make sure to update the config accordingly as leaving `norm_type` might led to incorrect"
-                " results in future versions. If you have downloaded this checkpoint from the Hugging Face Hub, it"
-                " would be very nice if you could open a Pull request for the `transformer/config.json` file"
-            )
-            deprecate("norm_type!=num_embeds_ada_norm", "1.0.0", deprecation_message, standard_warn=False)
-            norm_type = "ada_norm"
-
-        # 2. Initialize the right blocks.
-        # Initialize the output blocks and other projection blocks when necessary.
-        self._init_patched_inputs(norm_type=norm_type)
-
-    def _init_patched_inputs(self, norm_type):
-        assert self.config.sample_size_t is not None, "OpenSoraT2V over patched input must provide sample_size_t"
-        assert self.config.sample_size is not None, "OpenSoraT2V over patched input must provide sample_size"
-        #assert not (self.config.sample_size_t == 1 and self.config.patch_size_t == 2), "Image do not need patchfy in t-dim"
-
-        self.num_frames = self.config.sample_size_t
-        self.config.sample_size = to_2tuple(self.config.sample_size)
-        self.height = self.config.sample_size[0]
-        self.width = self.config.sample_size[1]
-        self.patch_size_t = self.config.patch_size_t
-        self.patch_size = self.config.patch_size
-        interpolation_scale_t = ((self.config.sample_size_t - 1) // 16 + 1) if self.config.sample_size_t % 2 == 1 else self.config.sample_size_t / 16
-        interpolation_scale_t = (
-            self.config.interpolation_scale_t if self.config.interpolation_scale_t is not None else interpolation_scale_t
-        )
-        interpolation_scale = (
-            self.config.interpolation_scale_h if self.config.interpolation_scale_h is not None else self.config.sample_size[0] / 30, 
-            self.config.interpolation_scale_w if self.config.interpolation_scale_w is not None else self.config.sample_size[1] / 40, 
-        )
-        # if self.config.sample_size_t > 1:
-        #     self.pos_embed = PatchEmbed3D(
-        #         num_frames=self.config.sample_size_t,
-        #         height=self.config.sample_size[0],
-        #         width=self.config.sample_size[1],
-        #         patch_size_t=self.config.patch_size_t,
-        #         patch_size=self.config.patch_size,
-        #         in_channels=self.in_channels,
-        #         embed_dim=self.inner_dim,
-        #         interpolation_scale=interpolation_scale, 
-        #         interpolation_scale_t=interpolation_scale_t,
-        #     )
-        # else:
-        if self.config.downsampler is not None and len(self.config.downsampler) == 9:
-            self.pos_embed = OverlapPatchEmbed3D(
-                num_frames=self.config.sample_size_t,
-                height=self.config.sample_size[0],
-                width=self.config.sample_size[1],
-                patch_size_t=self.config.patch_size_t,
-                patch_size=self.config.patch_size,
-                in_channels=self.in_channels,
-                embed_dim=self.inner_dim,
-                interpolation_scale=interpolation_scale, 
-                interpolation_scale_t=interpolation_scale_t,
-                use_abs_pos=not self.config.use_rope, 
-            )
-        elif self.config.downsampler is not None and len(self.config.downsampler) == 7:
-            self.pos_embed = OverlapPatchEmbed2D(
-                num_frames=self.config.sample_size_t,
-                height=self.config.sample_size[0],
-                width=self.config.sample_size[1],
-                patch_size_t=self.config.patch_size_t,
-                patch_size=self.config.patch_size,
-                in_channels=self.in_channels,
-                embed_dim=self.inner_dim,
-                interpolation_scale=interpolation_scale, 
-                interpolation_scale_t=interpolation_scale_t,
-                use_abs_pos=not self.config.use_rope, 
-            )
         
-        else:
-            self.pos_embed = PatchEmbed2D(
-                num_frames=self.config.sample_size_t,
-                height=self.config.sample_size[0],
-                width=self.config.sample_size[1],
-                patch_size_t=self.config.patch_size_t,
-                patch_size=self.config.patch_size,
-                in_channels=self.in_channels,
-                embed_dim=self.inner_dim,
-                interpolation_scale=interpolation_scale, 
-                interpolation_scale_t=interpolation_scale_t,
-                use_abs_pos=not self.config.use_rope, 
-            )
-        interpolation_scale_thw = (interpolation_scale_t, *interpolation_scale)
-        self.transformer_blocks = nn.ModuleList(
-            [
-                BasicTransformerBlock(
-                    self.inner_dim,
-                    self.config.num_attention_heads,
-                    self.config.attention_head_dim,
-                    dropout=self.config.dropout,
-                    cross_attention_dim=self.config.cross_attention_dim,
-                    activation_fn=self.config.activation_fn,
-                    num_embeds_ada_norm=self.config.num_embeds_ada_norm,
-                    attention_bias=self.config.attention_bias,
-                    only_cross_attention=self.config.only_cross_attention,
-                    double_self_attention=self.config.double_self_attention,
-                    upcast_attention=self.config.upcast_attention,
-                    norm_type=norm_type,
-                    norm_elementwise_affine=self.config.norm_elementwise_affine,
-                    norm_eps=self.config.norm_eps,
-                    attention_type=self.config.attention_type,
-                    attention_mode=self.config.attention_mode, 
-                    downsampler=self.config.downsampler, 
-                    use_rope=self.config.use_rope, 
-                    interpolation_scale_thw=interpolation_scale_thw, 
-                )
-                for _ in range(self.config.num_layers)
-            ]
+        super().__init__(
+            num_attention_heads=num_attention_heads,
+            attention_head_dim=attention_head_dim,
+            in_channels=in_channels,
+            out_channels=out_channels,
+            num_layers=num_layers,
+            dropout=dropout,
+            norm_num_groups=norm_num_groups,
+            cross_attention_dim=cross_attention_dim,
+            attention_bias=attention_bias,
+            sample_size=sample_size,
+            sample_size_t=sample_size_t,
+            num_vector_embeds=num_vector_embeds,
+            patch_size=patch_size,
+            patch_size_t=patch_size_t,
+            activation_fn=activation_fn,
+            num_embeds_ada_norm=num_embeds_ada_norm,
+            use_linear_projection=use_linear_projection,
+            only_cross_attention=only_cross_attention,
+            double_self_attention=double_self_attention,
+            upcast_attention=upcast_attention,
+            norm_type=norm_type,
+            norm_elementwise_affine=norm_elementwise_affine,
+            norm_eps=norm_eps,
+            attention_type=attention_type,
+            caption_channels=caption_channels,
+            interpolation_scale_h=interpolation_scale_h,
+            interpolation_scale_w=interpolation_scale_w,
+            interpolation_scale_t=interpolation_scale_t,
+            use_additional_conditions=use_additional_conditions,
+            attention_mode=attention_mode,
+            downsampler=downsampler,
+            use_rope=use_rope,
+            use_stable_fp32=use_stable_fp32,
         )
 
-        if self.config.norm_type != "ada_norm_single":
-            self.norm_out = nn.LayerNorm(self.inner_dim, elementwise_affine=False, eps=1e-6)
-            self.proj_out_1 = nn.Linear(self.inner_dim, 2 * self.inner_dim)
-            self.proj_out_2 = nn.Linear(
-                self.inner_dim, self.config.patch_size_t * self.config.patch_size * self.config.patch_size * self.out_channels
-            )
-        elif self.config.norm_type == "ada_norm_single":
-            self.norm_out = nn.LayerNorm(self.inner_dim, elementwise_affine=False, eps=1e-6)
-            self.scale_shift_table = nn.Parameter(torch.randn(2, self.inner_dim) / self.inner_dim**0.5)
-            self.proj_out = nn.Linear(
-                self.inner_dim, self.config.patch_size_t * self.config.patch_size * self.config.patch_size * self.out_channels
-            )
-
-        # PixArt-Alpha blocks.
-        self.adaln_single = None
-        if self.config.norm_type == "ada_norm_single":
-            # TODO(Sayak, PVP) clean this, for now we use sample size to determine whether to use
-            # additional conditions until we find better name
-            self.adaln_single = AdaLayerNormSingle(
-                self.inner_dim, use_additional_conditions=self.use_additional_conditions
-            )
-
-        self.caption_projection = None
-        if self.caption_channels is not None:
-            self.caption_projection = PixArtAlphaTextProjection(
-                in_features=self.caption_channels, hidden_size=self.inner_dim
-            )
-
-    def _set_gradient_checkpointing(self, module, value=False):
-        if hasattr(module, "gradient_checkpointing"):
-            module.gradient_checkpointing = value
+        
 
     def forward(
         self,
