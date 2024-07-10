@@ -80,7 +80,7 @@ class Inpaint_dataset(T2V_dataset):
 
         text = text_preprocessing(text, support_Chinese=self.support_Chinese)
         
-        text = self.drop(text)
+        text = self.drop(text)['text']
 
         text_tokens_and_mask = self.tokenizer(
             text,
