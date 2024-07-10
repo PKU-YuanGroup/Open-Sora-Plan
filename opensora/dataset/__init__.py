@@ -13,15 +13,7 @@ from torchvision.transforms import Lambda
 #     npu_config = None
 #     from .t2v_datasets import T2V_dataset
 from .t2v_datasets import T2V_dataset
-<<<<<<< HEAD
-
 from .inpaint_datasets import Inpaint_dataset
-
-from .videoip_datasets import VideoIP_dataset
-
-=======
-from .inpaint_datasets import Inpaint_dataset
->>>>>>> new_hw_onging
 from .transform import ToTensorVideo, TemporalRandomCrop, RandomHorizontalFlipVideo, CenterCropResizeVideo, LongSideResizeVideo, SpatialStrideCropVideo
 
 

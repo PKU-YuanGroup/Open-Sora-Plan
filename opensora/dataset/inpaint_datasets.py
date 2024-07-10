@@ -1,8 +1,3 @@
-<<<<<<< HEAD
-import json
-import os, io, csv, math, random
-from turtle import width
-=======
 
 from torch.utils.data import Dataset
 
@@ -15,16 +10,12 @@ except:
 import glob
 import json
 import os, io, csv, math, random
->>>>>>> new_hw_onging
 import numpy as np
 import torchvision
 from einops import rearrange
 from decord import VideoReader
 from os.path import join as opj
-<<<<<<< HEAD
-=======
 from collections import Counter
->>>>>>> new_hw_onging
 
 import torch
 import torchvision.transforms as transforms
