@@ -12,7 +12,9 @@ from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.models.modeling_utils import ModelMixin
 from diffusers.models.normalization import AdaLayerNormSingle
 from diffusers.models.embeddings import PixArtAlphaTextProjection
-from opensora.models.diffusion.udit_ultra.modules import Upsample3d, Downsample3d, Upsample2d, Downsample2d, OverlapPatchEmbed3D, OverlapPatchEmbed2D, BasicTransformerBlock
+from opensora.models.diffusion.udit_ultra.modules import Upsample3d, Downsample3d, Upsample2d, Downsample2d, \
+    OverlapPatchEmbed3D, OverlapPatchEmbed2D, BasicTransformerBlock, \
+    FP32_GELU, FP32_SiLU, FP32_Layernorm
 from opensora.utils.utils import to_2tuple
 import math
 import re
@@ -90,10 +92,12 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
         attention_mode: str = 'xformers', 
         downsampler: str = 'k333_s222', 
         use_rope: bool = False, 
+        use_stable_fp32: bool = False, 
     ):
         super().__init__()
 
         # Set some common variables used across the board.
+        self.use_stable_fp32 = use_stable_fp32
         self.use_rope = use_rope
         self.downsampler = downsampler
         self.use_linear_projection = use_linear_projection
@@ -133,15 +137,17 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
         # 2. Initialize the right blocks.
         # Initialize the output blocks and other projection blocks when necessary.
         self._init_patched_inputs(norm_type=norm_type)
+        if self.use_stable_fp32:
+            self._replace_fp32_layers()
 
     def _init_patched_inputs(self, norm_type):
         assert self.config.sample_size_t is not None, "OpenSoraT2V over patched input must provide sample_size_t"
         assert self.config.sample_size is not None, "OpenSoraT2V over patched input must provide sample_size"
 
-        self.num_frames = self.config.sample_size_t
         self.config.sample_size = to_2tuple(self.config.sample_size)
-        self.height = self.config.sample_size[0]
-        self.width = self.config.sample_size[1]
+        # self.num_frames = self.config.sample_size_t
+        # self.height = self.config.sample_size[0]
+        # self.width = self.config.sample_size[1]
         interpolation_scale_t = ((self.config.sample_size_t - 1) // 16 + 1) if self.config.sample_size_t % 2 == 1 else self.config.sample_size_t / 16
         interpolation_scale_t = (
             self.config.interpolation_scale_t if self.config.interpolation_scale_t is not None else interpolation_scale_t
@@ -155,9 +161,9 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
         # down_factor = [int(i) for i in down_factor]
         # down_factor = down_factor if isinstance(self.config.down_factor, list) else [self.config.down_factor] * 5
         # down_factor = [2] * len(self.config.depth)
-        
+        is_video_model = False
         if self.config.downsampler is not None and len(self.config.downsampler) == 9:
-            is_video_model = True
+            is_video_model = True  # to init weight from image
             self.pos_embed = OverlapPatchEmbed3D(
                 num_frames=self.config.sample_size_t,
                 height=self.config.sample_size[0],
@@ -184,16 +190,16 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
                 interpolation_scale_t=interpolation_scale_t,
                 use_abs_pos=not self.config.use_rope, 
             )
-        layer_thw = [[self.config.sample_size_t//self.config.patch_size_t, 
-                      (self.config.sample_size[0] + self.config.sample_size[0] % (self.config.patch_size*2))//self.config.patch_size, 
-                      (self.config.sample_size[1] + self.config.sample_size[1] % (self.config.patch_size*2))//self.config.patch_size]]
+        # layer_thw = [[self.config.sample_size_t//self.config.patch_size_t, 
+        #               (self.config.sample_size[0] + self.config.sample_size[0] % (self.config.patch_size*2))//self.config.patch_size, 
+        #               (self.config.sample_size[1] + self.config.sample_size[1] % (self.config.patch_size*2))//self.config.patch_size]]
         interpolation_scale_thw = (interpolation_scale_t, *interpolation_scale)
-        for i in range((len(self.config.depth)-1)//2):
-            t = layer_thw[i][0] // 2 if layer_thw[i][0] != 1 else 1
-            h = (layer_thw[i][1] + layer_thw[i][1] % 4) // 2  # why mod 4, because downsample and downsampler in attention
-            w = (layer_thw[i][2] + layer_thw[i][2] % 4) // 2
-            layer_thw.append([t, h, w])
-        self.layer_thw = layer_thw
+        # for i in range((len(self.config.depth)-1)//2):
+        #     t = layer_thw[i][0] // 2 if layer_thw[i][0] != 1 else 1
+        #     h = (layer_thw[i][1] + layer_thw[i][1] % 4) // 2  # why mod 4, because downsample and downsampler in attention
+        #     w = (layer_thw[i][2] + layer_thw[i][2] % 4) // 2
+        #     layer_thw.append([t, h, w])
+        # self.layer_thw = layer_thw
         self.encoder_level_1 = nn.ModuleList(
             [
                 BasicTransformerBlock(
@@ -221,7 +227,8 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
                 for _ in range(self.config.depth[0])
             ]
         )
-        self.down1_2 = Downsample3d(self.inner_dim) if is_video_model else Downsample2d(self.inner_dim)
+        # self.down1_2 = Downsample3d(self.inner_dim) if is_video_model else Downsample2d(self.inner_dim)
+        self.down1_2 = Downsample2d(self.inner_dim, is_video_model)
         
         self.encoder_level_2 = nn.ModuleList(
             [
@@ -250,7 +257,8 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
                 for _ in range(self.config.depth[1])
             ]
         )
-        self.down2_3 = Downsample3d(self.inner_dim * 2) if is_video_model else Downsample2d(self.inner_dim * 2)
+        # self.down2_3 = Downsample3d(self.inner_dim * 2) if is_video_model else Downsample2d(self.inner_dim * 2)
+        self.down2_3 = Downsample2d(self.inner_dim * 2, is_video_model)
 
         self.latent = nn.ModuleList(
             [
@@ -280,7 +288,9 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
             ]
         )
 
-        self.up3_2 = Upsample3d(int(self.inner_dim * 4)) if is_video_model else Upsample2d(self.inner_dim * 4)  ## From Level 4 to Level 3
+        # self.up3_2 = Upsample3d(int(self.inner_dim * 4)) if is_video_model else Upsample2d(self.inner_dim * 4)  ## From Level 4 to Level 3
+        self.up3_2 = Upsample2d(self.inner_dim * 4, is_video_model)  ## From Level 4 to Level 3
+        
         self.reduce_chan_level2_norm = nn.LayerNorm(int(self.inner_dim * 4), elementwise_affine=True, eps=1e-6)
         self.reduce_chan_level2 = nn.Linear(int(self.inner_dim * 4), int(self.inner_dim * 2), bias=True)
         self.decoder_level_2 = nn.ModuleList(
@@ -311,7 +321,9 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
             ]
         )
 
-        self.up2_1 = Upsample3d(int(self.inner_dim * 2)) if is_video_model else Upsample2d(self.inner_dim * 2)  ## From Level 4 to Level 3
+        # self.up2_1 = Upsample3d(int(self.inner_dim * 2)) if is_video_model else Upsample2d(self.inner_dim * 2)  ## From Level 4 to Level 3
+        self.up2_1 = Upsample2d(self.inner_dim * 2, is_video_model)  ## From Level 4 to Level 3
+        
         self.reduce_chan_level1_norm = nn.LayerNorm(int(self.inner_dim * 2), elementwise_affine=True, eps=1e-6)
         self.reduce_chan_level1 = nn.Linear(int(self.inner_dim * 2), int(self.inner_dim * 1), bias=True)
         self.decoder_level_1 = nn.ModuleList(
@@ -381,6 +393,27 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
         self.caption_projection_3 = PixArtAlphaTextProjection(
             in_features=self.caption_channels, hidden_size=self.inner_dim * 4
         )
+
+    def _replace_fp32_layers(self, module=None):
+        if module is None:
+            module = self
+        for name, submodule in module.named_children():
+            if isinstance(submodule, nn.LayerNorm):
+                # print(f"Replacing LayerNorm in {name}")
+                new_layer = FP32_Layernorm(submodule.normalized_shape, submodule.eps, submodule.elementwise_affine)
+                if submodule.elementwise_affine:
+                    new_layer.weight.data.copy_(submodule.weight.data.float())
+                    if submodule.bias is not None:
+                        new_layer.bias.data.copy_(submodule.bias.data.float()) 
+                setattr(module, name, new_layer)
+            elif isinstance(submodule, nn.SiLU):
+                # print(f"Replacing SiLU in {name}")
+                setattr(module, name, FP32_SiLU(submodule.inplace))
+            elif isinstance(submodule, nn.GELU):
+                # print(f"Replacing GELU in {name}")
+                setattr(module, name, FP32_GELU(submodule.approximate))
+            else:
+                self._replace_fp32_layers(submodule) 
 
     def _set_gradient_checkpointing(self, module, value=False):
         if hasattr(module, "gradient_checkpointing"):
@@ -537,7 +570,8 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
         pad_h_1, pad_w_1 = height % 4, width % 4
         
         inp_enc_level2, attention_bias, attention_mask = self.down1_2(out_enc_level1, attention_mask, frame, height, width, pad_h=pad_h_1, pad_w=pad_w_1)
-        frame, height, width = frame // 2 if frame != 1 else frame, (height + pad_h_1) // 2, (width + pad_w_1) // 2
+        # frame, height, width = frame // 2 if frame != 1 else frame, (height + pad_h_1) // 2, (width + pad_w_1) // 2
+        height, width = (height + pad_h_1) // 2, (width + pad_w_1) // 2
 
         # encoder_2
         out_enc_level2 = inp_enc_level2
@@ -579,7 +613,8 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
         
         # import ipdb;ipdb.set_trace()
         inp_enc_level3, attention_bias, attention_mask = self.down2_3(out_enc_level2, attention_mask, frame, height, width, pad_h=pad_h_2, pad_w=pad_w_2)
-        frame, height, width = frame // 2 if frame != 1 else frame, (height + pad_h_2) // 2, (width + pad_w_2) // 2
+        # frame, height, width = frame // 2 if frame != 1 else frame, (height + pad_h_2) // 2, (width + pad_w_2) // 2
+        height, width = (height + pad_h_2) // 2, (width + pad_w_2) // 2
 
         # latent
         latent = inp_enc_level3
@@ -621,7 +656,8 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
         
         # import ipdb;ipdb.set_trace()
         inp_dec_level2, attention_bias, attention_mask = self.up3_2(latent, attention_mask, frame, height, width, pad_h=pad_h_2, pad_w=pad_w_2)
-        frame, height, width = frame * 2 if frame != 1 else frame, height * 2 - pad_h_2, width * 2 - pad_w_2
+        # frame, height, width = frame * 2 if frame != 1 else frame, height * 2 - pad_h_2, width * 2 - pad_w_2
+        height, width = height * 2 - pad_h_2, width * 2 - pad_w_2
         inp_dec_level2 = torch.cat([inp_dec_level2, out_enc_level2], 2)
         inp_dec_level2 = self.reduce_chan_level2_norm(inp_dec_level2)
         inp_dec_level2 = self.reduce_chan_level2(inp_dec_level2)
@@ -665,7 +701,8 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
         
         # import ipdb;ipdb.set_trace()
         inp_dec_level1, attention_bias, attention_mask = self.up2_1(out_dec_level2, attention_mask, frame, height, width, pad_h=pad_h_1, pad_w=pad_w_1)
-        frame, height, width = frame * 2 if frame != 1 else frame, height * 2 - pad_h_1, width * 2 - pad_w_1
+        # frame, height, width = frame * 2 if frame != 1 else frame, height * 2 - pad_h_1, width * 2 - pad_w_1
+        height, width = height * 2 - pad_h_1, width * 2 - pad_w_1
         inp_dec_level1 = torch.cat([inp_dec_level1, out_enc_level1], 2)
         inp_dec_level1 = self.reduce_chan_level1_norm(inp_dec_level1)
         inp_dec_level1 = self.reduce_chan_level1(inp_dec_level1)
@@ -857,47 +894,9 @@ UDiT_Ultra_models_class = {
 }
 
 
-
-def maybe_zero_3(param, ignore_status=False, name=None):
-    from deepspeed import zero
-    from deepspeed.runtime.zero.partition_parameters import ZeroParamStatus
-    if hasattr(param, "ds_id"):
-        if param.ds_status == ZeroParamStatus.NOT_AVAILABLE:
-            if not ignore_status:
-                logging.warning(f"{name}: param.ds_status != ZeroParamStatus.NOT_AVAILABLE: {param.ds_status}")
-        with zero.GatheredParameters([param]):
-            param = param.data.detach().cpu().clone()
-    else:
-        param = param.detach().cpu().clone()
-    return param
-
-# Borrowed from peft.utils.get_peft_model_state_dict
-def get_peft_state_maybe_zero_3(named_params, bias):
-    if bias == "none":
-        to_return = {k: t for k, t in named_params if "lora_" in k}
-    elif bias == "all":
-        to_return = {k: t for k, t in named_params if "lora_" in k or "bias" in k}
-    elif bias == "lora_only":
-        to_return = {}
-        maybe_lora_bias = {}
-        lora_bias_names = set()
-        for k, t in named_params:
-            if "lora_" in k:
-                to_return[k] = t
-                bias_name = k.split("lora_")[0] + "bias"
-                lora_bias_names.add(bias_name)
-            elif "bias" in k:
-                maybe_lora_bias[k] = t
-        for k, t in maybe_lora_bias:
-            if bias_name in lora_bias_names:
-                to_return[bias_name] = t
-    else:
-        raise NotImplementedError
-    to_return = {k: maybe_zero_3(v, ignore_status=True) for k, v in to_return.items()}
-    return to_return
-
 if __name__ == '__main__':
     import sys
+    from copy import deepcopy
     from opensora.models.ae import ae_channel_config, ae_stride_config
     from opensora.models.ae import getae, getae_wrapper
     from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModelWrapper
@@ -908,9 +907,9 @@ if __name__ == '__main__':
         'attention_mode': 'xformers', 
         'use_rope': True, 
         'model_max_length': 300, 
-        'max_height': 240, 
-        'max_width': 320, 
-        'num_frames': 1, 
+        'max_height': 480, 
+        'max_width': 640, 
+        'num_frames': 61, 
         'use_image_num': 0, 
         'compress_kv_factor': 1, 
         'interpolation_scale_t': 1,
@@ -929,7 +928,10 @@ if __name__ == '__main__':
     else:
         num_frames = args.num_frames // ae_stride_t
 
-    device = torch.device('cuda:1')
+    device = torch.device('cuda:0')
+
+
+    
     model = UDiTUltraT2V_L_122(in_channels=c, 
                               out_channels=c, 
                               sample_size=latent_size, 
@@ -946,7 +948,7 @@ if __name__ == '__main__':
                             upcast_attention=False,
                             use_linear_projection=False,
                             use_additional_conditions=False, 
-                            downsampler='k33_s22', 
+                            downsampler='k333_s222', 
                             interpolation_scale_t=args.interpolation_scale_t, 
                             interpolation_scale_h=args.interpolation_scale_h, 
                             interpolation_scale_w=args.interpolation_scale_w, 
@@ -954,36 +956,63 @@ if __name__ == '__main__':
 
     print(model)
     print(f'{sum(p.numel() for p in model.parameters() if p.requires_grad)/1e9} B')
-    # import sys;sys.exit()
-    try:
-        path = "bs32_1node_480p_lr1e-4_snr5_noioff0.02_ema_uditultra22_ds22_mt5xxl/checkpoint-500/model/diffusion_pytorch_model.safetensors"
+
+
+    model_state_dict = model.state_dict()
+    pretrained = "/storage/ongoing/new/Open-Sora-Plan/bs2_20node_73000k_480p_61x480p_lr5e-5_snr5_noioff0.02_ema_rope_uditultra122_qknorm_ds222_mt5xxl_sucai288w/checkpoint-11500/model_ema/diffusion_pytorch_model.safetensors"
+    if 'safetensors' in pretrained:  # pixart series
         from safetensors.torch import load_file as safe_load
-        ckpt = safe_load(path, device="cpu")
-        new_ckpt = {}
-        k_size = 3
-        t_stride = 1
-        for k, v in ckpt.items():
-            if 'pos_embed.proj.weight' in k:
-                new_v = v.unsqueeze(-3).repeat(1, 1, k_size, 1, 1)  # 768, 4, 3, 3 -> 768, 4, 3, 3, 3
-            elif 'attn1.downsampler.layer.weight' in k:
-                new_v = v.unsqueeze(-3).repeat(1, 1, k_size, 1, 1)  # 768, 4, 3, 3 -> 768, 4, 3, 3, 3
-            elif 'body.0.weight' in k and 'down' in k:
-                in_c = v.shape[0]
-                new_v = v[:in_c//2].unsqueeze(-3).repeat(1, 1, k_size, 1, 1)  # 384, 768, 3, 3 -> 192, 768, 3, 3, 3
-            elif 'body.0.weight' in k and 'up' in k:
-                new_v = v.unsqueeze(-3).repeat(2, 1, k_size, 1, 1)  # 6144, 3072, 3, 3 -> 12288, 3072, 3, 3, 3
-            elif 'proj_out' in k:
-                if 'weight' in k:
-                    new_v = v.repeat(t_stride, 1)  # 16, 768 -> 32, 768
-                elif 'bias' in k:
-                    new_v = v.repeat(t_stride)  # 16 -> 32
-            else:
-                new_v = v
-            new_ckpt[k] = new_v
-        msg = model.load_state_dict(new_ckpt, strict=False)
-        # print(msg)
-    except Exception as e:
-        print(e)
+        # import ipdb;ipdb.set_trace()
+        pretrained_checkpoint = safe_load(pretrained, device="cpu")
+        pretrained_keys = set(list(pretrained_checkpoint.keys()))
+        model_keys = set(list(model_state_dict.keys()))
+        common_keys = list(pretrained_keys & model_keys)
+        checkpoint = {k: pretrained_checkpoint[k] for k in common_keys if model_state_dict[k].numel() == pretrained_checkpoint[k].numel()}
+        # if checkpoint['pos_embed.proj.weight'].shape != model.pos_embed.proj.weight.shape and checkpoint['pos_embed.proj.weight'].ndim == 4:
+        #     logger.info(f"Resize pos_embed, {checkpoint['pos_embed.proj.weight'].shape} -> {model.pos_embed.proj.weight.shape}")
+        #     repeat = model.pos_embed.proj.weight.shape[2]
+        #     checkpoint['pos_embed.proj.weight'] = checkpoint['pos_embed.proj.weight'].unsqueeze(2).repeat(1, 1, repeat, 1, 1) / float(repeat)
+            # del checkpoint['proj_out.weight'], checkpoint['proj_out.bias']
+    else:  # latest stage training weight
+        checkpoint = torch.load(pretrained, map_location='cpu')
+        if 'model' in checkpoint:
+            checkpoint = checkpoint['model']
+    import ipdb;ipdb.set_trace()
+    missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=False)
+    print(f'missing_keys {len(missing_keys)} {missing_keys}, unexpected_keys {len(unexpected_keys)}')
+    print(f'Successfully load {len(model_state_dict) - len(missing_keys)}/{len(model_state_dict)} keys from {args.pretrained}!')
+
+
+    # import sys;sys.exit()
+    # try:
+    #     path = "bs32_1node_480p_lr1e-4_snr5_noioff0.02_ema_uditultra22_ds22_mt5xxl/checkpoint-500/model/diffusion_pytorch_model.safetensors"
+    #     from safetensors.torch import load_file as safe_load
+    #     ckpt = safe_load(path, device="cpu")
+    #     new_ckpt = {}
+    #     k_size = 3
+    #     t_stride = 1
+    #     for k, v in ckpt.items():
+    #         if 'pos_embed.proj.weight' in k:
+    #             new_v = v.unsqueeze(-3).repeat(1, 1, k_size, 1, 1)  # 768, 4, 3, 3 -> 768, 4, 3, 3, 3
+    #         elif 'attn1.downsampler.layer.weight' in k:
+    #             new_v = v.unsqueeze(-3).repeat(1, 1, k_size, 1, 1)  # 768, 4, 3, 3 -> 768, 4, 3, 3, 3
+    #         elif 'body.0.weight' in k and 'down' in k:
+    #             in_c = v.shape[0]
+    #             new_v = v[:in_c//2].unsqueeze(-3).repeat(1, 1, k_size, 1, 1)  # 384, 768, 3, 3 -> 192, 768, 3, 3, 3
+    #         elif 'body.0.weight' in k and 'up' in k:
+    #             new_v = v.unsqueeze(-3).repeat(2, 1, k_size, 1, 1)  # 6144, 3072, 3, 3 -> 12288, 3072, 3, 3, 3
+    #         elif 'proj_out' in k:
+    #             if 'weight' in k:
+    #                 new_v = v.repeat(t_stride, 1)  # 16, 768 -> 32, 768
+    #             elif 'bias' in k:
+    #                 new_v = v.repeat(t_stride)  # 16 -> 32
+    #         else:
+    #             new_v = v
+    #         new_ckpt[k] = new_v
+    #     msg = model.load_state_dict(new_ckpt, strict=False)
+    #     # print(msg)
+    # except Exception as e:
+    #     print(e)
     x = torch.randn(b, c,  1+(args.num_frames-1)//ae_stride_t+args.use_image_num, args.max_height//ae_stride_h, args.max_width//ae_stride_w).to(device)
     cond = torch.randn(b, 1+args.use_image_num, args.model_max_length, cond_c).to(device)
     attn_mask = torch.randint(0, 2, (b, 1+(args.num_frames-1)//ae_stride_t+args.use_image_num, args.max_height//ae_stride_h, args.max_width//ae_stride_w)).to(device)  # B L or B 1+num_images L
@@ -992,87 +1021,53 @@ if __name__ == '__main__':
     model_kwargs = dict(hidden_states=x, encoder_hidden_states=cond, attention_mask=attn_mask, 
                         encoder_attention_mask=cond_mask, use_image_num=args.use_image_num, timestep=timestep)
     with torch.no_grad():
-        output = model(**model_kwargs)
-    print(output[0].shape)
-    sys.exit()
-    from peft import LoraConfig, PeftModel
-    from peft import get_peft_model
-    lora_save_path = 'lora'
-    lora_config = LoraConfig(
-        r=16,
-        lora_alpha=16,
-        init_lora_weights="gaussian",
-        target_modules=["to_k", "to_q", "to_v", "to_out.0"],
-    )
-    model_lora = get_peft_model(model, lora_config)
-
-    from copy import deepcopy
-    from diffusers.training_utils import EMAModel
-
-    class EMAModel_LoRA(EMAModel):
-        def __init__(self, lora_config, **kwargs):
-            super().__init__(**kwargs)
-            self.lora_config = lora_config
-        
-        @classmethod
-        def from_pretrained(cls, path, model_cls, lora_config) -> "EMAModel":
-            load_config, ema_kwargs = model_cls.load_config(path, return_unused_kwargs=True)
-            model = model_cls.from_config(path)
-            model = get_peft_model(model, lora_config)
-            from safetensors.torch import load_file as safe_load
-            main_and_lora = safe_load(os.path.join(path, 'diffusion_pytorch_model.safetensors'), device="cpu")
-            model.base_model.model.load_state_dict(main_and_lora)
-            ema_model = cls(lora_config, parameters=model.parameters(), model_cls=model_cls, model_config=model.config)
-            
-            ema_model.load_state_dict(ema_kwargs)
-            return ema_model
+        output = model(**model_kwargs)[0]
+    print(output.shape)
     
-        def save_pretrained(self, path):
-            if self.model_cls is None:
-                raise ValueError("`save_pretrained` can only be used if `model_cls` was defined at __init__.")
-
-            if self.model_config is None:
-                raise ValueError("`save_pretrained` can only be used if `model_config` was defined at __init__.")
-
-            model = self.model_cls.from_config(self.model_config)
-            model = get_peft_model(model, self.lora_config)
-            state_dict = self.state_dict()
-            state_dict.pop("shadow_params", None)
-            model.base_model.model.register_to_config(**state_dict)
-            self.copy_to(model.parameters())
-            model.base_model.model.save_pretrained(path)
-            model.save_pretrained(path)
-
-
-    ema_model = deepcopy(model_lora)
-    ema_model_lora = EMAModel_LoRA(lora_config, parameters=ema_model.parameters(), update_after_step=0, model_cls=UDiTUltraT2V, model_config=ema_model.config)
-    
-    for k, v in zip(ema_model_lora.shadow_params, model_lora.parameters()):
-        assert torch.allclose(v, k)
-
-    ema_model_lora.save_pretrained("model_ema_lora")
-
-    ema_model_load_lora = EMAModel_LoRA.from_pretrained("model_ema_lora", UDiTUltraT2V, lora_config)
-    ema_model_lora.load_state_dict(ema_model_load_lora.state_dict())
-    ema_model_lora.to(device)
 
 
 
+    # from peft import LoraConfig, PeftModel, get_peft_model
+    # from opensora.utils.lora_utils import EMAModel_LoRA, maybe_zero_3, get_peft_state_maybe_zero_3
+    # lora_save_path = '/storage/ongoing/new/Open-Sora-Plan/debug_lora/model_lora'
+    # ema_lora_save_path = '/storage/ongoing/new/Open-Sora-Plan/debug_lora/ema_model_lora'
+    # origin_model_path = '/storage/ongoing/new/Open-Sora-Plan/bs16_4node_240p_lr1e-4_snr5_noioff0.02_ema_rope_uditultra22_ds22_mt5xxl/checkpoint-500/model_ema'
+    # model = UDiTUltraT2V.from_pretrained(origin_model_path)
+    # lora_config = LoraConfig(
+    #     r=64,
+    #     lora_alpha=64,
+    #     init_lora_weights="gaussian",
+    #     target_modules=["to_k", "to_q", "to_v", "to_out.0"],
+    # )
+    # model_lora = get_peft_model(model, lora_config)
+    # # --------------------ema lora_model----------------------------------
+    # # create ema lora_model
+    # ema_model = deepcopy(model_lora)
+    # ema_model_lora = EMAModel_LoRA(lora_config, parameters=ema_model.parameters(), update_after_step=0, 
+    #                                model_cls=UDiTUltraT2V, model_config=ema_model.config)
+    # ema_model_lora.save_pretrained(ema_lora_save_path)
+    # ema_model_load_lora = EMAModel_LoRA.from_pretrained(ema_lora_save_path, UDiTUltraT2V, lora_config, origin_model_path)
+    # ema_model_lora.load_state_dict(ema_model_load_lora.state_dict())
+    # ema_model_lora.to(device)
 
-    state_dict = get_peft_state_maybe_zero_3(model_lora.named_parameters(), lora_config.bias)
-    model_lora.save_pretrained(lora_save_path, state_dict=state_dict)
-    model_load_lora = PeftModel.from_pretrained(model, lora_save_path)
-    for k, v in model_load_lora.state_dict().items():
-        assert torch.allclose(v, model_lora.state_dict()[k])
-
-    for k, v in zip(ema_model_lora.shadow_params, model_lora.parameters()):
-        assert torch.allclose(v, k)
-
-    print('Merging LoRA weights...')
-    model_load_lora_merge = model_load_lora.merge_and_unload()
-    with torch.no_grad():
-        output = model_lora(**model_kwargs)
-    print(output[0].shape)
+    # # -----------------lora model---------------------------------
+    # # get lora weight
+    # model_lora.save_pretrained(lora_save_path)
+    # # ----------------load lora model------------------------------
+    # # load lora weight
+    # model = UDiTUltraT2V.from_pretrained(origin_model_path)
+    # import ipdb;ipdb.set_trace()
+    # model_load_lora = PeftModel.from_pretrained(model, lora_save_path)
+    # for k, v in model_load_lora.state_dict().items():
+    #     assert torch.allclose(v, model_lora.state_dict()[k])
+    # # for k, v in zip(ema_model_lora.shadow_params, model_lora.parameters()):
+    # #     assert torch.allclose(v, k)
+    # print('Merging LoRA weights...')
+    # import ipdb;ipdb.set_trace()
+    # model_load_lora_merge = model_load_lora.merge_and_unload()
+    # with torch.no_grad():
+    #     output = model_load_lora_merge(**model_kwargs)
+    # print(output[0].shape)
 
 
 

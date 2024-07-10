@@ -8,6 +8,7 @@ import torch
 import subprocess
 import sys
 import threading
+import gc
 import torch.distributed as dist
 
 from opensora.adaptor.zp_manager import zp_manager
@@ -69,6 +70,8 @@ class NPUConfig:
         self.current_run_dtype = None
         self.original_run_dtype = None
         self.zp_manager = zp_manager
+        self.replaced_type = torch.float32
+        self.conv_dtype = torch.float16
         if self.enable_FA and self.enable_FP32:
             self.inf_float = -10000.0
         else:
@@ -112,6 +115,7 @@ class NPUConfig:
             self.world_size = self.N_NPU_PER_NODE
         self.print_with_rank(f"The npu_config.on_npu is {self.on_npu}")
         self.bind_thread_to_cpu()
+        gc.set_threshold(700, 10, 10000)
 
     def get_total_cores(self):
         try:
@@ -176,6 +180,9 @@ class NPUConfig:
     def get_output_video_path(self, name):
         os.makedirs(f"{self.work_path}/output_videos", exist_ok=True)
         return f"{self.work_path}/output_videos/{name}"
+
+    def get_node_id(self):
+        return self.rank // self.node_world_size
 
     def get_node_size(self):
         return self.world_size // self.node_world_size
@@ -249,7 +256,7 @@ class NPUConfig:
                 out_dtype = x.dtype
 
             with torch.cuda.amp.autocast(enabled=False):
-                x = operator.to(tmp_dtype)(x.to(tmp_dtype))
+                x = operator.to(device=x.device, dtype=tmp_dtype)(x.to(tmp_dtype))
                 x = x.to(out_dtype)
                 if out_nd_format:
                     return self.npu_format_cast(x)
@@ -259,6 +266,9 @@ class NPUConfig:
             return operator(x)
 
     def run_group_norm(self, operator, x):
+        return self._run(operator, x, torch.float32)
+
+    def run_layer_norm(self, operator, x):
         return self._run(operator, x, torch.float32)
 
     def print_tensor_stats(self, tensor, name="Tensor", rank=None):
@@ -283,15 +293,15 @@ class NPUConfig:
             f"Median: {median_val}, Std: {std_val}, Shape: {shape}, Type: {x_dtype}")
 
     def run_conv3d(self, operator, x, out_dtype):
-        return self._run(operator, x, torch.float16, out_dtype, out_nd_format=True)
+        return self._run(operator, x, self.conv_dtype, out_dtype, out_nd_format=True)
 
     def run_pool_2d(self, operator, x):
-        return self._run(operator, x, torch.float16)
+        return self._run(operator, x, self.replaced_type)
 
     def run_pad_2d(self, operator, x, pad, mode="constant"):
         if self.on_npu:
             x_dtype = x.dtype
-            x = x.to(torch.float16)
+            x = x.to(self.replaced_type)
             x = operator(x, pad, mode)
             x = x.to(x_dtype)
         else:

@@ -315,7 +315,7 @@ class VideoIP_dataset(Dataset):
                 # For testing, some data has not been utilized.
                 if not os.path.exists(path) and not os.path.exists(path.replace('.mp4', '_resize1080p.mp4')):
                     print(path)
-                    break
+                    continue
                 elif os.path.exists(path.replace('.mp4', '_resize1080p.mp4')):
                     path = path.replace('.mp4', '_resize1080p.mp4')
                 new_vid_cap_list.append(

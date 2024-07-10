@@ -34,6 +34,10 @@ from diffusers.utils import (
 from diffusers.utils.torch_utils import randn_tensor
 from diffusers.pipelines.pipeline_utils import DiffusionPipeline, ImagePipelineOutput
 
+try:
+    from opensora.npu_config import npu_config
+except:
+    npu_config = None
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
@@ -441,7 +445,7 @@ class OpenSoraPipeline(DiffusionPipeline):
         caption = re.sub(r"[\u3300-\u33ff]+", "", caption)
         caption = re.sub(r"[\u3400-\u4dbf]+", "", caption)
         caption = re.sub(r"[\u4dc0-\u4dff]+", "", caption)
-        caption = re.sub(r"[\u4e00-\u9fff]+", "", caption)
+        # caption = re.sub(r"[\u4e00-\u9fff]+", "", caption)
         #######################################################
 
         # все виды тире / all types of dash --> "-"
@@ -517,7 +521,6 @@ class OpenSoraPipeline(DiffusionPipeline):
         caption = re.sub(r"^[\'\_,\-\:;]", r"", caption)
         caption = re.sub(r"[\'\_,\-\:\-\+]$", r"", caption)
         caption = re.sub(r"^\.\S+$", "", caption)
-
         return caption.strip()
     
     # Copied from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion.StableDiffusionPipeline.prepare_latents
@@ -806,10 +809,16 @@ class OpenSoraPipeline(DiffusionPipeline):
             return (image,)
 
         return ImagePipelineOutput(images=image)
-    
-    
+
+
     def decode_latents(self, latents):
-        video = self.vae.decode(latents.to(self.vae.vae.dtype))
+        device = torch.cuda.current_device()
+        # if npu_config is not None:
+        #     npu_config.print_tensor_stats(latents, f"before vae", rank=0)
+        self.vae = self.vae.to(device)
+        video = self.vae.decode(latents.to(self.vae.vae.dtype).to(device))
+        # if npu_config is not None:
+        #     npu_config.print_tensor_stats(video, f"after vae, vae.dtype={self.vae.vae.dtype}", rank=0)
         video = ((video / 2.0 + 0.5).clamp(0, 1) * 255).to(dtype=torch.uint8).cpu().permute(0, 1, 3, 4, 2).contiguous() # b t h w c
         # we always cast to float32 as this does not cause significant overhead and is compatible with bfloa16
         return video

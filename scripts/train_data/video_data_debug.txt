@@ -1,1 +1,1 @@
-/storage/dataset/mixkit,/storage/anno_jsons/video_mixkit_65f_54735.json
+/storage/dataset/movie,/storage/dataset/movie/merge_cap_lb/bbc01_250508.json

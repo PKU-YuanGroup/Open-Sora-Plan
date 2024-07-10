@@ -15,6 +15,7 @@ import torchvision
 from einops import rearrange
 from decord import VideoReader
 from os.path import join as opj
+from collections import Counter
 
 import torch
 import torchvision.transforms as transforms
@@ -22,10 +23,11 @@ from torch.utils.data.dataset import Dataset
 from torch.utils.data import DataLoader, Dataset, get_worker_info
 from tqdm import tqdm
 from PIL import Image
+from accelerate.logging import get_logger
 
 from opensora.utils.dataset_utils import DecordInit
 from opensora.utils.utils import text_preprocessing
-
+logger = get_logger(__name__)
 
 def filter_json_by_existed_files(directory, data, postfix=".mp4"):
     # 构建搜索模式，以匹配指定后缀的文件
@@ -99,19 +101,39 @@ class DataSetProg(metaclass=SingletonMeta):
 
 dataset_prog = DataSetProg()
 
+def find_closest_y(x, vae_stride_t=4, model_ds_t=4):
+    if x < 13:
+        return -1  
+    for y in range(x, 12, -1):
+        if (y - 1) % vae_stride_t == 0 and ((y - 1) // vae_stride_t + 1) % model_ds_t == 0:
+            # 4, 8: y in [29, 61, 93, 125, 157, 189, 221, 253, 285, 317, 349, 381, 413, 445, 477, 509, ...]
+            # 4, 4: y in [13, 29, 45, 61, 77, 93, 109, 125, 141, 157, 173, 189, 205, 221, 237, 253, 269, 285, 301, 317, 333, 349, 365, 381, 397, 413, 429, 445, 461, 477, 493, 509, ...]
+            return y
+    return -1 
+
+def filter_resolution(h, w, max_h_div_w_ratio=17/16, min_h_div_w_ratio=8 / 16):
+    if h / w <= max_h_div_w_ratio and h / w >= min_h_div_w_ratio:
+        return True
+    return False
+        
+
 
 class T2V_dataset(Dataset):
-    def __init__(self, args, transform, temporal_sample, tokenizer):
+    def __init__(self, args, transform, temporal_sample, tokenizer, transform_topcrop):
         self.image_data = args.image_data
         self.video_data = args.video_data
         self.num_frames = args.num_frames
+        self.train_fps = args.train_fps
         self.use_image_num = args.use_image_num
         self.use_img_from_vid = args.use_img_from_vid
         self.transform = transform
+        self.transform_topcrop = transform_topcrop
         self.temporal_sample = temporal_sample
         self.tokenizer = tokenizer
         self.model_max_length = args.model_max_length
         self.cfg = args.cfg
+        self.speed_factor = args.speed_factor
+        assert self.speed_factor >= 1
         self.v_decoder = DecordInit()
 
         self.support_Chinese = True
@@ -127,6 +149,10 @@ class T2V_dataset(Dataset):
         else:
             img_cap_list = self.get_img_cap_list()
             vid_cap_list = []
+        
+        if len(vid_cap_list) > 0:
+            vid_cap_list, self.sample_num_frames = self.define_frame_index(vid_cap_list)
+            self.lengths = self.sample_num_frames
 
         if self.num_frames != 1:
             n_elements = len(vid_cap_list)
@@ -161,10 +187,10 @@ class T2V_dataset(Dataset):
                 image_data = self.get_image(idx)  # 1 frame video as image
             return dict(video_data=video_data, image_data=image_data)
         except Exception as e:
-            # print(f'Error with {e}')
+            logger.info(f'Error with {e}')
             # 打印异常堆栈
             if idx in dataset_prog.vid_cap_list:
-                print(f"Caught an exception! {dataset_prog.vid_cap_list[idx]}")
+                logger.info(f"Caught an exception! {dataset_prog.vid_cap_list[idx]}")
             # traceback.print_exc()
             # traceback.print_stack()
             return self.__getitem__(random.randint(0, self.__len__() - 1))
@@ -177,20 +203,22 @@ class T2V_dataset(Dataset):
         # cond_mask = torch.cat([torch.ones(1, 60).to(torch.long), torch.ones(1, 60).to(torch.long)], dim=1).squeeze(0)
 
         video_path = dataset_prog.vid_cap_list[idx]['path']
-        assert os.path.exists(video_path) and os.path.getsize(video_path) > 10240, f"file {video_path} has wrong size!"
-        frame_idx = dataset_prog.vid_cap_list[idx]['frame_idx'] if hasattr(dataset_prog.vid_cap_list[idx], 'frame_idx') else None
-        video = self.decord_read(video_path, frame_idx)
+        assert os.path.exists(video_path), f"file {video_path} do not exist!"
+        # frame_indice = self.vid_cap_list[idx]['sample_frame_index']
+        video = self.decord_read(video_path)
 
         h, w = video.shape[-2:]
-        assert h / w <= 16 / 16 and h / w >= 4 / 16, f'Only videos with a ratio (h/w) less than 16/16 and more than 4/16 are supported. But found ratio is {round(h / w, 2)} with the shape of {video.shape}'
+        assert h / w <= 17 / 16 and h / w >= 8 / 16, f'Only videos with a ratio (h/w) less than 17/16 and more than 8/16 are supported. But video ({video_path}) found ratio is {round(h / w, 2)} with the shape of {video.shape}'
         t = video.shape[0]
-        video = video[:(t - 1) // 4 * 4 + 1]
         video = self.transform(video)  # T C H W -> T C H W
 
         # video = torch.rand(221, 3, 480, 640)
 
         video = video.transpose(0, 1)  # T C H W -> C T H W
         text = dataset_prog.vid_cap_list[idx]['cap']
+        if not isinstance(text, list):
+            text = [text]
+        text = [random.choice(text)]
 
         text = text_preprocessing(text, support_Chinese=self.support_Chinese) if random.random() > self.cfg else ""
         text_tokens_and_mask = self.tokenizer(
@@ -221,19 +249,24 @@ class T2V_dataset(Dataset):
         image = [Image.open(i['path']).convert('RGB') for i in image_data]  # num_img [h, w, c]
         image = [torch.from_numpy(np.array(i)) for i in image]  # num_img [h, w, c]
 
-        for i in image:
-            assert not torch.any(torch.isnan(i)), 'before transform0'
+        # for i in image:
+        #     assert not torch.any(torch.isnan(i)), 'before transform0'
         image = [rearrange(i, 'h w c -> c h w').unsqueeze(0) for i in image]  # num_img [1 c h w]
-        for i in image:
-            assert not torch.any(torch.isnan(i)), 'before transform1'
-        image = [self.transform(i) for i in image]  # num_img [1 C H W] -> num_img [1 C H W]
+        # for i in image:
+        #     assert not torch.any(torch.isnan(i)), 'before transform1'
+        # for i in image:
+        #     h, w = i.shape[-2:]
+        #     assert h / w <= 17 / 16 and h / w >= 8 / 16, f'Only image with a ratio (h/w) less than 17/16 and more than 8/16 are supported. But found ratio is {round(h / w, 2)} with the shape of {i.shape}'
+        
+        image = [self.transform_topcrop(i) if 'human_images' in j['path'] else self.transform(i) for i, j in zip(image, image_data)]  # num_img [1 C H W] -> num_img [1 C H W]
 
-        for i in image:
-            assert not torch.any(torch.isnan(i)), 'after transform'
+        # for i in image:
+        #     assert not torch.any(torch.isnan(i)), 'after transform'
         # image = [torch.rand(1, 3, 480, 640) for i in image_data]
         image = [i.transpose(0, 1) for i in image]  # num_img [1 C H W] -> num_img [C 1 H W]
 
-        caps = [i['cap'] for i in image_data]
+        caps = [i['cap'] if isinstance(i['cap'], list) else [i['cap']] for i in image_data]
+        caps = [[random.choice(i)] for i in caps]
         text = [text_preprocessing(cap, support_Chinese=self.support_Chinese) for cap in caps]
         input_ids, cond_mask = [], []
         for t in text:
@@ -253,21 +286,117 @@ class T2V_dataset(Dataset):
         cond_mask = torch.cat(cond_mask)  # self.use_image_num, l
         return dict(image=image, input_ids=input_ids, cond_mask=cond_mask)
 
-    def decord_read(self, path, frame_idx=None):
+    def define_frame_index(self, vid_cap_list):
+        
+        new_vid_cap_list = []
+        sample_num_frames = []
+        cnt_too_long = 0
+        cnt_too_short = 0
+        cnt_no_cap = 0
+        cnt_no_resolution = 0
+        cnt_resolution_mismatch = 0
+        cnt_movie = 0
+        for i in vid_cap_list:
+            duration = None if i.get('duration', None) is None else float(i.get('duration', None))
+            fps = None if i.get('fps', None) is None else float(i.get('fps', None))
+            resolution = i.get('resolution', None)
+            cap = i.get('cap', None)
+            if cap is None:
+                cnt_no_cap += 1
+                continue
+            if resolution is None:
+                cnt_no_resolution += 1
+                continue
+            else:
+                if resolution.get('height', None) is None or resolution.get('width', None) is None:
+                    cnt_no_resolution += 1
+                    continue
+                if not filter_resolution(resolution['height'], resolution['width']):
+                    cnt_resolution_mismatch += 1
+                    continue
+            if fps is not None and duration is not None:
+                # import ipdb;ipdb.set_trace()
+                i['num_frames'] = int(fps * duration)
+                # max 5.0 and min 1.0 are just thresholds to filter some videos which have suitable duration. 
+                if i['num_frames'] > 6.0 * (self.num_frames * fps / self.train_fps * self.speed_factor):  # too long video is not suitable for this training stage (self.num_frames)
+                    cnt_too_long += 1
+                    continue
+                # if i['num_frames'] < 1.0/1 * (self.num_frames * fps / self.train_fps * self.speed_factor):  # too short video is not suitable for this training stage
+                #     cnt_too_short += 1
+                #     continue
+
+                # resample in case high fps, such as 50/60/90/144 -> train_fps(e.g, 24)
+                frame_interval = fps / self.train_fps
+                start_frame_idx = 8 if 'movie/' in i['path'] else 0  # special video
+                frame_indices = np.arange(start_frame_idx, i['num_frames'], frame_interval).astype(int)
+                frame_indices = frame_indices[frame_indices < i['num_frames']]
+
+                # comment out it to enable dynamic frames training
+                drop_short_video_prob = 1.0
+                if len(frame_indices) < self.num_frames and random.uniform(0, 1) <= drop_short_video_prob:  # to drop short videos
+                    cnt_too_short += 1
+                    continue
+
+                #  too long video will be temporal-crop randomly
+                if len(frame_indices) > self.num_frames:
+                    begin_index, end_index = self.temporal_sample(len(frame_indices))
+                    frame_indices = frame_indices[begin_index: end_index]
+                    # frame_indices = frame_indices[:self.num_frames]  # head crop
+                # to find a suitable end_frame_idx, to ensure we do not need pad video
+                end_frame_idx = find_closest_y(len(frame_indices), vae_stride_t=4, model_ds_t=4)
+                if end_frame_idx == -1:  # too short that can not be encoded exactly by videovae
+                    cnt_too_short += 1
+                    continue
+                frame_indices = frame_indices[:end_frame_idx]
+
+                if 'movie/' in i['path']:
+                    cnt_movie += 1
+                i['sample_frame_index'] = frame_indices.tolist()
+                new_vid_cap_list.append(i)
+                i['sample_num_frames'] = len(i['sample_frame_index'])  # will use in dataloader(group sampler)
+                sample_num_frames.append(i['sample_num_frames'])
+
+        logger.info(f'no_cap: {cnt_no_cap}, too_long: {cnt_too_long}, too_short: {cnt_too_short}, '
+                f'no_resolution: {cnt_no_resolution}, resolution_mismatch: {cnt_resolution_mismatch}, '
+                f'Counter(sample_num_frames): {Counter(sample_num_frames)}, movie: {cnt_movie}, '
+                f'before filter: {len(vid_cap_list)}, after filter: {len(new_vid_cap_list)}')
+        # import ipdb;ipdb.set_trace()
+        return new_vid_cap_list, sample_num_frames
+    
+    def decord_read(self, path):
         decord_vr = self.v_decoder(path)
         total_frames = len(decord_vr)
-        # Sampling video frames
-        if frame_idx is None:
-            start_frame_ind, end_frame_ind = self.temporal_sample(total_frames)
-        else:
-            start_frame_ind, end_frame_ind = frame_idx.split(':')
-            # start_frame_ind, end_frame_ind = int(start_frame_ind), int(end_frame_ind)
-            start_frame_ind, end_frame_ind = int(start_frame_ind), int(start_frame_ind) + self.num_frames
-        # assert end_frame_ind - start_frame_ind >= self.num_frames
-        frame_indice = np.linspace(start_frame_ind, end_frame_ind - 1, self.num_frames, dtype=int)
-        # frame_indice = np.linspace(0, 63, self.num_frames, dtype=int)
+        fps = decord_vr.get_avg_fps() if decord_vr.get_avg_fps() > 0 else 30.0
+        # import ipdb;ipdb.set_trace()
+        # resample in case high fps, such as 50/60/90/144 -> train_fps(e.g, 24)
+        frame_interval = 1.0 if abs(fps - self.train_fps) < 1e-1 else fps / self.train_fps
+        start_frame_idx = 8 if 'movie/' in path else 0  # special video
+        frame_indices = np.arange(start_frame_idx, total_frames, frame_interval).astype(int)
+        frame_indices = frame_indices[frame_indices < total_frames]
+        #import ipdb;ipdb.set_trace()
+        # speed up
+        max_speed_factor = len(frame_indices) / self.num_frames
+        speed_factor = 1.0
+        if self.speed_factor > 1 and max_speed_factor > 1 and not ('MagicTime_Data/' in path):
+            speed_factor = random.uniform(1.0, min(self.speed_factor, max_speed_factor))
+            target_frame_count = int(len(frame_indices) / speed_factor)
+            speed_frame_idx = np.linspace(0, len(frame_indices) - 1, target_frame_count, dtype=int)
+            frame_indices = frame_indices[speed_frame_idx]
 
-        video_data = decord_vr.get_batch(frame_indice).asnumpy()
+        #  too long video will be temporal-crop randomly
+        if len(frame_indices) > self.num_frames:
+            begin_index, end_index = self.temporal_sample(len(frame_indices))
+            frame_indices = frame_indices[begin_index: end_index]
+            # frame_indices = frame_indices[:self.num_frames]  # head crop
+
+        # to find a suitable end_frame_idx, to ensure we do not need pad video
+        end_frame_idx = find_closest_y(len(frame_indices), vae_stride_t=4, model_ds_t=4)
+        if end_frame_idx == -1:  # too short that can not be encoded exactly by videovae
+            raise IndexError(f'video ({path}) has {total_frames} frames, speed_factor: {speed_factor}, but need to sample {len(frame_indices)} frames ({frame_indices})')
+        frame_indices = frame_indices[:end_frame_idx]
+        if len(frame_indices) < self.num_frames:
+            raise IndexError(f'video ({path}) has {total_frames} frames, speed_factor: {speed_factor}, but need to sample {len(frame_indices)} frames ({frame_indices})')
+        video_data = decord_vr.get_batch(frame_indices).asnumpy()
         video_data = torch.from_numpy(video_data)
         video_data = video_data.permute(0, 3, 1, 2)  # (T, H, W, C) -> (T C H W)
         return video_data
@@ -279,11 +408,14 @@ class T2V_dataset(Dataset):
         for folder, anno in folder_anno:
             with open(anno, 'r') as f:
                 sub_list = json.load(f)
-            print(f'Building {anno}...')
-            for i in tqdm(range(len(sub_list))):
+            logger.info(f'Building {anno}...')
+            for i in range(len(sub_list)):
                 sub_list[i]['path'] = opj(folder, sub_list[i]['path'])
             if npu_config is not None:
-                sub_list = filter_json_by_existed_files(folder, sub_list, postfix=postfix)
+                if "civitai" in anno or "ideogram" in anno or "human" in anno:
+                    sub_list = sub_list[npu_config.get_node_id()::npu_config.get_node_size()]
+                else:
+                    sub_list = filter_json_by_existed_files(folder, sub_list, postfix=postfix)
             cap_lists += sub_list
         return cap_lists
 
@@ -293,7 +425,7 @@ class T2V_dataset(Dataset):
             img_cap_lists = self.read_jsons(self.image_data, postfix=".jpg")
             img_cap_lists = [img_cap_lists[i: i + use_image_num] for i in range(0, len(img_cap_lists), use_image_num)]
         else:
-            img_cap_lists = npu_config.try_load_pickle("img_cap_lists5",
+            img_cap_lists = npu_config.try_load_pickle("img_cap_lists_all",
                                                        lambda: self.read_jsons(self.image_data, postfix=".jpg"))
             img_cap_lists = [img_cap_lists[i: i + use_image_num] for i in range(0, len(img_cap_lists), use_image_num)]
             img_cap_lists = img_cap_lists[npu_config.get_local_rank()::npu_config.N_NPU_PER_NODE]

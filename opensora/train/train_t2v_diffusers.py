@@ -19,6 +19,8 @@ import numpy as np
 from einops import rearrange
 from tqdm import tqdm
 
+from opensora.adaptor.modules import replace_with_fp32_forwards
+
 try:
     import torch_npu
     from opensora.npu_config import npu_config
@@ -40,10 +42,8 @@ import transformers
 from accelerate import Accelerator
 from accelerate.logging import get_logger
 from accelerate.utils import DistributedType, ProjectConfiguration, set_seed
-from huggingface_hub import create_repo
 from packaging import version
 from tqdm.auto import tqdm
-from transformers import HfArgumentParser, TrainingArguments, AutoTokenizer
 
 import diffusers
 from diffusers import DDPMScheduler, PNDMScheduler, DPMSolverMultistepScheduler
@@ -56,9 +56,9 @@ from opensora.models.ae import getae, getae_wrapper
 from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModelWrapper
 from opensora.models.diffusion.latte.modeling_latte import LatteT2V
 from opensora.models.text_encoder import get_text_enc, get_text_warpper
-from opensora.utils.dataset_utils import Collate
 from opensora.models.ae import ae_stride_config, ae_channel_config
 from opensora.models.diffusion import Diffusion_models, Diffusion_models_class
+from opensora.utils.dataset_utils import Collate, LengthGroupedSampler
 from opensora.sample.pipeline_opensora import OpenSoraPipeline
 
 
@@ -69,11 +69,19 @@ logger = get_logger(__name__)
 
 @torch.inference_mode()
 def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weight_dtype, global_step, ema=False):
+    positive_prompt = "(masterpiece), (best quality), (ultra-detailed), {}. emotional, harmonious, vignette, 4k epic detailed, shot on kodak, 35mm photo, sharp focus, high budget, cinemascope, moody, epic, gorgeous"
+    negative_prompt = """nsfw, lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry, 
+                        """
     validation_prompt = [
-        "a word \"你好\" in the blackboard", 
-        "a cat wearing sunglasses and working as a lifeguard at pool.",
+        "A stylish woman walks down a Tokyo street filled with warm glowing neon and animated city signage. She wears a black leather jacket, a long red dress, and black boots, and carries a black purse. She wears sunglasses and red lipstick. She walks confidently and casually. The street is damp and reflective, creating a mirror effect of the colorful lights. Many pedestrians walk about.",
         "A serene underwater scene featuring a sea turtle swimming through a coral reef. The turtle, with its greenish-brown shell, is the main focus of the video, swimming gracefully towards the right side of the frame. The coral reef, teeming with life, is visible in the background, providing a vibrant and colorful backdrop to the turtle's journey. Several small fish, darting around the turtle, add a sense of movement and dynamism to the scene."
         ]
+    # if 'mt5' in args.text_encoder_name:
+    #     validation_prompt_cn = [
+    #         # "一只戴着墨镜在泳池当救生员的猫咪。",
+    #         "这是一个宁静的水下场景，一只海龟游过珊瑚礁。海龟带着绿褐色的龟壳，优雅地游向画面右侧，成为视频的焦点。背景中的珊瑚礁生机盎然，为海龟的旅程提供了生动多彩的背景。几条小鱼在海龟周围穿梭，为画面增添了动感和活力。"
+    #         ]
+    #     validation_prompt += validation_prompt_cn
     logger.info(f"Running validation....\n")
     model = accelerator.unwrap_model(model)
     scheduler = DPMSolverMultistepScheduler()
@@ -85,7 +93,10 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
     videos = []
     for prompt in validation_prompt:
         logger.info('Processing the ({}) prompt'.format(prompt))
-        video = opensora_pipeline(prompt,
+        video = opensora_pipeline(
+                                # positive_prompt.format(prompt),
+                                prompt,
+                                negative_prompt=negative_prompt, 
                                 num_frames=args.num_frames,
                                 # num_frames=1,
                                 height=args.max_height,
@@ -95,7 +106,7 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
                                 enable_temporal_attentions=True,
                                 num_images_per_prompt=1,
                                 mask_feature=True,
-                                max_sequence_length=150,
+                                max_sequence_length=args.model_max_length,
                                 ).images
         videos.append(video[0])
     # import ipdb;ipdb.set_trace()
@@ -112,7 +123,7 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
                 tracker.writer.add_images(f"{'ema_' if ema else ''}validation", np_images, global_step, dataformats="NHWC")
             else:
                 np_videos = np.stack([np.asarray(vid) for vid in videos])
-                tracker.writer.add_video(f"{'ema_' if ema else ''}validation", np_videos, global_step, fps=30)
+                tracker.writer.add_video(f"{'ema_' if ema else ''}validation", np_videos, global_step, fps=24)
         if tracker.name == "wandb":
             import wandb
             if videos.shape[1] == 1:
@@ -128,7 +139,7 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
             else:
                 logs = {
                     f"{'ema_' if ema else ''}validation": [
-                        wandb.Video(video, caption=f"{i}: {prompt}", fps=30)
+                        wandb.Video(video, caption=f"{i}: {prompt}", fps=24)
                         for i, (video, prompt) in enumerate(zip(videos, validation_prompt))
                     ]
                 }
@@ -155,6 +166,9 @@ class ProgressInfo:
 def main(args):
     logging_dir = Path(args.output_dir, args.logging_dir)
 
+    # use LayerNorm, GeLu, SiLu always as fp32 mode
+    if args.enable_stable_fp32:
+        replace_with_fp32_forwards()
     if torch_npu is not None and npu_config is not None:
         npu_config.print_msg(args)
         npu_config.seed_everything(args.seed)
@@ -265,6 +279,7 @@ def main(args):
         # compress_kv_factor=args.compress_kv_factor,
         use_rope=args.use_rope,
         # model_max_length=args.model_max_length,
+        use_stable_fp32=args.enable_stable_fp32, 
     )
     model.gradient_checkpointing = args.gradient_checkpointing
 
@@ -416,17 +431,26 @@ def main(args):
             use_bias_correction=args.prodigy_use_bias_correction,
             safeguard_warmup=args.prodigy_safeguard_warmup,
         )
-
+    logger.info(f"optimizer: {optimizer}")
+    
     # Setup data:
     train_dataset = getdataset(args)
-    train_dataloader = torch.utils.data.DataLoader(
+    sampler = LengthGroupedSampler(
+                args.train_batch_size,
+                world_size=accelerator.num_processes,
+                lengths=train_dataset.lengths, 
+                group_frame=args.group_frame, 
+                group_resolution=args.group_resolution, 
+            ) if args.group_frame or args.group_resolution else None
+    train_dataloader = DataLoader(
         train_dataset,
-        shuffle=True,
+        shuffle=sampler is None,
         # pin_memory=True,
         collate_fn=Collate(args),
         batch_size=args.train_batch_size,
         num_workers=args.dataloader_num_workers,
-        # prefetch_factor=8
+        sampler=sampler if args.group_frame or args.group_resolution else None, 
+        # prefetch_factor=4
     )
 
     # Scheduler and math around the number of training steps.
@@ -444,6 +468,8 @@ def main(args):
     )
 
     # Prepare everything with our `accelerator`.
+    # model.requires_grad_(False)
+    # model.pos_embed.requires_grad_(True)
     model, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
         model, optimizer, train_dataloader, lr_scheduler
     )
@@ -575,7 +601,7 @@ def main(args):
         bsz = model_input.shape[0]
         # Sample a random timestep for each image without bias.
         timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=model_input.device)
-        if get_sequence_parallel_state():
+        if npu_config is not None and get_sequence_parallel_state():
             broadcast(timesteps)
 
         # Add noise to the model input according to the noise magnitude at each timestep
@@ -605,8 +631,19 @@ def main(args):
         else:
             raise ValueError(f"Unknown prediction type {noise_scheduler.config.prediction_type}")
 
+        mask = model_kwargs.get('attention_mask', None)
+        b, c, _, _, _ = model_pred.shape
+        if mask is not None:
+            mask = mask.unsqueeze(1).repeat(1, c, 1, 1, 1).float()  # b t h w -> b c t h w
+            mask = mask.reshape(b, -1)
         if args.snr_gamma is None:
-            loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
+            # model_pred: b c t h w, attention_mask: b t h w
+            loss = F.mse_loss(model_pred.float(), target.float(), reduction="none")
+            loss = loss.reshape(b, -1)
+            if mask is not None:
+                loss = (loss * mask).sum() / mask.sum()  # mean loss on unpad patches
+            else:
+                loss = loss.mean()
         else:
             # Compute loss-weights as per Section 3.4 of https://arxiv.org/abs/2303.09556.
             # Since we predict the noise instead of x_0, the original formulation is slightly changed.
@@ -619,11 +656,13 @@ def main(args):
                 mse_loss_weights = mse_loss_weights / snr
             elif noise_scheduler.config.prediction_type == "v_prediction":
                 mse_loss_weights = mse_loss_weights / (snr + 1)
-
             loss = F.mse_loss(model_pred.float(), target.float(), reduction="none")
-            loss = loss.mean(dim=list(range(1, len(loss.shape)))) * mse_loss_weights
-            loss = loss.mean()
-
+            loss = loss.reshape(b, -1)
+            mse_loss_weights = mse_loss_weights.reshape(b, 1)
+            if mask is not None:
+                loss = (loss * mask * mse_loss_weights).sum() / mask.sum()  # mean loss on unpad patches
+            else:
+                loss = (loss * mse_loss_weights).mean()
 
         # Gather the losses across all processes for logging (if we use distributed training).
         avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
@@ -658,13 +697,12 @@ def main(args):
                     log_validation(args, model, ae, text_enc.text_enc, train_dataset.tokenizer, accelerator,
                                    weight_dtype, progress_info.global_step)
 
-                if args.use_ema:
+                if args.use_ema and npu_config is None:
                     # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
                     ema_model.store(model.parameters())
                     ema_model.copy_to(model.parameters())
-                    if npu_config is None:
-                        log_validation(args, model, ae, text_enc.text_enc, train_dataset.tokenizer, accelerator,
-                                       weight_dtype, progress_info.global_step, ema=True)
+                    log_validation(args, model, ae, text_enc.text_enc, train_dataset.tokenizer, accelerator,
+                                   weight_dtype, progress_info.global_step, ema=True)
                     # Switch back to the original UNet parameters.
                     ema_model.restore(model.parameters())
 
@@ -677,17 +715,24 @@ def main(args):
     def train_one_step(step_, data_item_, prof_=None):
         train_loss = 0.0
         x, attn_mask, input_ids, cond_mask = data_item_
+        # assert torch.all(attn_mask.bool()), 'must all visible'
         # Sample noise that we'll add to the latents
-
-        if not args.multi_scale:
-            assert torch.all(attn_mask)
+        # import ipdb;ipdb.set_trace()
+        if args.group_frame or args.group_resolution:
+            if not torch.all(torch.any(attn_mask.flatten(-2), dim=-1)):
+                each_latent_frame = torch.any(attn_mask.flatten(-2), dim=-1).int().sum(-1).tolist()
+                # logger.info(f'rank: {accelerator.process_index}, step {step_}, special batch has attention_mask '
+                #             f'each_latent_frame: {each_latent_frame}')
+                print(f'rank: {accelerator.process_index}, step {step_}, special batch has attention_mask '
+                            f'each_latent_frame: {each_latent_frame}')
         assert not torch.any(torch.isnan(x)), 'torch.any(torch.isnan(x))'
         x = x.to(accelerator.device, dtype=ae.vae.dtype)  # B C T+num_images H W, 16 + 4
 
         attn_mask = attn_mask.to(accelerator.device)  # B T+num_images H W
         input_ids = input_ids.to(accelerator.device)  # B 1+num_images L
         cond_mask = cond_mask.to(accelerator.device)  # B 1+num_images L
-        # print('x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape', x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape)
+        # if accelerator.process_index == 0:
+        #     logger.info(f'rank: {accelerator.process_index}, x: {x.shape}, attn_mask: {attn_mask.shape}')
 
         with torch.no_grad():
             # import ipdb;ipdb.set_trace()
@@ -711,6 +756,20 @@ def main(args):
                 images = ae.encode(images)
                 images = rearrange(images, '(b t) c 1 h w -> b c t h w', t=args.use_image_num)
                 x = torch.cat([videos, images], dim=2)  # b c 17+4, h, w
+
+            # def custom_to_video(x: torch.Tensor, fps: float = 2.0, output_file: str = 'output_video.mp4') -> None:
+            #     from examples.rec_video import array_to_video
+            #     x = x.detach().cpu()
+            #     x = torch.clamp(x, -1, 1)
+            #     x = (x + 1) / 2
+            #     x = x.permute(1, 2, 3, 0).numpy()
+            #     x = (255*x).astype(np.uint8)
+            #     array_to_video(x, fps=fps, output_file=output_file)
+            #     return
+            # videos = ae.decode(x)[0]
+            # videos = videos.transpose(0, 1)
+            # custom_to_video(videos.to(torch.float32), fps=24, output_file='tmp.mp4')
+            # sys.exit()
 
         if npu_config is not None and get_sequence_parallel_state():
             x, cond, attn_mask, cond_mask, use_image_num = prepare_parallel_data(x, cond, attn_mask, cond_mask,
@@ -785,21 +844,24 @@ if __name__ == "__main__":
     parser.add_argument("--video_data", type=str, required='')
     parser.add_argument("--image_data", type=str, default='')
     parser.add_argument("--sample_rate", type=int, default=1)
+    parser.add_argument("--train_fps", type=int, default=24)
+    parser.add_argument("--speed_factor", type=float, default=1.5)
     parser.add_argument("--num_frames", type=int, default=65)
     parser.add_argument("--max_height", type=int, default=320)
     parser.add_argument("--max_width", type=int, default=240)
     parser.add_argument("--use_img_from_vid", action="store_true")
     parser.add_argument("--use_image_num", type=int, default=0)
     parser.add_argument("--model_max_length", type=int, default=512)
-    parser.add_argument("--multi_scale", action="store_true")
     parser.add_argument('--cfg', type=float, default=0.1)
     parser.add_argument("--dataloader_num_workers", type=int, default=10, help="Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process.")
     parser.add_argument("--train_batch_size", type=int, default=16, help="Batch size (per device) for the training dataloader.")
+    parser.add_argument("--group_frame", action="store_true")
+    parser.add_argument("--group_resolution", action="store_true")
 
     # text encoder & vae & diffusion model
     parser.add_argument("--model", type=str, choices=list(Diffusion_models.keys()), default="Latte-XL/122")
     parser.add_argument('--enable_8bit_t5', action='store_true')
-    parser.add_argument('--tile_overlap_factor', type=float, default=0.25)
+    parser.add_argument('--tile_overlap_factor', type=float, default=0.125)
     parser.add_argument('--enable_tiling', action='store_true')
     parser.add_argument("--compress_kv", action="store_true")
     parser.add_argument("--attention_mode", type=str, choices=['xformers', 'math', 'flash'], default="xformers")
@@ -814,18 +876,19 @@ if __name__ == "__main__":
     parser.add_argument("--text_encoder_name", type=str, default='DeepFloyd/t5-v1_1-xxl')
     parser.add_argument("--cache_dir", type=str, default='./cache_dir')
     parser.add_argument("--pretrained", type=str, default=None)
+    parser.add_argument('--enable_stable_fp32', action='store_true')
     parser.add_argument("--gradient_checkpointing", action="store_true", help="Whether or not to use gradient checkpointing to save memory at the expense of slower backward pass.")
 
     # diffusion setting
     parser.add_argument("--snr_gamma", type=float, default=None, help="SNR weighting gamma to be used if rebalancing the loss. Recommended value is 5.0. More details here: https://arxiv.org/abs/2303.09556.")
     parser.add_argument("--use_ema", action="store_true", help="Whether to use EMA model.")
     parser.add_argument("--ema_start_step", type=int, default=0)
-    parser.add_argument("--noise_offset", type=float, default=0, help="The scale of noise offset.")
+    parser.add_argument("--noise_offset", type=float, default=0.02, help="The scale of noise offset.")
     parser.add_argument("--prediction_type", type=str, default=None, help="The prediction_type that shall be used for training. Choose between 'epsilon' or 'v_prediction' or leave `None`. If left to `None` the default prediction type of the scheduler: `noise_scheduler.config.prediciton_type` is chosen.")
 
     # validation & logs
     parser.add_argument("--num_sampling_steps", type=int, default=50)
-    parser.add_argument('--guidance_scale', type=float, default=5.0)
+    parser.add_argument('--guidance_scale', type=float, default=2.5)
     parser.add_argument("--enable_tracker", action="store_true")
     parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
     parser.add_argument("--output_dir", type=str, default=None, help="The output directory where the model predictions and checkpoints will be written.")

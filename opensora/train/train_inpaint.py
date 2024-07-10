@@ -19,9 +19,14 @@ import numpy as np
 from einops import rearrange
 from tqdm import tqdm
 
+from opensora.adaptor.modules import replace_with_fp32_forwards
+
 try:
     import torch_npu
     from opensora.npu_config import npu_config
+    from opensora.acceleration.parallel_states import initialize_sequence_parallel_state, \
+        destroy_sequence_parallel_group, get_sequence_parallel_state
+    from opensora.acceleration.communications import prepare_parallel_data, broadcast
 except:
     torch_npu = None
     npu_config = None
@@ -37,10 +42,8 @@ import transformers
 from accelerate import Accelerator
 from accelerate.logging import get_logger
 from accelerate.utils import DistributedType, ProjectConfiguration, set_seed
-from huggingface_hub import create_repo
 from packaging import version
 from tqdm.auto import tqdm
-from transformers import HfArgumentParser, TrainingArguments, AutoTokenizer
 
 import diffusers
 from diffusers import DDPMScheduler, PNDMScheduler, DPMSolverMultistepScheduler
@@ -53,43 +56,32 @@ from opensora.models.ae import getae, getae_wrapper
 from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModelWrapper
 from opensora.models.diffusion.latte.modeling_latte import LatteT2V
 from opensora.models.text_encoder import get_text_enc, get_text_warpper
-from opensora.utils.dataset_utils import Collate
 from opensora.models.ae import ae_stride_config, ae_channel_config
 from opensora.models.diffusion import Diffusion_models, Diffusion_models_class
+from opensora.utils.dataset_utils import Collate, LengthGroupedSampler
 from opensora.sample.pipeline_opensora import OpenSoraPipeline
 
 
 # for validation
+import glob
 from PIL import Image
 from torchvision import transforms
 from torchvision.transforms import Lambda
 from opensora.dataset.transform import ToTensorVideo, CenterCropResizeVideo, TemporalRandomCrop, LongSideResizeVideo, SpatialStrideCropVideo
-from opensora.sample.pipeline_inpaint import OpenSoraInpaintPipeline
+from opensora.sample.pipeline_inpaint import hacked_pipeline_call_for_inpaint
+import imageio
 
-
-
-import glob
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 check_min_version("0.24.0")
 logger = get_logger(__name__)
 
-
-def save_video(video, save_path='output_video.mp4', fps=24):
-    import cv2
-
-    frame_count, height, width, channels = video.shape
-
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')  
-    out = cv2.VideoWriter(save_path, fourcc, fps, (width, height))
-
-    for i in range(frame_count):
-        frame = video[i].cpu().numpy()
-        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)  
-        out.write(frame)
-
 @torch.inference_mode()
-def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weight_dtype, global_step, ema=False):
+def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weight_dtype, global_step, ema=False, max_test_num=2):
+
+    positive_prompt = "(masterpiece), (best quality), (ultra-detailed), {}. emotional, harmonious, vignette, 4k epic detailed, shot on kodak, 35mm photo, sharp focus, high budget, cinemascope, moody, epic, gorgeous"
+    negative_prompt = """nsfw, lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry, 
+                        """
 
     validation_dir = args.validation_dir if args.validation_dir is not None else "./validation"
     prompt_file = os.path.join(validation_dir, "prompt.txt")
@@ -121,13 +113,13 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
     model = accelerator.unwrap_model(model)
 
     scheduler = PNDMScheduler()
-    pipeline = OpenSoraInpaintPipeline(
-        vae=vae,
-        text_encoder=text_encoder,
-        tokenizer=tokenizer,
-        scheduler=scheduler,
-        transformer=model
-    ).to(device=accelerator.device)
+    pipeline = OpenSoraPipeline(vae=vae,
+                                text_encoder=text_encoder,
+                                tokenizer=tokenizer,
+                                scheduler=scheduler,
+                                transformer=model).to(device=accelerator.device)
+
+    pipeline.__call__ = hacked_pipeline_call_for_inpaint.__get__(pipeline, OpenSoraPipeline)
 
     def preprocess_images(images):
         if len(images) == 1:
@@ -141,59 +133,78 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
         return dict(condition_images=condition_images, condition_images_indices=condition_images_indices)
     
     videos = []
+    val_prompts = []
+    val_i2v_num = 0
+    val_transition_num = 0
     for prompt, images in zip(validation_prompt, validation_images_list):
+
+        if val_i2v_num > max_test_num and val_transition_num > max_test_num:
+            break
+
         if not isinstance(images, list):
             images = [images]
+
+        if 'img' in images[0]:
+            continue
+        elif 'i2v' in images[0]:
+            val_i2v_num += 1
+        elif 'transition' in images[0]:
+            val_transition_num += 1
+        
         logger.info('Processing the ({}) prompt and the images ({})'.format(prompt, images))
         
         pre_results = preprocess_images(images)
         condition_images = pre_results['condition_images']
         condition_images_indices = pre_results['condition_images_indices']
 
-        video = pipeline(
+        video = pipeline.__call__(
             prompt=prompt,
+            negative_prompt=negative_prompt,
             condition_images=condition_images,
             condition_images_indices=condition_images_indices,
             num_frames=args.num_frames,
-            height=args.max_height,
-            width=args.max_width,
+            height=args.height,
+            width=args.width,
             num_inference_steps=args.num_sampling_steps,
             guidance_scale=args.guidance_scale,
             enable_temporal_attentions=True,
             num_images_per_prompt=1,
             mask_feature=True,
+            max_sequence_length=args.model_max_length,
         ).images
         videos.append(video[0])
+        val_prompts.append(prompt)
     # import ipdb;ipdb.set_trace()
 
     # Save the generated videos
     save_dir = os.path.join(args.output_dir, f"val_{global_step:09d}" if not ema else f"val_ema_{global_step:09d}")
     os.makedirs(save_dir, exist_ok=True)
     for idx, video in enumerate(videos):
-        save_video(video, os.path.join(save_dir, f"video_{idx:06d}.mp4"))
+        ext = 'mp4'
+        imageio.mimwrite(
+            os.path.join(save_dir, f'{idx}.{ext}'), video, fps=24, quality=6)  # highest quality is 10, lowest is 0
+     # for wandb
+    resize_transform = transforms.Compose(
+        [CenterCropResizeVideo((args.max_height // 4, args.max_width // 4))]
+    )
 
-    videos = torch.stack(videos).numpy()
-    videos = rearrange(videos, 'b t h w c -> b t c h w')
+    videos = [resize_transform(video.permute(0, 3, 1, 2)) for video in videos]
     
     for tracker in accelerator.trackers:
         if tracker.name == "wandb":
             import wandb
-            
-            logs = {
-                f"{'ema_' if ema else ''}validation_videos": [
-                    wandb.Video(video, caption=f"{i}: {prompt}", fps=24)
-                    for i, (video, prompt) in enumerate(zip(videos, validation_prompt))
-                ],
-            }
+            logs = {}
+            logs[f"{'ema_' if ema else ''}validation_videos"] = []
+            for i, (video, prompt) in enumerate(zip(videos, val_prompts)):
+                logs[f"{'ema_' if ema else ''}validation_videos"].append(wandb.Video(video, caption=f"{i}: {prompt}", fps=24))
 
             tracker.log(logs, step=global_step)
+
 
     print("delete validation pipeline...")
     del pipeline
     gc.collect()
     torch.cuda.empty_cache()
-    
-
 
 
 class ProgressInfo:
@@ -207,12 +218,14 @@ class ProgressInfo:
 #################################################################################
 
 def main(args):
-
     logging_dir = Path(args.output_dir, args.logging_dir)
 
+    # use LayerNorm, GeLu, SiLu always as fp32 mode
+    if args.enable_stable_fp32:
+        replace_with_fp32_forwards()
     if torch_npu is not None and npu_config is not None:
         npu_config.print_msg(args)
-        npu_config.seed_everything()
+        npu_config.seed_everything(args.seed)
     accelerator_project_config = ProjectConfiguration(project_dir=args.output_dir, logging_dir=logging_dir)
 
     accelerator = Accelerator(
@@ -222,10 +235,8 @@ def main(args):
         project_config=accelerator_project_config,
     )
 
-    if accelerator.is_main_process:
-        print("--------------------------training args--------------------------")
-        print(args)
-        print("-----------------------------------------------------------------")
+    if npu_config is not None and args.num_frames != 1 and args.use_image_num == 0:
+        initialize_sequence_parallel_state(args.sp_size)
 
     if args.report_to == "wandb":
         if not is_wandb_available():
@@ -292,12 +303,12 @@ def main(args):
     ae.latent_size = latent_size
 
     if args.num_frames % 2 == 1:
-        args.latent_size_t = latent_size_t = args.num_frames // ae_stride_t + 1
+        args.latent_size_t = latent_size_t = (args.num_frames - 1) // ae_stride_t + 1
     else:
         latent_size_t = args.num_frames // ae_stride_t
     model = Diffusion_models[args.model](
         in_channels=ae_channel_config[args.ae],
-        out_channels=ae_channel_config[args.ae] * 2, # 因为要加载预训练权重，所以这里out_channels仍然设置为2倍
+        out_channels=ae_channel_config[args.ae],
         # caption_channels=4096,
         # cross_attention_dim=1152,
         attention_bias=True,
@@ -315,10 +326,14 @@ def main(args):
         norm_eps=1e-6,
         attention_type='default',
         attention_mode=args.attention_mode,
+        interpolation_scale_h=args.interpolation_scale_h,
+        interpolation_scale_w=args.interpolation_scale_w,
+        interpolation_scale_t=args.interpolation_scale_t,
         downsampler=args.downsampler,
-        compress_kv_factor=args.compress_kv_factor,
+        # compress_kv_factor=args.compress_kv_factor,
         use_rope=args.use_rope,
-        model_max_length=args.model_max_length,
+        # model_max_length=args.model_max_length,
+        use_stable_fp32=args.enable_stable_fp32, 
     )
     model.gradient_checkpointing = args.gradient_checkpointing
 
@@ -326,14 +341,13 @@ def main(args):
     if args.pretrained:
         model.custom_load_state_dict(args.pretrained)
 
-
     # Freeze vae and text encoders.
     ae.vae.requires_grad_(False)
     text_enc.requires_grad_(False)
     # Set model as trainable.
     model.train()
 
-    noise_scheduler = DDPMScheduler(rescale_betas_zero_snr=args.zero_terminal_snr)
+    noise_scheduler = DDPMScheduler()
     # Move unet, vae and text_encoder to device and cast to weight_dtype
     # The VAE is in float32 to avoid NaN losses.
     ae.vae.to(accelerator.device, dtype=torch.float32)
@@ -451,17 +465,26 @@ def main(args):
             use_bias_correction=args.prodigy_use_bias_correction,
             safeguard_warmup=args.prodigy_safeguard_warmup,
         )
-
+    logger.info(f"optimizer: {optimizer}")
+    
     # Setup data:
     train_dataset = getdataset(args)
-    train_dataloader = torch.utils.data.DataLoader(
+    sampler = LengthGroupedSampler(
+                args.train_batch_size,
+                world_size=accelerator.num_processes,
+                lengths=train_dataset.lengths, 
+                group_frame=args.group_frame, 
+                group_resolution=args.group_resolution, 
+            ) if args.group_frame or args.group_resolution else None
+    train_dataloader = DataLoader(
         train_dataset,
-        shuffle=True,
+        shuffle=sampler is None,
         # pin_memory=True,
         collate_fn=Collate(args),
         batch_size=args.train_batch_size,
         num_workers=args.dataloader_num_workers,
-        # prefetch_factor=8
+        sampler=sampler if args.group_frame or args.group_resolution else None, 
+        # prefetch_factor=4
     )
 
     # Scheduler and math around the number of training steps.
@@ -479,6 +502,8 @@ def main(args):
     )
 
     # Prepare everything with our `accelerator`.
+    # model.requires_grad_(False)
+    # model.pos_embed.requires_grad_(True)
     model, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
         model, optimizer, train_dataloader, lr_scheduler
     )
@@ -495,14 +520,7 @@ def main(args):
     # We need to initialize the trackers we use, and also store our configuration.
     # The trackers initializes automatically on the main process.
     if accelerator.is_main_process:
-        project_name = os.getenv('PROJECT', os.path.basename(args.output_dir))
-        entity = os.getenv('ENTITY', None)
-        run_name = os.getenv('WANDB_NAME', None)
-        init_kwargs = {
-            "entity": entity,
-            "run_name": run_name,
-        }
-        accelerator.init_trackers(project_name=project_name, config=vars(args), init_kwargs=init_kwargs)
+        accelerator.init_trackers(os.path.basename(args.output_dir), config=vars(args))
 
     # Train!
     total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
@@ -617,27 +635,25 @@ def main(args):
         bsz = model_input.shape[0]
         # Sample a random timestep for each image without bias.
         timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=model_input.device)
+        if npu_config is not None and get_sequence_parallel_state():
+            broadcast(timesteps)
 
         # Add noise to the model input according to the noise magnitude at each timestep
         # (this is the forward diffusion process)
 
         noisy_model_input = noise_scheduler.add_noise(model_input, noise, timesteps)
-        assert not torch.any(torch.isnan(noisy_model_input)), 'torch.any(torch.isnan(noisy_model_input))'
 
         if model_kwargs.get("masked_x", None) is not None and model_kwargs.get("mask", None) is not None:
             masked_x = model_kwargs.pop("masked_x")
-            mask = model_kwargs.pop("mask")
+            video_mask = model_kwargs.pop("mask")
+        else:
+            raise ValueError("masked_x and mask must be provided in model_kwargs")
 
         model_pred = model(
-            torch.cat([noisy_model_input, masked_x, mask], dim=1),
+            torch.cat([noisy_model_input, masked_x, video_mask], dim=1),
             timesteps,
             **model_kwargs
         )[0]
-
-
-        model_pred = torch.chunk(model_pred, 2, dim=1)[0]
-        assert not torch.any(torch.isnan(model_pred)), 'torch.any(torch.isnan(model_pred))'
-
         # Get the target for loss depending on the prediction type
         if args.prediction_type is not None:
             # set prediction_type of scheduler if defined
@@ -655,8 +671,19 @@ def main(args):
         else:
             raise ValueError(f"Unknown prediction type {noise_scheduler.config.prediction_type}")
 
+        mask = model_kwargs.get('attention_mask', None)
+        b, c, _, _, _ = model_pred.shape
+        if mask is not None:
+            mask = mask.unsqueeze(1).repeat(1, c, 1, 1, 1).float()  # b t h w -> b c t h w
+            mask = mask.reshape(b, -1)
         if args.snr_gamma is None:
-            loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
+            # model_pred: b c t h w, attention_mask: b t h w
+            loss = F.mse_loss(model_pred.float(), target.float(), reduction="none")
+            loss = loss.reshape(b, -1)
+            if mask is not None:
+                loss = (loss * mask).sum() / mask.sum()  # mean loss on unpad patches
+            else:
+                loss = loss.mean()
         else:
             # Compute loss-weights as per Section 3.4 of https://arxiv.org/abs/2303.09556.
             # Since we predict the noise instead of x_0, the original formulation is slightly changed.
@@ -669,11 +696,13 @@ def main(args):
                 mse_loss_weights = mse_loss_weights / snr
             elif noise_scheduler.config.prediction_type == "v_prediction":
                 mse_loss_weights = mse_loss_weights / (snr + 1)
-
             loss = F.mse_loss(model_pred.float(), target.float(), reduction="none")
-            loss = loss.mean(dim=list(range(1, len(loss.shape)))) * mse_loss_weights
-            loss = loss.mean()
-
+            loss = loss.reshape(b, -1)
+            mse_loss_weights = mse_loss_weights.reshape(b, 1)
+            if mask is not None:
+                loss = (loss * mask * mse_loss_weights).sum() / mask.sum()  # mean loss on unpad patches
+            else:
+                loss = (loss * mse_loss_weights).mean()
 
         # Gather the losses across all processes for logging (if we use distributed training).
         avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
@@ -692,22 +721,30 @@ def main(args):
             sync_gradients_info(loss)
 
         if accelerator.is_main_process:
-
-            if progress_info.global_step % args.checkpointing_steps == 0:
-
-                if args.enable_tracker:
-                    log_validation(args, model, ae, text_enc.text_enc, train_dataset.tokenizer, accelerator,
-                                   weight_dtype, progress_info.global_step)
-
-                if args.use_ema:
-                    # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
-                    ema_model.store(model.parameters())
-                    ema_model.copy_to(model.parameters())
-                    if npu_config is None:
+            for tracker in accelerator.trackers:
+                if tracker.name == "wandb":
+                    if progress_info.global_step % args.checkpointing_steps != 0:
+                        if hasattr(model, 'module') and hasattr(model.module.pos_embed, 'temp_embed_gate'):
+                            tracker.log(
+                                {'temp_embed_gate (tanh)': float(model.module.pos_embed.temp_embed_gate.tanh().item())})
+                        elif hasattr(model, 'pos_embed') and hasattr(model.pos_embed, 'temp_embed_gate'):
+                            tracker.log(
+                                {'temp_embed_gate (tanh)': float(model.pos_embed.temp_embed_gate.tanh().item())})
+                            
+            if args.need_validation:
+                if progress_info.global_step % args.checkpointing_steps == 0:
+                    if args.enable_tracker:
                         log_validation(args, model, ae, text_enc.text_enc, train_dataset.tokenizer, accelerator,
-                                       weight_dtype, progress_info.global_step, ema=True)
-                    # Switch back to the original UNet parameters.
-                    ema_model.restore(model.parameters())
+                                    weight_dtype, progress_info.global_step)
+
+                    if args.use_ema and npu_config is None:
+                        # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
+                        ema_model.store(model.parameters())
+                        ema_model.copy_to(model.parameters())
+                        log_validation(args, model, ae, text_enc.text_enc, train_dataset.tokenizer, accelerator,
+                                    weight_dtype, progress_info.global_step, ema=True)
+                        # Switch back to the original UNet parameters.
+                        ema_model.restore(model.parameters())
 
         if prof is not None:
             prof.step()
@@ -718,67 +755,95 @@ def main(args):
     def train_one_step(step_, data_item_, prof_=None):
         train_loss = 0.0
         x, attn_mask, input_ids, cond_mask = data_item_
+        # assert torch.all(attn_mask.bool()), 'must all visible'
         # Sample noise that we'll add to the latents
-
-        if not args.multi_scale:
-            assert torch.all(attn_mask)
+        # import ipdb;ipdb.set_trace()
+        if args.group_frame or args.group_resolution:
+            if not torch.all(torch.any(attn_mask.flatten(-2), dim=-1)):
+                each_latent_frame = torch.any(attn_mask.flatten(-2), dim=-1).int().sum(-1).tolist()
+                # logger.info(f'rank: {accelerator.process_index}, step {step_}, special batch has attention_mask '
+                #             f'each_latent_frame: {each_latent_frame}')
+                print(f'rank: {accelerator.process_index}, step {step_}, special batch has attention_mask '
+                            f'each_latent_frame: {each_latent_frame}')
         assert not torch.any(torch.isnan(x)), 'torch.any(torch.isnan(x))'
-        x = x.to(accelerator.device, dtype=ae.vae.dtype)  # B 3 * C T H W
+        x = x.to(accelerator.device, dtype=ae.vae.dtype)  # B 3*C T+num_images H W, 16 + 4
 
-        attn_mask = attn_mask.to(accelerator.device)  # B T H W
-        input_ids = input_ids.to(accelerator.device)  # B 1 L
-        cond_mask = cond_mask.to(accelerator.device)  # B 1 L
-        # print('x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape', x.shape, attn_mask.shape, input_ids.shape, cond_mask.shape)
-
-        assert not torch.any(torch.isnan(x)), 'before vae'
-        assert not torch.any(torch.isnan(input_ids)), 'before text_enc'
-        assert not torch.any(torch.isnan(cond_mask)), 'before text_enc'
-        assert not torch.any(torch.isnan(attn_mask)), 'before text_enc'
+        attn_mask = attn_mask.to(accelerator.device)  # B T+num_images H W
+        input_ids = input_ids.to(accelerator.device)  # B 1+num_images L
+        cond_mask = cond_mask.to(accelerator.device)  # B 1+num_images L
+        # if accelerator.process_index == 0:
+        #     logger.info(f'rank: {accelerator.process_index}, x: {x.shape}, attn_mask: {attn_mask.shape}')
 
         with torch.no_grad():
             # import ipdb;ipdb.set_trace()
             # use for loop to avoid OOM, because T5 is too huge...
-            B, N, L = input_ids.shape  # B 1 L
+            B, N, L = input_ids.shape  # B 1+num_images L
             # cond_ = torch.stack([text_enc(input_ids[i], cond_mask[i]) for i in range(B)])  # B 1+num_images L D
 
             # use batch inference
             input_ids_ = input_ids.reshape(-1, L)
             cond_mask_ = cond_mask.reshape(-1, L)
-            cond = text_enc(input_ids_, cond_mask_)  # B 1 L D
-
-            assert not torch.any(torch.isnan(cond)), 'after text_enc'
-
+            cond = text_enc(input_ids_, cond_mask_)  # B 1+num_images L D
             cond = cond.reshape(B, N, L, -1)
 
-            # Map input images to latent space + normalize latents
-            assert args.use_image_num == 0, 'Inpainting mode does not support image joint training'
+            def preprocess_x_for_inpaint(x):
+                # vae style mask
+                if args.use_vae_preprocessed_mask:
+                    x, masked_x, mask = x[:, :3], x[:, 3:6], x[:, 6:9]
+                    x, masked_x, mask = ae.encode(x), ae.encode(masked_x), ae.encode(mask)
+                else:
+                    x, masked_x, mask = x[:, :3], x[:, 3:6], x[:, 6:7]
+                    x, masked_x = ae.encode(x), ae.encode(masked_x)
+                    batch_size, channels, frame, height, width = mask.shape
+                    mask = rearrange(mask, 'b c t h w -> (b c t) 1 h w')
+                    mask = F.interpolate(mask, size=latent_size, mode='bilinear')
+                    mask = rearrange(mask, '(b c t) 1 h w -> b c t h w', t=frame, b=batch_size)
+                    mask_first_frame = mask[:, :, 0:1].repeat(1, 1, ae_stride_t, 1, 1).contiguous()
+                    mask = torch.cat([mask_first_frame, mask[:, :, 1:]], dim=2)
+                    mask = mask.view(batch_size, ae_stride_t, latent_size_t, latent_size[0], latent_size[1]).contiguous()
 
-            if args.use_vae_preprocessed_mask:
-                x, masked_x, mask = x[:, :3], x[:, 3:6], x[:, 6:9]
-                x, masked_x, mask = ae.encode(x), ae.encode(masked_x), ae.encode(mask)
+                return x, masked_x, mask
+
+            # Map input images to latent space + normalize latents
+            if args.use_image_num == 0:
+                x, masked_x, mask = preprocess_x_for_inpaint(x) # B #*C T H W -> (B C T H W) * 3 
             else:
-                x, masked_x, mask = x[:, :3], x[:, 3:6], x[:, 6:7]
-                x, masked_x = ae.encode(x), ae.encode(masked_x)
-                batch_size, channels, frame, height, width = mask.shape
-                mask = rearrange(mask, 'b c t h w -> (b c t) 1 h w')
-                mask = F.interpolate(mask, size=latent_size, mode='bilinear')
-                mask = rearrange(mask, '(b c t) 1 h w -> b c t h w', t=frame, b=batch_size)
-                mask_first_frame = mask[:, :, 0:1].repeat(1, 1, ae_stride_t, 1, 1).contiguous()
-                mask = torch.cat([mask_first_frame, mask[:, :, 1:]], dim=2)
-                mask = mask.view(batch_size, ae_stride_t, latent_size_t, latent_size[0], latent_size[1]).contiguous()
-            assert not torch.any(torch.isnan(x)), 'after vae'
-            assert not torch.any(torch.isnan(masked_x)), 'after vae'
-            assert not torch.any(torch.isnan(mask)), 'after vae'
-           
-        with accelerator.accumulate(model):
-            x = x.to(weight_dtype)
-            masked_x = masked_x.to(weight_dtype)
-            mask = mask.to(weight_dtype)
-            assert not torch.any(torch.isnan(x)), 'after vae' 
-            model_kwargs = dict(encoder_hidden_states=cond, attention_mask=attn_mask,
-                                encoder_attention_mask=cond_mask, use_image_num=args.use_image_num,
-                                masked_x=masked_x, mask=mask)
-            run(x, model_kwargs, prof_)
+                raise NotImplementedError('inpaint mode only support video input now.')
+
+            # def custom_to_video(x: torch.Tensor, fps: float = 2.0, output_file: str = 'output_video.mp4') -> None:
+            #     from examples.rec_video import array_to_video
+            #     x = x.detach().cpu()
+            #     x = torch.clamp(x, -1, 1)
+            #     x = (x + 1) / 2
+            #     x = x.permute(1, 2, 3, 0).numpy()
+            #     x = (255*x).astype(np.uint8)
+            #     array_to_video(x, fps=fps, output_file=output_file)
+            #     return
+            # videos = ae.decode(x)[0]
+            # videos = videos.transpose(0, 1)
+            # custom_to_video(videos.to(torch.float32), fps=24, output_file='tmp.mp4')
+            # sys.exit()
+
+        if npu_config is not None and get_sequence_parallel_state():
+            x, cond, attn_mask, cond_mask, use_image_num = prepare_parallel_data(x, cond, attn_mask, cond_mask,
+                                                                                 args.use_image_num)
+            for iter in range(args.train_batch_size * args.sp_size // args.train_sp_batch_size):
+                with accelerator.accumulate(model):
+                    st_idx = iter * args.train_sp_batch_size
+                    ed_idx = (iter + 1) * args.train_sp_batch_size
+                    model_kwargs = dict(encoder_hidden_states=cond[st_idx: ed_idx],
+                                        attention_mask=attn_mask[st_idx: ed_idx],
+                                        encoder_attention_mask=cond_mask[st_idx: ed_idx], use_image_num=use_image_num)
+                    run(x[st_idx: ed_idx], model_kwargs, prof_)
+
+        else:
+            with accelerator.accumulate(model):
+                assert not torch.any(torch.isnan(x)), 'after vae'
+                x = x.to(weight_dtype)
+                model_kwargs = dict(encoder_hidden_states=cond, attention_mask=attn_mask,
+                                    encoder_attention_mask=cond_mask, use_image_num=args.use_image_num,
+                                    mask=mask, masked_x=masked_x)
+                run(x, model_kwargs, prof_)
 
         if progress_info.global_step >= args.max_train_steps:
             return True
@@ -793,11 +858,19 @@ def main(args):
 
             for step, data_item in enumerate(train_dataloader):
                 if accelerator.is_main_process:
-                    if step == 0:
-                        print("before training, we need to check the validation mode...")
-                        log_validation(
-                            args, model, ae, text_enc.text_enc, train_dataset.tokenizer, accelerator, weight_dtype, global_step=0, ema=False
-                        )
+                    if progress_info.global_step == 0:
+                        if args.need_validation:
+                            print("before training, we need to check the validation mode...")
+                            log_validation(
+                                args=args, 
+                                model=model, 
+                                vae=ae, 
+                                text_encoder=text_enc.text_enc,
+                                tokenizer=train_dataset.tokenizer, 
+                                accelerator=accelerator,
+                                weight_dtype=weight_dtype, 
+                                global_step=progress_info.global_step,
+                            )
                 if train_one_step(step, data_item, prof_):
                     break
 
@@ -827,6 +900,8 @@ def main(args):
         train_all_epoch()
     accelerator.wait_for_everyone()
     accelerator.end_training()
+    if npu_config is not None and get_sequence_parallel_state():
+        destroy_sequence_parallel_group()
 
 
 if __name__ == "__main__":
@@ -837,27 +912,24 @@ if __name__ == "__main__":
     parser.add_argument("--video_data", type=str, required='')
     parser.add_argument("--image_data", type=str, default='')
     parser.add_argument("--sample_rate", type=int, default=1)
+    parser.add_argument("--train_fps", type=int, default=24)
+    parser.add_argument("--speed_factor", type=float, default=1.5)
     parser.add_argument("--num_frames", type=int, default=65)
     parser.add_argument("--max_height", type=int, default=320)
     parser.add_argument("--max_width", type=int, default=240)
-   
-    # inpaint dataset
-    parser.add_argument("--i2v_ratio", type=float, default=0.5) # for inpainting mode
-    parser.add_argument("--transition_ratio", type=float, default=0.4) # for inpainting mode
-    parser.add_argument("--default_text_ratio", type=float, default=0.1)
-
     parser.add_argument("--use_img_from_vid", action="store_true")
     parser.add_argument("--use_image_num", type=int, default=0)
     parser.add_argument("--model_max_length", type=int, default=512)
-    parser.add_argument("--multi_scale", action="store_true")
     parser.add_argument('--cfg', type=float, default=0.1)
     parser.add_argument("--dataloader_num_workers", type=int, default=10, help="Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process.")
     parser.add_argument("--train_batch_size", type=int, default=16, help="Batch size (per device) for the training dataloader.")
+    parser.add_argument("--group_frame", action="store_true")
+    parser.add_argument("--group_resolution", action="store_true")
 
     # text encoder & vae & diffusion model
     parser.add_argument("--model", type=str, choices=list(Diffusion_models.keys()), default="Latte-XL/122")
     parser.add_argument('--enable_8bit_t5', action='store_true')
-    parser.add_argument('--tile_overlap_factor', type=float, default=0.25)
+    parser.add_argument('--tile_overlap_factor', type=float, default=0.125)
     parser.add_argument('--enable_tiling', action='store_true')
     parser.add_argument("--compress_kv", action="store_true")
     parser.add_argument("--attention_mode", type=str, choices=['xformers', 'math', 'flash'], default="xformers")
@@ -872,19 +944,19 @@ if __name__ == "__main__":
     parser.add_argument("--text_encoder_name", type=str, default='DeepFloyd/t5-v1_1-xxl')
     parser.add_argument("--cache_dir", type=str, default='./cache_dir')
     parser.add_argument("--pretrained", type=str, default=None)
+    parser.add_argument('--enable_stable_fp32', action='store_true')
     parser.add_argument("--gradient_checkpointing", action="store_true", help="Whether or not to use gradient checkpointing to save memory at the expense of slower backward pass.")
 
     # diffusion setting
-    parser.add_argument("--zero_terminal_snr", action="store_true", help="Whether to zero the terminal SNR.")
     parser.add_argument("--snr_gamma", type=float, default=None, help="SNR weighting gamma to be used if rebalancing the loss. Recommended value is 5.0. More details here: https://arxiv.org/abs/2303.09556.")
     parser.add_argument("--use_ema", action="store_true", help="Whether to use EMA model.")
     parser.add_argument("--ema_start_step", type=int, default=0)
-    parser.add_argument("--noise_offset", type=float, default=0, help="The scale of noise offset.")
+    parser.add_argument("--noise_offset", type=float, default=0.02, help="The scale of noise offset.")
     parser.add_argument("--prediction_type", type=str, default=None, help="The prediction_type that shall be used for training. Choose between 'epsilon' or 'v_prediction' or leave `None`. If left to `None` the default prediction type of the scheduler: `noise_scheduler.config.prediciton_type` is chosen.")
 
     # validation & logs
     parser.add_argument("--num_sampling_steps", type=int, default=50)
-    parser.add_argument('--guidance_scale', type=float, default=5.0)
+    parser.add_argument('--guidance_scale', type=float, default=2.5)
     parser.add_argument("--enable_tracker", action="store_true")
     parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
     parser.add_argument("--output_dir", type=str, default=None, help="The output directory where the model predictions and checkpoints will be written.")
@@ -957,9 +1029,16 @@ if __name__ == "__main__":
                         )
 
     parser.add_argument("--local_rank", type=int, default=-1, help="For distributed training: local_rank")
+    parser.add_argument("--sp_size", type=int, default=1, help="For sequence parallel")
+    parser.add_argument("--train_sp_batch_size", type=int, default=1, help="Batch size for sequence parallel training")
 
+    # inpaint dataset
+    parser.add_argument("--i2v_ratio", type=float, default=0.5) # for inpainting mode
+    parser.add_argument("--transition_ratio", type=float, default=0.4) # for inpainting mode
+    parser.add_argument("--default_text_ratio", type=float, default=0.1)
     parser.add_argument("--validation_dir", type=str, default=None, help="Path to the validation dataset.")
-    parser.add_argument("--use_vae_preprocessed_mask", action='store_true', help="Use preprocessed mask for VAE.")
+    parser.add_argument("--need_validation", action="store_true")
+    parser.add_argument("--use_vae_preprocessed_mask", action="store_true")
 
     args = parser.parse_args()
     main(args)

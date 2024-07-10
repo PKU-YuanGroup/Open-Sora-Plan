@@ -11,7 +11,7 @@ accelerate launch \
     --main_process_ip=${MAIN_PROCESS_IP_VALUE} \
     opensora/train/train_t2v_diffusers.py \
     --model OpenSoraT2V-ROPE-L/122 \
-    --text_encoder_name ${WEIGHT_PATH}/google/umt5-xxl \
+    --text_encoder_name ${WEIGHT_PATH}/google/mt5-xxl \
     --cache_dir "../cache_dir" \
     --dataset t2v \
     --ae CausalVAEModel_4x8x8 \
@@ -27,14 +27,14 @@ accelerate launch \
     --interpolation_scale_w 1.0 \
     --attention_mode xformers \
     --gradient_checkpointing \
-    --train_batch_size=16 \
+    --train_batch_size=8 \
     --dataloader_num_workers 20 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
-    --learning_rate=1e-4 \
-    --lr_scheduler="constant" \
+    --learning_rate=4e-5 \
+    --lr_scheduler="cosine" \
     --seed=10 \
-    --lr_warmup_steps=0 \
+    --lr_warmup_steps=500 \
     --mixed_precision="bf16" \
     --report_to="wandb" \
     --checkpointing_steps=2000 \
@@ -46,8 +46,9 @@ accelerate launch \
     --use_ema \
     --ema_start_step 0 \
     --cfg 0.1 \
+    --enable_tiling \
     --tile_overlap_factor 0.125 \
     --use_rope \
-    --enable_tiling \
     --noise_offset 0.02 \
+    --pretrained "/home/image_data/checkpoints/image3d_rope_256p_zp_umt5/checkpoint-146000/model_ema/diffusion_pytorch_model.safetensors" \
     --resume_from_checkpoint="latest"

@@ -108,7 +108,7 @@ def center_crop_using_short_edge(clip):
 
 
 
-def center_crop_th_tw(clip, th, tw):
+def center_crop_th_tw(clip, th, tw, top_crop):
     if not _is_tensor_video_clip(clip):
         raise ValueError("clip should be a 4D torch.tensor")
     
@@ -122,7 +122,7 @@ def center_crop_th_tw(clip, th, tw):
         new_h = h
         new_w = int(h / tr)
     
-    i = int(round((h - new_h) / 2.0))
+    i = 0 if top_crop else int(round((h - new_h) / 2.0))
     j = int(round((w - new_w) / 2.0))
     return crop(clip, i, j, new_h, new_w)
 
@@ -307,12 +307,13 @@ class CenterCropResizeVideo:
     def __init__(
             self,
             size,
+            top_crop=False, 
             interpolation_mode="bilinear",
     ):
         if len(size) != 2:
             raise ValueError(f"size should be tuple (height, width), instead got {size}")
         self.size = size
-
+        self.top_crop = top_crop
         self.interpolation_mode = interpolation_mode
 
     def __call__(self, clip):
@@ -324,7 +325,7 @@ class CenterCropResizeVideo:
                 size is (T, C, crop_size, crop_size)
         """
         # clip_center_crop = center_crop_using_short_edge(clip)
-        clip_center_crop = center_crop_th_tw(clip, self.size[0], self.size[1])
+        clip_center_crop = center_crop_th_tw(clip, self.size[0], self.size[1], top_crop=self.top_crop)
         # import ipdb;ipdb.set_trace()
         clip_center_crop_resize = resize(clip_center_crop, target_size=self.size,
                                          interpolation_mode=self.interpolation_mode)

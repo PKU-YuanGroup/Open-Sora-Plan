@@ -49,4 +49,5 @@ accelerate launch \
     --cfg 0.1 \
     --noise_offset 0.02 \
     --downsampler "k333_s222"  \
+
     --resume_from_checkpoint="latest"
