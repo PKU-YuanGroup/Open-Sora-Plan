@@ -1,7 +1,7 @@
 CUDA_VISIBLE_DEVICES=7 python opensora/sample/sample_t2v.py \
-    --model_path /storage/ongoing/new/Open-Sora-Plan/bs32x8x2_61x480p_lr1e-4_snr5_noioff0.02_uditultra122_ds222_rope_qknorm_mt5xxl_pandamovie_aes_mo_sucai_mo_speed1.25/checkpoint-1500/model_ema \
+    --model_path /storage/dataset/hw29/image/model_ema \
     --version 65x512x512 \
-    --num_frames 61 \
+    --num_frames 29 \
     --height 480 \
     --width 640 \
     --cache_dir "../cache_dir" \
@@ -9,11 +9,11 @@ CUDA_VISIBLE_DEVICES=7 python opensora/sample/sample_t2v.py \
     --text_prompt examples/prompt_list_0.txt \
     --ae CausalVAEModel_4x8x8 \
     --ae_path "/storage/dataset/test140k" \
-    --save_img_path "./sample_video_1500ema_61x480p_k333_s222_cfg2.5_step50_PNDM_bf16" \
+    --save_img_path "sample_video_hw" \
     --fps 24 \
     --guidance_scale 2.5 \
-    --num_sampling_steps 50 \
+    --num_sampling_steps 20 \
     --enable_tiling \
     --max_sequence_length 512 \
-    --sample_method PNDM \
+    --sample_method DPMSolverMultistep \
     --model_3d

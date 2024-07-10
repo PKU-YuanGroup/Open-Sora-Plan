@@ -530,7 +530,7 @@ class Attention(Attention_):
                                             down_shortcut=True)
                 
         # self.q_norm = nn.LayerNorm(kwags['dim_head'], elementwise_affine=True, eps=1e-6)
-        # self.k_norm = nn.LayerNorm(kwags['dim_head'], elementwise_affine=True, eps=1e-6)
+        # self.k_norm = nn.LayerNorm(kwags['dim_head'], elementwise_affine=True, eps=1e-6) 
 
 
 
@@ -750,8 +750,8 @@ class AttnProcessor2_0:
             key = key.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
             
             # qk norm
-            query = attn.q_norm(query)
-            key = attn.k_norm(key)
+            # query = attn.q_norm(query)
+            # key = attn.k_norm(key)
 
             if self.use_rope:
                 # require the shape of (batch_size x nheads x ntokens x dim)
