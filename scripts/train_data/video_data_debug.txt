@@ -1,1 +1,1 @@
-/storage/dataset/panda70m,/storage/anno_jsons/panda_100000.json
+/storage/dataset/movie,/storage/dataset/movie/merge_cap_lb/bbc01_250508.json

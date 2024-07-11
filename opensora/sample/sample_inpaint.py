@@ -1,5 +1,6 @@
 import math
 import os
+import pip
 import torch
 import argparse
 import torchvision
@@ -9,31 +10,41 @@ from diffusers.schedulers import (DDIMScheduler, DDPMScheduler, PNDMScheduler,
                                   HeunDiscreteScheduler, EulerAncestralDiscreteScheduler,
                                   DEISMultistepScheduler, KDPM2AncestralDiscreteScheduler)
 from diffusers.schedulers.scheduling_dpmsolver_singlestep import DPMSolverSinglestepScheduler
-from diffusers.models import AutoencoderKL, AutoencoderKLTemporalDecoder, Transformer2DModel
 from omegaconf import OmegaConf
 from torchvision.utils import save_image
 from transformers import T5EncoderModel, MT5EncoderModel, UMT5EncoderModel, AutoTokenizer
 
 import os, sys
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
-from opensora.adaptor.modules import replace_with_fp32_forwards
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.abspath(os.path.join(current_dir, '../..'))
+if project_root not in sys.path:
+    sys.path.append(project_root)
+
 from opensora.models.ae import ae_stride_config, getae, getae_wrapper
 from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModelWrapper
-from opensora.models.diffusion.opensora.modeling_opensora import OpenSoraT2V
-from opensora.models.diffusion.latte.modeling_latte import LatteT2V
-from opensora.models.diffusion.udit.modeling_udit import UDiTT2V
-from opensora.models.diffusion.udit_ultra.modeling_udit_ultra import UDiTUltraT2V
+from opensora.models.diffusion.opensora.modeling_inpaint import OpenSoraInpaint
 
 from opensora.models.text_encoder import get_text_enc
 from opensora.utils.utils import save_video_grid
 
 from opensora.sample.pipeline_opensora import OpenSoraPipeline
+from opensora.sample.pipeline_inpaint import hacked_pipeline_call_for_inpaint
+# for validation
+import glob
+from PIL import Image
+from torchvision import transforms
+from torchvision.transforms import Lambda
+from opensora.dataset.transform import ToTensorVideo, CenterCropResizeVideo, TemporalRandomCrop, LongSideResizeVideo, SpatialStrideCropVideo
+import numpy as np
+from einops import rearrange
 
 import imageio
+import glob
+import gc
+import time
 
-
-def main(args):
+def validation(args):
     # torch.manual_seed(args.seed)
     weight_dtype = torch.bfloat16
     device = torch.device(args.device)
@@ -46,26 +57,13 @@ def main(args):
         vae.vae.tile_overlap_factor = args.tile_overlap_factor
     vae.vae_scale_factor = ae_stride_config[args.ae]
 
-    # if args.model_3d:
-    #     transformer_model = OpenSoraT2V.from_pretrained(args.model_path, subfolder=args.version, cache_dir=args.cache_dir, low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
-    # else:
-    #     transformer_model = LatteT2V.from_pretrained(args.model_path, subfolder=args.version, cache_dir=args.cache_dir, low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
-    
+
     if args.model_3d:
-        transformer_model = OpenSoraT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, 
+        transformer_model = OpenSoraInpaint.from_pretrained(args.model_path, cache_dir=args.cache_dir, 
                                                         low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
-        # transformer_model = UDiTUltraT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, ignore_mismatched_sizes=True, 
-        #                                                 low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
-    else:
-        transformer_model = LatteT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, low_cpu_mem_usage=False, 
-                                                     device_map=None, torch_dtype=weight_dtype)
-    # ckpt = torch.load('480p_73000_ema_k3_p1_repeat_wusun.pt')
-    # transformer_model.load_state_dict(ckpt)
-    # text_encoder = UMT5EncoderModel.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir, low_cpu_mem_usage=True, torch_dtype=weight_dtype)
-    # tokenizer = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
+
     text_encoder = MT5EncoderModel.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir, low_cpu_mem_usage=True, torch_dtype=weight_dtype)
     tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir)
-    
     
     # set eval mode
     transformer_model.eval()
@@ -109,6 +107,10 @@ def main(args):
     elif args.sample_method == 'EulerDiscreteSVD':
         scheduler = EulerDiscreteScheduler.from_pretrained("stabilityai/stable-video-diffusion-img2vid", 
                                                         subfolder="scheduler", cache_dir=args.cache_dir)
+    # Save the generated videos
+    save_dir = args.save_img_path
+    os.makedirs(save_dir, exist_ok=True)
+
     pipeline = OpenSoraPipeline(vae=vae,
                                 text_encoder=text_encoder,
                                 tokenizer=tokenizer,
@@ -116,50 +118,83 @@ def main(args):
                                 transformer=transformer_model)
     pipeline.to(device)
 
-    
-    if not os.path.exists(args.save_img_path):
-        os.makedirs(args.save_img_path)
-        
-    if not isinstance(args.text_prompt, list):
-        args.text_prompt = [args.text_prompt]
-    if len(args.text_prompt) == 1 and args.text_prompt[0].endswith('txt'):
-        text_prompt = open(args.text_prompt[0], 'r').readlines()
-        text_prompt = [i.strip() for i in text_prompt]
+    pipeline.__call__ = hacked_pipeline_call_for_inpaint.__get__(pipeline, OpenSoraPipeline)
+
+    validation_dir = args.validation_dir if args.validation_dir is not None else "./validation"
+    prompt_file = os.path.join(validation_dir, "prompt.txt")
+
+    with open(prompt_file, 'r') as f:
+        validation_prompt = f.readlines()
+
+    index = 0
+    validation_images_list = []
+    while True:
+        temp = glob.glob(os.path.join(validation_dir, f"*_{index:04d}*.png"))
+        print(temp)
+        if len(temp) > 0:
+            validation_images_list.append(sorted(temp))
+            index += 1
+        else:
+            break
 
     positive_prompt = "(masterpiece), (best quality), (ultra-detailed), {}. emotional, harmonious, vignette, 4k epic detailed, shot on kodak, 35mm photo, sharp focus, high budget, cinemascope, moody, epic, gorgeous"
     negative_prompt = """nsfw, lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry, 
                         """
-    video_grids = []
-    for idx, prompt in enumerate(text_prompt):
-        videos = pipeline(
-            positive_prompt.format(prompt),
-            # prompt,
-                          negative_prompt=negative_prompt, 
-                          num_frames=args.num_frames,
-                          height=args.height,
-                          width=args.width,
-                          num_inference_steps=args.num_sampling_steps,
-                          guidance_scale=args.guidance_scale,
-                          num_images_per_prompt=1,
-                          mask_feature=True,
-                          device=args.device, 
-                          max_sequence_length=args.max_sequence_length, 
-                          ).images
-        try:
-            if args.num_frames == 1:
-                ext = 'jpg'
-                videos = videos[:, 0].permute(0, 3, 1, 2)  # b t h w c -> b c h w
-                save_image(videos / 255.0, os.path.join(args.save_img_path, f'{idx}.{ext}'), nrow=1, normalize=True, value_range=(0, 1))  # t c h w
+    
+    resize = [CenterCropResizeVideo((args.height, args.width)),]
+    norm_fun = Lambda(lambda x: 2. * x - 1.)
+    transform = transforms.Compose([
+        ToTensorVideo(),
+        *resize, 
+        # RandomHorizontalFlipVideo(p=0.5),  # in case their caption have position decription
+        norm_fun
+    ])
 
-            else:
-                ext = 'mp4'
-                imageio.mimwrite(
-                    os.path.join(args.save_img_path, f'{idx}.{ext}'), videos[0], fps=args.fps, quality=6)  # highest quality is 10, lowest is 0
-        except:
-            print('Error when saving {}'.format(prompt))
-        video_grids.append(videos)
-    video_grids = torch.cat(video_grids, dim=0)
+    def preprocess_images(images):
+        if len(images) == 1:
+            condition_images_indices = [0]
+        elif len(images) == 2:
+            condition_images_indices = [0, -1]
+        condition_images = [Image.open(image).convert("RGB") for image in images]
+        condition_images = [torch.from_numpy(np.copy(np.array(image))) for image in condition_images]
+        condition_images = [rearrange(image, 'h w c -> c h w').unsqueeze(0) for image in condition_images]
+        condition_images = [transform(image).to(device, dtype=weight_dtype) for image in condition_images]
+        return dict(condition_images=condition_images, condition_images_indices=condition_images_indices)
 
+    videos = []
+    for idx, (prompt, images) in enumerate(zip(validation_prompt, validation_images_list)):
+
+        if not isinstance(images, list):
+            images = [images]
+        if 'img' in images[0]:
+            continue
+        
+        pre_results = preprocess_images(images)
+        condition_images = pre_results['condition_images']
+        condition_images_indices = pre_results['condition_images_indices']
+
+        video = pipeline.__call__(
+            prompt=prompt,
+            negative_prompt=negative_prompt,
+            condition_images=condition_images,
+            condition_images_indices=condition_images_indices,
+            num_frames=args.num_frames,
+            height=args.height,
+            width=args.width,
+            num_inference_steps=args.num_sampling_steps,
+            guidance_scale=args.guidance_scale,
+            enable_temporal_attentions=True,
+            num_images_per_prompt=1,
+            mask_feature=True,
+            max_sequence_length=args.max_sequence_length,
+        ).images
+        videos.append(video[0])
+
+        ext = 'mp4'
+        imageio.mimwrite(
+            os.path.join(save_dir, f'{idx}.{ext}'), video[0], fps=24, quality=6)  # highest quality is 10, lowest is 0
+            
+    video_grids = torch.stack(videos, dim=0)
 
     # torchvision.io.write_video(args.save_img_path + '_%04d' % args.run_time + '-.mp4', video_grids, fps=6)
     if args.num_frames == 1:
@@ -171,6 +206,12 @@ def main(args):
 
     print('save path {}'.format(args.save_img_path))
 
+    del pipeline
+    del text_encoder
+    del vae
+    del transformer_model
+    gc.collect()
+    torch.cuda.empty_cache()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -196,6 +237,31 @@ if __name__ == "__main__":
     parser.add_argument('--enable_tiling', action='store_true')
     parser.add_argument('--model_3d', action='store_true')
     parser.add_argument('--enable_stable_fp32', action='store_true')
+
+    parser.add_argument("--validation_dir", type=str, default=None)
     args = parser.parse_args()
 
-    main(args)
+    lask_ckpt = None
+    root_model_path = args.model_path
+    root_save_path = args.save_img_path
+    while True:
+        # Get the most recent checkpoint
+        dirs = os.listdir(root_model_path)
+        dirs = [d for d in dirs if d.startswith("checkpoint")]
+        dirs = sorted(dirs, key=lambda x: int(x.split("-")[1]))
+        path = dirs[-1] if len(dirs) > 0 else None
+        if path != lask_ckpt:
+            print("====================================================")
+            print(f"sample {path}...")
+            args.model_path = os.path.join(root_model_path, path, "model")
+            args.save_img_path = os.path.join(root_save_path, f"{path}_normal")
+            validation(args)
+            print("====================================================")
+            print(f"sample ema {path}...")
+            args.model_path = os.path.join(root_model_path, path, "model_ema")
+            args.save_img_path = os.path.join(root_save_path, f"{path}_ema")
+            validation(args)
+            lask_ckpt = path
+        else:
+            print("no new ckpt, sleeping...")
+        time.sleep(300)

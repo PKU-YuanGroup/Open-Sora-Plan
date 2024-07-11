@@ -39,9 +39,13 @@ flash*
 65x256*
 alpha_vae
 *node*
+cache/
+Open-Sora-Plan_models/
 sample_image*cfg*
 *tmp*
 *pymp*
 check.py
 bucket.py
 whileinf.py
+validation_dir/
+inpaint*/

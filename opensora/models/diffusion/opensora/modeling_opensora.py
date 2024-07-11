@@ -604,7 +604,7 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
         # if output.shape[2] % 2 == 0:
         #     output = output[:, :, 1:]
         return output
-    
+     
 def OpenSoraT2V_S_111(**kwargs):
     return OpenSoraT2V(num_layers=28, attention_head_dim=96, num_attention_heads=16, patch_size_t=1, patch_size=1,
                        norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=1536, **kwargs)
