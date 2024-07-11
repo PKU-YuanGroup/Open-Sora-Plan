@@ -520,7 +520,8 @@ def main(args):
     # We need to initialize the trackers we use, and also store our configuration.
     # The trackers initializes automatically on the main process.
     if accelerator.is_main_process:
-        accelerator.init_trackers(os.path.basename(args.output_dir), config=vars(args))
+        # accelerator.init_trackers(os.path.basename(args.output_dir), config=vars(args))
+        accelerator.init_trackers(project_name=os.getenv("PROJECT"), config=vars(args))
 
     # Train!
     total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
@@ -626,6 +627,12 @@ def main(args):
         global start_time
         start_time = time.time()
 
+        try:
+            in_channels = ae_channel_config[args.ae]
+            model_input, masked_x, video_mask = model_input[:, 0:in_channels], model_input[:, in_channels:2 * in_channels], model_input[:, 2 * in_channels:]
+        except:
+            raise ValueError("masked_x and video_mask is None!")
+
         noise = torch.randn_like(model_input)
         if args.noise_offset:
             # https://www.crosslabs.org//blog/diffusion-with-offset-noise
@@ -643,11 +650,6 @@ def main(args):
 
         noisy_model_input = noise_scheduler.add_noise(model_input, noise, timesteps)
 
-        if model_kwargs.get("masked_x", None) is not None and model_kwargs.get("mask", None) is not None:
-            masked_x = model_kwargs.pop("masked_x")
-            video_mask = model_kwargs.pop("mask")
-        else:
-            raise ValueError("masked_x and mask must be provided in model_kwargs")
 
         model_pred = model(
             torch.cat([noisy_model_input, masked_x, video_mask], dim=1),
@@ -806,7 +808,8 @@ def main(args):
 
             # Map input images to latent space + normalize latents
             if args.use_image_num == 0:
-                x, masked_x, mask = preprocess_x_for_inpaint(x) # B #*C T H W -> (B C T H W) * 3 
+                x, masked_x, mask = preprocess_x_for_inpaint(x) # B 3*C T H W -> (B C T H W) * 3 
+                x = torch.cat([x, masked_x, mask], dim=1) # (B C T H W) * 3 -> B 3*C T H W
             else:
                 raise NotImplementedError('inpaint mode only support video input now.')
 
@@ -841,8 +844,7 @@ def main(args):
                 assert not torch.any(torch.isnan(x)), 'after vae'
                 x = x.to(weight_dtype)
                 model_kwargs = dict(encoder_hidden_states=cond, attention_mask=attn_mask,
-                                    encoder_attention_mask=cond_mask, use_image_num=args.use_image_num,
-                                    mask=mask, masked_x=masked_x)
+                                    encoder_attention_mask=cond_mask, use_image_num=args.use_image_num)
                 run(x, model_kwargs, prof_)
 
         if progress_info.global_step >= args.max_train_steps:
