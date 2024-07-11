@@ -264,4 +264,4 @@ if __name__ == "__main__":
             lask_ckpt = path
         else:
             print("no new ckpt, sleeping...")
-        time.sleep(300)
+        time.sleep(5)

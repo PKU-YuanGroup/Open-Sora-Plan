@@ -357,7 +357,7 @@ def main(args):
     # Create EMA for the unet.
     if args.use_ema:
         ema_model = deepcopy(model)
-        ema_model = EMAModel(ema_model.parameters(), update_after_step=args.ema_start_step,
+        ema_model = EMAModel(ema_model.parameters(), decay=args.ema_decay, update_after_step=args.ema_start_step,
                              model_cls=Diffusion_models_class[args.model], model_config=ema_model.config)
 
     # `accelerate` 0.16.0 will have better support for customized saving
@@ -1031,6 +1031,7 @@ if __name__ == "__main__":
     parser.add_argument("--local_rank", type=int, default=-1, help="For distributed training: local_rank")
     parser.add_argument("--sp_size", type=int, default=1, help="For sequence parallel")
     parser.add_argument("--train_sp_batch_size", type=int, default=1, help="Batch size for sequence parallel training")
+    parser.add_argument("--ema_decay", type=float, default=0.99)
 
     # inpaint dataset
     parser.add_argument("--i2v_ratio", type=float, default=0.5) # for inpainting mode

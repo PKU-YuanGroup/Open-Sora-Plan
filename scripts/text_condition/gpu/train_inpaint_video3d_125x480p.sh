@@ -54,14 +54,15 @@ accelerate launch \
     --tile_overlap_factor 0.125 \
     --enable_tiling \
     --snr_gamma 5.0 \
-    --use_ema \
+    --use_ema 0.999 \
     --ema_start_step 0 \
     --cfg 0.1 \
     --noise_offset 0.02 \
     --use_rope \
     --resume_from_checkpoint="latest" \
+    --ema_decay \
     --group_frame \
-    --speed_factor 1.2 \
+    --speed_factor 1.1 \
     --pretrained "/storage/ongoing/new/Open-Sora-Plan/bs36x8x1_125x480p_lr1e-4_snr5_noioff0.02_opensora122_rope_mt5xxl_pandamovie_aes_mo_sucai_mo_speed1.2/checkpoint-3500/model_ema/diffusion_pytorch_model.safetensors" \
     --output_dir=$PROJECT \
     --i2v_ratio 0.5 \

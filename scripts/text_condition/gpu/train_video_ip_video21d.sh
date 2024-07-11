@@ -13,6 +13,8 @@ export NCCL_IB_GID_INDEX=3
 export NCCL_ALGO=Ring
 export OMP_NUM_THREADS=1
 
+export PDSH_RCMD_TYPE=ssh
+
 accelerate launch \
     --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
     opensora/train/train_videoip.py \
