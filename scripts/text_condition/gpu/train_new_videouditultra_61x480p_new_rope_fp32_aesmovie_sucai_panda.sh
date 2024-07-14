@@ -4,13 +4,20 @@ export ENTITY="linbin"
 export PROJECT="bs2_4node_72500k_480p_61x480p_lr1e-4_snr5_noioff0.02_ema_rope_uditultra122_qknorm_ds122_mt5xxl_sucai288w"
 export HF_DATASETS_OFFLINE=1 
 export TRANSFORMERS_OFFLINE=1
-# NCCL setting
 export PDSH_RCMD_TYPE=ssh
+# NCCL setting
+export GLOO_SOCKET_IFNAME=bond0
+export NCCL_SOCKET_IFNAME=bond0
+export NCCL_IB_HCA=mlx5_10:1,mlx5_11:1,mlx5_12:1,mlx5_13:1
+export NCCL_IB_GID_INDEX=3
+export NCCL_IB_TC=162
+export NCCL_IB_TIMEOUT=22
 export NCCL_PXN_DISABLE=0
 export NCCL_IB_QPS_PER_CONNECTION=4
-export NCCL_IB_GID_INDEX=3
-export NCCL_ALGO=Tree
+# export NCCL_ALGO=Ring
 export OMP_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+export NCCL_ALGO=Tree
 
 accelerate launch \
     --config_file scripts/accelerate_configs/multi_node_example.yaml \
@@ -19,7 +26,7 @@ accelerate launch \
     --text_encoder_name google/mt5-xxl \
     --cache_dir "./cache_dir" \
     --dataset t2v \
-    --video_data "scripts/train_data/video_data_aesmovie_sucai.txt" \
+    --video_data "scripts/train_data/video_data_aesmovie_sucai_panda.txt" \
     --image_data "scripts/train_data/image_data.txt" \
     --ae CausalVAEModel_4x8x8 \
     --ae_path "/storage/dataset/test140k" \
@@ -53,10 +60,9 @@ accelerate launch \
     --cfg 0.1 \
     --noise_offset 0.02 \
     --use_rope \
-    --downsampler "k333_s222"  \
+    --downsampler "k333_s122"  \
     --resume_from_checkpoint="latest" \
-    --enable_stable_fp32 \
     --group_frame \
     --speed_factor 1.2 \
-    --pretrained "bs2_20node_73000k_480p_61x480p_lr1e-4_snr5_noioff0.02_ema_rope_uditultra122_qknorm_ds222_mt5xxl_aesmovie_sucai_speed1.4/checkpoint-7000/model_ema/diffusion_pytorch_model.safetensors" \
-    --output_dir="bs20x8x2_73k_480p_61x480p_lr1e-4_snr5_noioff0.02_rope_uditultra122_qknorm_ds222_mt5xxl_movie_aes_mo_sucai_mo_speed1.2" 
+    --pretrained "/storage/ongoing/new/image2video_weight/480p_73000_ema_ds_k3_p1_repeat.pt" \
+    --output_dir="bs20x8x2_61x480p_lr1e-4_snr5_noioff0.02_new_uditultra122_ds122_rope_qknorm_mt5xxl_pandamovie_aes_mo_sucai_mo_speed1.2" 

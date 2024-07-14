@@ -28,6 +28,8 @@ except:
     torch_npu = None
     npu_config = None
     set_run_dtype = None
+    from opensora.utils.parallel_states import get_sequence_parallel_state, nccl_info
+    from opensora.utils.communications import all_to_all_SBH
 logger = logging.get_logger(__name__)
 
 def get_3d_sincos_pos_embed(
@@ -224,18 +226,32 @@ class PatchEmbed2D(nn.Module):
             if self.num_frames != num_frames:
                 # import ipdb;ipdb.set_trace()
                 # raise NotImplementedError
-                if npu_config is not None and get_sequence_parallel_state():
-                    sp_size = hccl_info.world_size
-                    temp_pos_embed = get_1d_sincos_pos_embed(
-                        embed_dim=self.temp_pos_embed.shape[-1],
-                        grid_size=num_frames * sp_size,
-                        base_size=self.base_size_t,
-                        interpolation_scale=self.interpolation_scale_t,
-                    )
-                    rank = hccl_info.rank % sp_size
-                    st_frame = rank * num_frames
-                    ed_frame = st_frame + num_frames
-                    temp_pos_embed = temp_pos_embed[st_frame: ed_frame]
+                if get_sequence_parallel_state():
+                    if npu_config is not None:
+                        sp_size = hccl_info.world_size
+                        temp_pos_embed = get_1d_sincos_pos_embed(
+                            embed_dim=self.temp_pos_embed.shape[-1],
+                            grid_size=num_frames * sp_size,
+                            base_size=self.base_size_t,
+                            interpolation_scale=self.interpolation_scale_t,
+                        )
+                        rank = hccl_info.rank % sp_size
+                        st_frame = rank * num_frames
+                        ed_frame = st_frame + num_frames
+                        temp_pos_embed = temp_pos_embed[st_frame: ed_frame]
+                    else:
+                        sp_size = nccl_info.world_size
+                        temp_pos_embed = get_1d_sincos_pos_embed(
+                            embed_dim=self.temp_pos_embed.shape[-1],
+                            grid_size=num_frames * sp_size,
+                            base_size=self.base_size_t,
+                            interpolation_scale=self.interpolation_scale_t,
+                        )
+                        rank = nccl_info.rank % sp_size
+                        st_frame = rank * num_frames
+                        ed_frame = st_frame + num_frames
+                        temp_pos_embed = temp_pos_embed[st_frame: ed_frame]
+
                 else:
                     temp_pos_embed = get_1d_sincos_pos_embed(
                         embed_dim=self.temp_pos_embed.shape[-1],
@@ -262,9 +278,10 @@ class PatchEmbed2D(nn.Module):
         video_latent = rearrange(video_latent, 'b t n c -> b (t n) c') if video_latent is not None and video_latent.numel() > 0 else None
         image_latent = rearrange(image_latent, 'b t n c -> (b t) n c') if image_latent is not None and image_latent.numel() > 0 else None
 
-        if num_frames == 1 and image_latent is None:
+        if num_frames == 1 and image_latent is None and not get_sequence_parallel_state():
             image_latent = video_latent
             video_latent = None
+        # print('video_latent is None, image_latent is None', video_latent is None, image_latent is None)
         return video_latent, image_latent
     
 
@@ -656,11 +673,16 @@ class AttnProcessor2_0:
         if input_ndim == 4:
             batch_size, channel, height, width = hidden_states.shape
             hidden_states = hidden_states.view(batch_size, channel, height * width).transpose(1, 2)
-
-        if npu_config is not None and get_sequence_parallel_state():
-            sequence_length, batch_size, _ = (
-                hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
-            )
+        
+        if get_sequence_parallel_state():
+            if npu_config is not None:
+                sequence_length, batch_size, _ = (
+                    hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
+                )
+            else:
+                sequence_length, batch_size, _ = (
+                    hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
+                )
         else:
             batch_size, sequence_length, _ = (
                 hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
@@ -746,45 +768,105 @@ class AttnProcessor2_0:
 
                     hidden_states = npu_config.restore_dtype(hidden_states)
         else:
-            query = query.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
-            key = key.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
-            
-            # qk norm
-            # query = attn.q_norm(query)
-            # key = attn.k_norm(key)
+            if get_sequence_parallel_state():
+                query = query.reshape(-1, attn.heads, head_dim)  # [s // sp, b, h * d] -> [s // sp * b, h, d]
+                key = key.reshape(-1, attn.heads, head_dim)
+                value = value.reshape(-1, attn.heads, head_dim)
+                # query = attn.q_norm(query)
+                # key = attn.k_norm(key)
+                h_size = attn.heads * head_dim
+                sp_size = nccl_info.world_size
+                h_size_sp = h_size // sp_size
+                # apply all_to_all to gather sequence and split attention heads [s // sp * b, h, d] -> [s * b, h // sp, d]
+                query = all_to_all_SBH(query, scatter_dim=1, gather_dim=0).reshape(-1, batch_size, h_size_sp)
+                key = all_to_all_SBH(key, scatter_dim=1, gather_dim=0).reshape(-1, batch_size, h_size_sp)
+                value = all_to_all_SBH(value, scatter_dim=1, gather_dim=0).reshape(-1, batch_size, h_size_sp)
+                query = query.reshape(-1, batch_size, attn.heads // sp_size, head_dim)
+                key = key.reshape(-1, batch_size, attn.heads // sp_size, head_dim)
+                value = value.reshape(-1, batch_size, attn.heads // sp_size, head_dim)
+                # print('query', query.shape, 'key', key.shape, 'value', value.shape)
+                if self.use_rope:
+                    # require the shape of (batch_size x nheads x ntokens x dim)
+                    pos_thw = self.position_getter(batch_size, t=frame * sp_size, h=height, w=width, device=query.device)
+                    query = self.rope(query, pos_thw)
+                    key = self.rope(key, pos_thw)
 
-            if self.use_rope:
-                # require the shape of (batch_size x nheads x ntokens x dim)
-                pos_thw = self.position_getter(batch_size, t=frame, h=height, w=width, device=query.device)
-                query = self.rope(query, pos_thw)
-                key = self.rope(key, pos_thw)
-                
-            value = value.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
+                # print('after rope query', query.shape, 'key', key.shape, 'value', value.shape)
+                query = rearrange(query, 's b h d -> b h s d')
+                key = rearrange(key, 's b h d -> b h s d')
+                value = rearrange(value, 's b h d -> b h s d')
+                # print('rearrange query', query.shape, 'key', key.shape, 'value', value.shape)
 
-            if attention_mask is None or not torch.all(attention_mask.bool()):  # 0 mean visible
-                attention_mask = None
-            # the output of sdp = (batch, num_heads, seq_len, head_dim)
-            # TODO: add support for attn.scale when we move to Torch 2.1
-            # import ipdb;ipdb.set_trace()
-            # print(attention_mask)
-            if self.attention_mode == 'flash':
-                assert attention_mask is None or not torch.all(attention_mask.bool()), 'flash-attn do not support attention_mask'
-                with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=True, enable_mem_efficient=False):
-                    hidden_states = F.scaled_dot_product_attention(
-                        query, key, value, dropout_p=0.0, is_causal=False
-                    )
-            elif self.attention_mode == 'xformers':
-                with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=False, enable_mem_efficient=True):
+                if attention_mask is None or not torch.all(attention_mask.bool()):  # 0 mean visible
+                    attention_mask = None
+                # the output of sdp = (batch, num_heads, seq_len, head_dim)
+                # TODO: add support for attn.scale when we move to Torch 2.1
+                # import ipdb;ipdb.set_trace()
+                # print(attention_mask)
+                if self.attention_mode == 'flash':
+                    assert attention_mask is None or not torch.all(attention_mask.bool()), 'flash-attn do not support attention_mask'
+                    with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=True, enable_mem_efficient=False):
+                        hidden_states = F.scaled_dot_product_attention(
+                            query, key, value, dropout_p=0.0, is_causal=False
+                        )
+                elif self.attention_mode == 'xformers':
+                    with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=False, enable_mem_efficient=True):
+                        hidden_states = F.scaled_dot_product_attention(
+                            query, key, value, attn_mask=attention_mask, dropout_p=0.0, is_causal=False
+                        )
+                elif self.attention_mode == 'math':
                     hidden_states = F.scaled_dot_product_attention(
                         query, key, value, attn_mask=attention_mask, dropout_p=0.0, is_causal=False
                     )
-            elif self.attention_mode == 'math':
-                hidden_states = F.scaled_dot_product_attention(
-                    query, key, value, attn_mask=attention_mask, dropout_p=0.0, is_causal=False
-                )
+                else:
+                    raise NotImplementedError(f'Found attention_mode: {self.attention_mode}')
+                
+                hidden_states = rearrange(hidden_states, 'b h s d -> s b h d')
+
+                hidden_states = hidden_states.reshape(-1, attn.heads // sp_size, head_dim)
+
+                # [s * b, h // sp, d] -> [s // sp * b, h, d] -> [s // sp, b, h * d]
+                hidden_states = all_to_all_SBH(hidden_states, scatter_dim=0, gather_dim=1).reshape(-1, batch_size, h_size)
             else:
-                raise NotImplementedError(f'Found attention_mode: {self.attention_mode}')
-            hidden_states = hidden_states.transpose(1, 2).reshape(batch_size, -1, attn.heads * head_dim)
+                query = query.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
+                key = key.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
+                
+                # qk norm
+                # query = attn.q_norm(query)
+                # key = attn.k_norm(key)
+
+                if self.use_rope:
+                    # require the shape of (batch_size x nheads x ntokens x dim)
+                    pos_thw = self.position_getter(batch_size, t=frame, h=height, w=width, device=query.device)
+                    query = self.rope(query, pos_thw)
+                    key = self.rope(key, pos_thw)
+                    
+                value = value.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
+
+                if attention_mask is None or not torch.all(attention_mask.bool()):  # 0 mean visible
+                    attention_mask = None
+                # the output of sdp = (batch, num_heads, seq_len, head_dim)
+                # TODO: add support for attn.scale when we move to Torch 2.1
+                # import ipdb;ipdb.set_trace()
+                # print(attention_mask)
+                if self.attention_mode == 'flash':
+                    assert attention_mask is None or not torch.all(attention_mask.bool()), 'flash-attn do not support attention_mask'
+                    with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=True, enable_mem_efficient=False):
+                        hidden_states = F.scaled_dot_product_attention(
+                            query, key, value, dropout_p=0.0, is_causal=False
+                        )
+                elif self.attention_mode == 'xformers':
+                    with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=False, enable_mem_efficient=True):
+                        hidden_states = F.scaled_dot_product_attention(
+                            query, key, value, attn_mask=attention_mask, dropout_p=0.0, is_causal=False
+                        )
+                elif self.attention_mode == 'math':
+                    hidden_states = F.scaled_dot_product_attention(
+                        query, key, value, attn_mask=attention_mask, dropout_p=0.0, is_causal=False
+                    )
+                else:
+                    raise NotImplementedError(f'Found attention_mode: {self.attention_mode}')
+                hidden_states = hidden_states.transpose(1, 2).reshape(batch_size, -1, attn.heads * head_dim)
         hidden_states = hidden_states.to(query.dtype)
 
         # linear proj
@@ -1142,8 +1224,10 @@ class BasicTransformerBlock(nn.Module):
             norm_hidden_states = self.norm1(hidden_states, added_cond_kwargs["pooled_text_emb"])
         elif self.norm_type == "ada_norm_single":
             # import ipdb;ipdb.set_trace()
-            if npu_config is not None and get_sequence_parallel_state():
+            if get_sequence_parallel_state():
                 batch_size = hidden_states.shape[1]
+                # print('hidden_states', hidden_states.shape)
+                # print('timestep', timestep.shape)
                 shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
                         self.scale_shift_table[:, None] + timestep.reshape(6, batch_size, -1)
                 ).chunk(6, dim=0)

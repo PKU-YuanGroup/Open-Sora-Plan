@@ -162,34 +162,34 @@ class UDiTUltraT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
         # down_factor = down_factor if isinstance(self.config.down_factor, list) else [self.config.down_factor] * 5
         # down_factor = [2] * len(self.config.depth)
         is_video_model = False
-        if self.config.downsampler is not None and len(self.config.downsampler) == 9:
-            is_video_model = True  # to init weight from image
-            self.pos_embed = OverlapPatchEmbed3D(
-                num_frames=self.config.sample_size_t,
-                height=self.config.sample_size[0],
-                width=self.config.sample_size[1],
-                patch_size_t=self.config.patch_size_t,
-                patch_size=self.config.patch_size,
-                in_channels=self.in_channels,
-                embed_dim=self.inner_dim,
-                interpolation_scale=interpolation_scale, 
-                interpolation_scale_t=interpolation_scale_t,
-                use_abs_pos=not self.config.use_rope, 
-            )
-        elif self.config.downsampler is not None and len(self.config.downsampler) == 7:
-            is_video_model = False
-            self.pos_embed = OverlapPatchEmbed2D(
-                num_frames=self.config.sample_size_t,
-                height=self.config.sample_size[0],
-                width=self.config.sample_size[1],
-                patch_size_t=self.config.patch_size_t,
-                patch_size=self.config.patch_size,
-                in_channels=self.in_channels,
-                embed_dim=self.inner_dim,
-                interpolation_scale=interpolation_scale, 
-                interpolation_scale_t=interpolation_scale_t,
-                use_abs_pos=not self.config.use_rope, 
-            )
+        # if self.config.downsampler is not None and len(self.config.downsampler) == 9:
+        #     is_video_model = True  # to init weight from image
+            # self.pos_embed = OverlapPatchEmbed3D(
+            #     num_frames=self.config.sample_size_t,
+            #     height=self.config.sample_size[0],
+            #     width=self.config.sample_size[1],
+            #     patch_size_t=self.config.patch_size_t,
+            #     patch_size=self.config.patch_size,
+            #     in_channels=self.in_channels,
+            #     embed_dim=self.inner_dim,
+            #     interpolation_scale=interpolation_scale, 
+            #     interpolation_scale_t=interpolation_scale_t,
+            #     use_abs_pos=not self.config.use_rope, 
+            # )
+        # elif self.config.downsampler is not None and len(self.config.downsampler) == 7:
+        #     is_video_model = False
+        self.pos_embed = OverlapPatchEmbed2D(
+            num_frames=self.config.sample_size_t,
+            height=self.config.sample_size[0],
+            width=self.config.sample_size[1],
+            patch_size_t=self.config.patch_size_t,
+            patch_size=self.config.patch_size,
+            in_channels=self.in_channels,
+            embed_dim=self.inner_dim,
+            interpolation_scale=interpolation_scale, 
+            interpolation_scale_t=interpolation_scale_t,
+            use_abs_pos=not self.config.use_rope, 
+        )
         # layer_thw = [[self.config.sample_size_t//self.config.patch_size_t, 
         #               (self.config.sample_size[0] + self.config.sample_size[0] % (self.config.patch_size*2))//self.config.patch_size, 
         #               (self.config.sample_size[1] + self.config.sample_size[1] % (self.config.patch_size*2))//self.config.patch_size]]

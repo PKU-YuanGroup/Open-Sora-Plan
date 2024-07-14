@@ -1,5 +1,5 @@
 CUDA_VISIBLE_DEVICES=7 python opensora/sample/sample_t2v.py \
-    --model_path /storage/dataset/hw29/image/model_ema \
+    --model_path /storage/ongoing/new/checkpoints/bs16_4node_480p_lr1e-4_snr5_noioff0.02_ema_rope_uditultra22_qknorm_ds22_mt5xxl_mjencn_czhan_humanimg/checkpoint-73000/model_ema \
     --version 65x512x512 \
     --num_frames 1 \
     --height 480 \
@@ -9,7 +9,7 @@ CUDA_VISIBLE_DEVICES=7 python opensora/sample/sample_t2v.py \
     --text_prompt examples/prompt_list_1.txt \
     --ae CausalVAEModel_4x8x8 \
     --ae_path "/storage/dataset/test140k" \
-    --save_img_path "sample_image" \
+    --save_img_path "sample_image_fp32_73000_cfg2.5_step20_480p_pos_neg" \
     --fps 24 \
     --guidance_scale 2.5 \
     --num_sampling_steps 20 \

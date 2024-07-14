@@ -133,6 +133,9 @@ class T2V_dataset(Dataset):
         self.model_max_length = args.model_max_length
         self.cfg = args.cfg
         self.speed_factor = args.speed_factor
+        self.max_height = args.max_height
+        self.max_width = args.max_width
+        self.drop_short_ratio = args.drop_short_ratio
         assert self.speed_factor >= 1
         self.v_decoder = DecordInit()
 
@@ -314,26 +317,28 @@ class T2V_dataset(Dataset):
                 if not filter_resolution(resolution['height'], resolution['width']):
                     cnt_resolution_mismatch += 1
                     continue
+                if self.max_height > resolution['height'] or self.max_width > resolution['width']:
+                    cnt_resolution_mismatch += 1
+                    continue
             if fps is not None and duration is not None:
                 # import ipdb;ipdb.set_trace()
                 i['num_frames'] = int(fps * duration)
                 # max 5.0 and min 1.0 are just thresholds to filter some videos which have suitable duration. 
-                if i['num_frames'] > 6.0 * (self.num_frames * fps / self.train_fps * self.speed_factor):  # too long video is not suitable for this training stage (self.num_frames)
+                if i['num_frames'] > 5.0 * (self.num_frames * fps / self.train_fps * self.speed_factor):  # too long video is not suitable for this training stage (self.num_frames)
                     cnt_too_long += 1
                     continue
                 # if i['num_frames'] < 1.0/1 * (self.num_frames * fps / self.train_fps * self.speed_factor):  # too short video is not suitable for this training stage
                 #     cnt_too_short += 1
-                #     continue
+                #     continue 
 
                 # resample in case high fps, such as 50/60/90/144 -> train_fps(e.g, 24)
                 frame_interval = fps / self.train_fps
-                start_frame_idx = 8 if 'movie/' in i['path'] else 0  # special video
+                start_frame_idx = 8 if '/storage/dataset/movie' in i['path'] else 0  # special video
                 frame_indices = np.arange(start_frame_idx, i['num_frames'], frame_interval).astype(int)
                 frame_indices = frame_indices[frame_indices < i['num_frames']]
 
                 # comment out it to enable dynamic frames training
-                drop_short_video_prob = 1.0
-                if len(frame_indices) < self.num_frames and random.uniform(0, 1) <= drop_short_video_prob:  # to drop short videos
+                if len(frame_indices) < self.num_frames and random.random() < self.drop_short_ratio:
                     cnt_too_short += 1
                     continue
 
@@ -349,7 +354,7 @@ class T2V_dataset(Dataset):
                     continue
                 frame_indices = frame_indices[:end_frame_idx]
 
-                if 'movie/' in i['path']:
+                if '/storage/dataset/movie' in i['path']:
                     cnt_movie += 1
                 i['sample_frame_index'] = frame_indices.tolist()
                 new_vid_cap_list.append(i)
@@ -369,15 +374,14 @@ class T2V_dataset(Dataset):
         fps = decord_vr.get_avg_fps() if decord_vr.get_avg_fps() > 0 else 30.0
         # import ipdb;ipdb.set_trace()
         # resample in case high fps, such as 50/60/90/144 -> train_fps(e.g, 24)
-        frame_interval = 1.0 if abs(fps - self.train_fps) < 1e-1 else fps / self.train_fps
-        start_frame_idx = 8 if 'movie/' in path else 0  # special video
+        frame_interval = 1.0 if abs(fps - self.train_fps) < 0.1 else fps / self.train_fps
+        start_frame_idx = 8 if '/storage/dataset/movie' in path else 0  # special video
         frame_indices = np.arange(start_frame_idx, total_frames, frame_interval).astype(int)
         frame_indices = frame_indices[frame_indices < total_frames]
         #import ipdb;ipdb.set_trace()
         # speed up
         max_speed_factor = len(frame_indices) / self.num_frames
-        speed_factor = 1.0
-        if self.speed_factor > 1 and max_speed_factor > 1 and not ('MagicTime_Data/' in path):
+        if self.speed_factor > 1 and max_speed_factor > 1 and not ('/storage/dataset/MagicTime_Data' in path):
             speed_factor = random.uniform(1.0, min(self.speed_factor, max_speed_factor))
             target_frame_count = int(len(frame_indices) / speed_factor)
             speed_frame_idx = np.linspace(0, len(frame_indices) - 1, target_frame_count, dtype=int)
@@ -392,10 +396,10 @@ class T2V_dataset(Dataset):
         # to find a suitable end_frame_idx, to ensure we do not need pad video
         end_frame_idx = find_closest_y(len(frame_indices), vae_stride_t=4, model_ds_t=4)
         if end_frame_idx == -1:  # too short that can not be encoded exactly by videovae
-            raise IndexError(f'video ({path}) has {total_frames} frames, speed_factor: {speed_factor}, but need to sample {len(frame_indices)} frames ({frame_indices})')
+            raise IndexError(f'video ({path}) has {total_frames} frames, but need to sample {len(frame_indices)} frames ({frame_indices})')
         frame_indices = frame_indices[:end_frame_idx]
-        if len(frame_indices) < self.num_frames:
-            raise IndexError(f'video ({path}) has {total_frames} frames, speed_factor: {speed_factor}, but need to sample {len(frame_indices)} frames ({frame_indices})')
+        if len(frame_indices) < self.num_frames and self.drop_short_ratio >= 1:
+            raise IndexError(f'video ({path}) has {total_frames} frames, but need to sample {len(frame_indices)} frames ({frame_indices})')
         video_data = decord_vr.get_batch(frame_indices).asnumpy()
         video_data = torch.from_numpy(video_data)
         video_data = video_data.permute(0, 3, 1, 2)  # (T, H, W, C) -> (T C H W)

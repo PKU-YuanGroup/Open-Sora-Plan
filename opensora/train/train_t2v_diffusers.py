@@ -30,6 +30,9 @@ try:
 except:
     torch_npu = None
     npu_config = None
+    from opensora.utils.parallel_states import initialize_sequence_parallel_state, \
+        destroy_sequence_parallel_group, get_sequence_parallel_state
+    from opensora.utils.communications import prepare_parallel_data, broadcast
     pass
 import time
 from dataclasses import field, dataclass
@@ -181,7 +184,7 @@ def main(args):
         project_config=accelerator_project_config,
     )
 
-    if npu_config is not None and args.num_frames != 1 and args.use_image_num == 0:
+    if args.num_frames != 1 and args.use_image_num == 0:
         initialize_sequence_parallel_state(args.sp_size)
 
     if args.report_to == "wandb":
@@ -323,7 +326,7 @@ def main(args):
     # Create EMA for the unet.
     if args.use_ema:
         ema_model = deepcopy(model)
-        ema_model = EMAModel(ema_model.parameters(), update_after_step=args.ema_start_step,
+        ema_model = EMAModel(ema_model.parameters(), decay=args.ema_decay, update_after_step=args.ema_start_step,
                              model_cls=Diffusion_models_class[args.model], model_config=ema_model.config)
 
     # `accelerate` 0.16.0 will have better support for customized saving
@@ -434,7 +437,9 @@ def main(args):
     logger.info(f"optimizer: {optimizer}")
     
     # Setup data:
+    logger.info(f'before dataset')
     train_dataset = getdataset(args)
+    logger.info(f'after dataset')
     sampler = LengthGroupedSampler(
                 args.train_batch_size,
                 world_size=accelerator.num_processes,
@@ -442,6 +447,7 @@ def main(args):
                 group_frame=args.group_frame, 
                 group_resolution=args.group_resolution, 
             ) if args.group_frame or args.group_resolution else None
+    logger.info(f'after LengthGroupedSampler')
     train_dataloader = DataLoader(
         train_dataset,
         shuffle=sampler is None,
@@ -452,6 +458,7 @@ def main(args):
         sampler=sampler if args.group_frame or args.group_resolution else None, 
         # prefetch_factor=4
     )
+    logger.info(f'after train_dataloader')
 
     # Scheduler and math around the number of training steps.
     overrode_max_train_steps = False
@@ -470,9 +477,11 @@ def main(args):
     # Prepare everything with our `accelerator`.
     # model.requires_grad_(False)
     # model.pos_embed.requires_grad_(True)
+    logger.info(f'before accelerator.prepare')
     model, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
         model, optimizer, train_dataloader, lr_scheduler
     )
+    logger.info(f'after accelerator.prepare')
     if args.use_ema:
         ema_model.to(accelerator.device)
 
@@ -601,7 +610,7 @@ def main(args):
         bsz = model_input.shape[0]
         # Sample a random timestep for each image without bias.
         timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=model_input.device)
-        if npu_config is not None and get_sequence_parallel_state():
+        if get_sequence_parallel_state():
             broadcast(timesteps)
 
         # Add noise to the model input according to the noise magnitude at each timestep
@@ -632,6 +641,10 @@ def main(args):
             raise ValueError(f"Unknown prediction type {noise_scheduler.config.prediction_type}")
 
         mask = model_kwargs.get('attention_mask', None)
+        if torch.all(mask.bool()):
+            mask = None
+        if get_sequence_parallel_state():
+            assert mask is None
         b, c, _, _, _ = model_pred.shape
         if mask is not None:
             mask = mask.unsqueeze(1).repeat(1, c, 1, 1, 1).float()  # b t h w -> b c t h w
@@ -697,14 +710,14 @@ def main(args):
                     log_validation(args, model, ae, text_enc.text_enc, train_dataset.tokenizer, accelerator,
                                    weight_dtype, progress_info.global_step)
 
-                if args.use_ema and npu_config is None:
-                    # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
-                    ema_model.store(model.parameters())
-                    ema_model.copy_to(model.parameters())
-                    log_validation(args, model, ae, text_enc.text_enc, train_dataset.tokenizer, accelerator,
-                                   weight_dtype, progress_info.global_step, ema=True)
-                    # Switch back to the original UNet parameters.
-                    ema_model.restore(model.parameters())
+                    if args.use_ema and npu_config is not None:
+                        # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
+                        ema_model.store(model.parameters())
+                        ema_model.copy_to(model.parameters())
+                        log_validation(args, model, ae, text_enc.text_enc, train_dataset.tokenizer, accelerator,
+                                    weight_dtype, progress_info.global_step, ema=True)
+                        # Switch back to the original UNet parameters.
+                        ema_model.restore(model.parameters())
 
         if prof is not None:
             prof.step()
@@ -769,9 +782,8 @@ def main(args):
             # videos = ae.decode(x)[0]
             # videos = videos.transpose(0, 1)
             # custom_to_video(videos.to(torch.float32), fps=24, output_file='tmp.mp4')
-            # sys.exit()
-
-        if npu_config is not None and get_sequence_parallel_state():
+            # import sys;sys.exit()
+        if get_sequence_parallel_state():
             x, cond, attn_mask, cond_mask, use_image_num = prepare_parallel_data(x, cond, attn_mask, cond_mask,
                                                                                  args.use_image_num)
             for iter in range(args.train_batch_size * args.sp_size // args.train_sp_batch_size):
@@ -832,7 +844,7 @@ def main(args):
         train_all_epoch()
     accelerator.wait_for_everyone()
     accelerator.end_training()
-    if npu_config is not None and get_sequence_parallel_state():
+    if get_sequence_parallel_state():
         destroy_sequence_parallel_group()
 
 
@@ -845,7 +857,8 @@ if __name__ == "__main__":
     parser.add_argument("--image_data", type=str, default='')
     parser.add_argument("--sample_rate", type=int, default=1)
     parser.add_argument("--train_fps", type=int, default=24)
-    parser.add_argument("--speed_factor", type=float, default=1.5)
+    parser.add_argument("--drop_short_ratio", type=float, default=1.0)
+    parser.add_argument("--speed_factor", type=float, default=1.0)
     parser.add_argument("--num_frames", type=int, default=65)
     parser.add_argument("--max_height", type=int, default=320)
     parser.add_argument("--max_width", type=int, default=240)
@@ -882,6 +895,7 @@ if __name__ == "__main__":
     # diffusion setting
     parser.add_argument("--snr_gamma", type=float, default=None, help="SNR weighting gamma to be used if rebalancing the loss. Recommended value is 5.0. More details here: https://arxiv.org/abs/2303.09556.")
     parser.add_argument("--use_ema", action="store_true", help="Whether to use EMA model.")
+    parser.add_argument("--ema_decay", type=float, default=0.999)
     parser.add_argument("--ema_start_step", type=int, default=0)
     parser.add_argument("--noise_offset", type=float, default=0.02, help="The scale of noise offset.")
     parser.add_argument("--prediction_type", type=str, default=None, help="The prediction_type that shall be used for training. Choose between 'epsilon' or 'v_prediction' or leave `None`. If left to `None` the default prediction type of the scheduler: `noise_scheduler.config.prediciton_type` is chosen.")

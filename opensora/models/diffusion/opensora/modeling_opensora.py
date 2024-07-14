@@ -20,6 +20,8 @@ try:
 except:
     torch_npu = None
     npu_config = None
+    from opensora.utils.parallel_states import get_sequence_parallel_state, nccl_info
+
 class OpenSoraT2V(ModelMixin, ConfigMixin):
     """
     A 2D Transformer model for image-like data.
@@ -326,6 +328,7 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
             `tuple` where the first element is the sample tensor.
         """
         batch_size, c, frame, h, w = hidden_states.shape
+        # print('hidden_states.shape', hidden_states.shape)
         frame = frame - use_image_num  # 21-4=17
         if cross_attention_kwargs is not None:
             if cross_attention_kwargs.get("scale", None) is not None:
@@ -349,9 +352,15 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
             # b, frame+use_image_num, h, w -> a video with images
             # b, 1, h, w -> only images
             attention_mask = attention_mask.to(self.dtype)
-            if npu_config is not None and get_sequence_parallel_state():
-                attention_mask_vid = attention_mask[:, :frame * hccl_info.world_size]  # b, frame, h, w
-                attention_mask_img = attention_mask[:, frame * hccl_info.world_size:]  # b, use_image_num, h, w
+            if get_sequence_parallel_state():
+                if npu_config is not None:
+                    attention_mask_vid = attention_mask[:, :frame * hccl_info.world_size]  # b, frame, h, w
+                    attention_mask_img = attention_mask[:, frame * hccl_info.world_size:]  # b, use_image_num, h, w
+                else:
+                    # print('before attention_mask.shape', attention_mask.shape)
+                    attention_mask_vid = attention_mask[:, :frame * nccl_info.world_size]  # b, frame, h, w
+                    attention_mask_img = attention_mask[:, frame * nccl_info.world_size:]  # b, use_image_num, h, w
+                    # print('after attention_mask.shape', attention_mask_vid.shape)
             else:
                 attention_mask_vid = attention_mask[:, :frame]  # b, frame, h, w
                 attention_mask_img = attention_mask[:, frame:]  # b, use_image_num, h, w
@@ -370,7 +379,7 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
             attention_mask_vid = (1 - attention_mask_vid.bool().to(self.dtype)) * -10000.0 if attention_mask_vid.numel() > 0 else None
             attention_mask_img = (1 - attention_mask_img.bool().to(self.dtype)) * -10000.0 if attention_mask_img.numel() > 0 else None
 
-            if frame == 1 and use_image_num == 0:
+            if frame == 1 and use_image_num == 0 and not get_sequence_parallel_state():
                 attention_mask_img = attention_mask_vid
                 attention_mask_vid = None
         # convert encoder_attention_mask to a bias the same way we do for attention_mask
@@ -386,7 +395,7 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
             encoder_attention_mask_img = encoder_attention_mask[:, in_t-use_image_num:]  # b, use_image_num, l
             encoder_attention_mask_img = rearrange(encoder_attention_mask_img, 'b i l -> (b i) 1 l') if encoder_attention_mask_img.numel() > 0 else None
 
-            if frame == 1 and use_image_num == 0:
+            if frame == 1 and use_image_num == 0 and not get_sequence_parallel_state():
                 encoder_attention_mask_img = encoder_attention_mask_vid
                 encoder_attention_mask_vid = None
 
@@ -402,6 +411,7 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
 
         # 1. Input
         frame = ((frame - 1) // self.patch_size_t + 1) if frame % 2 == 1 else frame // self.patch_size_t  # patchfy
+        # print('frame', frame)
         height, width = hidden_states.shape[-2] // self.patch_size, hidden_states.shape[-1] // self.patch_size
 
         added_cond_kwargs = {"resolution": None, "aspect_ratio": None}
@@ -411,12 +421,16 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
         )
         # 2. Blocks
         # import ipdb;ipdb.set_trace()
-        if npu_config is not None and get_sequence_parallel_state():
+        if get_sequence_parallel_state():
             if hidden_states_vid is not None:
+                # print(333333333333333)
                 hidden_states_vid = rearrange(hidden_states_vid, 'b s h -> s b h', b=batch_size).contiguous()
                 encoder_hidden_states_vid = rearrange(encoder_hidden_states_vid, 'b s h -> s b h',
                                                       b=batch_size).contiguous()
                 timestep_vid = timestep_vid.view(batch_size, 6, -1).transpose(0, 1).contiguous()
+                # print('timestep_vid', timestep_vid.shape)
+
+                
         for block in self.transformer_blocks:
             if self.training and self.gradient_checkpointing:
 
@@ -490,7 +504,7 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
                         width=width, 
                     )
 
-        if npu_config is not None and get_sequence_parallel_state():
+        if get_sequence_parallel_state():
             if hidden_states_vid is not None:
                 hidden_states_vid = rearrange(hidden_states_vid, 's b h -> b s h', b=batch_size).contiguous()
 

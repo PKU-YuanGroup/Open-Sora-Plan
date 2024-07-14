@@ -35,9 +35,11 @@ from diffusers.utils.torch_utils import randn_tensor
 from diffusers.pipelines.pipeline_utils import DiffusionPipeline, ImagePipelineOutput
 
 try:
-    from opensora.npu_config import npu_config
+    import torch_npu
+    from opensora.acceleration.parallel_states import get_sequence_parallel_state, hccl_info
 except:
-    npu_config = None
+    torch_npu = None
+    from opensora.utils.parallel_states import get_sequence_parallel_state, nccl_info
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
@@ -550,6 +552,7 @@ class OpenSoraPipeline(DiffusionPipeline):
         return latents
 
     @torch.no_grad()
+    @replace_example_docstring(EXAMPLE_DOC_STRING)
     def __call__(
         self,
         prompt: Union[str, List[str]] = None,
@@ -716,7 +719,7 @@ class OpenSoraPipeline(DiffusionPipeline):
         latents = self.prepare_latents(
             batch_size * num_images_per_prompt,
             latent_channels,
-            num_frames, 
+            (num_frames + nccl_info.world_size - 1) // nccl_info.world_size if get_sequence_parallel_state() else num_frames,
             height,
             width,
             prompt_embeds.dtype,
@@ -787,6 +790,7 @@ class OpenSoraPipeline(DiffusionPipeline):
                 # compute previous image: x_t -> x_t-1
                 latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs, return_dict=False)[0]
                 # print(f'latents_{i}_{t}', torch.max(latents), torch.min(latents), torch.mean(latents), torch.std(latents))
+                
                 # call the callback, if provided
                 if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
                     progress_bar.update()
@@ -795,6 +799,14 @@ class OpenSoraPipeline(DiffusionPipeline):
                         callback(step_idx, t, latents)
         # import ipdb;ipdb.set_trace()
         # latents = latents.squeeze(2)
+        if get_sequence_parallel_state():
+            latents_shape = list(latents.shape)
+            full_shape = [latents_shape[0] * nccl_info.world_size] + latents_shape[1:]
+            all_latents = torch.zeros(full_shape, dtype=latents.dtype, device=latents.device)
+            torch.distributed.all_gather_into_tensor(all_latents, latents)
+            latents_list = list(all_latents.chunk(nccl_info.world_size, dim=0))
+            latents = torch.cat(latents_list, dim=2)
+
         if not output_type == "latent":
             # b t h w c
             image = self.decode_latents(latents)
@@ -809,8 +821,8 @@ class OpenSoraPipeline(DiffusionPipeline):
             return (image,)
 
         return ImagePipelineOutput(images=image)
-
-
+    
+    
     def decode_latents(self, latents):
         # print(f'before vae decode', torch.max(latents).item(), torch.min(latents).item(), torch.mean(latents).item(), torch.std(latents).item())
         video = self.vae.decode(latents.to(self.vae.vae.dtype))
