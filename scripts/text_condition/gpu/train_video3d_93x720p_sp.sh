@@ -14,33 +14,33 @@ export NCCL_IB_TC=162
 export NCCL_IB_TIMEOUT=22
 export NCCL_PXN_DISABLE=0
 export NCCL_IB_QPS_PER_CONNECTION=4
-# export NCCL_ALGO=Ring
+export NCCL_ALGO=Ring
 export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
-export NCCL_ALGO=Tree
+# export NCCL_ALGO=Tree
 
 accelerate launch \
-    --config_file scripts/accelerate_configs/multi_node_example.yaml \
+    --config_file scripts/accelerate_configs/debug.yaml \
     opensora/train/train_t2v_diffusers.py \
     --model OpenSoraT2V-ROPE-L/122 \
     --text_encoder_name google/mt5-xxl \
     --cache_dir "./cache_dir" \
     --dataset t2v \
-    --video_data "scripts/train_data/video_data_aesmovie_sucai_panda.txt" \
+    --video_data "scripts/train_data/video_data_sucai_aes5.txt" \
     --image_data "scripts/train_data/image_data.txt" \
     --ae CausalVAEModel_4x8x8 \
     --ae_path "/storage/dataset/test140k" \
     --sample_rate 1 \
-    --num_frames 125 \
-    --max_height 480 \
-    --max_width 640 \
+    --num_frames 93 \
+    --max_height 720 \
+    --max_width 1280 \
     --interpolation_scale_t 1.0 \
-    --interpolation_scale_h 1.0 \
-    --interpolation_scale_w 1.0 \
+    --interpolation_scale_h 1.5 \
+    --interpolation_scale_w 2.0 \
     --attention_mode xformers \
     --gradient_checkpointing \
     --train_batch_size=1 \
-    --dataloader_num_workers 10 \
+    --dataloader_num_workers 0 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
     --learning_rate=1e-4 \
@@ -62,6 +62,10 @@ accelerate launch \
     --use_rope \
     --resume_from_checkpoint="latest" \
     --group_frame \
-    --speed_factor 1.2 \
+    --speed_factor 1.0 \
+    --enable_stable_fp32 \
+    --ema_decay 0.999 \
+    --sp_size 1 \
+    --train_sp_batch_size 8 \
     --pretrained "/storage/dataset/hw29/model_ema/diffusion_pytorch_model.safetensors" \
-    --output_dir="bs36x8x1_125x480p_lr1e-4_snr5_noioff0.02_opensora122_rope_mt5xxl_pandamovie_aes_mo_sucai_mo_speed1.2" 
+    --output_dir="bs32xsp4_93x720p_lr1e-4_snr5_noioff0.02_ema999_opensora122_rope_fp32_mt5xxl_pandamovie_aes_mo_sucai_mo" 

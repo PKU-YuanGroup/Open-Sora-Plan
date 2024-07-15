@@ -707,9 +707,9 @@ if __name__ == '__main__':
         'attention_mode': 'xformers', 
         'use_rope': True, 
         'model_max_length': 300, 
-        'max_height': 480,
-        'max_width': 640,
-        'num_frames': 61,
+        'max_height': 320,
+        'max_width': 240,
+        'num_frames': 1,
         'use_image_num': 0, 
         'compress_kv_factor': 1, 
         'interpolation_scale_t': 1,
@@ -717,7 +717,7 @@ if __name__ == '__main__':
         'interpolation_scale_w': 1,
     }
     )
-    b = 2
+    b = 16
     c = 8
     cond_c = 4096
     num_timesteps = 1000
@@ -729,7 +729,7 @@ if __name__ == '__main__':
         num_frames = args.num_frames // ae_stride_t
 
     device = torch.device('cuda:0')
-    model = OpenSoraT2V_L_122(in_channels=c, 
+    model = OpenSoraT2V_ROPE_L_122(in_channels=c, 
                               out_channels=c, 
                               sample_size=latent_size, 
                               sample_size_t=num_frames, 
@@ -767,7 +767,7 @@ if __name__ == '__main__':
         print(e)
     print(model)
     print(f'{sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e9} B')
-    import sys;sys.exit()
+    # import sys;sys.exit()
     x = torch.randn(b, c,  1+(args.num_frames-1)//ae_stride_t+args.use_image_num, args.max_height//ae_stride_h, args.max_width//ae_stride_w).to(device)
     cond = torch.randn(b, 1+args.use_image_num, args.model_max_length, cond_c).to(device)
     attn_mask = torch.randint(0, 2, (b, 1+(args.num_frames-1)//ae_stride_t+args.use_image_num, args.max_height//ae_stride_h, args.max_width//ae_stride_w)).to(device)  # B L or B 1+num_images L

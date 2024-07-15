@@ -365,7 +365,6 @@ class T2V_dataset(Dataset):
                 f'no_resolution: {cnt_no_resolution}, resolution_mismatch: {cnt_resolution_mismatch}, '
                 f'Counter(sample_num_frames): {Counter(sample_num_frames)}, movie: {cnt_movie}, '
                 f'before filter: {len(vid_cap_list)}, after filter: {len(new_vid_cap_list)}')
-        # import ipdb;ipdb.set_trace()
         return new_vid_cap_list, sample_num_frames
     
     def decord_read(self, path):

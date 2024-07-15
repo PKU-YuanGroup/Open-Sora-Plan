@@ -79,12 +79,12 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
         "A stylish woman walks down a Tokyo street filled with warm glowing neon and animated city signage. She wears a black leather jacket, a long red dress, and black boots, and carries a black purse. She wears sunglasses and red lipstick. She walks confidently and casually. The street is damp and reflective, creating a mirror effect of the colorful lights. Many pedestrians walk about.",
         "A serene underwater scene featuring a sea turtle swimming through a coral reef. The turtle, with its greenish-brown shell, is the main focus of the video, swimming gracefully towards the right side of the frame. The coral reef, teeming with life, is visible in the background, providing a vibrant and colorful backdrop to the turtle's journey. Several small fish, darting around the turtle, add a sense of movement and dynamism to the scene."
         ]
-    # if 'mt5' in args.text_encoder_name:
-    #     validation_prompt_cn = [
-    #         # "一只戴着墨镜在泳池当救生员的猫咪。",
-    #         "这是一个宁静的水下场景，一只海龟游过珊瑚礁。海龟带着绿褐色的龟壳，优雅地游向画面右侧，成为视频的焦点。背景中的珊瑚礁生机盎然，为海龟的旅程提供了生动多彩的背景。几条小鱼在海龟周围穿梭，为画面增添了动感和活力。"
-    #         ]
-    #     validation_prompt += validation_prompt_cn
+    if 'mt5' in args.text_encoder_name:
+        validation_prompt_cn = [
+            "一只戴着墨镜在泳池当救生员的猫咪。",
+            "这是一个宁静的水下场景，一只海龟游过珊瑚礁。海龟带着绿褐色的龟壳，优雅地游向画面右侧，成为视频的焦点。背景中的珊瑚礁生机盎然，为海龟的旅程提供了生动多彩的背景。几条小鱼在海龟周围穿梭，为画面增添了动感和活力。"
+            ]
+        validation_prompt += validation_prompt_cn
     logger.info(f"Running validation....\n")
     model = accelerator.unwrap_model(model)
     scheduler = DPMSolverMultistepScheduler()
@@ -97,8 +97,8 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
     for prompt in validation_prompt:
         logger.info('Processing the ({}) prompt'.format(prompt))
         video = opensora_pipeline(
-                                # positive_prompt.format(prompt),
-                                prompt,
+                                positive_prompt.format(prompt),
+                                # prompt,
                                 negative_prompt=negative_prompt, 
                                 num_frames=args.num_frames,
                                 # num_frames=1,
@@ -146,9 +146,6 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
                         for i, (video, prompt) in enumerate(zip(videos, validation_prompt))
                     ]
                 }
-            # import ipdb;ipdb.set_trace()
-            if hasattr(model.pos_embed, 'temp_embed_gate'):
-                logs.update({'temp_embed_gate (tanh)': float(model.pos_embed.temp_embed_gate.tanh().item())})
             tracker.log(logs, step=global_step)
 
     del opensora_pipeline
@@ -694,15 +691,6 @@ def main(args):
             sync_gradients_info(loss)
 
         if accelerator.is_main_process:
-            for tracker in accelerator.trackers:
-                if tracker.name == "wandb":
-                    if progress_info.global_step % args.checkpointing_steps != 0:
-                        if hasattr(model, 'module') and hasattr(model.module.pos_embed, 'temp_embed_gate'):
-                            tracker.log(
-                                {'temp_embed_gate (tanh)': float(model.module.pos_embed.temp_embed_gate.tanh().item())})
-                        elif hasattr(model, 'pos_embed') and hasattr(model.pos_embed, 'temp_embed_gate'):
-                            tracker.log(
-                                {'temp_embed_gate (tanh)': float(model.pos_embed.temp_embed_gate.tanh().item())})
 
             if progress_info.global_step % args.checkpointing_steps == 0:
 
@@ -710,7 +698,7 @@ def main(args):
                     log_validation(args, model, ae, text_enc.text_enc, train_dataset.tokenizer, accelerator,
                                    weight_dtype, progress_info.global_step)
 
-                    if args.use_ema and npu_config is not None:
+                    if args.use_ema and npu_config is None:
                         # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
                         ema_model.store(model.parameters())
                         ema_model.copy_to(model.parameters())
@@ -901,8 +889,8 @@ if __name__ == "__main__":
     parser.add_argument("--prediction_type", type=str, default=None, help="The prediction_type that shall be used for training. Choose between 'epsilon' or 'v_prediction' or leave `None`. If left to `None` the default prediction type of the scheduler: `noise_scheduler.config.prediciton_type` is chosen.")
 
     # validation & logs
-    parser.add_argument("--num_sampling_steps", type=int, default=50)
-    parser.add_argument('--guidance_scale', type=float, default=2.5)
+    parser.add_argument("--num_sampling_steps", type=int, default=20)
+    parser.add_argument('--guidance_scale', type=float, default=4.5)
     parser.add_argument("--enable_tracker", action="store_true")
     parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
     parser.add_argument("--output_dir", type=str, default=None, help="The output directory where the model predictions and checkpoints will be written.")

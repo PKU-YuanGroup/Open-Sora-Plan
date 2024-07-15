@@ -266,7 +266,7 @@ class OverlapPatchEmbed3D(nn.Module):
     
 
 
-class OverlapPatchEmbed2D(nn.Module):
+class PatchEmbed2D(nn.Module):
     """2D Image to Patch Embedding but with 3D position embedding"""
 
     def __init__(
@@ -283,16 +283,16 @@ class OverlapPatchEmbed2D(nn.Module):
         bias=True,
         interpolation_scale=(1, 1),
         interpolation_scale_t=1,
-        use_abs_pos=False, 
+        use_abs_pos=True, 
     ):
         super().__init__()
-        assert patch_size_t == 1
+        # assert num_frames == 1
         self.use_abs_pos = use_abs_pos
         self.flatten = flatten
         self.layer_norm = layer_norm
 
         self.proj = nn.Conv2d(
-            in_channels, embed_dim, kernel_size=3, padding=1, stride=(patch_size, patch_size), bias=bias
+            in_channels, embed_dim, kernel_size=(patch_size, patch_size), stride=(patch_size, patch_size), bias=bias
         )
         if layer_norm:
             self.norm = nn.LayerNorm(embed_dim, elementwise_affine=False, eps=1e-6)
@@ -324,7 +324,6 @@ class OverlapPatchEmbed2D(nn.Module):
         video_latent, image_latent = None, None
         # b c 1 h w
         # assert latent.shape[-3] == 1 and num_frames == 1
-        num_frames = latent.shape[-3] // self.patch_size_t
         height, width = latent.shape[-2] // self.patch_size, latent.shape[-1] // self.patch_size
         latent = rearrange(latent, 'b c t h w -> (b t) c h w')
         latent = self.proj(latent)
@@ -354,12 +353,39 @@ class OverlapPatchEmbed2D(nn.Module):
             if self.num_frames != num_frames:
                 # import ipdb;ipdb.set_trace()
                 # raise NotImplementedError
-                temp_pos_embed = get_1d_sincos_pos_embed(
-                    embed_dim=self.temp_pos_embed.shape[-1],
-                    grid_size=num_frames,
-                    base_size=self.base_size_t,
-                    interpolation_scale=self.interpolation_scale_t,
-                )
+                if get_sequence_parallel_state():
+                    if npu_config is not None:
+                        sp_size = hccl_info.world_size
+                        temp_pos_embed = get_1d_sincos_pos_embed(
+                            embed_dim=self.temp_pos_embed.shape[-1],
+                            grid_size=num_frames * sp_size,
+                            base_size=self.base_size_t,
+                            interpolation_scale=self.interpolation_scale_t,
+                        )
+                        rank = hccl_info.rank % sp_size
+                        st_frame = rank * num_frames
+                        ed_frame = st_frame + num_frames
+                        temp_pos_embed = temp_pos_embed[st_frame: ed_frame]
+                    else:
+                        sp_size = nccl_info.world_size
+                        temp_pos_embed = get_1d_sincos_pos_embed(
+                            embed_dim=self.temp_pos_embed.shape[-1],
+                            grid_size=num_frames * sp_size,
+                            base_size=self.base_size_t,
+                            interpolation_scale=self.interpolation_scale_t,
+                        )
+                        rank = nccl_info.rank % sp_size
+                        st_frame = rank * num_frames
+                        ed_frame = st_frame + num_frames
+                        temp_pos_embed = temp_pos_embed[st_frame: ed_frame]
+
+                else:
+                    temp_pos_embed = get_1d_sincos_pos_embed(
+                        embed_dim=self.temp_pos_embed.shape[-1],
+                        grid_size=num_frames,
+                        base_size=self.base_size_t,
+                        interpolation_scale=self.interpolation_scale_t,
+                    )
                 temp_pos_embed = torch.from_numpy(temp_pos_embed)
                 temp_pos_embed = temp_pos_embed.float().unsqueeze(0).to(latent.device)
             else:
@@ -368,15 +394,16 @@ class OverlapPatchEmbed2D(nn.Module):
             latent = (latent + pos_embed).to(latent.dtype)
         
         latent = rearrange(latent, '(b t) n c -> b t n c', b=b)
-        assert num_frames == latent.shape[1]
+        video_latent = latent
 
         if self.use_abs_pos:
             # temp_pos_embed = temp_pos_embed.unsqueeze(2) * self.temp_embed_gate.tanh()
             temp_pos_embed = temp_pos_embed.unsqueeze(2)
-            latent = (latent + temp_pos_embed).to(latent.dtype)
+            video_latent = (video_latent + temp_pos_embed).to(video_latent.dtype) 
+        video_latent = rearrange(video_latent, 'b t n c -> b (t n) c') 
 
-        latent = rearrange(latent, 'b t n c -> b (t n) c')
-        return latent
+        return video_latent
+    
     
 
 class Attention(Attention_):
@@ -384,21 +411,21 @@ class Attention(Attention_):
         processor = AttnProcessor2_0(attention_mode=attention_mode, use_rope=use_rope, interpolation_scale_thw=interpolation_scale_thw)
         super().__init__(processor=processor, **kwags)
         self.downsampler = None
-        if downsampler: # downsampler  k155_s122
-            downsampler_ker_size = list(re.search(r'k(\d{2,3})', downsampler).group(1)) # 122
-            down_factor = list(re.search(r's(\d{2,3})', downsampler).group(1))
-            downsampler_ker_size = [int(i) for i in downsampler_ker_size]
-            downsampler_padding = [(i - 1) // 2 for i in downsampler_ker_size]
-            down_factor = [int(i) for i in down_factor]
+        # if downsampler: # downsampler  k155_s122
+        #     downsampler_ker_size = list(re.search(r'k(\d{2,3})', downsampler).group(1)) # 122
+        #     down_factor = list(re.search(r's(\d{2,3})', downsampler).group(1))
+        #     downsampler_ker_size = [int(i) for i in downsampler_ker_size]
+        #     downsampler_padding = [(i - 1) // 2 for i in downsampler_ker_size]
+        #     down_factor = [int(i) for i in down_factor]
             
-            if len(downsampler_ker_size) == 2:
-                self.downsampler = DownSampler2d(kwags['query_dim'], kwags['query_dim'], kernel_size=downsampler_ker_size, stride=1,
-                                            padding=downsampler_padding, groups=kwags['query_dim'], down_factor=down_factor,
-                                            down_shortcut=True)
-            elif len(downsampler_ker_size) == 3:
-                self.downsampler = DownSampler3d(kwags['query_dim'], kwags['query_dim'], kernel_size=downsampler_ker_size, stride=1,
-                                            padding=downsampler_padding, groups=kwags['query_dim'], down_factor=down_factor,
-                                            down_shortcut=True)
+        #     if len(downsampler_ker_size) == 2:
+        #         self.downsampler = DownSampler2d(kwags['query_dim'], kwags['query_dim'], kernel_size=downsampler_ker_size, stride=1,
+        #                                     padding=downsampler_padding, groups=kwags['query_dim'], down_factor=down_factor,
+        #                                     down_shortcut=True)
+        #     elif len(downsampler_ker_size) == 3:
+        #         self.downsampler = DownSampler3d(kwags['query_dim'], kwags['query_dim'], kernel_size=downsampler_ker_size, stride=1,
+        #                                     padding=downsampler_padding, groups=kwags['query_dim'], down_factor=down_factor,
+        #                                     down_shortcut=True)
         
         # self.q_norm = nn.LayerNorm(kwags['dim_head'], elementwise_affine=True, eps=1e-6)
         # self.k_norm = nn.LayerNorm(kwags['dim_head'], elementwise_affine=True, eps=1e-6) 
@@ -540,10 +567,10 @@ class AttnProcessor2_0:
                 # (batch, heads, source_length, target_length)
                 attention_mask = attention_mask.view(batch_size, attn.heads, -1, attention_mask.shape[-1])
             else:
-                attention_mask = attention_mask.view(batch_size, 1, -1, attention_mask.shape[-1])
-                attention_mask = attention_mask.repeat(1, 1, hidden_states.shape[1], 1)
                 if npu_config.enable_FA:
                     attention_mask = attention_mask.to(torch.bool)
+                attention_mask = attention_mask.view(batch_size, 1, -1, attention_mask.shape[-1])
+                attention_mask = attention_mask.repeat(1, 1, hidden_states.shape[1], 1)
 
         if attn.group_norm is not None:
             hidden_states = attn.group_norm(hidden_states.transpose(1, 2)).transpose(1, 2)
@@ -573,8 +600,7 @@ class AttnProcessor2_0:
                 # require the shape of (batch_size x nheads x ntokens x dim)
                 pos_thw = self.position_getter(batch_size, t=frame, h=height, w=width, device=query.device)
                 query = self.rope(query, pos_thw)
-                if query.shape == key.shape:
-                    key = self.rope(key, pos_thw)
+                key = self.rope(key, pos_thw)
                 query = query.view(batch_size, -1, attn.heads * head_dim)
                 key = key.view(batch_size, -1, attn.heads * head_dim)
 
@@ -735,91 +761,20 @@ class Upsample3d(nn.Module):
         return x, attention_bias, attention_mask
 
 
-# class Downsample2d(nn.Module):
-#     def __init__(self, n_feat, is_video_model=False):
-#         super(Downsample2d, self).__init__()
-#         self.is_video_model = is_video_model
-#         Conv = nn.Conv3d if is_video_model else nn.Conv2d
-#         self.body = nn.Sequential(Conv(n_feat, n_feat // 2, kernel_size=3, stride=1, padding=1, bias=False),
-#                                   PixelUnshuffle(2, 1))
-
-#     def forward(self, x, attention_mask, frames, height, width, pad_h=0, pad_w=0):
-#         # import ipdb;ipdb.set_trace()
-#         x = rearrange(x, 'b (t h w) d -> (b t) d h w', t=frames, h=height, w=width)
-#         # x = F.pad(x, (0, pad_w, 0, pad_h), mode='reflect')
-#         # x = F.pad(x, (0, pad_w, 0, pad_h))
-#         if npu_config is None:
-#             x = F.pad(x, (0, pad_w, 0, pad_h))
-#         else:
-#             x = npu_config.run_pad_2d(F.pad, x, pad=(0, pad_w, 0, pad_h))
-#         if self.is_video_model:
-#             x = rearrange(x, '(b t) d h w -> b d t h w', t=frames)
-#         x = self.body(x)
-#         if self.is_video_model:
-#             x = rearrange(x, 'b d t h w -> b (t h w) d', t=frames)
-#         else:
-#             x = rearrange(x, '(b t) d h w -> b (t h w) d', t=frames)
-        
-#         attention_mask = rearrange(attention_mask, 'b 1 (t h w) -> (b t) 1 h w', t=frames, h=height, w=width)
-#         attention_mask = F.pad(attention_mask, (0, pad_w, 0, pad_h))
-#         attention_mask = F.max_pool2d(attention_mask.float(), kernel_size=2, stride=2)
-#         attention_mask = rearrange(attention_mask, '(b t) 1 h w -> b 1 (t h w)', t=frames)
-#         attention_bias = (1 - attention_mask.bool().to(x.dtype)) * -10000.0
-
-#         return x, attention_bias, attention_mask
-    
-# class Upsample2d(nn.Module):
-#     def __init__(self, n_feat, is_video_model=False):
-#         super(Upsample2d, self).__init__()
-#         self.is_video_model = is_video_model
-#         Conv = nn.Conv3d if is_video_model else nn.Conv2d
-#         self.body = nn.Sequential(Conv(n_feat, n_feat * 2, kernel_size=3, stride=1, padding=1, bias=False),
-#                                   PixelShuffle(2, 1))
-
-#     def forward(self, x, attention_mask, frames, height, width, pad_h=0, pad_w=0):
-#         if self.is_video_model:
-#             x = rearrange(x, 'b (t h w) d -> b d t h w', t=frames, h=height, w=width)
-#         else:
-#             x = rearrange(x, 'b (t h w) d -> (b t) d h w', t=frames, h=height, w=width)
-#         x = self.body(x)
-#         if self.is_video_model:
-#             x = rearrange(x, 'b d t h w -> (b t) d h w')
-#         x = x[:, :, :height*2-pad_h, :width*2-pad_w]
-#         x = rearrange(x, '(b t) d h w -> b (t h w) d', t=frames)
-
-#         attention_mask = rearrange(attention_mask, 'b 1 (t h w) -> (b t) 1 h w', t=frames, h=height, w=width)
-#         attention_mask = attention_mask.repeat_interleave(2, -1).repeat_interleave(2, -2)
-#         attention_mask = attention_mask[:, :, :height*2-pad_h, :width*2-pad_w]
-#         attention_mask = rearrange(attention_mask, '(b t) 1 h w -> b 1 (t h w)', t=frames)
-#         attention_bias = (1 - attention_mask.bool().to(x.dtype)) * -10000.0
-
-#         return x, attention_bias, attention_mask
-
-
 class Downsample2d(nn.Module):
     def __init__(self, n_feat, is_video_model=False):
         super(Downsample2d, self).__init__()
-        self.is_video_model = is_video_model
-        Conv = nn.Conv3d if is_video_model else nn.Conv2d
-        self.body = nn.Sequential(Conv(n_feat, n_feat // 2, kernel_size=3, stride=1, padding=1, bias=False),
-                                  PixelUnshuffle(2, 1))
+        self.body = nn.Conv2d(n_feat, 2*n_feat, kernel_size=3, stride=2, padding=1, bias=False)
 
     def forward(self, x, attention_mask, frames, height, width, pad_h=0, pad_w=0):
         # import ipdb;ipdb.set_trace()
         x = rearrange(x, 'b (t h w) d -> (b t) d h w', t=frames, h=height, w=width)
-        # x = F.pad(x, (0, pad_w, 0, pad_h), mode='reflect')
-        # x = F.pad(x, (0, pad_w, 0, pad_h))
         if npu_config is None:
             x = F.pad(x, (0, pad_w, 0, pad_h))
         else:
             x = npu_config.run_pad_2d(F.pad, x, pad=(0, pad_w, 0, pad_h))
-        if self.is_video_model:
-            x = rearrange(x, '(b t) d h w -> b d t h w', t=frames)
         x = self.body(x)
-        if self.is_video_model:
-            x = rearrange(x, 'b d t h w -> b (t h w) d', t=frames)
-        else:
-            x = rearrange(x, '(b t) d h w -> b (t h w) d', t=frames)
+        x = rearrange(x, '(b t) d h w -> b (t h w) d', t=frames)
         
         attention_mask = rearrange(attention_mask, 'b 1 (t h w) -> (b t) 1 h w', t=frames, h=height, w=width)
         attention_mask = F.pad(attention_mask, (0, pad_w, 0, pad_h))
@@ -832,19 +787,12 @@ class Downsample2d(nn.Module):
 class Upsample2d(nn.Module):
     def __init__(self, n_feat, is_video_model=False):
         super(Upsample2d, self).__init__()
-        self.is_video_model = is_video_model
-        Conv = nn.Conv3d if is_video_model else nn.Conv2d
-        self.body = nn.Sequential(Conv(n_feat, n_feat * 2, kernel_size=3, stride=1, padding=1, bias=False),
-                                  PixelShuffle(2, 1))
+        self.body = nn.Conv2d(n_feat, n_feat // 2, kernel_size=3, stride=1, padding=1, bias=False)
 
     def forward(self, x, attention_mask, frames, height, width, pad_h=0, pad_w=0):
-        if self.is_video_model:
-            x = rearrange(x, 'b (t h w) d -> b d t h w', t=frames, h=height, w=width)
-        else:
-            x = rearrange(x, 'b (t h w) d -> (b t) d h w', t=frames, h=height, w=width)
+        x = rearrange(x, 'b (t h w) d -> (b t) d h w', t=frames, h=height, w=width)
+        x = torch.nn.functional.interpolate(x, scale_factor=2.0, mode="nearest")
         x = self.body(x)
-        if self.is_video_model:
-            x = rearrange(x, 'b d t h w -> (b t) d h w')
         x = x[:, :, :height*2-pad_h, :width*2-pad_w]
         x = rearrange(x, '(b t) d h w -> b (t h w) d', t=frames)
 
@@ -1072,12 +1020,6 @@ class BasicTransformerBlock(nn.Module):
         elif norm_type == "layer_norm_i2vgen":
             self.norm3 = None
 
-        # self.ff = FeedForward_Conv2d(
-        #     downsampler, 
-        #     dim,
-        #     hidden_features=mlp_ratio * dim, 
-        # )
-
         self.ff = FeedForward(
                 dim,
                 dropout=dropout,
@@ -1086,7 +1028,7 @@ class BasicTransformerBlock(nn.Module):
                 inner_dim=ff_inner_dim,
                 bias=ff_bias,
             )
-        
+
         # 4. Fuser
         if attention_type == "gated" or attention_type == "gated-text-image":
             self.fuser = GatedSelfAttentionDense(dim, cross_attention_dim, num_attention_heads, attention_head_dim)
@@ -1214,11 +1156,11 @@ class BasicTransformerBlock(nn.Module):
             norm_hidden_states = self.norm2(hidden_states)
             norm_hidden_states = norm_hidden_states * (1 + scale_mlp) + shift_mlp
 
-        if self._chunk_size is not None:
-            # "feed_forward_chunk_size" can be used to save memory
-            ff_output = _chunked_feed_forward(self.ff, norm_hidden_states, self._chunk_dim, self._chunk_size)
-        else:
-            ff_output = self.ff(norm_hidden_states, t=frame, h=height, w=width)
+        # if self.downsampler:
+        #     ff_output = self.ff(norm_hidden_states, t=frame, h=height, w=width)
+        # else:
+        ff_output = self.ff(norm_hidden_states)
+
         if self.norm_type == "ada_norm_zero":
             ff_output = gate_mlp.unsqueeze(1) * ff_output
         elif self.norm_type == "ada_norm_single":

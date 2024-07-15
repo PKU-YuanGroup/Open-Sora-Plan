@@ -12,8 +12,7 @@ from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.models.modeling_utils import ModelMixin
 from diffusers.models.normalization import AdaLayerNormSingle
 from diffusers.models.embeddings import PixArtAlphaTextProjection
-from opensora.models.diffusion.udit_ultra.modules import Upsample3d, Downsample3d, Upsample2d, Downsample2d, \
-    OverlapPatchEmbed3D, OverlapPatchEmbed2D, BasicTransformerBlock, \
+from opensora.models.diffusion.udit.modules import Upsample2d, Downsample2d, PatchEmbed2D, BasicTransformerBlock, \
     FP32_GELU, FP32_SiLU, FP32_Layernorm
 from opensora.utils.utils import to_2tuple
 import math
@@ -178,7 +177,7 @@ class UDiTT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
             # )
         # elif self.config.downsampler is not None and len(self.config.downsampler) == 7:
         #     is_video_model = False
-        self.pos_embed = OverlapPatchEmbed2D(
+        self.pos_embed = PatchEmbed2D(
             num_frames=self.config.sample_size_t,
             height=self.config.sample_size[0],
             width=self.config.sample_size[1],
@@ -228,7 +227,7 @@ class UDiTT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
             ]
         )
         # self.down1_2 = Downsample3d(self.inner_dim) if is_video_model else Downsample2d(self.inner_dim)
-        self.down1_2 = Downsample2d(self.inner_dim, is_video_model)
+        self.down1_2 = Downsample2d(self.inner_dim)
         
         self.encoder_level_2 = nn.ModuleList(
             [
@@ -258,7 +257,7 @@ class UDiTT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
             ]
         )
         # self.down2_3 = Downsample3d(self.inner_dim * 2) if is_video_model else Downsample2d(self.inner_dim * 2)
-        self.down2_3 = Downsample2d(self.inner_dim * 2, is_video_model)
+        self.down2_3 = Downsample2d(self.inner_dim * 2)
 
         self.latent = nn.ModuleList(
             [
@@ -289,7 +288,7 @@ class UDiTT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
         )
 
         # self.up3_2 = Upsample3d(int(self.inner_dim * 4)) if is_video_model else Upsample2d(self.inner_dim * 4)  ## From Level 4 to Level 3
-        self.up3_2 = Upsample2d(self.inner_dim * 4, is_video_model)  ## From Level 4 to Level 3
+        self.up3_2 = Upsample2d(self.inner_dim * 4)  ## From Level 4 to Level 3
         
         self.reduce_chan_level2_norm = nn.LayerNorm(int(self.inner_dim * 4), elementwise_affine=True, eps=1e-6)
         self.reduce_chan_level2 = nn.Linear(int(self.inner_dim * 4), int(self.inner_dim * 2), bias=True)
@@ -322,7 +321,7 @@ class UDiTT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
         )
 
         # self.up2_1 = Upsample3d(int(self.inner_dim * 2)) if is_video_model else Upsample2d(self.inner_dim * 2)  ## From Level 4 to Level 3
-        self.up2_1 = Upsample2d(self.inner_dim * 2, is_video_model)  ## From Level 4 to Level 3
+        self.up2_1 = Upsample2d(self.inner_dim * 2)  ## From Level 4 to Level 3
         
         self.reduce_chan_level1_norm = nn.LayerNorm(int(self.inner_dim * 2), elementwise_affine=True, eps=1e-6)
         self.reduce_chan_level1 = nn.Linear(int(self.inner_dim * 2), int(self.inner_dim * 1), bias=True)
@@ -907,9 +906,9 @@ if __name__ == '__main__':
         'attention_mode': 'xformers', 
         'use_rope': True, 
         'model_max_length': 300, 
-        'max_height': 480, 
-        'max_width': 640, 
-        'num_frames': 61, 
+        'max_height': 240, 
+        'max_width': 320, 
+        'num_frames': 1, 
         'use_image_num': 0, 
         'compress_kv_factor': 1, 
         'interpolation_scale_t': 1,
@@ -917,7 +916,7 @@ if __name__ == '__main__':
         'interpolation_scale_w': 1,
     }
     )
-    b = 2
+    b = 16
     c = 4
     cond_c = 4096
     num_timesteps = 1000
@@ -948,7 +947,7 @@ if __name__ == '__main__':
                             upcast_attention=False,
                             use_linear_projection=False,
                             use_additional_conditions=False, 
-                            downsampler='k333_s222', 
+                            downsampler=None, 
                             interpolation_scale_t=args.interpolation_scale_t, 
                             interpolation_scale_h=args.interpolation_scale_h, 
                             interpolation_scale_w=args.interpolation_scale_w, 
@@ -960,28 +959,30 @@ if __name__ == '__main__':
 
     model_state_dict = model.state_dict()
     pretrained = "/storage/ongoing/new/Open-Sora-Plan/bs2_20node_73000k_480p_61x480p_lr5e-5_snr5_noioff0.02_ema_rope_uditultra122_qknorm_ds222_mt5xxl_sucai288w/checkpoint-11500/model_ema/diffusion_pytorch_model.safetensors"
-    if 'safetensors' in pretrained:  # pixart series
-        from safetensors.torch import load_file as safe_load
+    try:
+        if 'safetensors' in pretrained:  # pixart series
+            from safetensors.torch import load_file as safe_load
+            # import ipdb;ipdb.set_trace()
+            pretrained_checkpoint = safe_load(pretrained, device="cpu")
+            pretrained_keys = set(list(pretrained_checkpoint.keys()))
+            model_keys = set(list(model_state_dict.keys()))
+            common_keys = list(pretrained_keys & model_keys)
+            checkpoint = {k: pretrained_checkpoint[k] for k in common_keys if model_state_dict[k].numel() == pretrained_checkpoint[k].numel()}
+            # if checkpoint['pos_embed.proj.weight'].shape != model.pos_embed.proj.weight.shape and checkpoint['pos_embed.proj.weight'].ndim == 4:
+            #     logger.info(f"Resize pos_embed, {checkpoint['pos_embed.proj.weight'].shape} -> {model.pos_embed.proj.weight.shape}")
+            #     repeat = model.pos_embed.proj.weight.shape[2]
+            #     checkpoint['pos_embed.proj.weight'] = checkpoint['pos_embed.proj.weight'].unsqueeze(2).repeat(1, 1, repeat, 1, 1) / float(repeat)
+                # del checkpoint['proj_out.weight'], checkpoint['proj_out.bias']
+        else:  # latest stage training weight
+            checkpoint = torch.load(pretrained, map_location='cpu')
+            if 'model' in checkpoint:
+                checkpoint = checkpoint['model']
         # import ipdb;ipdb.set_trace()
-        pretrained_checkpoint = safe_load(pretrained, device="cpu")
-        pretrained_keys = set(list(pretrained_checkpoint.keys()))
-        model_keys = set(list(model_state_dict.keys()))
-        common_keys = list(pretrained_keys & model_keys)
-        checkpoint = {k: pretrained_checkpoint[k] for k in common_keys if model_state_dict[k].numel() == pretrained_checkpoint[k].numel()}
-        # if checkpoint['pos_embed.proj.weight'].shape != model.pos_embed.proj.weight.shape and checkpoint['pos_embed.proj.weight'].ndim == 4:
-        #     logger.info(f"Resize pos_embed, {checkpoint['pos_embed.proj.weight'].shape} -> {model.pos_embed.proj.weight.shape}")
-        #     repeat = model.pos_embed.proj.weight.shape[2]
-        #     checkpoint['pos_embed.proj.weight'] = checkpoint['pos_embed.proj.weight'].unsqueeze(2).repeat(1, 1, repeat, 1, 1) / float(repeat)
-            # del checkpoint['proj_out.weight'], checkpoint['proj_out.bias']
-    else:  # latest stage training weight
-        checkpoint = torch.load(pretrained, map_location='cpu')
-        if 'model' in checkpoint:
-            checkpoint = checkpoint['model']
-    import ipdb;ipdb.set_trace()
-    missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=False)
-    print(f'missing_keys {len(missing_keys)} {missing_keys}, unexpected_keys {len(unexpected_keys)}')
-    print(f'Successfully load {len(model_state_dict) - len(missing_keys)}/{len(model_state_dict)} keys from {args.pretrained}!')
-
+        missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=False)
+        print(f'missing_keys {len(missing_keys)} {missing_keys}, unexpected_keys {len(unexpected_keys)}')
+        print(f'Successfully load {len(model_state_dict) - len(missing_keys)}/{len(model_state_dict)} keys from {args.pretrained}!')
+    except Exception as e:
+        print(e)
 
     # import sys;sys.exit()
     # try:
@@ -1022,6 +1023,7 @@ if __name__ == '__main__':
                         encoder_attention_mask=cond_mask, use_image_num=args.use_image_num, timestep=timestep)
     with torch.no_grad():
         output = model(**model_kwargs)[0]
+    import ipdb;ipdb.set_trace()
     print(output.shape)
     
 

@@ -1,9 +1,3 @@
-/storage/dataset/movie,/storage/dataset/movie/bbc01_clips_aes_motion_final_250508.json
-/storage/dataset/movie,/storage/dataset/movie/bbc02_clips_aes_motion_final_289778.json
-/storage/dataset/movie,/storage/dataset/movie/bbc03_clips_aes_motion_final_519184.json
-/storage/dataset/movie,/storage/dataset/movie/bbc04_clips_aes_motion_final_249497.json
-/storage/dataset/movie,/storage/dataset/movie/bbc05_clips_aes_motion_final_416548.json
-/storage/dataset/movie,/storage/dataset/movie/TV01_clips_aes_motion_final_217419.json
 /storage/dataset,/storage/zhubin/video_statistics_data/task1.5/Final_format_dataset_data_v2/step1.5_canva_final_95441.json
 /storage/dataset,/storage/zhubin/video_statistics_data/task1.5/Final_format_dataset_data_v2/step1.5_clipchamp_final_452264.json
 /storage/dataset,/storage/zhubin/video_statistics_data/task1.5/Final_format_dataset_data_v2/step1.5_coverr_final_3002.json

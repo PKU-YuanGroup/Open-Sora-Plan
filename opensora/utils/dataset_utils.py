@@ -9,6 +9,8 @@ import torch.utils.data
 import torch
 from torch.utils.data import Sampler
 from typing import List
+from collections import Counter
+import random
 
 
 IMG_EXTENSIONS = ['.jpg', '.JPG', '.jpeg', '.JPEG', '.png', '.PNG']
@@ -263,6 +265,43 @@ def group_frame_and_resolution_fun(indices):
     raise NotImplementedError
     return indices
 
+def last_group_frame_fun(shuffled_megabatches, lengths):
+    re_shuffled_megabatches = []
+    for megabatch in shuffled_megabatches:
+        re_megabatch = []
+        for batch in megabatch:
+            len_each_batch = [lengths[i] for i in batch]
+            idx_length_dict = dict([*zip(batch, len_each_batch)])
+            count_dict = Counter(len_each_batch)
+            if len(count_dict) != 1:
+                sorted_by_value = sorted(count_dict.items(), key=lambda item: item[1])
+                pick_length = sorted_by_value[-1][0]  # the highest frequency
+                candidate_batch = [idx for idx, length in idx_length_dict.items() if length == pick_length]
+                random_select_batch = [random.choice(candidate_batch) for i in range(len(len_each_batch) - len(candidate_batch))]
+                # print(batch, idx_length_dict, count_dict, sorted_by_value, pick_length, candidate_batch, random_select_batch)
+                batch = candidate_batch + random_select_batch
+                # print(batch)
+            re_megabatch.append(batch)
+        re_shuffled_megabatches.append(re_megabatch)
+    
+    
+    # for megabatch, re_megabatch in zip(shuffled_megabatches, re_shuffled_megabatches):
+    #     for batch, re_batch in zip(megabatch, re_megabatch):
+    #         for i, re_i in zip(batch, re_batch):
+    #             if i != re_i:
+                    # print(i, re_i)
+    # import ipdb;ipdb.set_trace()
+    return re_shuffled_megabatches
+                
+    
+def last_group_resolution_fun(indices):
+    raise NotImplementedError
+    return indices
+
+def last_group_frame_and_resolution_fun(indices):
+    raise NotImplementedError
+    return indices
+
 def get_length_grouped_indices(lengths, batch_size, world_size, generator=None, group_frame=False, group_resolution=False, seed=42):
     # We need to use torch for the random part as a distributed sampler will set the random seed for torch.
     if generator is None:
@@ -295,7 +334,14 @@ def get_length_grouped_indices(lengths, batch_size, world_size, generator=None, 
 
     indices = torch.randperm(len(megabatches), generator=generator).tolist()
     shuffled_megabatches = [megabatches[i] for i in indices]
+    if group_frame and not group_resolution:
+        shuffled_megabatches = last_group_frame_fun(shuffled_megabatches, lengths)
+    elif not group_frame and group_resolution:
+        shuffled_megabatches = last_group_resolution_fun(shuffled_megabatches, indices)
+    elif group_frame and group_resolution:
+        shuffled_megabatches = last_group_frame_and_resolution_fun(shuffled_megabatches, indices)
     # print('\nshuffled_megabatches', shuffled_megabatches)
+    # import ipdb;ipdb.set_trace()
     # print('\nshuffled_megabatches len', [lengths[i] for megabatch in shuffled_megabatches for batch in megabatch for i in batch])
 
     return [i for megabatch in shuffled_megabatches for batch in megabatch for i in batch]
