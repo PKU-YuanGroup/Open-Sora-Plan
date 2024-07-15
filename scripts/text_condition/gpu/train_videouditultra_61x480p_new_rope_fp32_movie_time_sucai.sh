@@ -19,7 +19,7 @@ accelerate launch \
     --text_encoder_name google/mt5-xxl \
     --cache_dir "./cache_dir" \
     --dataset t2v \
-    --video_data "scripts/train_data/video_data_aesmovie_sucai.txt" \
+    --video_data "scripts/train_data/video_data_movie_time_sucai.txt" \
     --image_data "scripts/train_data/image_data.txt" \
     --ae CausalVAEModel_4x8x8 \
     --ae_path "/storage/dataset/test140k" \
@@ -55,8 +55,8 @@ accelerate launch \
     --use_rope \
     --downsampler "k333_s222"  \
     --resume_from_checkpoint="latest" \
+    --enable_tracker \
     --enable_stable_fp32 \
     --group_frame \
-    --speed_factor 1.2 \
-    --pretrained "bs2_20node_73000k_480p_61x480p_lr1e-4_snr5_noioff0.02_ema_rope_uditultra122_qknorm_ds222_mt5xxl_aesmovie_sucai_speed1.4/checkpoint-7000/model_ema/diffusion_pytorch_model.safetensors" \
-    --output_dir="bs20x8x2_73k_480p_61x480p_lr1e-4_snr5_noioff0.02_rope_uditultra122_qknorm_ds222_mt5xxl_movie_aes_mo_sucai_mo_speed1.2" 
+    --pretrained "bs2_20node_73000k_480p_61x480p_lr5e-5_snr5_noioff0.02_ema_rope_uditultra122_qknorm_ds222_mt5xxl_sucai288w/checkpoint-11500/model_ema/diffusion_pytorch_model.safetensors" \
+    --output_dir="bs2_20node_73000k_480p_61x480p_lr1e-4_snr5_noioff0.02_ema_rope_uditultra122_qknorm_ds222_mt5xxl_movie_time_sucai" 

@@ -368,17 +368,16 @@ class OverlapPatchEmbed2D(nn.Module):
             latent = (latent + pos_embed).to(latent.dtype)
         
         latent = rearrange(latent, '(b t) n c -> b t n c', b=b)
-        image_latent = latent
+        assert num_frames == latent.shape[1]
 
         if self.use_abs_pos:
             # temp_pos_embed = temp_pos_embed.unsqueeze(2) * self.temp_embed_gate.tanh()
             temp_pos_embed = temp_pos_embed.unsqueeze(2)
-            video_latent = (video_latent + temp_pos_embed).to(video_latent.dtype) if video_latent is not None and video_latent.numel() > 0 else None
-            image_latent = (image_latent + temp_pos_embed[:, :1]).to(image_latent.dtype) if image_latent is not None and image_latent.numel() > 0 else None
+            latent = (latent + temp_pos_embed).to(latent.dtype)
 
-        image_latent = rearrange(image_latent, 'b t n c -> (b t) n c') if image_latent is not None and image_latent.numel() > 0 else None
-
-        return image_latent
+        latent = rearrange(latent, 'b t n c -> b (t n) c')
+        return latent
+    
 
 class Attention(Attention_):
     def __init__(self, downsampler, attention_mode, use_rope, interpolation_scale_thw, **kwags):

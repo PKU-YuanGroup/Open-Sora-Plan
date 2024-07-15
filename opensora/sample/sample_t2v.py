@@ -35,6 +35,7 @@ import imageio
 
 def main(args):
     # torch.manual_seed(args.seed)
+    # torch.backends.cuda.matmul.allow_tf32 = False
     weight_dtype = torch.bfloat16
     device = torch.device(args.device)
 
@@ -44,6 +45,15 @@ def main(args):
     if args.enable_tiling:
         vae.vae.enable_tiling()
         vae.vae.tile_overlap_factor = args.tile_overlap_factor
+        vae.vae.tile_sample_min_size = 512
+        vae.vae.tile_latent_min_size = 64
+        vae.vae.tile_sample_min_size_t = 29
+        vae.vae.tile_latent_min_size_t = 8
+        if args.save_memory:
+            vae.vae.tile_sample_min_size = 256
+            vae.vae.tile_latent_min_size = 32
+            vae.vae.tile_sample_min_size_t = 29
+            vae.vae.tile_latent_min_size_t = 8
     vae.vae_scale_factor = ae_stride_config[args.ae]
 
     # if args.model_3d:
@@ -51,15 +61,16 @@ def main(args):
     # else:
     #     transformer_model = LatteT2V.from_pretrained(args.model_path, subfolder=args.version, cache_dir=args.cache_dir, low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
     
-    if args.model_3d:
+    if args.model_type == 'dit':
         transformer_model = OpenSoraT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, 
                                                         low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
-        # transformer_model = UDiTUltraT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, ignore_mismatched_sizes=True, 
-        #                                                 low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
+    elif args.model_type == 'udit':
+        transformer_model = UDiTUltraT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, ignore_mismatched_sizes=True, 
+                                                        low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
     else:
         transformer_model = LatteT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, low_cpu_mem_usage=False, 
                                                      device_map=None, torch_dtype=weight_dtype)
-    # ckpt = torch.load('480p_73000_ema_k3_p1_repeat_wusun.pt')
+    # ckpt = torch.load('/storage/ongoing/new/image2video_weight/480p_73000_ema_ds_k3_p1_repeat_lowsize2.pt')
     # transformer_model.load_state_dict(ckpt)
     # text_encoder = UMT5EncoderModel.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir, low_cpu_mem_usage=True, torch_dtype=weight_dtype)
     # tokenizer = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
@@ -115,7 +126,20 @@ def main(args):
                                 scheduler=scheduler,
                                 transformer=transformer_model)
     pipeline.to(device)
+    if args.compile:
+        # 5%  https://github.com/siliconflow/onediff/tree/main/src/onediff/infer_compiler/backends/nexfort
+        options = '{"mode": "max-optimize:max-autotune:freezing:benchmark:low-precision",             \
+                    "memory_format": "channels_last", "options": {"inductor.optimize_linear_epilogue": false, \
+                    "triton.fuse_attention_allow_fp16_reduction": false}}'
+        # options = '{"mode": "max-autotune", "memory_format": "channels_last",              \
+        #             "options": {"inductor.optimize_linear_epilogue": false, "triton.fuse_attention_allow_fp16_reduction": false}}'
+        from onediffx import compile_pipe
+        pipeline = compile_pipe(
+                pipeline, backend="nexfort", options=options, fuse_qkv_projections=True
+            )
 
+        # 4%
+        # pipeline.transformer = torch.compile(pipeline.transformer)
     
     if not os.path.exists(args.save_img_path):
         os.makedirs(args.save_img_path)
@@ -126,14 +150,32 @@ def main(args):
         text_prompt = open(args.text_prompt[0], 'r').readlines()
         text_prompt = [i.strip() for i in text_prompt]
 
-    positive_prompt = "(masterpiece), (best quality), (ultra-detailed), {}. emotional, harmonious, vignette, 4k epic detailed, shot on kodak, 35mm photo, sharp focus, high budget, cinemascope, moody, epic, gorgeous"
-    negative_prompt = """nsfw, lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry, 
-                        """
+    positive_prompt = """
+    (masterpiece), (best quality), (ultra-detailed), (unwatermarked), 
+    {}. 
+    emotional, harmonious, vignette, 4k epic detailed, shot on kodak, 35mm photo, 
+    sharp focus, high budget, cinemascope, moody, epic, gorgeous
+    """
+    
+    negative_prompt = """
+    nsfw, lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, 
+    low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry.
+    """
+
+    # positive_prompt = """
+    # (masterpiece), (best quality), (ultra-detailed), 
+    # {}. 
+    # emotional, harmonious, vignette, 4k epic detailed, shot on kodak, 35mm photo, 
+    # sharp focus, high budget, cinemascope, moody, epic, gorgeous
+    # """
+    
+    # negative_prompt = """
+    # disfigured, poorly drawn face, longbody, lowres, bad anatomy, bad hands, missing fingers, cropped, worst quality, low quality
+    # """
+
     video_grids = []
     for idx, prompt in enumerate(text_prompt):
-        videos = pipeline(
-            positive_prompt.format(prompt),
-            # prompt,
+        videos = pipeline(positive_prompt.format(prompt),
                           negative_prompt=negative_prompt, 
                           num_frames=args.num_frames,
                           height=args.height,
@@ -194,8 +236,9 @@ if __name__ == "__main__":
     parser.add_argument("--text_prompt", nargs='+')
     parser.add_argument('--tile_overlap_factor', type=float, default=0.125)
     parser.add_argument('--enable_tiling', action='store_true')
-    parser.add_argument('--model_3d', action='store_true')
-    parser.add_argument('--enable_stable_fp32', action='store_true')
+    parser.add_argument('--compile', action='store_true')
+    parser.add_argument('--model_type', type=str, default="udit", choices=['dit', 'udit', 'latte'])
+    parser.add_argument('--save_memory', action='store_true')
     args = parser.parse_args()
 
     main(args)

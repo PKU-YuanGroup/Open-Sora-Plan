@@ -50,6 +50,7 @@ def pad_to_multiple(number, ds_stride):
 
 class Collate:
     def __init__(self, args):
+        self.batch_size = args.train_batch_size
         self.group_frame = args.group_frame
         self.group_resolution = args.group_resolution
 
@@ -125,6 +126,7 @@ class Collate:
     def process(self, batch_tubes, t_ds_stride, ds_stride, max_thw, ae_stride_thw, patch_size_thw, extra_1):
         # pad to max multiple of ds_stride
         batch_input_size = [i.shape for i in batch_tubes]  # [(c t h w), (c t h w)]
+        assert len(batch_input_size) == self.batch_size
         if self.group_frame:
             max_t = max([i[1] for i in batch_input_size])
             max_h = max([i[2] for i in batch_input_size])
@@ -166,7 +168,8 @@ class Collate:
                                  0, max_latent_size[1] - i[1],
                                  0, max_latent_size[0] - i[0]), value=0) for i in valid_latent_size]
         attention_mask = torch.stack(attention_mask)  # b t h w
-
+        if self.batch_size == 1:
+            assert torch.all(attention_mask.bool())
         # if self.group_frame:
         #     if not torch.all(torch.any(attention_mask.flatten(-2), dim=-1)):
         #         print('batch_input_size', batch_input_size)

@@ -50,3 +50,4 @@ whileinf.py
 validation_dir/
 runs/
 samples/
+inpaint*/

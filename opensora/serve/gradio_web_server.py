@@ -1,124 +1,292 @@
-
-
+#!/usr/bin/env python
+from __future__ import annotations
 import argparse
-import sys
 import os
-import random
-
-import imageio
-import torch
-from diffusers import PNDMScheduler
-from huggingface_hub import hf_hub_download
-from torchvision.utils import save_image
-from diffusers.models import AutoencoderKL
-from datetime import datetime
-from typing import List, Union
+import sys
 import gradio as gr
-import numpy as np
-from gradio.components import Textbox, Video, Image
-from transformers import T5Tokenizer, T5EncoderModel
+from diffusers import ConsistencyDecoderVAE, DPMSolverMultistepScheduler, Transformer2DModel, AutoencoderKL, SASolverScheduler
 
+import torch
+from typing import Tuple
+from datetime import datetime
+from peft import PeftModel
+# import spaces
 from opensora.models.ae import ae_stride_config, getae, getae_wrapper
-from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModelWrapper
-from opensora.models.diffusion.latte.modeling_latte import LatteT2V
-from opensora.sample.pipeline_videogen import VideoGenPipeline
-from opensora.serve.gradio_utils import block_css, title_markdown, randomize_seed_fn, set_env, examples, DESCRIPTION
+from transformers import T5EncoderModel, T5Tokenizer, AutoTokenizer, MT5EncoderModel
+from diffusers.schedulers import (DDIMScheduler, DDPMScheduler, PNDMScheduler,
+                                  EulerDiscreteScheduler, DPMSolverMultistepScheduler,
+                                  HeunDiscreteScheduler, EulerAncestralDiscreteScheduler,
+                                  DEISMultistepScheduler, KDPM2AncestralDiscreteScheduler)
+from opensora.models.diffusion.opensora.modeling_opensora import OpenSoraT2V
+from opensora.sample.pipeline_opensora import OpenSoraPipeline
+from opensora.serve.gradio_utils import DESCRIPTION, MAX_SEED, style_list, randomize_seed_fn, save_video
+
+if not torch.cuda.is_available():
+    DESCRIPTION += "\n<p>Running on CPU 🥶 This demo does not work on CPU.</p>"
+
+CACHE_EXAMPLES = torch.cuda.is_available() and os.getenv("CACHE_EXAMPLES", "1") == "1"
+CACHE_EXAMPLES = False
+MAX_IMAGE_SIZE = int(os.getenv("MAX_IMAGE_SIZE", "6000"))
+MAX_VIDEO_FRAME = int(os.getenv("MAX_IMAGE_SIZE", "93"))
+SPEED_UP_T5 = os.getenv("USE_TORCH_COMPILE", "0") == "1"
+USE_TORCH_COMPILE = os.getenv("USE_TORCH_COMPILE", "0") == "1"
+ENABLE_CPU_OFFLOAD = os.getenv("ENABLE_CPU_OFFLOAD", "0") == "1"
+PORT = int(os.getenv("DEMO_PORT", "15432"))
 
 
-@torch.inference_mode()
-def generate_img(prompt, sample_steps, scale, seed=0, randomize_seed=False, force_images=False):
-    seed = int(randomize_seed_fn(seed, randomize_seed))
-    set_env(seed)
-    video_length = transformer_model.config.video_length if not force_images else 1
-    height, width = int(args.version.split('x')[1]), int(args.version.split('x')[2])
-    num_frames = 1 if video_length == 1 else int(args.version.split('x')[0])
-    videos = videogen_pipeline(prompt,
-                               video_length=video_length,
-                               height=height,
-                               width=width,
-                               num_inference_steps=sample_steps,
-                               guidance_scale=scale,
-                               enable_temporal_attentions=not force_images,
-                               num_images_per_prompt=1,
-                               mask_feature=True,
-                               ).video
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    torch.cuda.empty_cache()
-    videos = videos[0]
-    tmp_save_path = 'tmp.mp4'
-    imageio.mimwrite(tmp_save_path, videos, fps=24, quality=9)  # highest quality is 10, lowest is 0
-    display_model_info = f"Video size: {num_frames}×{height}×{width}, \nSampling Step: {sample_steps}, \nGuidance Scale: {scale}"
-    return tmp_save_path, prompt, display_model_info, seed
+styles = {k["name"]: (k["prompt"], k["negative_prompt"]) for k in style_list}
+STYLE_NAMES = list(styles.keys())
+DEFAULT_STYLE_NAME = "(Default)"
+SCHEDULE_NAME = [
+    "PNDM-Solver", "EulerA-Solver", "DPM-Solver", "SA-Solver", 
+    "DDIM-Solver", "Euler-Solver", "DDPM-Solver", "DEISM-Solver"]
+DEFAULT_SCHEDULE_NAME = "PNDM-Solver"
+NUM_IMAGES_PER_PROMPT = 1
 
-if __name__ == '__main__':
-    args = type('args', (), {
-        'ae': 'CausalVAEModel_4x8x8',
-        'force_images': False,
-        'model_path': 'LanguageBind/Open-Sora-Plan-v1.0.0',
-        'text_encoder_name': 'DeepFloyd/t5-v1_1-xxl',
-        'version': '65x512x512'
-    })
-    device = torch.device('cuda:0')
+def apply_style(style_name: str, positive: str, negative: str = "") -> Tuple[str, str]:
+    p, n = styles.get(style_name, styles[DEFAULT_STYLE_NAME])
+    if not negative:
+        negative = ""
+    return p.replace("{prompt}", positive), n + negative
 
-    # Load model:
-    transformer_model = LatteT2V.from_pretrained(args.model_path, subfolder=args.version, torch_dtype=torch.float16, cache_dir='cache_dir').to(device)
+if torch.cuda.is_available():
+    weight_dtype = torch.bfloat16
+    T5_token_max_length = 512
 
-    vae = getae_wrapper(args.ae)(args.model_path, subfolder="vae", cache_dir='cache_dir').to(device)
-    vae = vae.half()
+    vae = getae_wrapper('CausalVAEModel_4x8x8')("/storage/dataset/test140k")
+    vae.vae = vae.vae.to(device=device, dtype=weight_dtype)
     vae.vae.enable_tiling()
-    image_size = int(args.version.split('x')[1])
-    latent_size = (image_size // ae_stride_config[args.ae][1], image_size // ae_stride_config[args.ae][2])
-    vae.latent_size = latent_size
-    transformer_model.force_images = args.force_images
-    tokenizer = T5Tokenizer.from_pretrained(args.text_encoder_name, cache_dir="cache_dir")
-    text_encoder = T5EncoderModel.from_pretrained(args.text_encoder_name, cache_dir="cache_dir",
-                                                  torch_dtype=torch.float16).to(device)
+    vae.vae.tile_overlap_factor = 0.125
+    vae.vae.tile_sample_min_size = 256
+    vae.vae.tile_latent_min_size = 32
+    vae.vae.tile_sample_min_size_t = 29
+    vae.vae.tile_latent_min_size_t = 8
+    vae.vae_scale_factor = ae_stride_config['CausalVAEModel_4x8x8']
 
-    # set eval mode
-    transformer_model.eval()
-    vae.eval()
-    text_encoder.eval()
+    text_encoder = MT5EncoderModel.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", 
+                                                   low_cpu_mem_usage=True, torch_dtype=weight_dtype)
+    tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl")
+    transformer = OpenSoraT2V.from_pretrained("/storage/dataset/hw29/model_ema", low_cpu_mem_usage=False, 
+                                              device_map=None, torch_dtype=weight_dtype)
     scheduler = PNDMScheduler()
-    videogen_pipeline = VideoGenPipeline(vae=vae,
-                                         text_encoder=text_encoder,
-                                         tokenizer=tokenizer,
-                                         scheduler=scheduler,
-                                         transformer=transformer_model).to(device)
+    pipe = OpenSoraPipeline(vae=vae,
+                                text_encoder=text_encoder,
+                                tokenizer=tokenizer,
+                                scheduler=scheduler, 
+                                transformer=transformer)
+    pipe.to(device)
+    print("Loaded on Device!")
+
+    # speed-up T5
+    if SPEED_UP_T5:
+        pipe.text_encoder.to_bettertransformer()
+
+    if USE_TORCH_COMPILE:
+        pipe.transformer = torch.compile(pipe.transformer, mode="reduce-overhead", fullgraph=True)
+        print("Model Compiled!")
+
+# @spaces.GPU(duration=120)
+@torch.no_grad()
+@torch.inference_mode()
+def generate(
+        prompt: str,
+        negative_prompt: str = "",
+        style: str = DEFAULT_STYLE_NAME,
+        use_negative_prompt: bool = False,
+        seed: int = 0,
+        frame: int = 29,
+        schedule: str = 'DPM-Solver',
+        guidance_scale: float = 4.5,
+        num_inference_steps: int = 25,
+        randomize_seed: bool = False,
+        progress=gr.Progress(track_tqdm=True),
+):
+    seed = int(randomize_seed_fn(seed, randomize_seed))
+    generator = torch.Generator().manual_seed(seed)
+
+    if schedule == 'DPM-Solver':
+        if not isinstance(pipe.scheduler, DPMSolverMultistepScheduler):
+            pipe.scheduler = DPMSolverMultistepScheduler()
+    elif schedule == "PNDM-Solver":
+        if not isinstance(pipe.scheduler, PNDMScheduler):
+            pipe.scheduler = PNDMScheduler()
+    elif schedule == "DDIM-Solver":
+        if not isinstance(pipe.scheduler, DDIMScheduler):
+            pipe.scheduler = DDIMScheduler()
+    elif schedule == "Euler-Solver":
+        if not isinstance(pipe.scheduler, EulerDiscreteScheduler):
+            pipe.scheduler = EulerDiscreteScheduler()
+    elif schedule == "DDPM-Solver":
+        if not isinstance(pipe.scheduler, DDPMScheduler):
+            pipe.scheduler = DDPMScheduler()
+    elif schedule == "EulerA-Solver":
+        if not isinstance(pipe.scheduler, EulerAncestralDiscreteScheduler):
+            pipe.scheduler = EulerAncestralDiscreteScheduler()
+    elif schedule == "DEISM-Solver":
+        if not isinstance(pipe.scheduler, DEISMultistepScheduler):
+            pipe.scheduler = DEISMultistepScheduler()
+    elif schedule == "SA-Solver":
+        if not isinstance(pipe.scheduler, SASolverScheduler):
+            pipe.scheduler = SASolverScheduler.from_config(pipe.scheduler.config, algorithm_type='data_prediction', tau_func=lambda t: 1 if 200 <= t <= 800 else 0, predictor_order=2, corrector_order=2)
+    else:
+        raise ValueError(f"Unknown schedule: {schedule}")
+
+    if not use_negative_prompt:
+        negative_prompt = None  # type: ignore
+    prompt, negative_prompt = apply_style(style, prompt, negative_prompt)
+    print(prompt, negative_prompt)
+    videos = pipe(
+        prompt=prompt,
+        negative_prompt=negative_prompt,
+        num_frames=frame,
+        # width=1280,
+        # height=720,
+        width=640,
+        height=480,
+        guidance_scale=guidance_scale,
+        num_inference_steps=num_inference_steps,
+        generator=generator,
+        num_images_per_prompt=1,  # num_imgs
+        max_sequence_length=T5_token_max_length,
+    ).images
+
+    video_paths = [save_video(vid) for vid in videos]
+    print(video_paths)
+    return video_paths[0], seed
 
 
-    demo = gr.Interface(
-        fn=generate_img,
-        inputs=[Textbox(label="",
-                        placeholder="Please enter your prompt. \n"),
-                gr.Slider(
-                    label='Sample Steps',
-                    minimum=1,
-                    maximum=500,
-                    value=50,
-                    step=10
-                ),
-                gr.Slider(
-                    label='Guidance Scale',
-                    minimum=0.1,
-                    maximum=30.0,
-                    value=10.0,
-                    step=0.1
-                ),
-                gr.Slider(
-                    label="Seed",
-                    minimum=0,
-                    maximum=203279,
-                    step=1,
-                    value=0,
-                ),
-                gr.Checkbox(label="Randomize seed", value=True),
-                gr.Checkbox(label="Generate image (1 frame video)", value=False),
-                ],
-        outputs=[Video(label="Vid", width=512, height=512),
-                 Textbox(label="input prompt"),
-                 Textbox(label="model info"),
-                 gr.Slider(label='seed')],
-        title=title_markdown, description=DESCRIPTION, theme=gr.themes.Default(), css=block_css,
-        examples=examples,
+examples = [
+    "A small cactus with a happy face in the Sahara desert.",
+    "Eiffel Tower was Made up of more than 2 million translucent straws to look like a cloud, with the bell tower at the top of the building, Michel installed huge foam-making machines in the forest to blow huge amounts of unpredictable wet clouds in the building's classic architecture.",
+    "3D animation of a small, round, fluffy creature with big, expressive eyes explores a vibrant, enchanted forest. The creature, a whimsical blend of a rabbit and a squirrel, has soft blue fur and a bushy, striped tail. It hops along a sparkling stream, its eyes wide with wonder. The forest is alive with magical elements: flowers that glow and change colors, trees with leaves in shades of purple and silver, and small floating lights that resemble fireflies. The creature stops to interact playfully with a group of tiny, fairy-like beings dancing around a mushroom ring. The creature looks up in awe at a large, glowing tree that seems to be the heart of the forest.",
+    "Color photo of a corgi made of transparent glass, standing on the riverside in Yosemite National Park.",
+    "A close-up photo of a person. The subject is a woman. She wore a blue coat with a gray dress underneath. She has blue eyes and blond hair, and wears a pair of earrings. Behind are blurred city buildings and streets.",
+    "A litter of golden retriever puppies playing in the snow. Their heads pop out of the snow, covered in.",
+    "a handsome young boy in the middle with sky color background wearing eye glasses, it's super detailed with anime style, it's a portrait with delicated eyes and nice looking face",
+    "an astronaut sitting in a diner, eating fries, cinematic, analog film",
+    "Pirate ship trapped in a cosmic maelstrom nebula, rendered in cosmic beach whirlpool engine, volumetric lighting, spectacular, ambient lights, light pollution, cinematic atmosphere, art nouveau style, illustration art artwork by SenseiJaye, intricate detail.",
+    "professional portrait photo of an anthropomorphic cat wearing fancy gentleman hat and jacket walking in autumn forest.",
+    "The parametric hotel lobby is a sleek and modern space with plenty of natural light. The lobby is spacious and open with a variety of seating options. The front desk is a sleek white counter with a parametric design. The walls are a light blue color with parametric patterns. The floor is a light wood color with a parametric design. There are plenty of plants and flowers throughout the space. The overall effect is a calm and relaxing space. occlusion, moody, sunset, concept art, octane rendering, 8k, highly detailed, concept art, highly detailed, beautiful scenery, cinematic, beautiful light, hyperreal, octane render, hdr, long exposure, 8K, realistic, fog, moody, fire and explosions, smoke, 50mm f2.8",
+]
+
+with gr.Blocks(css="style.css") as demo:
+    gr.Markdown(DESCRIPTION)
+    gr.DuplicateButton(
+        value="Duplicate Space for private use",
+        elem_id="duplicate-button",
+        visible=os.getenv("SHOW_DUPLICATE_BUTTON") == "1",
     )
-    demo.launch()
+    with gr.Row(equal_height=False):
+        with gr.Group():
+            with gr.Row():
+                use_negative_prompt = gr.Checkbox(label="Use additional negative prompt", value=False, visible=True)
+            negative_prompt = gr.Text(
+                label="Negative prompt",
+                max_lines=1,
+                placeholder="Enter a additional negative prompt",
+                visible=True,
+            )
+            with gr.Row(visible=True):
+                schedule = gr.Radio(
+                    show_label=True,
+                    container=True,
+                    interactive=True,
+                    choices=SCHEDULE_NAME,
+                    value=DEFAULT_SCHEDULE_NAME,
+                    label="Sampler Schedule",
+                    visible=True,
+                )
+            style_selection = gr.Radio(
+                show_label=True,
+                container=True,
+                interactive=True,
+                choices=STYLE_NAMES,
+                value=DEFAULT_STYLE_NAME,
+                label="Video Style",
+            )
+            seed = gr.Slider(
+                label="Seed",
+                minimum=0,
+                maximum=MAX_SEED,
+                step=1,
+                value=0,
+            )
+            randomize_seed = gr.Checkbox(label="Randomize seed", value=True)
+            with gr.Row(visible=True):
+                frame = gr.Slider(
+                    label="Frame",
+                    minimum=29,
+                    maximum=MAX_VIDEO_FRAME,
+                    step=16,
+                    value=29,
+                )
+            with gr.Row():
+                guidance_scale = gr.Slider(
+                    label="Guidance scale",
+                    minimum=1,
+                    maximum=10,
+                    step=0.1,
+                    value=5.0,
+                )
+                inference_steps = gr.Slider(
+                    label="inference steps",
+                    minimum=10,
+                    maximum=200,
+                    step=1,
+                    value=50,
+                )
+        with gr.Group():
+            with gr.Row():
+                prompt = gr.Text(
+                    label="Prompt",
+                    show_label=False,
+                    max_lines=1,
+                    placeholder="Enter your prompt",
+                    container=False,
+                )
+                run_button = gr.Button("Run", scale=0)
+            result = gr.Video(label="Result")
+
+    gr.Examples(
+        examples=examples,
+        inputs=prompt,
+        outputs=[result, seed],
+        fn=generate,
+        cache_examples=CACHE_EXAMPLES,
+    )
+
+    use_negative_prompt.change(
+        fn=lambda x: gr.update(visible=x),
+        inputs=use_negative_prompt,
+        outputs=negative_prompt,
+        api_name=False,
+    )
+
+    gr.on(
+        triggers=[
+            prompt.submit,
+            negative_prompt.submit,
+            run_button.click,
+        ],
+        fn=generate,
+        inputs=[
+            prompt,
+            negative_prompt,
+            style_selection,
+            use_negative_prompt,
+            seed,
+            frame,
+            schedule,
+            guidance_scale,
+            inference_steps,
+            randomize_seed,
+        ],
+        outputs=[result, seed],
+        api_name="run",
+    )
+
+if __name__ == "__main__":
+    # demo.queue(max_size=20).launch(server_name='0.0.0.0', share=True)
+    demo.queue(max_size=20).launch(server_name="0.0.0.0", server_port=11900, debug=True)
