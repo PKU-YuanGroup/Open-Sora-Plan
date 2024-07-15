@@ -54,6 +54,7 @@ def hacked_pipeline_call_for_inpaint(
     clean_caption: bool = True,
     use_resolution_binning: bool = True,
     max_sequence_length: int = 300,
+    device="cuda",
     **kwargs,
 ) -> Union[ImagePipelineOutput, Tuple]:
     """
@@ -157,7 +158,6 @@ def hacked_pipeline_call_for_inpaint(
     else:
         batch_size = prompt_embeds.shape[0]
     # import ipdb;ipdb.set_trace()
-    device = getattr(self, '_execution_device', None) or getattr(self, 'device', None) or torch.device('cuda')
 
     # here `guidance_scale` is defined analog to the guidance weight `w` of equation (2)
     # of the Imagen paper: https://arxiv.org/pdf/2205.11487.pdf . `guidance_scale = 1`
@@ -317,7 +317,7 @@ def hacked_pipeline_call_for_inpaint(
     # latents = latents.squeeze(2)
     if not output_type == "latent":
         # b t h w c
-        image = self.decode_latents(latents)
+        image = self.decode_latents(latents, device)
         image = image[:, :num_frames, :height, :width]
     else:
         image = latents
@@ -329,3 +329,14 @@ def hacked_pipeline_call_for_inpaint(
         return (image,)
 
     return ImagePipelineOutput(images=image)
+
+def decode_latents(self, latents, device):
+    # if npu_config is not None:
+    #     npu_config.print_tensor_stats(latents, f"before vae", rank=0)
+    self.vae = self.vae.to(device)
+    video = self.vae.decode(latents.to(self.vae.vae.dtype).to(device))
+    # if npu_config is not None:
+    #     npu_config.print_tensor_stats(video, f"after vae, vae.dtype={self.vae.vae.dtype}", rank=0)
+    video = ((video / 2.0 + 0.5).clamp(0, 1) * 255).to(dtype=torch.uint8).cpu().permute(0, 1, 3, 4, 2).contiguous() # b t h w c
+    # we always cast to float32 as this does not cause significant overhead and is compatible with bfloa16
+    return video

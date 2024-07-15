@@ -1,5 +1,6 @@
 import math
 import os
+from accelerate.utils import set_seed
 import pip
 import torch
 import argparse
@@ -21,6 +22,9 @@ project_root = os.path.abspath(os.path.join(current_dir, '../..'))
 if project_root not in sys.path:
     sys.path.append(project_root)
 
+from torch.nn.parallel import DistributedDataParallel as DDP
+import torch.distributed as dist
+
 from opensora.models.ae import ae_stride_config, getae, getae_wrapper
 from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModelWrapper
 from opensora.models.diffusion.opensora.modeling_inpaint import OpenSoraInpaint
@@ -29,7 +33,7 @@ from opensora.models.text_encoder import get_text_enc
 from opensora.utils.utils import save_video_grid
 
 from opensora.sample.pipeline_opensora import OpenSoraPipeline
-from opensora.sample.pipeline_inpaint import hacked_pipeline_call_for_inpaint
+from opensora.sample.pipeline_inpaint import hacked_pipeline_call_for_inpaint, decode_latents
 # for validation
 import glob
 from PIL import Image
@@ -44,10 +48,12 @@ import glob
 import gc
 import time
 
+@torch.inference_mode()
 def validation(args):
+
     # torch.manual_seed(args.seed)
     weight_dtype = torch.bfloat16
-    device = torch.device(args.device)
+    device = torch.device(f'cuda:{args.rank}')
 
     # vae = getae_wrapper(args.ae)(args.model_path, subfolder="vae", cache_dir=args.cache_dir)
     vae = getae_wrapper(args.ae)(args.ae_path)
@@ -65,6 +71,11 @@ def validation(args):
     text_encoder = MT5EncoderModel.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir, low_cpu_mem_usage=True, torch_dtype=weight_dtype)
     tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir)
     
+
+    transformer_model = transformer_model.to(device)
+    vae.vae = vae.vae.to(device)
+    text_encoder = text_encoder.to(device)
+
     # set eval mode
     transformer_model.eval()
     vae.eval()
@@ -116,9 +127,9 @@ def validation(args):
                                 tokenizer=tokenizer,
                                 scheduler=scheduler,
                                 transformer=transformer_model)
-    pipeline.to(device)
 
     pipeline.__call__ = hacked_pipeline_call_for_inpaint.__get__(pipeline, OpenSoraPipeline)
+    pipeline.decode_latents = decode_latents.__get__(pipeline, OpenSoraPipeline)
 
     validation_dir = args.validation_dir if args.validation_dir is not None else "./validation"
     prompt_file = os.path.join(validation_dir, "prompt.txt")
@@ -168,6 +179,9 @@ def validation(args):
             images = [images]
         if 'img' in images[0]:
             continue
+
+        if idx % args.world_size != args.rank:
+            continue
         
         pre_results = preprocess_images(images)
         condition_images = pre_results['condition_images']
@@ -187,24 +201,31 @@ def validation(args):
             num_images_per_prompt=1,
             mask_feature=True,
             max_sequence_length=args.max_sequence_length,
+            device=device,
         ).images
         videos.append(video[0])
 
         ext = 'mp4'
         imageio.mimwrite(
-            os.path.join(save_dir, f'{idx}.{ext}'), video[0], fps=24, quality=6)  # highest quality is 10, lowest is 0
+            os.path.join(save_dir, f'{idx}.{ext}'), video[0], fps=24, quality=8)  # highest quality is 10, lowest is 0
             
-    video_grids = torch.stack(videos, dim=0)
+    video_grids = torch.stack(videos, dim=0).to(device=device)
+    shape = list(video_grids.shape)
+    shape[0] *= world_size
+    gathered_tensor = torch.zeros(shape, dtype=video_grids.dtype, device=device)
+    dist.all_gather_into_tensor(gathered_tensor, video_grids.contiguous())
+    video_grids = gathered_tensor.cpu()
 
+    if args.rank == 0:
     # torchvision.io.write_video(args.save_img_path + '_%04d' % args.run_time + '-.mp4', video_grids, fps=6)
-    if args.num_frames == 1:
-        save_image(video_grids / 255.0, os.path.join(args.save_img_path, f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}.{ext}'),
-                   nrow=math.ceil(math.sqrt(len(video_grids))), normalize=True, value_range=(0, 1))
-    else:
-        video_grids = save_video_grid(video_grids)
-        imageio.mimwrite(os.path.join(args.save_img_path, f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}.{ext}'), video_grids, fps=args.fps, quality=6)
+        if args.num_frames == 1:
+            save_image(video_grids / 255.0, os.path.join(args.save_img_path, f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}.{ext}'),
+                    nrow=math.ceil(math.sqrt(len(video_grids))), normalize=True, value_range=(0, 1))
+        else:
+            video_grids = save_video_grid(video_grids)
+            imageio.mimwrite(os.path.join(args.save_img_path, f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}.{ext}'), video_grids, fps=args.fps, quality=8)
 
-    print('save path {}'.format(args.save_img_path))
+        print('save path {}'.format(args.save_img_path))
 
     del pipeline
     del text_encoder
@@ -212,6 +233,38 @@ def validation(args):
     del transformer_model
     gc.collect()
     torch.cuda.empty_cache()
+
+def main(args):
+
+    lask_ckpt = None
+    root_model_path = args.model_path
+    root_save_path = args.save_img_path
+
+    
+    while True:
+        # Get the most recent checkpoint
+        dirs = os.listdir(root_model_path)
+        dirs = [d for d in dirs if d.startswith("checkpoint")]
+        dirs = sorted(dirs, key=lambda x: int(x.split("-")[1]))
+        path = dirs[-1] if len(dirs) > 0 else None
+        dist.barrier()
+        if path != lask_ckpt:
+            print("====================================================")
+            print(f"sample {path}...")
+            args.model_path = os.path.join(root_model_path, path, "model")
+            if os.path.exists(os.path.join(args.model_path, 'config.json')) and os.path.exists(os.path.join(args.model_path, 'diffusion_pytorch_model.safetensors')):
+                args.save_img_path = os.path.join(root_save_path, f"{path}_normal")
+                validation(args)
+            print("====================================================")
+            print(f"sample ema {path}...")
+            args.model_path = os.path.join(root_model_path, path, "model_ema")
+            if os.path.exists(os.path.join(args.model_path, 'config.json')) and os.path.exists(os.path.join(args.model_path, 'diffusion_pytorch_model.safetensors')):
+                args.save_img_path = os.path.join(root_save_path, f"{path}_ema")
+                validation(args)
+                lask_ckpt = path
+        else:
+            print("no new ckpt, sleeping...")
+        time.sleep(60)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -239,29 +292,18 @@ if __name__ == "__main__":
     parser.add_argument('--enable_stable_fp32', action='store_true')
 
     parser.add_argument("--validation_dir", type=str, default=None)
+    parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
-    lask_ckpt = None
-    root_model_path = args.model_path
-    root_save_path = args.save_img_path
-    while True:
-        # Get the most recent checkpoint
-        dirs = os.listdir(root_model_path)
-        dirs = [d for d in dirs if d.startswith("checkpoint")]
-        dirs = sorted(dirs, key=lambda x: int(x.split("-")[1]))
-        path = dirs[-1] if len(dirs) > 0 else None
-        if path != lask_ckpt:
-            print("====================================================")
-            print(f"sample {path}...")
-            args.model_path = os.path.join(root_model_path, path, "model")
-            args.save_img_path = os.path.join(root_save_path, f"{path}_normal")
-            validation(args)
-            print("====================================================")
-            print(f"sample ema {path}...")
-            args.model_path = os.path.join(root_model_path, path, "model_ema")
-            args.save_img_path = os.path.join(root_save_path, f"{path}_ema")
-            validation(args)
-            lask_ckpt = path
-        else:
-            print("no new ckpt, sleeping...")
-        time.sleep(5)
+    # If passed along, set the training seed now.
+    if args.seed is not None:
+        set_seed(args.seed)
+
+    args.world_size = world_size = torch.cuda.device_count()
+    args.rank = int(os.environ["LOCAL_RANK"])
+
+    # Initialize the process group
+    dist.init_process_group("nccl", rank=args.rank, world_size=args.world_size)
+
+    main(args)
+

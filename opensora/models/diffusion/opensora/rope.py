@@ -14,7 +14,7 @@ class PositionGetter3D(object):
         self.cache_positions = {}
         
     def __call__(self, b, t, h, w, device):
-        if not (t,h,w) in self.cache_positions:
+        if not (b,t,h,w) in self.cache_positions:
             x = torch.arange(w, device=device)
             y = torch.arange(h, device=device)
             z = torch.arange(t, device=device)

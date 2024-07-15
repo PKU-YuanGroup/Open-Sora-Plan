@@ -164,6 +164,18 @@ def to_tensor(clip):
     return clip.float() / 255.0
 
 
+def to_tensor_after_resize(clip):
+    """
+    Convert resized tensor to [0, 1]
+    Args:
+        clip (torch.tensor, dtype=torch.float): Size is (T, C, H, W)
+    Return:
+        clip (torch.tensor, dtype=torch.float): Size is (T, C, H, W), but in [0, 1]
+    """
+    _is_tensor_video_clip(clip)
+    # return clip.float().permute(3, 0, 1, 2) / 255.0
+    return clip.float() / 255.0
+
 def normalize(clip, mean, std, inplace=False):
     """
     Args:
@@ -471,6 +483,29 @@ class ToTensorVideo:
 
     def __repr__(self) -> str:
         return self.__class__.__name__
+    
+
+class ToTensorDino:
+    """
+    Convert tensor data type from uint8 to float, divide value by 255.0 and
+    permute the dimensions of clip tensor
+    """
+
+    def __init__(self):
+        pass
+
+    def __call__(self, clip):
+        """
+        Args:
+            clip (torch.tensor, dtype=torch.float): Size is (T, C, H, W)
+        Return:
+            clip (torch.tensor, dtype=torch.float): Size is (T, C, H, W), but in [0, 1]
+        """
+        return to_tensor_after_resize(clip)
+
+    def __repr__(self) -> str:
+        return self.__class__.__name__
+
 
 
 class RandomHorizontalFlipVideo:

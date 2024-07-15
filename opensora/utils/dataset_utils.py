@@ -220,6 +220,7 @@ class VideoIP_Collate(Collate):
         if self.num_frames > 1 and self.use_image_num == 0:
             clip_data = clip_vid # b t c h w
         elif self.num_frames > 1 and self.use_image_num != 0:
+            raise NotImplementedError
             clip_data = torch.cat([clip_vid, clip_img], dim=1) # b t+num_img c h w
         else: # num_frames == 1 (only image) 
             clip_data = clip_img # b 1 c h w

@@ -13,8 +13,8 @@ class T5Wrapper(nn.Module):
             from transformers import MT5EncoderModel
             print(f"Loading MT5 model: {self.model_name}")
             print(f"cache_dir: {args.cache_dir}")
-            self.text_enc = MT5EncoderModel.from_pretrained(self.model_name, cache_dir=args.cache_dir, **kwargs).eval()
-            # self.text_enc = MT5EncoderModel.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir, **kwargs).eval()
+            # self.text_enc = MT5EncoderModel.from_pretrained(self.model_name, cache_dir=args.cache_dir, **kwargs).eval()
+            self.text_enc = MT5EncoderModel.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir, **kwargs).eval()
             # self.text_enc = MT5EncoderModel.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/models--google--mt5-xl/snapshots/63fc6450d80515b48e026b69ef2fbbd426433e84", cache_dir=args.cache_dir, **kwargs).eval()
         elif 't5' in self.model_name:
             from transformers import T5EncoderModel

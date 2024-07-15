@@ -48,4 +48,5 @@ check.py
 bucket.py
 whileinf.py
 validation_dir/
-inpaint*/
+runs/
+samples/

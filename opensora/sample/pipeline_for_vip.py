@@ -43,9 +43,10 @@ def hacked_pipeline_call_for_vip(
     clean_caption: bool = True,
     use_resolution_binning: bool = True,
     max_sequence_length: int = 300,
+    device="cuda",
     **kwargs,
 ) -> Union[ImagePipelineOutput, Tuple]:
-    
+
     # 1. Check inputs. Raise error if not correct
     num_frames = num_frames or self.transformer.config.sample_size_t * self.vae.vae_scale_factor[0]
     height = height or self.transformer.config.sample_size[0] * self.vae.vae_scale_factor[1]
@@ -70,9 +71,7 @@ def hacked_pipeline_call_for_vip(
         batch_size = len(prompt)
     else:
         batch_size = prompt_embeds.shape[0]
-    # import ipdb;ipdb.set_trace()
-    device = getattr(self, '_execution_device', None) or getattr(self, 'device', None) or torch.device('cuda')
-
+   
     # here `guidance_scale` is defined analog to the guidance weight `w` of equation (2)
     # of the Imagen paper: https://arxiv.org/pdf/2205.11487.pdf . `guidance_scale = 1`
     # corresponds to doing no classifier free guidance.
@@ -97,10 +96,9 @@ def hacked_pipeline_call_for_vip(
         clean_caption=clean_caption,
         max_sequence_length=max_sequence_length,
     )
-
     if do_classifier_free_guidance:
         prompt_embeds = torch.cat([negative_prompt_embeds, prompt_embeds], dim=0)
-        prompt_attention_mask = torch.cat([negative_prompt_attention_mask, prompt_attention_mask], dim=0)
+        prompt_attention_mask = torch.cat([negative_prompt_attention_mask, prompt_attention_mask], dim=0)        
         # NOTE add vip tokens
         vip_tokens = torch.cat([negative_vip_tokens, vip_tokens], dim=0)
         vip_attention_mask = torch.cat([negative_vip_attention_mask, vip_attention_mask], dim=0)
@@ -169,7 +167,6 @@ def hacked_pipeline_call_for_vip(
                 vip_attention_mask=vip_attention_mask,
                 timestep=current_timestep,
                 added_cond_kwargs=added_cond_kwargs,
-                enable_temporal_attentions=num_frames > 1,
                 return_dict=False,
             )[0]
 
