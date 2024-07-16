@@ -59,7 +59,7 @@ def process_image_paths(image_paths):
     return items
 
 if __name__ == '__main__':
-    image_root = '/storage/dataset/image/sam'
+    image_root = '/storage/dataset/image/tuzhan_mj'
     save_root = '/storage/dataset/image'
     os.makedirs(save_root, exist_ok=True)
     save_name = 'tuzhan_mj_{}_resolution.json'

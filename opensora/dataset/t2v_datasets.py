@@ -267,32 +267,39 @@ class T2V_dataset(Dataset):
         cnt_img = 0
         for i in cap_list:
             path = i['path']
-            duration = None if i.get('duration', None) is None else float(i.get('duration', None))
-            fps = None if i.get('fps', None) is None else float(i.get('fps', None))
-            resolution = i.get('resolution', None)
             cap = i.get('cap', None)
+            # ======no caption=====
             if cap is None:
                 cnt_no_cap += 1
                 continue
-            if resolution is None:
-                cnt_no_resolution += 1
-                continue
-            else:
-                if resolution.get('height', None) is None or resolution.get('width', None) is None:
+            if path.endswith('.mp4'):
+                # ======no fps and duration=====
+                duration = i.get('duration', None)
+                fps = i.get('fps', None)
+                if fps is None or duration is None:
+                    continue
+
+                # ======resolution mismatch=====
+                resolution = i.get('resolution', None)
+                if resolution is None:
                     cnt_no_resolution += 1
                     continue
-                if not filter_resolution(resolution['height'], resolution['width']):
-                    cnt_resolution_mismatch += 1
-                    continue
-                # ignore image resolution mismatch
-                if path.endswith('.mp4') and (self.max_height > resolution['height'] or self.max_width > resolution['width']):
-                    cnt_resolution_mismatch += 1
-                    continue
-            if path.endswith('.mp4') and fps is not None and duration is not None:
+                else:
+                    if resolution.get('height', None) is None or resolution.get('width', None) is None:
+                        cnt_no_resolution += 1
+                        continue
+                    if not filter_resolution(resolution['height'], resolution['width']):
+                        cnt_resolution_mismatch += 1
+                        continue
+                    # ignore image resolution mismatch
+                    if self.max_height > resolution['height'] or self.max_width > resolution['width']:
+                        cnt_resolution_mismatch += 1
+                        continue
+
                 # import ipdb;ipdb.set_trace()
                 i['num_frames'] = int(fps * duration)
                 # max 5.0 and min 1.0 are just thresholds to filter some videos which have suitable duration. 
-                if i['num_frames'] > 5.0 * (self.num_frames * fps / self.train_fps * self.speed_factor):  # too long video is not suitable for this training stage (self.num_frames)
+                if i['num_frames'] > 50000000.0 * (self.num_frames * fps / self.train_fps * self.speed_factor):  # too long video is not suitable for this training stage (self.num_frames)
                     cnt_too_long += 1
                     continue
                 # if i['num_frames'] < 1.0/1 * (self.num_frames * fps / self.train_fps * self.speed_factor):  # too short video is not suitable for this training stage
@@ -328,11 +335,13 @@ class T2V_dataset(Dataset):
                 new_cap_list.append(i)
                 i['sample_num_frames'] = len(i['sample_frame_index'])  # will use in dataloader(group sampler)
                 sample_num_frames.append(i['sample_num_frames'])
-            elif not path.endswith('.mp4'):  # image
+            elif path.endswith('.jpg'):  # image
                 cnt_img += 1
                 new_cap_list.append(i)
                 i['sample_num_frames'] = 1
                 sample_num_frames.append(i['sample_num_frames'])
+            else:
+                raise NameError(f"Unknown file extention {path.split('.')[-1]}, only support .mp4 for video and .jpg for image")
         # import ipdb;ipdb.set_trace()
         logger.info(f'no_cap: {cnt_no_cap}, too_long: {cnt_too_long}, too_short: {cnt_too_short}, '
                 f'no_resolution: {cnt_no_resolution}, resolution_mismatch: {cnt_resolution_mismatch}, '

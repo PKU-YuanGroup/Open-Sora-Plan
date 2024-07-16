@@ -26,8 +26,7 @@ accelerate launch \
     --text_encoder_name google/mt5-xxl \
     --cache_dir "./cache_dir" \
     --dataset t2v \
-    --video_data "scripts/train_data/video_data_sucai_aes5.txt" \
-    --image_data "scripts/train_data/image_data.txt" \
+    --data "scripts/train_data/image_data.txt" \
     --ae CausalVAEModel_4x8x8 \
     --ae_path "/storage/dataset/test140k" \
     --sample_rate 1 \

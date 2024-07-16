@@ -4,16 +4,22 @@ from glob import glob
 import json
 import os
 
-anno_path = '/storage/anno_jsons/human_images_162094.json'
-img_info_path = '/storage/dataset/image/human_images_162094_resolution.json'
-save_root = '/storage/anno_jsons'
-save_name = 'human_images_{}_resolution.json'
+# anno_path = '/storage/anno_jsons/human_images_162094.json'
+# img_info_path = '/storage/dataset/image/human_images_162094_resolution.json'
+# save_root = '/storage/anno_jsons'
+# save_name = 'human_images_{}_resolution.json'
 
 
-# anno_path = '/storage/anno_jsons/tuzhan_mj_1712571.json'
+# anno_path = '/storage/anno_jsons/tuzhan_mj_4615265.json'
 # img_info_path = '/storage/dataset/image/tuzhan_mj_4615530_resolution.json'
 # save_root = '/storage/anno_jsons'
 # save_name = 'tuzhan_mj_{}_resolution.json'
+
+
+anno_path = '/storage/anno_jsons/sam_image_11185255.json'
+img_info_path = '/storage/dataset/image/sam_image_11185362_resolution.json'
+save_root = '/storage/anno_jsons'
+save_name = 'sam_image_{}_resolution.json'
 
 with open(anno_path, 'r') as f:
     anno = json.load(f)
