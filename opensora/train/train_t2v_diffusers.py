@@ -25,13 +25,13 @@ try:
     import torch_npu
     from opensora.npu_config import npu_config
     from opensora.acceleration.parallel_states import initialize_sequence_parallel_state, \
-        destroy_sequence_parallel_group, get_sequence_parallel_state
+        destroy_sequence_parallel_group, get_sequence_parallel_state, set_sequence_parallel_state
     from opensora.acceleration.communications import prepare_parallel_data, broadcast
 except:
     torch_npu = None
     npu_config = None
     from opensora.utils.parallel_states import initialize_sequence_parallel_state, \
-        destroy_sequence_parallel_group, get_sequence_parallel_state
+        destroy_sequence_parallel_group, get_sequence_parallel_state, set_sequence_parallel_state
     from opensora.utils.communications import prepare_parallel_data, broadcast
     pass
 import time
@@ -98,10 +98,8 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
         logger.info('Processing the ({}) prompt'.format(prompt))
         video = opensora_pipeline(
                                 positive_prompt.format(prompt),
-                                # prompt,
                                 negative_prompt=negative_prompt, 
                                 num_frames=args.num_frames,
-                                # num_frames=1,
                                 height=args.max_height,
                                 width=args.max_width,
                                 num_inference_steps=args.num_sampling_steps,
@@ -130,9 +128,7 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
         if tracker.name == "wandb":
             import wandb
             if videos.shape[1] == 1:
-                # assert args.num_frames == 1
                 images = rearrange(videos, 'b 1 c h w -> (b 1) h w c')
-                # import ipdb;ipdb.set_trace()
                 logs = {
                     f"{'ema_' if ema else ''}validation": [
                         wandb.Image(image, caption=f"{i}: {prompt}")
@@ -434,9 +430,7 @@ def main(args):
     logger.info(f"optimizer: {optimizer}")
     
     # Setup data:
-    logger.info(f'before dataset')
     train_dataset = getdataset(args)
-    logger.info(f'after dataset')
     sampler = LengthGroupedSampler(
                 args.train_batch_size,
                 world_size=accelerator.num_processes,
@@ -444,7 +438,6 @@ def main(args):
                 group_frame=args.group_frame, 
                 group_resolution=args.group_resolution, 
             ) if args.group_frame or args.group_resolution else None
-    logger.info(f'after LengthGroupedSampler')
     train_dataloader = DataLoader(
         train_dataset,
         shuffle=sampler is None,
@@ -453,6 +446,7 @@ def main(args):
         batch_size=args.train_batch_size,
         num_workers=args.dataloader_num_workers,
         sampler=sampler if args.group_frame or args.group_resolution else None, 
+        drop_last=True, 
         # prefetch_factor=4
     )
     logger.info(f'after train_dataloader')
@@ -496,7 +490,7 @@ def main(args):
 
     # Train!
     total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
-
+    total_batch_size = total_batch_size // args.sp_size * args.train_sp_batch_size
     logger.info("***** Running training *****")
     logger.info(f"  Model = {model}")
     logger.info(f"  Num examples = {len(train_dataset)}")
@@ -505,7 +499,7 @@ def main(args):
     logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
     logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
     logger.info(f"  Total optimization steps = {args.max_train_steps}")
-    logger.info(f"  Total parameters = {sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e9} B")
+    logger.info(f"  Total training parameters = {sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e9} B")
     global_step = 0
     first_epoch = 0
 
@@ -605,9 +599,10 @@ def main(args):
                                                      device=model_input.device)
 
         bsz = model_input.shape[0]
+        current_step_frame = model_input.shape[2]
         # Sample a random timestep for each image without bias.
         timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=model_input.device)
-        if get_sequence_parallel_state():
+        if current_step_frame != 1 and get_sequence_parallel_state():  # image do not need sp
             broadcast(timesteps)
 
         # Add noise to the model input according to the noise magnitude at each timestep
@@ -716,11 +711,8 @@ def main(args):
     def train_one_step(step_, data_item_, prof_=None):
         train_loss = 0.0
         x, attn_mask, input_ids, cond_mask = data_item_
-        # assert torch.all(attn_mask.bool()), 'must all visible'
-        # Sample noise that we'll add to the latents
-        # import ipdb;ipdb.set_trace()
         if args.group_frame or args.group_resolution:
-            if not torch.all(torch.any(attn_mask.flatten(-2), dim=-1)):
+            if not args.group_frame:
                 each_latent_frame = torch.any(attn_mask.flatten(-2), dim=-1).int().sum(-1).tolist()
                 # logger.info(f'rank: {accelerator.process_index}, step {step_}, special batch has attention_mask '
                 #             f'each_latent_frame: {each_latent_frame}')
@@ -736,27 +728,14 @@ def main(args):
         #     logger.info(f'rank: {accelerator.process_index}, x: {x.shape}, attn_mask: {attn_mask.shape}')
 
         with torch.no_grad():
-            # import ipdb;ipdb.set_trace()
-            # use for loop to avoid OOM, because T5 is too huge...
             B, N, L = input_ids.shape  # B 1+num_images L
-            # cond_ = torch.stack([text_enc(input_ids[i], cond_mask[i]) for i in range(B)])  # B 1+num_images L D
-
             # use batch inference
             input_ids_ = input_ids.reshape(-1, L)
             cond_mask_ = cond_mask.reshape(-1, L)
             cond = text_enc(input_ids_, cond_mask_)  # B 1+num_images L D
             cond = cond.reshape(B, N, L, -1)
-
             # Map input images to latent space + normalize latents
-            if args.use_image_num == 0:
-                x = ae.encode(x)  # B C T H W
-            else:
-                videos, images = x[:, :, :-args.use_image_num], x[:, :, -args.use_image_num:]
-                videos = ae.encode(videos)  # B C T H W
-                images = rearrange(images, 'b c t h w -> (b t) c 1 h w')
-                images = ae.encode(images)
-                images = rearrange(images, '(b t) c 1 h w -> b c t h w', t=args.use_image_num)
-                x = torch.cat([videos, images], dim=2)  # b c 17+4, h, w
+            x = ae.encode(x)  # B C T H W
 
             # def custom_to_video(x: torch.Tensor, fps: float = 2.0, output_file: str = 'output_video.mp4') -> None:
             #     from examples.rec_video import array_to_video
@@ -771,6 +750,13 @@ def main(args):
             # videos = videos.transpose(0, 1)
             # custom_to_video(videos.to(torch.float32), fps=24, output_file='tmp.mp4')
             # import sys;sys.exit()
+        current_step_frame = x.shape[2]
+        current_step_sp_state = get_sequence_parallel_state()
+        if args.sp_size != 1:  # enable sp
+            if current_step_frame == 1:  # but image do not need sp
+                set_sequence_parallel_state(False)
+            else:
+                set_sequence_parallel_state(True)
         if get_sequence_parallel_state():
             x, cond, attn_mask, cond_mask, use_image_num = prepare_parallel_data(x, cond, attn_mask, cond_mask,
                                                                                  args.use_image_num)
@@ -790,6 +776,8 @@ def main(args):
                 model_kwargs = dict(encoder_hidden_states=cond, attention_mask=attn_mask,
                                     encoder_attention_mask=cond_mask, use_image_num=args.use_image_num)
                 run(x, model_kwargs, prof_)
+
+        set_sequence_parallel_state(current_step_sp_state)  # in case the next step use sp, which need broadcast(timesteps)
 
         if progress_info.global_step >= args.max_train_steps:
             return True
@@ -841,8 +829,7 @@ if __name__ == "__main__":
 
     # dataset & dataloader
     parser.add_argument("--dataset", type=str, required=True)
-    parser.add_argument("--video_data", type=str, required='')
-    parser.add_argument("--image_data", type=str, default='')
+    parser.add_argument("--data", type=str, required='')
     parser.add_argument("--sample_rate", type=int, default=1)
     parser.add_argument("--train_fps", type=int, default=24)
     parser.add_argument("--drop_short_ratio", type=float, default=1.0)

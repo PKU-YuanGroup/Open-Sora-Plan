@@ -100,12 +100,12 @@ class DataSetProg(metaclass=SingletonMeta):
 dataset_prog = DataSetProg()
 
 def find_closest_y(x, vae_stride_t=4, model_ds_t=4):
-    if x < 13:
+    if x < 29:
         return -1  
     for y in range(x, 12, -1):
         if (y - 1) % vae_stride_t == 0 and ((y - 1) // vae_stride_t + 1) % model_ds_t == 0:
             # 4, 8: y in [29, 61, 93, 125, 157, 189, 221, 253, 285, 317, 349, 381, 413, 445, 477, 509, ...]
-            # 4, 4: y in [13, 29, 45, 61, 77, 93, 109, 125, 141, 157, 173, 189, 205, 221, 237, 253, 269, 285, 301, 317, 333, 349, 365, 381, 397, 413, 429, 445, 461, 477, 493, 509, ...]
+            # 4, 4: y in [29, 45, 61, 77, 93, 109, 125, 141, 157, 173, 189, 205, 221, 237, 253, 269, 285, 301, 317, 333, 349, 365, 381, 397, 413, 429, 445, 461, 477, 493, 509, ...]
             return y
     return -1 
 
@@ -118,8 +118,7 @@ def filter_resolution(h, w, max_h_div_w_ratio=17/16, min_h_div_w_ratio=8 / 16):
 
 class T2V_dataset(Dataset):
     def __init__(self, args, transform, temporal_sample, tokenizer, transform_topcrop):
-        self.image_data = args.image_data
-        self.video_data = args.video_data
+        self.data = args.data
         self.num_frames = args.num_frames
         self.train_fps = args.train_fps
         self.use_image_num = args.use_image_num
@@ -337,7 +336,7 @@ class T2V_dataset(Dataset):
         # import ipdb;ipdb.set_trace()
         logger.info(f'no_cap: {cnt_no_cap}, too_long: {cnt_too_long}, too_short: {cnt_too_short}, '
                 f'no_resolution: {cnt_no_resolution}, resolution_mismatch: {cnt_resolution_mismatch}, '
-                f'Counter(sample_num_frames): {Counter(sample_num_frames)}, movie: {cnt_movie}, cnt_img: {cnt_img}, '
+                f'Counter(sample_num_frames): {Counter(sample_num_frames)}, cnt_movie: {cnt_movie}, cnt_img: {cnt_img}, '
                 f'before filter: {len(cap_list)}, after filter: {len(new_cap_list)}')
         return new_cap_list, sample_num_frames
     
@@ -410,10 +409,10 @@ class T2V_dataset(Dataset):
 
     def get_cap_list(self):
         if npu_config is None:
-            cap_lists = self.read_jsons(self.video_data, postfix=".mp4")
+            cap_lists = self.read_jsons(self.data, postfix=".mp4")
         else:
             cap_lists = npu_config.try_load_pickle("cap_lists5",
-                                                       lambda: self.read_jsons(self.video_data, postfix=".mp4"))
+                                                       lambda: self.read_jsons(self.data, postfix=".mp4"))
             # npu_config.print_msg(f"length of cap_lists is {len(cap_lists)}")
             cap_lists = cap_lists[npu_config.get_local_rank()::npu_config.N_NPU_PER_NODE]
             cap_lists_final = []

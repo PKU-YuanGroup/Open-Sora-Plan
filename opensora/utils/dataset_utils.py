@@ -202,14 +202,21 @@ def group_frame_and_resolution_fun(indices):
 
 def last_group_frame_fun(shuffled_megabatches, lengths):
     re_shuffled_megabatches = []
-    for megabatch in shuffled_megabatches:
+    # print('shuffled_megabatches', len(shuffled_megabatches))
+    for i_megabatch, megabatch in enumerate(shuffled_megabatches):
         re_megabatch = []
-        for batch in megabatch:
+        for i_batch, batch in enumerate(megabatch):
+            if len(batch) == 0:
+                # print(i_megabatch, i_batch, megabatch, batch)
+                re_megabatch.append(batch)
+                continue
+                
             len_each_batch = [lengths[i] for i in batch]
             idx_length_dict = dict([*zip(batch, len_each_batch)])
             count_dict = Counter(len_each_batch)
             if len(count_dict) != 1:
                 sorted_by_value = sorted(count_dict.items(), key=lambda item: item[1])
+                # print(batch, idx_length_dict, count_dict, sorted_by_value)
                 pick_length = sorted_by_value[-1][0]  # the highest frequency
                 candidate_batch = [idx for idx, length in idx_length_dict.items() if length == pick_length]
                 random_select_batch = [random.choice(candidate_batch) for i in range(len(len_each_batch) - len(candidate_batch))]
@@ -243,7 +250,7 @@ def get_length_grouped_indices(lengths, batch_size, world_size, generator=None, 
     # print('lengths', lengths)
     
     indices = torch.randperm(len(lengths), generator=generator).tolist()
-    # print('indices', indices)
+    # print('indices', len(indices))
 
     if group_frame and not group_resolution:
         indices = group_frame_fun(indices, lengths)
@@ -251,23 +258,28 @@ def get_length_grouped_indices(lengths, batch_size, world_size, generator=None, 
         indices = group_resolution_fun(indices)
     elif group_frame and group_resolution:
         indices = group_frame_and_resolution_fun(indices)
+    # print('sort indices', len(indices))
     # print('sort indices', indices)
     # print('sort lengths', [lengths[i] for i in indices])
     
     megabatch_size = world_size * batch_size
     megabatches = [indices[i: i + megabatch_size] for i in range(0, len(lengths), megabatch_size)]
+    # print('megabatches', len(megabatches))
     # print('\nmegabatches', megabatches)
     megabatches = [sorted(megabatch, key=lambda i: lengths[i], reverse=True) for megabatch in megabatches]
-    megabatches_len = [[lengths[i] for i in megabatch] for megabatch in megabatches]
+    # print('sort megabatches', len(megabatches))
+    # megabatches_len = [[lengths[i] for i in megabatch] for megabatch in megabatches]
     # print('\nsorted megabatches', megabatches)
     # print('\nsorted megabatches_len', megabatches_len)
     megabatches = [split_to_even_chunks(megabatch, lengths, world_size) for megabatch in megabatches]
+    # print('nsplit_to_even_chunks megabatches', len(megabatches))
     # print('\nsplit_to_even_chunks megabatches', megabatches)
     # print('\nsplit_to_even_chunks len', [lengths[i] for megabatch in megabatches for batch in megabatch for i in batch])
     # return [i for megabatch in megabatches for batch in megabatch for i in batch]
 
     indices = torch.randperm(len(megabatches), generator=generator).tolist()
     shuffled_megabatches = [megabatches[i] for i in indices]
+    # print('shuffled_megabatches', len(shuffled_megabatches))
     if group_frame and not group_resolution:
         shuffled_megabatches = last_group_frame_fun(shuffled_megabatches, lengths)
     elif not group_frame and group_resolution:

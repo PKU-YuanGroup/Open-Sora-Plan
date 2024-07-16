@@ -20,18 +20,17 @@ export MKL_NUM_THREADS=1
 # export NCCL_ALGO=Tree
 
 accelerate launch \
-    --config_file scripts/accelerate_configs/debug.yaml \
+    --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
     opensora/train/train_t2v_diffusers.py \
     --model OpenSoraT2V-ROPE-L/122 \
     --text_encoder_name google/mt5-xxl \
     --cache_dir "./cache_dir" \
     --dataset t2v \
-    --video_data "scripts/train_data/merge_data.txt" \
-    --image_data "scripts/train_data/image_data.txt" \
+    --data "scripts/train_data/merge_data.txt" \
     --ae CausalVAEModel_4x8x8 \
     --ae_path "/storage/dataset/test140k" \
     --sample_rate 1 \
-    --num_frames 93 \
+    --num_frames 29 \
     --max_height 720 \
     --max_width 1280 \
     --interpolation_scale_t 1.0 \
@@ -39,7 +38,7 @@ accelerate launch \
     --interpolation_scale_w 2.0 \
     --attention_mode xformers \
     --gradient_checkpointing \
-    --train_batch_size=4 \
+    --train_batch_size=1 \
     --dataloader_num_workers 0 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
@@ -67,4 +66,6 @@ accelerate launch \
     --ema_decay 0.999 \
     --drop_short_ratio 0.0 \
     --pretrained "/storage/ongoing/new/Open-Sora-Plan/bs32xsp2_29x720p_lr1e-4_snr5_noioff0.02_ema999_opensora122_rope_fp32_mt5xxl_pandamovie_aes_mo_sucai_mo/checkpoint-6500/model_ema/diffusion_pytorch_model.safetensors" \
-    --output_dir="bs32x8x1_29x720p_lr1e-4_snr5_noioff0.02_ema999_opensora122_rope_fp32_mt5xxl_pandamovie_aes_mo" 
+    --output_dir="debug" \
+    --sp_size 8 \
+    --train_sp_batch_size 2 
