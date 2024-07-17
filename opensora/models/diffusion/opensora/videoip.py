@@ -53,8 +53,8 @@ class VideoIPVideoEncoder(nn.Module):
         attention_mode='xformers',
         vae_scale_factor_t=4,
         num_frames=93, # when image mode, num_frames = 1; when video mode, num_frames = 93 
-        max_num_tokens=288, # when 480p, max_num_tokens = 24 * 4 * 3 = 288; when 720p or 1080p, max_num_tokens = 24 * 7 * 4 = 672
-        pooled_token_output_size=(16, 12), # when 480p, size=(16, 12); when 720p or 1080p, size=(28, 16)
+        max_num_tokens=288, # when 480p, max_num_tokens = 24 * 3 * 4 = 288; when 720p or 1080p, max_num_tokens = 24 * 4 * 7 = 672
+        pooled_token_output_size=(12, 16), # when 480p, size=(12, 16); when 720p or 1080p, size=(16, 28)
         interpolation_scale_thw=(1, 1, 1),
     ):
         super().__init__()
@@ -139,11 +139,12 @@ class VideoIPVideoEncoder(nn.Module):
         # B C F H W
         input_batch_size, input_frame = hidden_states.shape[0], hidden_states.shape[2]
         
-        hidden_states = rearrange(hidden_states, 'b c f h w -> (b f) c h w')
+        # when 480p, B C F 37 49 -> B C F 12 16; when 720p or 1080p, B C F 37 65 -> B C F 16 28
+        hidden_states = rearrange(hidden_states, 'b c f h w -> (b f) c h w') 
         hidden_states = self.avg_pool(hidden_states) # (B F) C H W -> (B F) C h w
         hidden_states = rearrange(hidden_states, '(b f) c h w -> b f h w c', f=input_frame)
         hidden_states = self.proj_in(hidden_states)
-        
+
         if not self.use_rope:
             temp_pos_embed = self.temp_pos_embed
             temp_pos_embed = rearrange(temp_pos_embed, 'b f c -> b f 1 1 c')
@@ -220,7 +221,7 @@ class VideoIPAdapter(nn.Module):
         attention_head_dim=72,
         cross_attention_dim=2304,
         max_num_tokens=288,
-        pooled_token_output_size=(16, 12),
+        pooled_token_output_size=(12, 16),
         num_attention_layers=[1, 3],
         use_rope=True,
         attention_mode='math',

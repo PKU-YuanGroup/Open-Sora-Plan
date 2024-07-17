@@ -114,8 +114,8 @@ class VIPNet(ModelMixin, ConfigMixin):
         self,
         image_encoder_out_channels=1536,
         cross_attention_dim=2304,
-        num_tokens=16, # when 480p, max_num_tokens = 24 * 4 * 3 = 288; when 720p or 1080p, max_num_tokens = 24 * 7 * 4 = 672
-        pooled_token_output_size=(16, 12),
+        num_tokens=16, # when 480p, max_num_tokens = 24 * 3 * 4 = 288; when 720p or 1080p, max_num_tokens = 24 * 4 * 7 = 672
+        pooled_token_output_size=(12, 16),
         vip_num_attention_heads=16,
         vip_attention_head_dim=72,
         vip_num_attention_layers=[1, 3],
@@ -313,7 +313,8 @@ def log_validation(
     model.eval()
     vip.eval()
 
-    scheduler = PNDMScheduler()
+    # scheduler = PNDMScheduler()
+    scheduler = DPMSolverMultistepScheduler()
     pipeline = OpenSoraPipeline(
         vae=vae,
         text_encoder=text_encoder,
@@ -620,7 +621,7 @@ def main(args):
         image_encoder_out_channels=1536,
         cross_attention_dim=2304,
         num_tokens=12, # NOTE should be modified 
-        pooled_token_output_size=(16, 12), # NOTE should be modified
+        pooled_token_output_size=(12, 16), # NOTE should be modified, (h, w). when 480p, (12, 16); when 720p or 1080p, (16, 28)
         vip_num_attention_heads=args.vip_num_attention_heads, # for dinov2
         vip_attention_head_dim=72,
         vip_num_attention_layers=[1, 3],
@@ -1218,13 +1219,14 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
-    # dataset & dataloader
+     # dataset & dataloader
     parser.add_argument("--dataset", type=str, required=True)
     parser.add_argument("--video_data", type=str, required='')
     parser.add_argument("--image_data", type=str, default='')
     parser.add_argument("--sample_rate", type=int, default=1)
     parser.add_argument("--train_fps", type=int, default=24)
-    parser.add_argument("--speed_factor", type=float, default=1.5)
+    parser.add_argument("--drop_short_ratio", type=float, default=1.0)
+    parser.add_argument("--speed_factor", type=float, default=1.0)
     parser.add_argument("--num_frames", type=int, default=65)
     parser.add_argument("--max_height", type=int, default=320)
     parser.add_argument("--max_width", type=int, default=240)
@@ -1261,6 +1263,7 @@ if __name__ == "__main__":
     # diffusion setting
     parser.add_argument("--snr_gamma", type=float, default=None, help="SNR weighting gamma to be used if rebalancing the loss. Recommended value is 5.0. More details here: https://arxiv.org/abs/2303.09556.")
     parser.add_argument("--use_ema", action="store_true", help="Whether to use EMA model.")
+    parser.add_argument("--ema_decay", type=float, default=0.999)
     parser.add_argument("--ema_start_step", type=int, default=0)
     parser.add_argument("--noise_offset", type=float, default=0.02, help="The scale of noise offset.")
     parser.add_argument("--prediction_type", type=str, default=None, help="The prediction_type that shall be used for training. Choose between 'epsilon' or 'v_prediction' or leave `None`. If left to `None` the default prediction type of the scheduler: `noise_scheduler.config.prediciton_type` is chosen.")
@@ -1342,7 +1345,6 @@ if __name__ == "__main__":
     parser.add_argument("--local_rank", type=int, default=-1, help="For distributed training: local_rank")
     parser.add_argument("--sp_size", type=int, default=1, help="For sequence parallel")
     parser.add_argument("--train_sp_batch_size", type=int, default=1, help="Batch size for sequence parallel training")
-    parser.add_argument("--ema_decay", type=float, default=0.999)
 
     # inpaint dataset
     parser.add_argument("--i2v_ratio", type=float, default=0.5) # for inpainting mode

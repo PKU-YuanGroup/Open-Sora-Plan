@@ -194,6 +194,8 @@ class T2V_dataset(Dataset):
             # 打印异常堆栈
             if idx in dataset_prog.vid_cap_list:
                 logger.info(f"Caught an exception! {dataset_prog.vid_cap_list[idx]}")
+            with open('error.log', 'a') as f:
+                f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())} {idx} {e}\n")
             # traceback.print_exc()
             # traceback.print_stack()
             return self.__getitem__(random.randint(0, self.__len__() - 1))

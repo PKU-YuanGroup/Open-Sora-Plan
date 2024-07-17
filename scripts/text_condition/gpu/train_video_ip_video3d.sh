@@ -1,10 +1,11 @@
 PROJECT="videoip_3d_480p_bs8x16_lr1e-5_snrgamma5_0_noiseoffset0_02_dino518_ema0_999"
+# PROJECT="videoip_3d_480p_test"
 export WANDB_API_KEY="720d886d8c437c2142c88056a1eab8ef78d64a1f"
 export WANDB_MODE="offline"
 export ENTITY="yunyangge"
 export PROJECT=$PROJECT
-# export HF_DATASETS_OFFLINE=1 
-# export TRANSFORMERS_OFFLINE=1
+export HF_DATASETS_OFFLINE=1 
+export TRANSFORMERS_OFFLINE=1
 export TOKENIZERS_PARALLELISM=false
 # # NCCL setting IB网卡时用
 export NCCL_PXN_DISABLE=0
@@ -47,14 +48,14 @@ accelerate launch \
     --report_to="wandb" \
     --enable_tracker \
     --checkpointing_steps=1000 \
-    --output_dir=$PROJECT \
+    --output_dir runs/$PROJECT \
     --allow_tf32 \
     --model_max_length 512 \
     --enable_tiling \
     --tile_overlap_factor 0.125 \
     --validation_dir "validation_dir" \
-    --guidance_scale 5.0 \
-    --num_sampling_steps 50 \
+    --guidance_scale 2.5 \
+    --num_sampling_steps 25 \
     --ema_start_step 0 \
     --use_ema \
     --cfg 0.05 \
