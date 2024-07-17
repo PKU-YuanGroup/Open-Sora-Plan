@@ -20,13 +20,13 @@ export MKL_NUM_THREADS=1
 export NCCL_ALGO=Tree
 
 accelerate launch \
-    --config_file scripts/accelerate_configs/multi_node_example.yaml \
+    --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
     opensora/train/train_t2v_diffusers.py \
     --model OpenSoraT2V-ROPE-L/122 \
     --text_encoder_name google/mt5-xxl \
     --cache_dir "./cache_dir" \
     --dataset t2v \
-    --video_data "scripts/train_data/video_data_aesmovie_sucai_panda.txt" \
+    --video_data "scripts/train_data/video_data_sucai.txt" \
     --image_data "scripts/train_data/image_data.txt" \
     --ae CausalVAEModel_4x8x8 \
     --ae_path "/storage/dataset/test140k" \
@@ -62,8 +62,7 @@ accelerate launch \
     --use_rope \
     --resume_from_checkpoint="latest" \
     --group_frame \
-    --speed_factor 1.2 \
     --enable_stable_fp32 \
-    --ema_decay 0.99 \
+    --ema_decay 0.999 \
     --pretrained "/storage/dataset/hw29/model_ema/diffusion_pytorch_model.safetensors" \
     --output_dir="bs29x8x1_93x720p_lr1e-4_snr5_noioff0.02_ema99_opensora122_rope_fp32_mt5xxl_pandamovie_aes_mo_sucai_mo_speed1.2" 

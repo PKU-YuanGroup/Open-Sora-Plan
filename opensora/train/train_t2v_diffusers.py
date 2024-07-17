@@ -25,13 +25,13 @@ try:
     import torch_npu
     from opensora.npu_config import npu_config
     from opensora.acceleration.parallel_states import initialize_sequence_parallel_state, \
-        destroy_sequence_parallel_group, get_sequence_parallel_state
+        destroy_sequence_parallel_group, get_sequence_parallel_state, set_sequence_parallel_state
     from opensora.acceleration.communications import prepare_parallel_data, broadcast
 except:
     torch_npu = None
     npu_config = None
     from opensora.utils.parallel_states import initialize_sequence_parallel_state, \
-        destroy_sequence_parallel_group, get_sequence_parallel_state
+        destroy_sequence_parallel_group, get_sequence_parallel_state, set_sequence_parallel_state
     from opensora.utils.communications import prepare_parallel_data, broadcast
     pass
 import time
@@ -79,12 +79,12 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
         "A stylish woman walks down a Tokyo street filled with warm glowing neon and animated city signage. She wears a black leather jacket, a long red dress, and black boots, and carries a black purse. She wears sunglasses and red lipstick. She walks confidently and casually. The street is damp and reflective, creating a mirror effect of the colorful lights. Many pedestrians walk about.",
         "A serene underwater scene featuring a sea turtle swimming through a coral reef. The turtle, with its greenish-brown shell, is the main focus of the video, swimming gracefully towards the right side of the frame. The coral reef, teeming with life, is visible in the background, providing a vibrant and colorful backdrop to the turtle's journey. Several small fish, darting around the turtle, add a sense of movement and dynamism to the scene."
         ]
-    # if 'mt5' in args.text_encoder_name:
-    #     validation_prompt_cn = [
-    #         # "一只戴着墨镜在泳池当救生员的猫咪。",
-    #         "这是一个宁静的水下场景，一只海龟游过珊瑚礁。海龟带着绿褐色的龟壳，优雅地游向画面右侧，成为视频的焦点。背景中的珊瑚礁生机盎然，为海龟的旅程提供了生动多彩的背景。几条小鱼在海龟周围穿梭，为画面增添了动感和活力。"
-    #         ]
-    #     validation_prompt += validation_prompt_cn
+    if 'mt5' in args.text_encoder_name:
+        validation_prompt_cn = [
+            "一只戴着墨镜在泳池当救生员的猫咪。",
+            "这是一个宁静的水下场景，一只海龟游过珊瑚礁。海龟带着绿褐色的龟壳，优雅地游向画面右侧，成为视频的焦点。背景中的珊瑚礁生机盎然，为海龟的旅程提供了生动多彩的背景。几条小鱼在海龟周围穿梭，为画面增添了动感和活力。"
+            ]
+        validation_prompt += validation_prompt_cn
     logger.info(f"Running validation....\n")
     model = accelerator.unwrap_model(model)
     scheduler = DPMSolverMultistepScheduler()
@@ -97,11 +97,9 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
     for prompt in validation_prompt:
         logger.info('Processing the ({}) prompt'.format(prompt))
         video = opensora_pipeline(
-                                # positive_prompt.format(prompt),
-                                prompt,
+                                positive_prompt.format(prompt),
                                 negative_prompt=negative_prompt, 
                                 num_frames=args.num_frames,
-                                # num_frames=1,
                                 height=args.max_height,
                                 width=args.max_width,
                                 num_inference_steps=args.num_sampling_steps,
@@ -130,9 +128,7 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
         if tracker.name == "wandb":
             import wandb
             if videos.shape[1] == 1:
-                # assert args.num_frames == 1
                 images = rearrange(videos, 'b 1 c h w -> (b 1) h w c')
-                # import ipdb;ipdb.set_trace()
                 logs = {
                     f"{'ema_' if ema else ''}validation": [
                         wandb.Image(image, caption=f"{i}: {prompt}")
@@ -146,9 +142,6 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
                         for i, (video, prompt) in enumerate(zip(videos, validation_prompt))
                     ]
                 }
-            # import ipdb;ipdb.set_trace()
-            if hasattr(model.pos_embed, 'temp_embed_gate'):
-                logs.update({'temp_embed_gate (tanh)': float(model.pos_embed.temp_embed_gate.tanh().item())})
             tracker.log(logs, step=global_step)
 
     del opensora_pipeline
@@ -437,9 +430,7 @@ def main(args):
     logger.info(f"optimizer: {optimizer}")
     
     # Setup data:
-    logger.info(f'before dataset')
     train_dataset = getdataset(args)
-    logger.info(f'after dataset')
     sampler = LengthGroupedSampler(
                 args.train_batch_size,
                 world_size=accelerator.num_processes,
@@ -447,7 +438,6 @@ def main(args):
                 group_frame=args.group_frame, 
                 group_resolution=args.group_resolution, 
             ) if args.group_frame or args.group_resolution else None
-    logger.info(f'after LengthGroupedSampler')
     train_dataloader = DataLoader(
         train_dataset,
         shuffle=sampler is None,
@@ -456,6 +446,7 @@ def main(args):
         batch_size=args.train_batch_size,
         num_workers=args.dataloader_num_workers,
         sampler=sampler if args.group_frame or args.group_resolution else None, 
+        drop_last=True, 
         # prefetch_factor=4
     )
     logger.info(f'after train_dataloader')
@@ -499,7 +490,7 @@ def main(args):
 
     # Train!
     total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
-
+    total_batch_size = total_batch_size // args.sp_size * args.train_sp_batch_size
     logger.info("***** Running training *****")
     logger.info(f"  Model = {model}")
     logger.info(f"  Num examples = {len(train_dataset)}")
@@ -508,7 +499,7 @@ def main(args):
     logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
     logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
     logger.info(f"  Total optimization steps = {args.max_train_steps}")
-    logger.info(f"  Total parameters = {sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e9} B")
+    logger.info(f"  Total training parameters = {sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e9} B")
     global_step = 0
     first_epoch = 0
 
@@ -608,9 +599,10 @@ def main(args):
                                                      device=model_input.device)
 
         bsz = model_input.shape[0]
+        current_step_frame = model_input.shape[2]
         # Sample a random timestep for each image without bias.
         timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=model_input.device)
-        if get_sequence_parallel_state():
+        if current_step_frame != 1 and get_sequence_parallel_state():  # image do not need sp
             broadcast(timesteps)
 
         # Add noise to the model input according to the noise magnitude at each timestep
@@ -694,15 +686,6 @@ def main(args):
             sync_gradients_info(loss)
 
         if accelerator.is_main_process:
-            for tracker in accelerator.trackers:
-                if tracker.name == "wandb":
-                    if progress_info.global_step % args.checkpointing_steps != 0:
-                        if hasattr(model, 'module') and hasattr(model.module.pos_embed, 'temp_embed_gate'):
-                            tracker.log(
-                                {'temp_embed_gate (tanh)': float(model.module.pos_embed.temp_embed_gate.tanh().item())})
-                        elif hasattr(model, 'pos_embed') and hasattr(model.pos_embed, 'temp_embed_gate'):
-                            tracker.log(
-                                {'temp_embed_gate (tanh)': float(model.pos_embed.temp_embed_gate.tanh().item())})
 
             if progress_info.global_step % args.checkpointing_steps == 0:
 
@@ -710,7 +693,7 @@ def main(args):
                     log_validation(args, model, ae, text_enc.text_enc, train_dataset.tokenizer, accelerator,
                                    weight_dtype, progress_info.global_step)
 
-                    if args.use_ema and npu_config is not None:
+                    if args.use_ema and npu_config is None:
                         # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
                         ema_model.store(model.parameters())
                         ema_model.copy_to(model.parameters())
@@ -728,11 +711,8 @@ def main(args):
     def train_one_step(step_, data_item_, prof_=None):
         train_loss = 0.0
         x, attn_mask, input_ids, cond_mask = data_item_
-        # assert torch.all(attn_mask.bool()), 'must all visible'
-        # Sample noise that we'll add to the latents
-        # import ipdb;ipdb.set_trace()
         if args.group_frame or args.group_resolution:
-            if not torch.all(torch.any(attn_mask.flatten(-2), dim=-1)):
+            if not args.group_frame:
                 each_latent_frame = torch.any(attn_mask.flatten(-2), dim=-1).int().sum(-1).tolist()
                 # logger.info(f'rank: {accelerator.process_index}, step {step_}, special batch has attention_mask '
                 #             f'each_latent_frame: {each_latent_frame}')
@@ -748,27 +728,14 @@ def main(args):
         #     logger.info(f'rank: {accelerator.process_index}, x: {x.shape}, attn_mask: {attn_mask.shape}')
 
         with torch.no_grad():
-            # import ipdb;ipdb.set_trace()
-            # use for loop to avoid OOM, because T5 is too huge...
             B, N, L = input_ids.shape  # B 1+num_images L
-            # cond_ = torch.stack([text_enc(input_ids[i], cond_mask[i]) for i in range(B)])  # B 1+num_images L D
-
             # use batch inference
             input_ids_ = input_ids.reshape(-1, L)
             cond_mask_ = cond_mask.reshape(-1, L)
             cond = text_enc(input_ids_, cond_mask_)  # B 1+num_images L D
             cond = cond.reshape(B, N, L, -1)
-
             # Map input images to latent space + normalize latents
-            if args.use_image_num == 0:
-                x = ae.encode(x)  # B C T H W
-            else:
-                videos, images = x[:, :, :-args.use_image_num], x[:, :, -args.use_image_num:]
-                videos = ae.encode(videos)  # B C T H W
-                images = rearrange(images, 'b c t h w -> (b t) c 1 h w')
-                images = ae.encode(images)
-                images = rearrange(images, '(b t) c 1 h w -> b c t h w', t=args.use_image_num)
-                x = torch.cat([videos, images], dim=2)  # b c 17+4, h, w
+            x = ae.encode(x)  # B C T H W
 
             # def custom_to_video(x: torch.Tensor, fps: float = 2.0, output_file: str = 'output_video.mp4') -> None:
             #     from examples.rec_video import array_to_video
@@ -783,6 +750,13 @@ def main(args):
             # videos = videos.transpose(0, 1)
             # custom_to_video(videos.to(torch.float32), fps=24, output_file='tmp.mp4')
             # import sys;sys.exit()
+        current_step_frame = x.shape[2]
+        current_step_sp_state = get_sequence_parallel_state()
+        if args.sp_size != 1:  # enable sp
+            if current_step_frame == 1:  # but image do not need sp
+                set_sequence_parallel_state(False)
+            else:
+                set_sequence_parallel_state(True)
         if get_sequence_parallel_state():
             x, cond, attn_mask, cond_mask, use_image_num = prepare_parallel_data(x, cond, attn_mask, cond_mask,
                                                                                  args.use_image_num)
@@ -802,6 +776,8 @@ def main(args):
                 model_kwargs = dict(encoder_hidden_states=cond, attention_mask=attn_mask,
                                     encoder_attention_mask=cond_mask, use_image_num=args.use_image_num)
                 run(x, model_kwargs, prof_)
+
+        set_sequence_parallel_state(current_step_sp_state)  # in case the next step use sp, which need broadcast(timesteps)
 
         if progress_info.global_step >= args.max_train_steps:
             return True
@@ -853,8 +829,7 @@ if __name__ == "__main__":
 
     # dataset & dataloader
     parser.add_argument("--dataset", type=str, required=True)
-    parser.add_argument("--video_data", type=str, required='')
-    parser.add_argument("--image_data", type=str, default='')
+    parser.add_argument("--data", type=str, required='')
     parser.add_argument("--sample_rate", type=int, default=1)
     parser.add_argument("--train_fps", type=int, default=24)
     parser.add_argument("--drop_short_ratio", type=float, default=1.0)
@@ -901,8 +876,8 @@ if __name__ == "__main__":
     parser.add_argument("--prediction_type", type=str, default=None, help="The prediction_type that shall be used for training. Choose between 'epsilon' or 'v_prediction' or leave `None`. If left to `None` the default prediction type of the scheduler: `noise_scheduler.config.prediciton_type` is chosen.")
 
     # validation & logs
-    parser.add_argument("--num_sampling_steps", type=int, default=50)
-    parser.add_argument('--guidance_scale', type=float, default=2.5)
+    parser.add_argument("--num_sampling_steps", type=int, default=20)
+    parser.add_argument('--guidance_scale', type=float, default=4.5)
     parser.add_argument("--enable_tracker", action="store_true")
     parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
     parser.add_argument("--output_dir", type=str, default=None, help="The output directory where the model predictions and checkpoints will be written.")

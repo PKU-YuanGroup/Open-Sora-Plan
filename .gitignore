@@ -51,3 +51,10 @@ validation_dir/
 runs/
 samples/
 inpaint*/
+bs32x8x1*
+*tmp*
+*pymp*
+check.py
+bucket.py
+whileinf.py
+bs4x8x16_*

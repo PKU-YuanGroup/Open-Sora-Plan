@@ -65,7 +65,7 @@ def main(args):
         transformer_model = OpenSoraT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, 
                                                         low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
     elif args.model_type == 'udit':
-        transformer_model = UDiTUltraT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, ignore_mismatched_sizes=True, 
+        transformer_model = UDiTT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, ignore_mismatched_sizes=True, 
                                                         low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
     else:
         transformer_model = LatteT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, low_cpu_mem_usage=False, 
