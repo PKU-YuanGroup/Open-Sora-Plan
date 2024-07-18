@@ -387,18 +387,40 @@ Please refer to the document [CausalVideoVAE](docs/Train_And_Eval_CausalVideoVAE
 
 Please refer to the document [VQVAE](docs/VQVAE.md).
 
-### Video Diffusion Transformer
 
-#### Training
+### Text-to-Video training
+
 ```
-sh scripts/text_condition/train_videoae_65x512x512.sh
+bash scripts/text_condition/gpu/train_t2v.sh
 ```
-```
-sh scripts/text_condition/train_videoae_221x512x512.sh
-```
-```
-sh scripts/text_condition/train_videoae_513x512x512.sh
-```
+
+We introduce some key parameters in order to customize your training process.
+
+#### Training size
+To train videos of different resolutions and durations, adjust `--num_frames xx`, `--max_height xxx` and `--max_width xxx`.
+
+#### Data processing
+You specify your training data using `--data /path/to/data.txt`. For more information, please refer to the [documentation]().
+
+If the data movement is slow, we can specify `--speed_factor 1.25` to accelerate 1.25x videos. 
+
+If you do not want to train on videos of dynamic durations, set `--drop_short_ratio 1.0` to discard all video data with frame counts not equal to `--num_frames`.
+
+If you want to train with videos of dynamic durations, we highly recommend specifying `--group_frame` as well. It improves computational efficiency during training.
+
+#### Multi-stage transfer learning
+When training a base model, such as 240p (`--max_height 240` and `--max_width 320`, `--interpolation_scale_h 1.0` and `--interpolation_scale_w 1.0`) , and you want to initialize higher resolution models like 480p (width 640, height 480) from 240p's weights, you need to adjust `--max_height 480` and `--max_width 640`, `--interpolation_scale_h 2.0` and `--interpolation_scale_w 2.0`, and set `--pretrained` to your 240p weights path (path/to/240p/xxx.safetensors).
+
+#### Load weights
+We have two ways to load weights: `--pretrained path/to/240p/xxx.safetensors` and `--resume_from_checkpoint /path/to/output_dir`. If both are specified, the latter will override the former.
+
+**For `--pretrained`**, this is typically used for loading pretrained weights across stages, such as using 240p weights to initialize 480p training. Or when switching datasets and you do not want the previous optimizer state.
+
+**For `--resume_from_checkpoint`**, it will resume the training process from the latest checkpoint in `--output_dir`. Typically, we set `--resume_from_checkpoint="latest"`, which is useful in cases of unexpected interruptions during training.
+
+#### Sequence Parallelism
+`--sp_size 8 --train_sp_batch_size 2` means running a batch size of 2 across 8 GPUs (on the same node).
+
 
 <!--
 ## 🚀 Improved Training Performance
