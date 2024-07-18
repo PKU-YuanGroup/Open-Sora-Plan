@@ -421,6 +421,26 @@ We have two ways to load weights: `--pretrained path/to/240p/xxx.safetensors` an
 #### Sequence Parallelism
 `--sp_size 8 --train_sp_batch_size 2` means running a batch size of 2 across 8 GPUs (on the same node).
 
+### Text-to-Video inference
+
+#### 1 GPU
+If you only have one GPU, it will perform inference on each sample sequentially, one at a time.
+```
+bash scripts/text_condition/gpu/sample_t2v.sh
+```
+
+#### Multi-GPUs
+If you want to batch infer a large number of samples, each GPU will infer one sample.
+```
+bash scripts/text_condition/gpu/sample_t2v_ddp.sh
+```
+
+#### Multi-GPUs & Sequence Parallelism
+If you want to quickly infer one sample, it will utilize all GPUs simultaneously to infer that sample.
+```
+bash scripts/text_condition/gpu/sample_t2v_sp.sh
+```
+
 
 <!--
 ## 🚀 Improved Training Performance
