@@ -90,7 +90,7 @@ class Collate:
         # pad to max multiple of ds_stride
         batch_input_size = [i.shape for i in batch_tubes]  # [(c t h w), (c t h w)]
         assert len(batch_input_size) == self.batch_size
-        if self.group_frame:
+        if self.group_frame or self.batch_size:
             max_t = max([i[1] for i in batch_input_size])
             max_h = max([i[2] for i in batch_input_size])
             max_w = max([i[3] for i in batch_input_size])

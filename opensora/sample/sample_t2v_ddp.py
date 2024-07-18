@@ -22,6 +22,7 @@ from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModel
 from opensora.models.diffusion.udit.modeling_udit import UDiTT2V
 from opensora.models.diffusion.opensora.modeling_opensora import OpenSoraT2V
 from opensora.models.diffusion.latte.modeling_latte import LatteT2V
+from opensora.models.captioner.refiner import model_gen
 
 from opensora.models.text_encoder import get_text_enc
 from opensora.utils.utils import save_video_grid
@@ -111,12 +112,27 @@ def run_model_and_save_images(pipeline, model_path):
     nsfw, lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, 
     low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry.
     """
+    
 
     for index, prompt in enumerate(args.text_prompt):
         if index % world_size != local_rank:
             continue
-        # print('Processing the ({}) prompt, device ({})'.format(prompt, device))
-        videos = pipeline(positive_prompt.format(prompt),
+        if args.refine_caption:
+            q = f'Translate this brief generation prompt into a detailed caption: {prompt}'
+            query = f'[UNUSED_TOKEN_146]user\n{q}[UNUSED_TOKEN_145]\n[UNUSED_TOKEN_146]assistant\n'
+            # print(query)
+            with torch.cuda.amp.autocast(): 
+                refine_prompt = model_gen(refiner, query, None)
+            refine_prompt = refine_prompt.replace('<|im_end|>', '').replace('</s>', '')
+            input_prompt = positive_prompt.format(refine_prompt)
+            print(f'Processing the origin prompt({prompt})\n  '
+                  f'refine_prompt ({refine_prompt})\n  input_prompt ({input_prompt})\n  device ({device})')
+        else:
+            input_prompt = positive_prompt.format(prompt)
+            print(f'Processing the origin prompt({prompt})\n  '
+                  f'input_prompt ({input_prompt})\n device ({device})')
+        videos = pipeline(
+            input_prompt, 
                           negative_prompt=negative_prompt, 
                           num_frames=args.num_frames,
                           height=args.height,
@@ -195,7 +211,9 @@ if __name__ == "__main__":
     parser.add_argument("--max_sequence_length", type=int, default=512)
     parser.add_argument("--text_prompt", nargs='+')
     parser.add_argument('--tile_overlap_factor', type=float, default=0.25)
+    parser.add_argument("--seed", type=int, default=42)
     parser.add_argument('--enable_tiling', action='store_true')
+    parser.add_argument('--refine_caption', action='store_true')
     parser.add_argument('--compile', action='store_true')
     parser.add_argument('--model_type', type=str, default="dit", choices=['dit', 'udit', 'latte'])
     parser.add_argument('--save_memory', action='store_true')
@@ -214,7 +232,7 @@ if __name__ == "__main__":
         torch.cuda.set_device(local_rank)
     dist.init_process_group(backend='nccl', init_method='env://', world_size=world_size, rank=local_rank)
 
-    # torch.manual_seed(args.seed)
+    torch.manual_seed(args.seed)
     weight_dtype = torch.bfloat16
     device = torch.cuda.current_device()
     # print(11111111111111111111, local_rank, device)
@@ -244,6 +262,13 @@ if __name__ == "__main__":
     # text_encoder = T5EncoderModel.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir,
     #                                               low_cpu_mem_usage=True, torch_dtype=weight_dtype).to(device)
     # tokenizer = T5Tokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
+    if args.refine_caption:
+        from transformers import AutoModel, AutoTokenizer
+        new_path = '/storage/zhubin/ShareGPT4Video/sharegpt4video/sharecaptioner_v1'
+        refiner_tokenizer = AutoTokenizer.from_pretrained(new_path, trust_remote_code=True)
+        refiner = AutoModel.from_pretrained(new_path, torch_dtype=weight_dtype, trust_remote_code=True).eval()
+        refiner.to(device)
+        refiner.tokenizer = refiner_tokenizer
 
     # set eval mode
     vae.eval()

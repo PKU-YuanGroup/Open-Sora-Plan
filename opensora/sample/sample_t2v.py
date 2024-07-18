@@ -151,10 +151,8 @@ def main(args):
         text_prompt = [i.strip() for i in text_prompt]
 
     positive_prompt = """
-    (masterpiece), (best quality), (ultra-detailed), (unwatermarked), 
+    (masterpiece), (best quality), (ultra-detailed), 
     {}. 
-    emotional, harmonious, vignette, 4k epic detailed, shot on kodak, 35mm photo, 
-    sharp focus, high budget, cinemascope, moody, epic, gorgeous
     """
     
     negative_prompt = """
