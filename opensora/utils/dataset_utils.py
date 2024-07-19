@@ -166,26 +166,33 @@ class VideoIP_Collate(Collate):
         
         return pad_batch_tubes, attention_mask, input_ids, cond_mask, clip_data
         
-def split_to_even_chunks(indices, lengths, num_chunks):
+def split_to_even_chunks(indices, lengths, num_chunks, batch_size):
     """
     Split a list of indices into `chunks` chunks of roughly equal lengths.
     """
 
     if len(indices) % num_chunks != 0:
-        return [indices[i::num_chunks] for i in range(num_chunks)]
+        chunks = [indices[i::num_chunks] for i in range(num_chunks)]
 
-    num_indices_per_chunk = len(indices) // num_chunks
+    else:
+        num_indices_per_chunk = len(indices) // num_chunks
 
-    chunks = [[] for _ in range(num_chunks)]
-    chunks_lengths = [0 for _ in range(num_chunks)]
-    for index in indices:
-        shortest_chunk = chunks_lengths.index(min(chunks_lengths))
-        chunks[shortest_chunk].append(index)
-        chunks_lengths[shortest_chunk] += lengths[index]
-        if len(chunks[shortest_chunk]) == num_indices_per_chunk:
-            chunks_lengths[shortest_chunk] = float("inf")
+        chunks = [[] for _ in range(num_chunks)]
+        chunks_lengths = [0 for _ in range(num_chunks)]
+        for index in indices:
+            shortest_chunk = chunks_lengths.index(min(chunks_lengths))
+            chunks[shortest_chunk].append(index)
+            chunks_lengths[shortest_chunk] += lengths[index]
+            if len(chunks[shortest_chunk]) == num_indices_per_chunk:
+                chunks_lengths[shortest_chunk] = float("inf")
 
-    return chunks
+    pad_chunks = []
+    for chunk in chunks:
+        if batch_size != len(chunk):
+            assert batch_size > len(chunk)
+            chunk = chunk + [random.choice(chunk) for _ in range(batch_size - len(chunk))]
+        pad_chunks.append(chunk)
+    return pad_chunks
 
 def group_frame_fun(indices, lengths):
     # sort by num_frames
@@ -271,7 +278,7 @@ def get_length_grouped_indices(lengths, batch_size, world_size, generator=None, 
     # megabatches_len = [[lengths[i] for i in megabatch] for megabatch in megabatches]
     # print('\nsorted megabatches', megabatches)
     # print('\nsorted megabatches_len', megabatches_len)
-    megabatches = [split_to_even_chunks(megabatch, lengths, world_size) for megabatch in megabatches]
+    megabatches = [split_to_even_chunks(megabatch, lengths, world_size, batch_size) for megabatch in megabatches]
     # print('nsplit_to_even_chunks megabatches', len(megabatches))
     # print('\nsplit_to_even_chunks megabatches', megabatches)
     # print('\nsplit_to_even_chunks len', [lengths[i] for megabatch in megabatches for batch in megabatch for i in batch])

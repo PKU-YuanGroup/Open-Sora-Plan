@@ -190,8 +190,8 @@ class T2V_dataset(Dataset):
 
         video_path = dataset_prog.cap_list[idx]['path']
         assert os.path.exists(video_path), f"file {video_path} do not exist!"
-        # frame_indice = self.cap_list[idx]['sample_frame_index']
-        video = self.decord_read(video_path)
+        frame_indice = dataset_prog.cap_list[idx]['sample_frame_index']
+        video = self.decord_read(video_path, predefine_num_frames=len(frame_indice))
 
         h, w = video.shape[-2:]
         assert h / w <= 17 / 16 and h / w >= 8 / 16, f'Only videos with a ratio (h/w) less than 17/16 and more than 8/16 are supported. But video ({video_path}) found ratio is {round(h / w, 2)} with the shape of {video.shape}'
@@ -349,7 +349,7 @@ class T2V_dataset(Dataset):
                 f'before filter: {len(cap_list)}, after filter: {len(new_cap_list)}')
         return new_cap_list, sample_num_frames
     
-    def decord_read(self, path):
+    def decord_read(self, path, predefine_num_frames):
         decord_vr = self.v_decoder(path)
         total_frames = len(decord_vr)
         fps = decord_vr.get_avg_fps() if decord_vr.get_avg_fps() > 0 else 30.0
@@ -363,7 +363,8 @@ class T2V_dataset(Dataset):
         # speed up
         max_speed_factor = len(frame_indices) / self.num_frames
         if self.speed_factor > 1 and max_speed_factor > 1:
-            speed_factor = random.uniform(1.0, min(self.speed_factor, max_speed_factor))
+            # speed_factor = random.uniform(1.0, min(self.speed_factor, max_speed_factor))
+            speed_factor = min(self.speed_factor, max_speed_factor)
             target_frame_count = int(len(frame_indices) / speed_factor)
             speed_frame_idx = np.linspace(0, len(frame_indices) - 1, target_frame_count, dtype=int)
             frame_indices = frame_indices[speed_frame_idx]
@@ -379,6 +380,8 @@ class T2V_dataset(Dataset):
         if end_frame_idx == -1:  # too short that can not be encoded exactly by videovae
             raise IndexError(f'video ({path}) has {total_frames} frames, but need to sample {len(frame_indices)} frames ({frame_indices})')
         frame_indices = frame_indices[:end_frame_idx]
+        if predefine_num_frames != len(frame_indices):
+            raise ValueError(f'predefine_num_frames ({predefine_num_frames}) is not equal with frame_indices ({len(frame_indices)})')
         if len(frame_indices) < self.num_frames and self.drop_short_ratio >= 1:
             raise IndexError(f'video ({path}) has {total_frames} frames, but need to sample {len(frame_indices)} frames ({frame_indices})')
         video_data = decord_vr.get_batch(frame_indices).asnumpy()
