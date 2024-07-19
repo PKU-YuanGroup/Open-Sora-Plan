@@ -1,3 +1,4 @@
+import argparse
 import os
 from pathlib import Path
 
@@ -62,7 +63,21 @@ class ST_Test:
 
 
 if __name__ == "__main__":
-    st = ST_Test()
-    st.run_st()
-    ut = UT_Test()
-    ut.run_ut()
+    parser = argparse.ArgumentParser(description="Control needed test cases")
+    parser.add_argument("--type", type=str, default="all", 
+                        help='Test cases type. `all`: run all test cases; `ut`: run ut case,' '`st`: run st cases;')
+    options = parser.parse_args()
+    print(f"options: {options}")
+    if options.type == "st":
+        st = ST_Test()
+        st.run_st()
+    elif options.type == "ut":
+        ut = UT_Test()
+        ut.run_ut()
+    elif options.type == "all":
+        st = ST_Test()
+        st.run_st()
+        ut = UT_Test()
+        ut.run_ut()
+    else:
+        raise ValueError(f"TEST CASE TYPE ERROR: no type `{options.type}`")
