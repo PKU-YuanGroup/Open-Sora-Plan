@@ -27,6 +27,8 @@ from accelerate.logging import get_logger
 
 from opensora.utils.dataset_utils import DecordInit
 from opensora.utils.utils import text_preprocessing
+from opensora.dataset.transform import get_params, longsizeresize
+
 logger = get_logger(__name__)
 
 def filter_json_by_existed_files(directory, data, postfix=".mp4"):
@@ -117,14 +119,13 @@ def filter_resolution(h, w, max_h_div_w_ratio=17/16, min_h_div_w_ratio=8 / 16):
 
 
 class T2V_dataset(Dataset):
-    def __init__(self, args, transform, temporal_sample, tokenizer, transform_topcrop):
+    def __init__(self, args, transform, temporal_sample, tokenizer):
         self.data = args.data
         self.num_frames = args.num_frames
         self.train_fps = args.train_fps
         self.use_image_num = args.use_image_num
         self.use_img_from_vid = args.use_img_from_vid
         self.transform = transform
-        self.transform_topcrop = transform_topcrop
         self.temporal_sample = temporal_sample
         self.tokenizer = tokenizer
         self.model_max_length = args.model_max_length
@@ -133,6 +134,8 @@ class T2V_dataset(Dataset):
         self.max_height = args.max_height
         self.max_width = args.max_width
         self.drop_short_ratio = args.drop_short_ratio
+        self.hw_stride = args.hw_stride
+        self.skip_low_resolution = args.skip_low_resolution
         assert self.speed_factor >= 1
         self.v_decoder = DecordInit()
 
@@ -143,13 +146,12 @@ class T2V_dataset(Dataset):
         cap_list = self.get_cap_list()
         
         assert len(cap_list) > 0
-        cap_list, self.sample_num_frames = self.define_frame_index(cap_list)
-        self.lengths = self.sample_num_frames
+        cap_list, self.sample_size = self.define_frame_index(cap_list)
+        self.lengths = self.sample_size
 
         n_elements = len(cap_list)
         dataset_prog.set_cap_list(args.dataloader_num_workers, cap_list, n_elements)
-
-        print(f"video length: {len(dataset_prog.cap_list)}", flush=True)
+        print(f"data length: {len(dataset_prog.cap_list)}", flush=True)
 
     def set_checkpoint(self, n_used_elements):
         for i in range(len(dataset_prog.n_used_elements)):
@@ -159,20 +161,21 @@ class T2V_dataset(Dataset):
         return dataset_prog.n_elements
 
     def __getitem__(self, idx):
-        if npu_config is not None:
-            worker_info = get_worker_info()
-            idx = dataset_prog.get_item(worker_info)
-        try:
-            data = self.get_data(idx)
-            return data
-        except Exception as e:
-            logger.info(f'Error with {e}')
-            # 打印异常堆栈
-            if idx in dataset_prog.cap_list:
-                logger.info(f"Caught an exception! {dataset_prog.cap_list[idx]}")
-            # traceback.print_exc()
-            # traceback.print_stack()
-            return self.__getitem__(random.randint(0, self.__len__() - 1))
+        # if npu_config is not None:
+        #     worker_info = get_worker_info()
+        #     idx = dataset_prog.get_item(worker_info)
+        # try:
+        # print(idx)
+        data = self.get_data(idx)
+        return data
+        # except Exception as e:
+        #     logger.info(f'Error with {e}')
+        #     # 打印异常堆栈
+        #     if idx in dataset_prog.cap_list:
+        #         logger.info(f"Caught an exception! {dataset_prog.cap_list[idx]}")
+        #     # traceback.print_exc()
+        #     # traceback.print_stack()
+        #     return self.__getitem__(random.randint(0, self.__len__() - 1))
 
     def get_data(self, idx):
         path = dataset_prog.cap_list[idx]['path']
@@ -188,20 +191,21 @@ class T2V_dataset(Dataset):
         # input_ids = torch.ones(1, 120).to(torch.long).squeeze(0)
         # cond_mask = torch.cat([torch.ones(1, 60).to(torch.long), torch.ones(1, 60).to(torch.long)], dim=1).squeeze(0)
 
-        video_path = dataset_prog.cap_list[idx]['path']
+        video_data = dataset_prog.cap_list[idx]
+        video_path = video_data['path']
         assert os.path.exists(video_path), f"file {video_path} do not exist!"
-        # frame_indice = self.cap_list[idx]['sample_frame_index']
-        video = self.decord_read(video_path)
-
-        h, w = video.shape[-2:]
-        assert h / w <= 17 / 16 and h / w >= 8 / 16, f'Only videos with a ratio (h/w) less than 17/16 and more than 8/16 are supported. But video ({video_path}) found ratio is {round(h / w, 2)} with the shape of {video.shape}'
-        t = video.shape[0]
+        frame_indice = dataset_prog.cap_list[idx]['sample_frame_index']
+        sample_h = video_data['resolution']['sample_height']
+        sample_w = video_data['resolution']['sample_width']
+        video = self.decord_read(video_path, predefine_num_frames=len(frame_indice))
+        # import ipdb;ipdb.set_trace()
         video = self.transform(video)  # T C H W -> T C H W
+        assert video.shape[2] == sample_h and video.shape[3] == sample_w
 
         # video = torch.rand(221, 3, 480, 640)
 
         video = video.transpose(0, 1)  # T C H W -> C T H W
-        text = dataset_prog.cap_list[idx]['cap']
+        text = video_data['cap']
         if not isinstance(text, list):
             text = [text]
         text = [random.choice(text)]
@@ -222,17 +226,17 @@ class T2V_dataset(Dataset):
 
     def get_image(self, idx):
         image_data = dataset_prog.cap_list[idx]  # [{'path': path, 'cap': cap}, ...]
+        sample_h = image_data['resolution']['sample_height']
+        sample_w = image_data['resolution']['sample_width']
 
         # import ipdb;ipdb.set_trace()
         image = Image.open(image_data['path']).convert('RGB')  # [h, w, c]
         image = torch.from_numpy(np.array(image))  # [h, w, c]
         image = rearrange(image, 'h w c -> c h w').unsqueeze(0)  #  [1 c h w]
-        # for i in image:
-        #     h, w = i.shape[-2:]
-        #     assert h / w <= 17 / 16 and h / w >= 8 / 16, f'Only image with a ratio (h/w) less than 17/16 and more than 8/16 are supported. But found ratio is {round(h / w, 2)} with the shape of {i.shape}'
-        
-        image = self.transform_topcrop(image) if 'human_images' in image_data['path'] else self.transform(image) #  [1 C H W] -> num_img [1 C H W]
 
+        # import ipdb;ipdb.set_trace()
+        image = self.transform(image) #  [1 C H W] -> num_img [1 C H W]
+        assert image.shape[2] == sample_h, image.shape[3] == sample_w
         # image = [torch.rand(1, 3, 480, 640) for i in image_data]
         image = image.transpose(0, 1)  # [1 C H W] -> [C 1 H W]
 
@@ -257,7 +261,7 @@ class T2V_dataset(Dataset):
     def define_frame_index(self, cap_list):
         
         new_cap_list = []
-        sample_num_frames = []
+        sample_size = []
         cnt_too_long = 0
         cnt_too_short = 0
         cnt_no_cap = 0
@@ -272,6 +276,22 @@ class T2V_dataset(Dataset):
             if cap is None:
                 cnt_no_cap += 1
                 continue
+
+            # ======resolution mismatch=====
+            if i.get('resolution', None) is None:
+                cnt_no_resolution += 1
+                continue
+            else:
+                if i['resolution'].get('height', None) is None or i['resolution'].get('width', None) is None:
+                    cnt_no_resolution += 1
+                    continue
+                else:
+                    # import ipdb;ipdb.set_trace()
+                    height, width = i['resolution']['height'], i['resolution']['width']
+                    tr_h, tr_w = longsizeresize(height, width, (self.max_height, self.max_width), self.skip_low_resolution)
+                    _, _, sample_h, sample_w = get_params(tr_h, tr_w, self.hw_stride)
+                    i['resolution'].update(dict(sample_height=sample_h, sample_width=sample_w))
+
             if path.endswith('.mp4'):
                 # ======no fps and duration=====
                 duration = i.get('duration', None)
@@ -279,24 +299,6 @@ class T2V_dataset(Dataset):
                 if fps is None or duration is None:
                     continue
 
-                # ======resolution mismatch=====
-                resolution = i.get('resolution', None)
-                if resolution is None:
-                    cnt_no_resolution += 1
-                    continue
-                else:
-                    if resolution.get('height', None) is None or resolution.get('width', None) is None:
-                        cnt_no_resolution += 1
-                        continue
-                    if not filter_resolution(resolution['height'], resolution['width']):
-                        cnt_resolution_mismatch += 1
-                        continue
-                    # ignore image resolution mismatch
-                    if self.max_height > resolution['height'] or self.max_width > resolution['width']:
-                        cnt_resolution_mismatch += 1
-                        continue
-
-                # import ipdb;ipdb.set_trace()
                 i['num_frames'] = int(fps * duration)
                 # max 5.0 and min 1.0 are just thresholds to filter some videos which have suitable duration. 
                 if i['num_frames'] > 2.0 * (self.num_frames * fps / self.train_fps * self.speed_factor):  # too long video is not suitable for this training stage (self.num_frames)
@@ -331,25 +333,30 @@ class T2V_dataset(Dataset):
 
                 if '/storage/dataset/movie' in i['path']:
                     cnt_movie += 1
+                    
                 i['sample_frame_index'] = frame_indices.tolist()
                 new_cap_list.append(i)
                 i['sample_num_frames'] = len(i['sample_frame_index'])  # will use in dataloader(group sampler)
-                sample_num_frames.append(i['sample_num_frames'])
+
             elif path.endswith('.jpg'):  # image
                 cnt_img += 1
+                i['sample_frame_index'] = [0]
                 new_cap_list.append(i)
-                i['sample_num_frames'] = 1
-                sample_num_frames.append(i['sample_num_frames'])
+                i['sample_num_frames'] = len(i['sample_frame_index'])  # will use in dataloader(group sampler)
+            
             else:
                 raise NameError(f"Unknown file extention {path.split('.')[-1]}, only support .mp4 for video and .jpg for image")
+
+            sample_size.append(f"{len(i['sample_frame_index'])}x{sample_h}x{sample_w}")
+
         # import ipdb;ipdb.set_trace()
         logger.info(f'no_cap: {cnt_no_cap}, too_long: {cnt_too_long}, too_short: {cnt_too_short}, '
                 f'no_resolution: {cnt_no_resolution}, resolution_mismatch: {cnt_resolution_mismatch}, '
-                f'Counter(sample_num_frames): {Counter(sample_num_frames)}, cnt_movie: {cnt_movie}, cnt_img: {cnt_img}, '
+                f'Counter(sample_size): {Counter(sample_size)}, cnt_movie: {cnt_movie}, cnt_img: {cnt_img}, '
                 f'before filter: {len(cap_list)}, after filter: {len(new_cap_list)}')
-        return new_cap_list, sample_num_frames
+        return new_cap_list, sample_size
     
-    def decord_read(self, path):
+    def decord_read(self, path, predefine_num_frames):
         decord_vr = self.v_decoder(path)
         total_frames = len(decord_vr)
         fps = decord_vr.get_avg_fps() if decord_vr.get_avg_fps() > 0 else 30.0
@@ -363,7 +370,8 @@ class T2V_dataset(Dataset):
         # speed up
         max_speed_factor = len(frame_indices) / self.num_frames
         if self.speed_factor > 1 and max_speed_factor > 1:
-            speed_factor = random.uniform(1.0, min(self.speed_factor, max_speed_factor))
+            # speed_factor = random.uniform(1.0, min(self.speed_factor, max_speed_factor))
+            speed_factor = min(self.speed_factor, max_speed_factor)
             target_frame_count = int(len(frame_indices) / speed_factor)
             speed_frame_idx = np.linspace(0, len(frame_indices) - 1, target_frame_count, dtype=int)
             frame_indices = frame_indices[speed_frame_idx]
@@ -379,6 +387,8 @@ class T2V_dataset(Dataset):
         if end_frame_idx == -1:  # too short that can not be encoded exactly by videovae
             raise IndexError(f'video ({path}) has {total_frames} frames, but need to sample {len(frame_indices)} frames ({frame_indices})')
         frame_indices = frame_indices[:end_frame_idx]
+        if predefine_num_frames != len(frame_indices):
+            raise ValueError(f'predefine_num_frames ({predefine_num_frames}) is not equal with frame_indices ({len(frame_indices)})')
         if len(frame_indices) < self.num_frames and self.drop_short_ratio >= 1:
             raise IndexError(f'video ({path}) has {total_frames} frames, but need to sample {len(frame_indices)} frames ({frame_indices})')
         video_data = decord_vr.get_batch(frame_indices).asnumpy()

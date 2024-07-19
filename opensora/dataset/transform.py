@@ -233,9 +233,18 @@ class RandomCropVideo:
         return f"{self.__class__.__name__}(size={self.size})"
 
 
+def get_params(h, w, stride):
+    
+    th, tw = h // stride * stride, w // stride * stride
+
+    i = (h - th) // 2
+    j = (w - tw) // 2
+
+    return i, j, th, tw 
+    
 class SpatialStrideCropVideo:
     def __init__(self, stride):
-            self.stride = stride
+        self.stride = stride
 
     def __call__(self, clip):
         """
@@ -245,18 +254,24 @@ class SpatialStrideCropVideo:
             torch.tensor: cropped video clip by stride.
                 size is (T, C, OH, OW)
         """
-        i, j, h, w = self.get_params(clip)
+        h, w = clip.shape[-2:] 
+        i, j, h, w = get_params(h, w, self.stride)
         return crop(clip, i, j, h, w)
 
-    def get_params(self, clip):
-        h, w = clip.shape[-2:]
-
-        th, tw = h // self.stride * self.stride, w // self.stride * self.stride
-
-        return 0, 0, th, tw  # from top-left
 
     def __repr__(self) -> str:
-        return f"{self.__class__.__name__}(size={self.size})"
+        return f"{self.__class__.__name__}(stride={self.stride})"  
+
+def longsizeresize(h, w, size, skip_low_resolution):
+    if h <= size[0] and w <= size[1] and skip_low_resolution:
+        return h, w
+    if h > w:
+        w = int(w * size[0] / h)
+        h = size[0]
+    else:
+        h = int(h * size[1] / w)
+        w = size[1]
+    return h, w
 
 class LongSideResizeVideo:
     '''
@@ -280,18 +295,12 @@ class LongSideResizeVideo:
             clip (torch.tensor): Video clip to be cropped. Size is (T, C, H, W)
         Returns:
             torch.tensor: scale resized video clip.
-                size is (T, C, 512, *) or (T, C, *, 512)
         """
         _, _, h, w = clip.shape
-        if self.skip_low_resolution and max(h, w) <= self.size:
+        tr_h, tr_w = longsizeresize(h, w, self.size, self.skip_low_resolution)
+        if h == tr_h and w == tr_w:
             return clip
-        if h > w:
-            w = int(w * self.size / h)
-            h = self.size
-        else:
-            h = int(h * self.size / w)
-            w = self.size
-        resize_clip = resize(clip, target_size=(h, w),
+        resize_clip = resize(clip, target_size=(tr_h, tr_w),
                                          interpolation_mode=self.interpolation_mode)
         return resize_clip
 

@@ -59,32 +59,15 @@ def getdataset(args):
     temporal_sample = TemporalRandomCrop(args.num_frames)  # 16 x
     norm_fun = ae_norm[args.ae]
     if args.dataset == 't2v':
-        resize_topcrop = [CenterCropResizeVideo((args.max_height, args.max_width), top_crop=True), ]
-        # if args.multi_scale:
-        #     resize = [
-        #         LongSideResizeVideo(args.max_image_size, skip_low_resolution=True),
-        #         SpatialStrideCropVideo(args.stride)
-        #         ]
-        # else:
-        resize = [CenterCropResizeVideo((args.max_height, args.max_width)), ]
         transform = transforms.Compose([
             ToTensorVideo(),
-            *resize, 
-            # RandomHorizontalFlipVideo(p=0.5),  # in case their caption have position decription
+            LongSideResizeVideo((args.max_height, args.max_width), skip_low_resolution=True), 
+            SpatialStrideCropVideo(stride=args.hw_stride), 
             norm_fun
         ])
-        transform_topcrop = transforms.Compose([
-            ToTensorVideo(),
-            *resize_topcrop, 
-            # RandomHorizontalFlipVideo(p=0.5),  # in case their caption have position decription
-            norm_fun
-        ])
-        # tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/models--DeepFloyd--t5-v1_1-xxl/snapshots/c9c625d2ec93667ec579ede125fd3811d1f81d37", cache_dir=args.cache_dir)
-        # tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/models--google--mt5-xl/snapshots/63fc6450d80515b48e026b69ef2fbbd426433e84", cache_dir=args.cache_dir)
         tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir)
         # tokenizer = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
-        return T2V_dataset(args, transform=transform, temporal_sample=temporal_sample, tokenizer=tokenizer, 
-                           transform_topcrop=transform_topcrop)
+        return T2V_dataset(args, transform=transform, temporal_sample=temporal_sample, tokenizer=tokenizer)
     elif args.dataset == 'i2v' or args.dataset == 'inpaint':
         resize_topcrop = [CenterCropResizeVideo((args.max_height, args.max_width), top_crop=True), ]
         # if args.multi_scale:
@@ -127,17 +110,18 @@ if __name__ == "__main__":
         'model_max_length': 300, 
         'max_height': 320,
         'max_width': 240,
-        'num_frames': 1,
+        'hw_stride': 32, 
+        'skip_low_resolution': True, 
+        'num_frames': 330,
         'use_image_num': 0, 
         'compress_kv_factor': 1, 
         'interpolation_scale_t': 1,
         'interpolation_scale_h': 1,
         'interpolation_scale_w': 1,
         'cache_dir': '../cache_dir', 
-        'image_data': '/storage/ongoing/new/Open-Sora-Plan-bak/7.14bak/scripts/train_data/image_data.txt', 
-        'video_data': '1',
+        'data': 'scripts/train_data/merge_data.txt', 
         'train_fps': 24, 
-        'drop_short_ratio': 1.0, 
+        'drop_short_ratio': 0.0, 
         'use_img_from_vid': False, 
         'speed_factor': 1.0, 
         'cfg': 0.1, 
@@ -148,20 +132,6 @@ if __name__ == "__main__":
     )
     accelerator = Accelerator()
     dataset = getdataset(args)
-    num = len(dataset_prog.img_cap_list)
-    zero = 0
-    for idx in tqdm(range(num)):
-        image_data = dataset_prog.img_cap_list[idx]
-        caps = [i['cap'] if isinstance(i['cap'], list) else [i['cap']] for i in image_data]
-        try:
-            caps = [[random.choice(i)] for i in caps]
-        except Exception as e:
-            print(e)
-            # import ipdb;ipdb.set_trace()
-            print(image_data)
-            zero += 1
-            continue
-        assert caps[0] is not None and len(caps[0]) > 0
-    print(num, zero)
+    data = next(iter(dataset))
     import ipdb;ipdb.set_trace()
-    print('end')
+    print()

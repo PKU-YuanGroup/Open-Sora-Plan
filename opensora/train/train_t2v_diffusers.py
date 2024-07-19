@@ -435,9 +435,8 @@ def main(args):
                 args.train_batch_size,
                 world_size=accelerator.num_processes,
                 lengths=train_dataset.lengths, 
-                group_frame=args.group_frame, 
-                group_resolution=args.group_resolution, 
-            ) if args.group_frame or args.group_resolution else None
+                group_data=args.group_data, 
+            ) if args.group_data else None
     train_dataloader = DataLoader(
         train_dataset,
         shuffle=sampler is None,
@@ -445,7 +444,7 @@ def main(args):
         collate_fn=Collate(args),
         batch_size=args.train_batch_size,
         num_workers=args.dataloader_num_workers,
-        sampler=sampler if args.group_frame or args.group_resolution else None, 
+        sampler=sampler if args.group_data else None, 
         drop_last=True, 
         # prefetch_factor=4
     )
@@ -609,7 +608,6 @@ def main(args):
         # (this is the forward diffusion process)
 
         noisy_model_input = noise_scheduler.add_noise(model_input, noise, timesteps)
-
         model_pred = model(
             noisy_model_input,
             timesteps,
@@ -711,13 +709,6 @@ def main(args):
     def train_one_step(step_, data_item_, prof_=None):
         train_loss = 0.0
         x, attn_mask, input_ids, cond_mask = data_item_
-        if args.group_frame or args.group_resolution:
-            if not args.group_frame:
-                each_latent_frame = torch.any(attn_mask.flatten(-2), dim=-1).int().sum(-1).tolist()
-                # logger.info(f'rank: {accelerator.process_index}, step {step_}, special batch has attention_mask '
-                #             f'each_latent_frame: {each_latent_frame}')
-                print(f'rank: {accelerator.process_index}, step {step_}, special batch has attention_mask '
-                            f'each_latent_frame: {each_latent_frame}')
         assert not torch.any(torch.isnan(x)), 'torch.any(torch.isnan(x))'
         x = x.to(accelerator.device, dtype=ae.vae.dtype)  # B C T+num_images H W, 16 + 4
 
@@ -843,8 +834,9 @@ if __name__ == "__main__":
     parser.add_argument('--cfg', type=float, default=0.1)
     parser.add_argument("--dataloader_num_workers", type=int, default=10, help="Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process.")
     parser.add_argument("--train_batch_size", type=int, default=16, help="Batch size (per device) for the training dataloader.")
-    parser.add_argument("--group_frame", action="store_true")
-    parser.add_argument("--group_resolution", action="store_true")
+    parser.add_argument("--group_data", action="store_true")
+    parser.add_argument("--hw_stride", type=int, default=32)
+    parser.add_argument("--skip_low_resolution", action="store_true")
 
     # text encoder & vae & diffusion model
     parser.add_argument("--model", type=str, choices=list(Diffusion_models.keys()), default="Latte-XL/122")
