@@ -245,9 +245,9 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
                     interpolation_scale_thw=interpolation_scale_thw, 
                     sparse1d=self.sparse1d, 
                     sparse_k=self.sparse_k, 
-                    sparse_group=self.config.num_layers % 2 == 1, 
+                    sparse_group=i % 2 == 1, 
                 )
-                for _ in range(self.config.num_layers)
+                for i in range(self.config.num_layers)
             ]
         )
 
