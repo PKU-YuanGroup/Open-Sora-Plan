@@ -71,8 +71,8 @@ class Collate:
 
     def package(self, batch):
         batch_tubes = [i['pixel_values'] for i in batch]  # b [c t h w]
-        input_ids = torch.stack([i['input_ids'] for i in batch])  # b 1 l
-        cond_mask = torch.stack([i['cond_mask'] for i in batch])  # b 1 l
+        input_ids = [i['input_ids'] for i in batch]  # b [1 l]
+        cond_mask = [i['cond_mask'] for i in batch]  # b [1 l]
         return batch_tubes, input_ids, cond_mask
 
     def __call__(self, batch):
@@ -81,15 +81,35 @@ class Collate:
         ds_stride = self.ae_stride * self.patch_size
         t_ds_stride = self.ae_stride_t * self.patch_size_t
         
-        pad_batch_tubes, attention_mask = self.process(batch_tubes, t_ds_stride, ds_stride, self.max_thw, self.ae_stride_thw)
+        pad_batch_tubes, attention_mask, input_ids, cond_mask = self.process(batch_tubes, input_ids, cond_mask, t_ds_stride, ds_stride, self.max_thw, self.ae_stride_thw)
         assert not torch.any(torch.isnan(pad_batch_tubes)), 'after pad_batch_tubes'
         return pad_batch_tubes, attention_mask, input_ids, cond_mask
 
-    def process(self, batch_tubes, t_ds_stride, ds_stride, max_thw, ae_stride_thw):
+    def process(self, batch_tubes, input_ids, cond_mask, t_ds_stride, ds_stride, max_thw, ae_stride_thw):
         # pad to max multiple of ds_stride
         batch_input_size = [i.shape for i in batch_tubes]  # [(c t h w), (c t h w)]
         assert len(batch_input_size) == self.batch_size
-        if self.group_data or self.batch_size:
+        if self.group_data or self.batch_size == 1:  #
+            len_each_batch = batch_input_size
+            idx_length_dict = dict([*zip(list(range(self.batch_size)), len_each_batch)])
+            count_dict = Counter(len_each_batch)
+            if len(count_dict) != 1:
+                sorted_by_value = sorted(count_dict.items(), key=lambda item: item[1])
+                # import ipdb;ipdb.set_trace()
+                # print(batch, idx_length_dict, count_dict, sorted_by_value)
+                pick_length = sorted_by_value[-1][0]  # the highest frequency
+                candidate_batch = [idx for idx, length in idx_length_dict.items() if length == pick_length]
+                random_select_batch = [random.choice(candidate_batch) for _ in range(len(len_each_batch) - len(candidate_batch))]
+                print(batch_input_size, idx_length_dict, count_dict, sorted_by_value, pick_length, candidate_batch, random_select_batch)
+                pick_idx = candidate_batch + random_select_batch
+
+                batch_tubes = [batch_tubes[i] for i in pick_idx]
+                batch_input_size = [i.shape for i in batch_tubes]  # [(c t h w), (c t h w)]
+                input_ids = [input_ids[i] for i in pick_idx]  # b [1, l]
+                cond_mask = [cond_mask[i] for i in pick_idx]  # b [1, l]
+
+            for i in range(1, self.batch_size):
+                assert batch_input_size[0] == batch_input_size[i]
             max_t = max([i[1] for i in batch_input_size])
             max_h = max([i[2] for i in batch_input_size])
             max_w = max([i[3] for i in batch_input_size])
@@ -135,7 +155,10 @@ class Collate:
                 print(batch_input_size, (max_t, max_h, max_w), (pad_max_t, pad_max_h, pad_max_w), each_pad_t_h_w, max_latent_size, valid_latent_size)
             assert torch.all(attention_mask.bool())
 
-        return pad_batch_tubes, attention_mask
+        input_ids = torch.stack(input_ids)  # b 1 l
+        cond_mask = torch.stack(cond_mask)  # b 1 l
+
+        return pad_batch_tubes, attention_mask, input_ids, cond_mask
 
 class VideoIP_Collate(Collate):
     def __init__(self, args):
@@ -208,6 +231,12 @@ def last_group_data_fun(shuffled_megabatches, lengths):
                 # print(batch, idx_length_dict, count_dict, sorted_by_value, pick_length, candidate_batch, random_select_batch)
                 batch = candidate_batch + random_select_batch
                 # print(batch)
+
+            for i in range(1, len(batch)-1):
+                # if not lengths[batch[0]] == lengths[batch[i]]:
+                #     print(batch, [lengths[i] for i in batch])
+                #     import ipdb;ipdb.set_trace()
+                assert lengths[batch[0]] == lengths[batch[i]]
             re_megabatch.append(batch)
         re_shuffled_megabatches.append(re_megabatch)
     

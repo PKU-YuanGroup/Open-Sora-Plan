@@ -22,9 +22,9 @@ export MKL_NUM_THREADS=1
 accelerate launch \
     --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
     opensora/train/train_t2v_diffusers.py \
-    --model OpenSoraT2V-B/122 \
-    --text_encoder_name DeepFloyd/t5-v1_1-xxl \
-    --cache_dir "../../cache_dir/" \
+    --model UDiTT2V-L/122 \
+    --text_encoder_name google/mt5-xxl \
+    --cache_dir "./cache_dir" \
     --dataset t2v \
     --data "scripts/train_data/merge_data_mj.txt" \
     --ae CausalVAEModel_4x8x8 \
@@ -47,7 +47,7 @@ accelerate launch \
     --lr_warmup_steps=0 \
     --mixed_precision="bf16" \
     --report_to="wandb" \
-    --checkpointing_steps=1000 \
+    --checkpointing_steps=500 \
     --allow_tf32 \
     --model_max_length 512 \
     --use_image_num 0 \
@@ -63,7 +63,9 @@ accelerate launch \
     --group_data \
     --skip_low_resolution \
     --speed_factor 1.0 \
+    --enable_stable_fp32 \
     --enable_tracker \
     --ema_decay 0.9999 \
     --drop_short_ratio 0.0 \
-    --output_dir="bs1x8x32_max480p_lr1e-4_snr5_noioff0.02_ema9999_dit_b_122_rope_t5xxl_mj" 
+    --pretrained "/storage/ongoing/new/Open-Sora-Plan-bak/7.14bak/bs4x8x16_480p_lr1e-4_snr5_noioff0.02_ema9999_udit122_rope_fp32_mt5xxl_sam/checkpoint-283000/model_ema/diffusion_pytorch_model.safetensors" \
+    --output_dir="bs1x8x32_max480p_lr1e-4_snr5_noioff0.02_ema9999_udit122_rope_fp32_mt5xxl_mj" 

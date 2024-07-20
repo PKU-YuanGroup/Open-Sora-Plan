@@ -262,10 +262,10 @@ class SpatialStrideCropVideo:
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(stride={self.stride})"  
 
-def longsizeresize(h, w, size, skip_low_resolution):
+def longsideresize(h, w, size, skip_low_resolution):
     if h <= size[0] and w <= size[1] and skip_low_resolution:
         return h, w
-    if h > w:
+    if h / w > size[0] / size[1]:
         w = int(w * size[0] / h)
         h = size[0]
     else:
@@ -297,7 +297,7 @@ class LongSideResizeVideo:
             torch.tensor: scale resized video clip.
         """
         _, _, h, w = clip.shape
-        tr_h, tr_w = longsizeresize(h, w, self.size, self.skip_low_resolution)
+        tr_h, tr_w = longsideresize(h, w, self.size, self.skip_low_resolution)
         if h == tr_h and w == tr_w:
             return clip
         resize_clip = resize(clip, target_size=(tr_h, tr_w),
@@ -306,6 +306,8 @@ class LongSideResizeVideo:
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(size={self.size}, interpolation_mode={self.interpolation_mode}"
+
+
 
 class CenterCropResizeVideo:
     '''

@@ -22,7 +22,7 @@ export MKL_NUM_THREADS=1
 accelerate launch \
     --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
     opensora/train/train_t2v_diffusers.py \
-    --model OpenSoraT2V-B/122 \
+    --model UDiTT2V-B/122 \
     --text_encoder_name DeepFloyd/t5-v1_1-xxl \
     --cache_dir "../../cache_dir/" \
     --dataset t2v \
@@ -66,4 +66,4 @@ accelerate launch \
     --enable_tracker \
     --ema_decay 0.9999 \
     --drop_short_ratio 0.0 \
-    --output_dir="bs1x8x32_max480p_lr1e-4_snr5_noioff0.02_ema9999_dit_b_122_rope_t5xxl_mj" 
+    --output_dir="bs1x8x32_max480p_lr1e-4_snr5_noioff0.02_ema9999_udit_b_122_rope_t5xxl_mj" 

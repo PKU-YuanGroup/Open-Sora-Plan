@@ -762,9 +762,9 @@ class Upsample3d(nn.Module):
 
 
 class Downsample2d(nn.Module):
-    def __init__(self, n_feat, is_video_model=False):
+    def __init__(self, n_feat, n_feat_out, is_video_model=False):
         super(Downsample2d, self).__init__()
-        self.body = nn.Conv2d(n_feat, 2*n_feat, kernel_size=3, stride=2, padding=1, bias=False)
+        self.body = nn.Conv2d(n_feat, n_feat_out, kernel_size=3, stride=2, padding=1, bias=False)
 
     def forward(self, x, attention_mask, frames, height, width, pad_h=0, pad_w=0):
         # import ipdb;ipdb.set_trace()
@@ -785,9 +785,9 @@ class Downsample2d(nn.Module):
         return x, attention_bias, attention_mask
     
 class Upsample2d(nn.Module):
-    def __init__(self, n_feat, is_video_model=False):
+    def __init__(self, n_feat, n_feat_out, is_video_model=False):
         super(Upsample2d, self).__init__()
-        self.body = nn.Conv2d(n_feat, n_feat // 2, kernel_size=3, stride=1, padding=1, bias=False)
+        self.body = nn.Conv2d(n_feat, n_feat_out, kernel_size=3, stride=1, padding=1, bias=False)
 
     def forward(self, x, attention_mask, frames, height, width, pad_h=0, pad_w=0):
         x = rearrange(x, 'b (t h w) d -> (b t) d h w', t=frames, h=height, w=width)

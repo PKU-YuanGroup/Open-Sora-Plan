@@ -27,7 +27,7 @@ from accelerate.logging import get_logger
 
 from opensora.utils.dataset_utils import DecordInit
 from opensora.utils.utils import text_preprocessing
-from opensora.dataset.transform import get_params, longsizeresize
+from opensora.dataset.transform import get_params, longsideresize
 
 logger = get_logger(__name__)
 
@@ -161,21 +161,16 @@ class T2V_dataset(Dataset):
         return dataset_prog.n_elements
 
     def __getitem__(self, idx):
-        # if npu_config is not None:
-        #     worker_info = get_worker_info()
-        #     idx = dataset_prog.get_item(worker_info)
-        # try:
-        # print(idx)
-        data = self.get_data(idx)
-        return data
-        # except Exception as e:
-        #     logger.info(f'Error with {e}')
-        #     # 打印异常堆栈
-        #     if idx in dataset_prog.cap_list:
-        #         logger.info(f"Caught an exception! {dataset_prog.cap_list[idx]}")
-        #     # traceback.print_exc()
-        #     # traceback.print_stack()
-        #     return self.__getitem__(random.randint(0, self.__len__() - 1))
+        if npu_config is not None:
+            worker_info = get_worker_info()
+            idx = dataset_prog.get_item(worker_info)
+        try:
+            data = self.get_data(idx)
+            return data
+        except Exception as e:
+            print(e)
+            logger.info(f'Error with {e}')
+            return self.__getitem__(random.randint(0, self.__len__() - 1))
 
     def get_data(self, idx):
         path = dataset_prog.cap_list[idx]['path']
@@ -288,8 +283,17 @@ class T2V_dataset(Dataset):
                 else:
                     # import ipdb;ipdb.set_trace()
                     height, width = i['resolution']['height'], i['resolution']['width']
-                    tr_h, tr_w = longsizeresize(height, width, (self.max_height, self.max_width), self.skip_low_resolution)
+                    if height <= 0 or width <= 0:
+                        cnt_no_resolution += 1
+                        continue
+                    tr_h, tr_w = longsideresize(height, width, (self.max_height, self.max_width), self.skip_low_resolution)
+                    # if tr_h == 640 and tr_w == 640:
+                    #     import ipdb;ipdb.set_trace()
+                    #     print(self.max_height, self.max_width)
                     _, _, sample_h, sample_w = get_params(tr_h, tr_w, self.hw_stride)
+                    if sample_h <= 0 or sample_w <= 0:
+                        cnt_resolution_mismatch += 1
+                        continue
                     i['resolution'].update(dict(sample_height=sample_h, sample_width=sample_w))
 
             if path.endswith('.mp4'):
