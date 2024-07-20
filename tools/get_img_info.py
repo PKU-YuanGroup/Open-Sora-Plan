@@ -59,10 +59,10 @@ def process_image_paths(image_paths):
     return items
 
 if __name__ == '__main__':
-    image_root = '/storage/dataset/image/tuzhan_mj'
+    image_root = '/storage/dataset/ideogram/Images_ideogram_v1'
     save_root = '/storage/dataset/image'
     os.makedirs(save_root, exist_ok=True)
-    save_name = 'tuzhan_mj_{}_resolution.json'
+    save_name = 'ideogram_v1_{}_resolution.json'
     all_paths = glob(os.path.join(image_root, '**', '*.jpg'), recursive=True)
 
     num_processes = os.cpu_count()  # Use the number of CPU cores

@@ -20,25 +20,25 @@ export MKL_NUM_THREADS=1
 # export NCCL_ALGO=Tree
 
 accelerate launch \
-    --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
+    --config_file scripts/accelerate_configs/multi_node_example.yaml \
     opensora/train/train_t2v_diffusers.py \
-    --model OpenSoraT2V-ROPE-L/122 \
+    --model UDiTT2V-L/122 \
     --text_encoder_name google/mt5-xxl \
     --cache_dir "./cache_dir" \
     --dataset t2v \
-    --data "scripts/train_data/merge_data.txt" \
+    --data "scripts/train_data/image_data.txt" \
     --ae CausalVAEModel_4x8x8 \
     --ae_path "/storage/dataset/test140k" \
     --sample_rate 1 \
-    --num_frames 29 \
-    --max_height 720 \
-    --max_width 1280 \
+    --num_frames 1 \
+    --max_height 480 \
+    --max_width 640 \
     --interpolation_scale_t 1.0 \
-    --interpolation_scale_h 1.5 \
+    --interpolation_scale_h 2.0 \
     --interpolation_scale_w 2.0 \
     --attention_mode xformers \
     --gradient_checkpointing \
-    --train_batch_size=1 \
+    --train_batch_size=16 \
     --dataloader_num_workers 10 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
@@ -47,12 +47,11 @@ accelerate launch \
     --lr_warmup_steps=0 \
     --mixed_precision="bf16" \
     --report_to="wandb" \
-    --checkpointing_steps=250 \
+    --checkpointing_steps=1000 \
     --allow_tf32 \
     --model_max_length 512 \
     --use_image_num 0 \
     --tile_overlap_factor 0.0 \
-    --enable_tiling \
     --snr_gamma 5.0 \
     --use_ema \
     --ema_start_step 0 \
@@ -60,12 +59,8 @@ accelerate launch \
     --noise_offset 0.02 \
     --use_rope \
     --resume_from_checkpoint="latest" \
-    --group_frame \
-    --speed_factor 1.0 \
     --enable_stable_fp32 \
-    --ema_decay 0.999 \
-    --drop_short_ratio 0.0 \
-    --pretrained "/storage/ongoing/new/Open-Sora-Plan/bs32xsp2_29x720p_lr1e-4_snr5_noioff0.02_ema999_opensora122_rope_fp32_mt5xxl_pandamovie_aes_mo_sucai_mo/checkpoint-6500/model_ema/diffusion_pytorch_model.safetensors" \
-    --output_dir="debug" \
-    --sp_size 8 \
-    --train_sp_batch_size 2 
+    --ema_decay 0.9999 \
+    --enable_tracker \
+    --pretrained "/storage/ongoing/new/Open-Sora-Plan-bak/7.14bak/bs4x8x16_240p_lr1e-4_snr5_noioff0.02_ema9999_udit122_rope_fp32_mt5xxl_sam/checkpoint-50000/model_ema/diffusion_pytorch_model.safetensors" \
+    --output_dir="bs4x8x16_480p_lr1e-4_snr5_noioff0.02_ema9999_udit122_rope_fp32_mt5xxl_sam" 

@@ -16,10 +16,21 @@ import os
 # save_name = 'tuzhan_mj_{}_resolution.json'
 
 
-anno_path = '/storage/anno_jsons/sam_image_11185255.json'
-img_info_path = '/storage/dataset/image/sam_image_11185362_resolution.json'
+# anno_path = '/storage/anno_jsons/sam_image_11185255.json'
+# img_info_path = '/storage/dataset/image/sam_image_11185362_resolution.json'
+# save_root = '/storage/anno_jsons'
+# save_name = 'sam_image_{}_resolution.json'
+
+
+anno_path = '/storage/anno_jsons/civitai_v1_1940032.json'
+img_info_path = '/storage/dataset/image/civitai_2151074_resolution.json'
 save_root = '/storage/anno_jsons'
-save_name = 'sam_image_{}_resolution.json'
+save_name = 'civitai_v1_{}_resolution.json'
+
+# anno_path = '/storage/anno_jsons/ideogram_v1_71637.json'
+# img_info_path = '/storage/dataset/image/ideogram_v1_71637_resolution.json'
+# save_root = '/storage/anno_jsons'
+# save_name = 'ideogram_v1_{}_resolution.json'
 
 with open(anno_path, 'r') as f:
     anno = json.load(f)
