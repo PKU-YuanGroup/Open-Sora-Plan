@@ -526,29 +526,12 @@ class OverlapPatchEmbed2D(nn.Module):
         return video_latent, image_latent
     
 class Attention(Attention_):
-    def __init__(self, downsampler, attention_mode, use_rope, interpolation_scale_thw, **kwags):
-        processor = AttnProcessor2_0(attention_mode=attention_mode, use_rope=use_rope, interpolation_scale_thw=interpolation_scale_thw)
+    def __init__(self, downsampler, attention_mode, use_rope, interpolation_scale_thw, 
+                 sparse1d, sparse_k, sparse_group,**kwags):
+        processor = AttnProcessor2_0(attention_mode=attention_mode, use_rope=use_rope, interpolation_scale_thw=interpolation_scale_thw, 
+                                     sparse1d=sparse1d, sparse_k=sparse_k, sparse_group=sparse_group)
         super().__init__(processor=processor, **kwags)
         self.downsampler = None
-        if downsampler: # downsampler  k155_s122
-            downsampler_ker_size = list(re.search(r'k(\d{2,3})', downsampler).group(1)) # 122
-            down_factor = list(re.search(r's(\d{2,3})', downsampler).group(1))
-            downsampler_ker_size = [int(i) for i in downsampler_ker_size]
-            downsampler_padding = [(i - 1) // 2 for i in downsampler_ker_size]
-            down_factor = [int(i) for i in down_factor]
-            
-            if len(downsampler_ker_size) == 2:
-                self.downsampler = DownSampler2d(kwags['query_dim'], kwags['query_dim'], kernel_size=downsampler_ker_size, stride=1,
-                                            padding=downsampler_padding, groups=kwags['query_dim'], down_factor=down_factor,
-                                            down_shortcut=True)
-            elif len(downsampler_ker_size) == 3:
-                self.downsampler = DownSampler3d(kwags['query_dim'], kwags['query_dim'], kernel_size=downsampler_ker_size, stride=1,
-                                            padding=downsampler_padding, groups=kwags['query_dim'], down_factor=down_factor,
-                                            down_shortcut=True)
-                
-        # self.q_norm = nn.LayerNorm(kwags['dim_head'], elementwise_affine=True, eps=1e-6)
-        # self.k_norm = nn.LayerNorm(kwags['dim_head'], elementwise_affine=True, eps=1e-6) 
-
 
 
 class DownSampler3d(nn.Module):
@@ -627,7 +610,11 @@ class AttnProcessor2_0:
     Processor for implementing scaled dot-product attention (enabled by default if you're using PyTorch 2.0).
     """
 
-    def __init__(self, attention_mode='xformers', use_rope=False, interpolation_scale_thw=(1, 1, 1)):
+    def __init__(self, attention_mode='xformers', use_rope=False, interpolation_scale_thw=(1, 1, 1), 
+                 sparse1d=False, sparse_k=2, sparse_group=False):
+        self.sparse1d = sparse1d
+        self.sparse_k = sparse_k
+        self.sparse_group = sparse_group
         self.use_rope = use_rope
         self.interpolation_scale_thw = interpolation_scale_thw
         if self.use_rope:
@@ -641,6 +628,31 @@ class AttnProcessor2_0:
         self.rope = RoPE3D(interpolation_scale_thw=interpolation_scale_thw)
         self.position_getter = PositionGetter3D()
     
+    def _sparse_qkv(self, q, k, v):
+        """
+        require the shape of (batch_size x nheads x ntokens x dim)
+        """
+        if not self.sparse_group:
+            q = rearrange(q, 'b h (g k) d -> (k b) h g d', k=self.sparse_k)
+            k = rearrange(k, 'b h (g k) d -> (k b) h g d', k=self.sparse_k)
+            v = rearrange(v, 'b h (g k) d -> (k b) h g d', k=self.sparse_k)
+        else:
+            q = rearrange(q, 'b h (n m k) d -> (m b) h (n k) d', m=self.sparse_k, k=self.sparse_k)
+            k = rearrange(k, 'b h (n m k) d -> (m b) h (n k) d', m=self.sparse_k, k=self.sparse_k)
+            v = rearrange(v, 'b h (n m k) d -> (m b) h (n k) d', m=self.sparse_k, k=self.sparse_k)
+        return q, k, v
+
+    def _reverse_sparse(self, x):
+        """
+        require the shape of (batch_size x nheads x ntokens x dim)
+        """
+        if not self.sparse_group:
+            x = rearrange(x, '(k b) h g d -> b h (g k) d', k=self.sparse_k)
+        else:
+            x = rearrange(x, '(m b) h (n k) d -> b h (n m k) d', m=self.sparse_k, k=self.sparse_k)
+        return x
+
+
     def __call__(
         self,
         attn: Attention,
@@ -842,6 +854,8 @@ class AttnProcessor2_0:
                     key = self.rope(key, pos_thw)
                     
                 value = value.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
+                if self.sparse1d:
+                    query, key, value = self._sparse_qkv(query, key, value)
 
                 if attention_mask is None or not torch.all(attention_mask.bool()):  # 0 mean visible
                     attention_mask = None
@@ -866,6 +880,10 @@ class AttnProcessor2_0:
                     )
                 else:
                     raise NotImplementedError(f'Found attention_mode: {self.attention_mode}')
+                
+                if self.sparse1d:
+                    hidden_states = self._reverse_sparse(hidden_states)
+
                 hidden_states = hidden_states.transpose(1, 2).reshape(batch_size, -1, attn.heads * head_dim)
         hidden_states = hidden_states.to(query.dtype)
 
@@ -1029,6 +1047,9 @@ class BasicTransformerBlock(nn.Module):
         downsampler: str = None, 
         use_rope: bool = False, 
         interpolation_scale_thw: Tuple[int] = (1, 1, 1), 
+        sparse1d: bool = False,
+        sparse_k: int = 2,
+        sparse_group: bool = False,
     ):
         super().__init__()
         self.only_cross_attention = only_cross_attention
@@ -1091,6 +1112,9 @@ class BasicTransformerBlock(nn.Module):
             downsampler=downsampler, 
             use_rope=use_rope, 
             interpolation_scale_thw=interpolation_scale_thw, 
+            sparse1d=sparse1d,
+            sparse_k=sparse_k,
+            sparse_group=sparse_group,
         )
 
         # 2. Cross-Attn
@@ -1125,6 +1149,9 @@ class BasicTransformerBlock(nn.Module):
                 downsampler=False, 
                 use_rope=False, 
                 interpolation_scale_thw=interpolation_scale_thw, 
+                sparse1d=False, 
+                sparse_k=0, 
+                sparse_group=False, 
             )  # is self-attn if encoder_hidden_states is none
         else:
             self.norm2 = None

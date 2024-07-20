@@ -92,6 +92,8 @@ class UDiTT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
         downsampler: str = 'k333_s222', 
         use_rope: bool = False, 
         use_stable_fp32: bool = False, 
+        sparse1d: bool = False, 
+        sparse_k: int = 2, 
     ):
         super().__init__()
 

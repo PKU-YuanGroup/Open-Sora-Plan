@@ -276,6 +276,8 @@ def main(args):
         use_rope=args.use_rope,
         # model_max_length=args.model_max_length,
         use_stable_fp32=args.enable_stable_fp32, 
+        sparse1d=args.sparse1d, 
+        sparse_k=args.sparse_k, 
     )
     model.gradient_checkpointing = args.gradient_checkpointing
 
@@ -857,6 +859,8 @@ if __name__ == "__main__":
     parser.add_argument("--cache_dir", type=str, default='./cache_dir')
     parser.add_argument("--pretrained", type=str, default=None)
     parser.add_argument('--enable_stable_fp32', action='store_true')
+    parser.add_argument('--sparse1d', action='store_true')
+    parser.add_argument('--sparse_k', type=int, default=2)
     parser.add_argument("--gradient_checkpointing", action="store_true", help="Whether or not to use gradient checkpointing to save memory at the expense of slower backward pass.")
 
     # diffusion setting

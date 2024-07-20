@@ -51,7 +51,7 @@ accelerate launch \
     --allow_tf32 \
     --model_max_length 512 \
     --use_image_num 0 \
-    --tile_overlap_factor 0.0 \
+    --tile_overlap_factor 0.125 \
     --enable_tiling \
     --snr_gamma 5.0 \
     --use_ema \

@@ -88,6 +88,8 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
         downsampler: str = None, 
         use_rope: bool = False,
         use_stable_fp32: bool = False,
+        sparse1d: bool = False,
+        sparse_k: int = 2,
     ):
         super().__init__()
 
@@ -103,6 +105,8 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
                 )
 
         # Set some common variables used across the board.
+        self.sparse1d = sparse1d
+        self.sparse_k = sparse_k
         self.use_rope = use_rope
         self.use_linear_projection = use_linear_projection
         self.interpolation_scale_t = interpolation_scale_t
@@ -239,6 +243,9 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
                     downsampler=self.config.downsampler, 
                     use_rope=self.config.use_rope, 
                     interpolation_scale_thw=interpolation_scale_thw, 
+                    sparse1d=self.sparse1d, 
+                    sparse_k=self.sparse_k, 
+                    sparse_group=self.config.num_layers % 2 == 1, 
                 )
                 for _ in range(self.config.num_layers)
             ]
@@ -662,6 +669,8 @@ if __name__ == '__main__':
         'interpolation_scale_t': 1,
         'interpolation_scale_h': 1,
         'interpolation_scale_w': 1,
+        "sparse1d": True, 
+        "sparse_k": 2, 
     }
     )
     b = 16
@@ -697,6 +706,8 @@ if __name__ == '__main__':
                             interpolation_scale_h=args.interpolation_scale_h, 
                             interpolation_scale_w=args.interpolation_scale_w, 
                             use_rope=args.use_rope, 
+                            sparse1d=args.sparse1d, 
+                            sparse_k=args.sparse_k
                             ).to(device)
     
     try:
