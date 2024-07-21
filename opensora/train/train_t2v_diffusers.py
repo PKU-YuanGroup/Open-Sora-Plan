@@ -76,7 +76,7 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
     negative_prompt = """nsfw, lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry, 
                         """
     validation_prompt = [
-        "A stylish woman walks down a Tokyo street filled with warm glowing neon and animated city signage. She wears a black leather jacket, a long red dress, and black boots, and carries a black purse. She wears sunglasses and red lipstick. She walks confidently and casually. The street is damp and reflective, creating a mirror effect of the colorful lights. Many pedestrians walk about.",
+        "a cat wearing sunglasses and working as a lifeguard at pool.",
         "A serene underwater scene featuring a sea turtle swimming through a coral reef. The turtle, with its greenish-brown shell, is the main focus of the video, swimming gracefully towards the right side of the frame. The coral reef, teeming with life, is visible in the background, providing a vibrant and colorful backdrop to the turtle's journey. Several small fish, darting around the turtle, add a sense of movement and dynamism to the scene."
         ]
     if 'mt5' in args.text_encoder_name:
@@ -277,7 +277,8 @@ def main(args):
         # model_max_length=args.model_max_length,
         use_stable_fp32=args.enable_stable_fp32, 
         sparse1d=args.sparse1d, 
-        sparse_k=args.sparse_k, 
+        sparse2d=args.sparse2d, 
+        sparse_n=args.sparse_n, 
     )
     model.gradient_checkpointing = args.gradient_checkpointing
 
@@ -839,6 +840,7 @@ if __name__ == "__main__":
     parser.add_argument("--group_data", action="store_true")
     parser.add_argument("--hw_stride", type=int, default=32)
     parser.add_argument("--skip_low_resolution", action="store_true")
+    parser.add_argument("--force_resolution", action="store_true")
 
     # text encoder & vae & diffusion model
     parser.add_argument("--model", type=str, choices=list(Diffusion_models.keys()), default="Latte-XL/122")
@@ -860,7 +862,8 @@ if __name__ == "__main__":
     parser.add_argument("--pretrained", type=str, default=None)
     parser.add_argument('--enable_stable_fp32', action='store_true')
     parser.add_argument('--sparse1d', action='store_true')
-    parser.add_argument('--sparse_k', type=int, default=2)
+    parser.add_argument('--sparse2d', action='store_true')
+    parser.add_argument('--sparse_n', type=int, default=2)
     parser.add_argument("--gradient_checkpointing", action="store_true", help="Whether or not to use gradient checkpointing to save memory at the expense of slower backward pass.")
 
     # diffusion setting

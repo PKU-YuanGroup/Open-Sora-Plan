@@ -136,6 +136,7 @@ class T2V_dataset(Dataset):
         self.drop_short_ratio = args.drop_short_ratio
         self.hw_stride = args.hw_stride
         self.skip_low_resolution = args.skip_low_resolution
+        self.force_resolution = args.force_resolution
         assert self.speed_factor >= 1
         self.v_decoder = DecordInit()
 
@@ -281,20 +282,28 @@ class T2V_dataset(Dataset):
                     cnt_no_resolution += 1
                     continue
                 else:
-                    # import ipdb;ipdb.set_trace()
                     height, width = i['resolution']['height'], i['resolution']['width']
-                    if height <= 0 or width <= 0:
-                        cnt_no_resolution += 1
-                        continue
-                    tr_h, tr_w = longsideresize(height, width, (self.max_height, self.max_width), self.skip_low_resolution)
-                    # if tr_h == 640 and tr_w == 640:
-                    #     import ipdb;ipdb.set_trace()
-                    #     print(self.max_height, self.max_width)
-                    _, _, sample_h, sample_w = get_params(tr_h, tr_w, self.hw_stride)
-                    if sample_h <= 0 or sample_w <= 0:
-                        cnt_resolution_mismatch += 1
-                        continue
-                    i['resolution'].update(dict(sample_height=sample_h, sample_width=sample_w))
+                    if not self.force_resolution:
+                        if height <= 0 or width <= 0:
+                            cnt_no_resolution += 1
+                            continue
+                        tr_h, tr_w = longsideresize(height, width, (self.max_height, self.max_width), self.skip_low_resolution)
+                        _, _, sample_h, sample_w = get_params(tr_h, tr_w, self.hw_stride)
+                        if sample_h <= 0 or sample_w <= 0:
+                            cnt_resolution_mismatch += 1
+                            continue
+                        i['resolution'].update(dict(sample_height=sample_h, sample_width=sample_w))
+                    else:
+                        aspect = self.max_height / self.max_width
+                        hw_aspect_thr = 1.5
+                        is_pick = filter_resolution(height, width, max_h_div_w_ratio=hw_aspect_thr*aspect, 
+                                                    min_h_div_w_ratio=1/hw_aspect_thr*aspect)
+                        if not is_pick:
+                            cnt_resolution_mismatch += 1
+                            continue
+                        sample_h, sample_w = self.max_height, self.max_width
+                        i['resolution'].update(dict(sample_height=sample_h, sample_width=sample_w))
+
 
             if path.endswith('.mp4'):
                 # ======no fps and duration=====

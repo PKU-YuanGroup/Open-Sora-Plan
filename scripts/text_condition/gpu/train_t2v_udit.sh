@@ -66,4 +66,5 @@ accelerate launch \
     --enable_tracker \
     --ema_decay 0.9999 \
     --drop_short_ratio 0.0 \
-    --output_dir="bs1x8x32_max480p_lr1e-4_snr5_noioff0.02_ema9999_udit_b_122_rope_t5xxl_mj" 
+    --force_resolution \
+    --output_dir="bs1x8x32_480p_lr1e-4_snr5_noioff0.02_ema9999_udit_b_122_rope_t5xxl_mj" 

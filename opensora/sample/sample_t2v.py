@@ -23,7 +23,6 @@ from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModel
 from opensora.models.diffusion.opensora.modeling_opensora import OpenSoraT2V
 from opensora.models.diffusion.latte.modeling_latte import LatteT2V
 from opensora.models.diffusion.udit.modeling_udit import UDiTT2V
-from opensora.models.diffusion.udit_ultra.modeling_udit_ultra import UDiTUltraT2V
 
 from opensora.models.text_encoder import get_text_enc
 from opensora.utils.utils import save_video_grid
@@ -72,10 +71,10 @@ def main(args):
                                                      device_map=None, torch_dtype=weight_dtype)
     # ckpt = torch.load('/storage/ongoing/new/image2video_weight/480p_73000_ema_ds_k3_p1_repeat_lowsize2.pt')
     # transformer_model.load_state_dict(ckpt)
-    # text_encoder = UMT5EncoderModel.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir, low_cpu_mem_usage=True, torch_dtype=weight_dtype)
-    # tokenizer = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
-    text_encoder = MT5EncoderModel.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir, low_cpu_mem_usage=True, torch_dtype=weight_dtype)
-    tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir)
+    text_encoder = T5EncoderModel.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/models--DeepFloyd--t5-v1_1-xxl/snapshots/c9c625d2ec93667ec579ede125fd3811d1f81d37", cache_dir=args.cache_dir, low_cpu_mem_usage=True, torch_dtype=weight_dtype)
+    tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/models--DeepFloyd--t5-v1_1-xxl/snapshots/c9c625d2ec93667ec579ede125fd3811d1f81d37", cache_dir=args.cache_dir)
+    # text_encoder = MT5EncoderModel.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir, low_cpu_mem_usage=True, torch_dtype=weight_dtype)
+    # tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir)
     
     
     # set eval mode

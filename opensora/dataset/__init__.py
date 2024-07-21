@@ -59,10 +59,16 @@ def getdataset(args):
     temporal_sample = TemporalRandomCrop(args.num_frames)  # 16 x
     norm_fun = ae_norm[args.ae]
     if args.dataset == 't2v':
+        if args.force_resolution:
+            resize = [CenterCropResizeVideo((args.max_height, args.max_width)), ]
+        else:
+            resize = [
+                LongSideResizeVideo((args.max_height, args.max_width), skip_low_resolution=True), 
+                SpatialStrideCropVideo(stride=args.hw_stride), 
+            ]
         transform = transforms.Compose([
             ToTensorVideo(),
-            LongSideResizeVideo((args.max_height, args.max_width), skip_low_resolution=True), 
-            SpatialStrideCropVideo(stride=args.hw_stride), 
+            *resize, 
             norm_fun
         ])
         # tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir)

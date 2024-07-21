@@ -54,6 +54,7 @@ class Collate:
     def __init__(self, args):
         self.batch_size = args.train_batch_size
         self.group_data = args.group_data
+        self.force_resolution = args.force_resolution
 
         self.max_height = args.max_height
         self.max_width = args.max_width

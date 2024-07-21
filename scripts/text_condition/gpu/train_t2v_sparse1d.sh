@@ -67,5 +67,6 @@ accelerate launch \
     --ema_decay 0.9999 \
     --drop_short_ratio 0.0 \
     --sparse1d \
-    --sparse_k 2 \
+    --sparse_n 2 \
+    --force_resolution \
     --output_dir="bs1x8x32_max480p_lr1e-4_snr5_noioff0.02_ema9999_sparse1d_k2_dit_b_122_rope_t5xxl_mj" 

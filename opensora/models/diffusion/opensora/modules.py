@@ -527,9 +527,9 @@ class OverlapPatchEmbed2D(nn.Module):
     
 class Attention(Attention_):
     def __init__(self, downsampler, attention_mode, use_rope, interpolation_scale_thw, 
-                 sparse1d, sparse_k, sparse_group,**kwags):
+                 sparse1d, sparse2d, sparse_n, sparse_group, is_cross_attn, **kwags):
         processor = AttnProcessor2_0(attention_mode=attention_mode, use_rope=use_rope, interpolation_scale_thw=interpolation_scale_thw, 
-                                     sparse1d=sparse1d, sparse_k=sparse_k, sparse_group=sparse_group)
+                                     sparse1d=sparse1d, sparse2d=sparse2d, sparse_n=sparse_n, sparse_group=sparse_group, is_cross_attn=is_cross_attn)
         super().__init__(processor=processor, **kwags)
         self.downsampler = None
 
@@ -611,10 +611,12 @@ class AttnProcessor2_0:
     """
 
     def __init__(self, attention_mode='xformers', use_rope=False, interpolation_scale_thw=(1, 1, 1), 
-                 sparse1d=False, sparse_k=2, sparse_group=False):
+                 sparse1d=False, sparse2d=False, sparse_n=2, sparse_group=False, is_cross_attn=True):
         self.sparse1d = sparse1d
-        self.sparse_k = sparse_k
+        self.sparse2d = sparse2d
+        self.sparse_n = sparse_n
         self.sparse_group = sparse_group
+        self.is_cross_attn = is_cross_attn
         self.use_rope = use_rope
         self.interpolation_scale_thw = interpolation_scale_thw
         if self.use_rope:
@@ -622,34 +624,37 @@ class AttnProcessor2_0:
         self.attention_mode = attention_mode
         if not hasattr(F, "scaled_dot_product_attention"):
             raise ImportError("AttnProcessor2_0 requires PyTorch 2.0, to use it, please upgrade PyTorch to 2.0.")
-
+        assert not (self.sparse1d and self.sparse2d)
 
     def _init_rope(self, interpolation_scale_thw):
         self.rope = RoPE3D(interpolation_scale_thw=interpolation_scale_thw)
         self.position_getter = PositionGetter3D()
     
-    def _sparse_qkv(self, q, k, v):
+    def _sparse_1d(self, x):
         """
         require the shape of (batch_size x nheads x ntokens x dim)
         """
         if not self.sparse_group:
-            q = rearrange(q, 'b h (g k) d -> (k b) h g d', k=self.sparse_k)
-            k = rearrange(k, 'b h (g k) d -> (k b) h g d', k=self.sparse_k)
-            v = rearrange(v, 'b h (g k) d -> (k b) h g d', k=self.sparse_k)
+            x = rearrange(x, 'b h (g k) d -> (k b) h g d', k=self.sparse_n)
         else:
-            q = rearrange(q, 'b h (n m k) d -> (m b) h (n k) d', m=self.sparse_k, k=self.sparse_k)
-            k = rearrange(k, 'b h (n m k) d -> (m b) h (n k) d', m=self.sparse_k, k=self.sparse_k)
-            v = rearrange(v, 'b h (n m k) d -> (m b) h (n k) d', m=self.sparse_k, k=self.sparse_k)
-        return q, k, v
+            x = rearrange(x, 'b h (n m k) d -> (m b) h (n k) d', m=self.sparse_n, k=self.sparse_n)
+        return x
 
+    def _sparse_1d_kv(self, x):
+        """
+        require the shape of (batch_size x nheads x ntokens x dim)
+        """
+        x = repeat(x, 'b h s d -> (k b) h s d', k=self.sparse_n)
+        return x
+    
     def _reverse_sparse(self, x):
         """
         require the shape of (batch_size x nheads x ntokens x dim)
         """
         if not self.sparse_group:
-            x = rearrange(x, '(k b) h g d -> b h (g k) d', k=self.sparse_k)
+            x = rearrange(x, '(k b) h g d -> b h (g k) d', k=self.sparse_n)
         else:
-            x = rearrange(x, '(m b) h (n k) d -> b h (n m k) d', m=self.sparse_k, k=self.sparse_k)
+            x = rearrange(x, '(m b) h (n k) d -> b h (n m k) d', m=self.sparse_n, k=self.sparse_n)
         return x
 
 
@@ -855,7 +860,19 @@ class AttnProcessor2_0:
                     
                 value = value.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
                 if self.sparse1d:
-                    query, key, value = self._sparse_qkv(query, key, value)
+                    query = self._sparse_1d(query)
+                    if self.is_cross_attn:
+                        key = self._sparse_1d_kv(key)
+                        value = self._sparse_1d_kv(value)
+                    else:
+                        key = self._sparse_1d(key)
+                        value = self._sparse_1d(value)
+
+                elif self.sparse2d:
+                    raise NotImplementedError
+                    if self.is_cross_attn:
+                        raise NotImplementedError
+                
 
                 if attention_mask is None or not torch.all(attention_mask.bool()):  # 0 mean visible
                     attention_mask = None
@@ -1048,7 +1065,8 @@ class BasicTransformerBlock(nn.Module):
         use_rope: bool = False, 
         interpolation_scale_thw: Tuple[int] = (1, 1, 1), 
         sparse1d: bool = False,
-        sparse_k: int = 2,
+        sparse2d: bool = False,
+        sparse_n: int = 2,
         sparse_group: bool = False,
     ):
         super().__init__()
@@ -1113,8 +1131,10 @@ class BasicTransformerBlock(nn.Module):
             use_rope=use_rope, 
             interpolation_scale_thw=interpolation_scale_thw, 
             sparse1d=sparse1d,
-            sparse_k=sparse_k,
+            sparse2d=sparse2d,
+            sparse_n=sparse_n,
             sparse_group=sparse_group,
+            is_cross_attn=False,
         )
 
         # 2. Cross-Attn
@@ -1149,9 +1169,11 @@ class BasicTransformerBlock(nn.Module):
                 downsampler=False, 
                 use_rope=False, 
                 interpolation_scale_thw=interpolation_scale_thw, 
-                sparse1d=False, 
-                sparse_k=0, 
-                sparse_group=False, 
+                sparse1d=sparse1d,
+                sparse2d=sparse2d,
+                sparse_n=sparse_n,
+                sparse_group=sparse_group,
+                is_cross_attn=True,
             )  # is self-attn if encoder_hidden_states is none
         else:
             self.norm2 = None
