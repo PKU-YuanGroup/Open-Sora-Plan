@@ -260,18 +260,18 @@ class UDiTT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
             ]
         )
         # self.down2_3 = Downsample3d(self.inner_dim * 2) if is_video_model else Downsample2d(self.inner_dim * 2)
-        self.down2_3 = Downsample2d(self.inner_dim * 2, self.inner_dim * 2)
+        self.down2_3 = Downsample2d(self.inner_dim * 2, self.inner_dim * 4)
 
         self.latent = nn.ModuleList(
             [
                 BasicTransformerBlock(
-                    self.inner_dim * 2,
+                    self.inner_dim * 4,
                     self.config.num_attention_heads,
-                    self.config.attention_head_dim * 2,
+                    self.config.attention_head_dim * 4,
                     downsampler=self.config.downsampler, 
                     mlp_ratio=self.config.mlp_ratio, 
                     dropout=self.config.dropout,
-                    cross_attention_dim=self.inner_dim * 2,
+                    cross_attention_dim=self.inner_dim * 4,
                     activation_fn=self.config.activation_fn,
                     num_embeds_ada_norm=self.config.num_embeds_ada_norm,
                     attention_bias=self.config.attention_bias,
@@ -291,7 +291,7 @@ class UDiTT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
         )
 
         # self.up3_2 = Upsample3d(int(self.inner_dim * 4)) if is_video_model else Upsample2d(self.inner_dim * 4)  ## From Level 4 to Level 3
-        self.up3_2 = Upsample2d(self.inner_dim * 2, self.inner_dim * 2)  ## From Level 4 to Level 3
+        self.up3_2 = Upsample2d(self.inner_dim * 4, self.inner_dim * 2)  ## From Level 4 to Level 3
         
         # self.reduce_chan_level2_norm = nn.LayerNorm(int(self.inner_dim * 2), elementwise_affine=True, eps=1e-6)
         self.reduce_chan_level2 = nn.Linear(int(self.inner_dim * 4), int(self.inner_dim * 2), bias=True)
@@ -381,7 +381,7 @@ class UDiTT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
             self.inner_dim * 2, use_additional_conditions=self.use_additional_conditions
         )
         self.adaln_single_3 = AdaLayerNormSingle(
-            self.inner_dim * 2, use_additional_conditions=self.use_additional_conditions
+            self.inner_dim * 4, use_additional_conditions=self.use_additional_conditions
         )
 
         # self.caption_projection = None
@@ -393,7 +393,7 @@ class UDiTT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
             in_features=self.caption_channels, hidden_size=self.inner_dim * 2
         )
         self.caption_projection_3 = PixArtAlphaTextProjection(
-            in_features=self.caption_channels, hidden_size=self.inner_dim * 2
+            in_features=self.caption_channels, hidden_size=self.inner_dim * 4
         )
 
     def _replace_fp32_layers(self, module=None):
@@ -834,21 +834,21 @@ class UDiTT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
         return output
 
 def UDiTT2V_S_122(**kwargs):
-    return UDiTT2V(depth=[4, 5, 10, 5, 4], attention_head_dim=48, num_attention_heads=8, patch_size_t=1, patch_size=2, 
+    return UDiTT2V(depth=[6, 6, 6, 6, 6], attention_head_dim=48, num_attention_heads=8, patch_size_t=1, patch_size=2, 
                    norm_type="ada_norm_single", caption_channels=4096, **kwargs)
 
 def UDiTT2V_B_122(**kwargs):
-    return UDiTT2V(depth=[4, 6, 12, 6, 4], attention_head_dim=48, num_attention_heads=16, patch_size_t=1, patch_size=2, 
+    return UDiTT2V(depth=[6, 6, 6, 6, 6], attention_head_dim=48, num_attention_heads=16, patch_size_t=1, patch_size=2, 
                    norm_type="ada_norm_single", caption_channels=4096, **kwargs)
 
 def UDiTT2V_L_122(**kwargs):
-    return UDiTT2V(depth=[4, 8, 12, 8, 4], attention_head_dim=48, num_attention_heads=24, patch_size_t=1, patch_size=2, 
+    return UDiTT2V(depth=[6, 6, 6, 6, 6], attention_head_dim=48, num_attention_heads=24, patch_size_t=1, patch_size=2, 
                    norm_type="ada_norm_single", caption_channels=4096, **kwargs)
 
 UDiT_models = {
-    "UDiTT2V-S/122": UDiTT2V_S_122,  # 0.2B
-    "UDiTT2V-B/122": UDiTT2V_B_122,  # 1.1B
-    "UDiTT2V-L/122": UDiTT2V_L_122,  # 2.8B
+    "UDiTT2V-S/122": UDiTT2V_S_122,  # 0.4B
+    "UDiTT2V-B/122": UDiTT2V_B_122,  # 1.7B
+    "UDiTT2V-L/122": UDiTT2V_L_122,  # 3.7B
 }
 
 UDiT_models_class = {
@@ -896,7 +896,7 @@ if __name__ == '__main__':
 
 
     
-    model = UDiTT2V_B_122(in_channels=c, 
+    model = UDiTT2V_L_122(in_channels=c, 
                               out_channels=c, 
                               sample_size=latent_size, 
                               sample_size_t=num_frames, 

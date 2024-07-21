@@ -69,4 +69,4 @@ accelerate launch \
     --sparse1d \
     --sparse_n 2 \
     --force_resolution \
-    --output_dir="bs1x8x32_max480p_lr1e-4_snr5_noioff0.02_ema9999_sparse1d_k2_dit_b_122_rope_t5xxl_mj" 
+    --output_dir="bs1x8x32_480p_lr1e-4_snr5_noioff0.02_ema9999_sparse1d_k2_dit_b_122_rope_t5xxl_mj" 

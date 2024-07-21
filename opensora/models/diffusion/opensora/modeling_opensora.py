@@ -630,7 +630,7 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
         return output
 
 def OpenSoraT2V_S_122(**kwargs):
-    return OpenSoraT2V(num_layers=28, attention_head_dim=96, num_attention_heads=8, patch_size_t=1, patch_size=2,
+    return OpenSoraT2V(num_layers=32, attention_head_dim=96, num_attention_heads=8, patch_size_t=1, patch_size=2,
                        norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=768, **kwargs)
 
 def OpenSoraT2V_B_122(**kwargs):
@@ -689,7 +689,7 @@ if __name__ == '__main__':
         num_frames = args.num_frames // ae_stride_t
 
     device = torch.device('cuda:0')
-    model = OpenSoraT2V_B_122(in_channels=c, 
+    model = OpenSoraT2V_S_122(in_channels=c, 
                               out_channels=c, 
                               sample_size=latent_size, 
                               sample_size_t=num_frames, 
