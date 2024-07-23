@@ -1,3 +1,9 @@
+try:
+    import torch_npu
+    from opensora.npu_config import npu_config
+except:
+    torch_npu = None
+    npu_config = None
 from ..modeling_videobase import VideoBaseAE
 from ..modules import Normalize
 from ..modules.ops import nonlinearity
@@ -142,7 +148,10 @@ class Encoder(nn.Module):
         h = self.mid.attn_1(h)
         h = self.mid.block_2(h)
 
-        h = self.norm_out(h)
+        if npu_config is None:
+            h = self.norm_out(h)
+        else:
+            h = npu_config.run_group_norm(self.norm_out, h)
         h = nonlinearity(h)
         h = self.conv_out(h)
         return h
@@ -255,10 +264,16 @@ class Decoder(nn.Module):
                 h = self.up[i_level].upsample(h)
             if hasattr(self.up[i_level], "time_upsample"):
                 h = self.up[i_level].time_upsample(h)
-
-        h = self.norm_out(h)
+        if npu_config is None:
+            h = self.norm_out(h)
+        else:
+            h = npu_config.run_group_norm(self.norm_out, h)
         h = nonlinearity(h)
-        h = self.conv_out(h)
+        if npu_config is None:
+            h = self.conv_out(h)
+        else:
+            h_dtype = h.dtype
+            h = npu_config.run_conv3d(self.conv_out, h, h_dtype)
         return h
 
 

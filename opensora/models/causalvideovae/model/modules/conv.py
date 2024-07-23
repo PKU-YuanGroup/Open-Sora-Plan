@@ -7,6 +7,13 @@ from .ops import cast_tuple
 from einops import rearrange
 from .ops import video_to_image
 from torch.utils.checkpoint import checkpoint
+try:
+    import torch_npu
+    from opensora.npu_config import npu_config
+except:
+    torch_npu = None
+    npu_config = None
+
 
 class Conv2d(nn.Conv2d):
     def __init__(
@@ -42,7 +49,6 @@ class Conv2d(nn.Conv2d):
         return super().forward(x)
         
 
-
 class CausalConv3d(nn.Module):
     def __init__(
         self, chan_in, chan_out, kernel_size: Union[int, Tuple[int, int, int]], init_method="random", **kwargs
@@ -53,11 +59,12 @@ class CausalConv3d(nn.Module):
         self.chan_in = chan_in
         self.chan_out = chan_out
         stride = kwargs.pop("stride", 1)
-        self.padding = kwargs.pop("padding", 0)
-        self.padding = list(cast_tuple(self.padding, 3))
-        self.padding[0] = 0
+        padding = kwargs.pop("padding", 0)
+        padding = list(cast_tuple(padding, 3))
+        padding[0] = 0
         stride = cast_tuple(stride, 3)
-        self.conv = nn.Conv3d(chan_in, chan_out, self.kernel_size, stride=stride, padding=self.padding)
+        self.conv = nn.Conv3d(chan_in, chan_out, self.kernel_size, stride=stride, padding=padding)
+        self.pad = nn.ReplicationPad2d((0, 0, self.time_kernel_size - 1, 0))
         self._init_weights(init_method)
         
     def _init_weights(self, init_method):
@@ -92,14 +99,23 @@ class CausalConv3d(nn.Module):
             nn.init.constant_(self.conv.bias, 0)
             
     def forward(self, x):
-        # 1 + 16   16 as video, 1 as image
-        first_frame_pad = x[:, :, :1, :, :].repeat(
-            (1, 1, self.time_kernel_size - 1, 1, 1)
-        )   # b c t h w
-        x = torch.concatenate((first_frame_pad, x), dim=2)  # 3 + 16
-        return self.conv(x)
-    
-    
+        if npu_config is not None and npu_config.on_npu:
+            x_dtype = x.dtype
+            first_frame_pad = x[:, :, :1, :, :].repeat(
+                (1, 1, self.time_kernel_size - 1, 1, 1)
+            )  # b c t h w
+            x = torch.concatenate((first_frame_pad, x), dim=2)  # 3 + 16
+            return npu_config.run_conv3d(self.conv, x, x_dtype)
+        else:
+            # 1 + 16   16 as video, 1 as image
+            first_frame_pad = x[:, :, :1, :, :].repeat(
+                (1, 1, self.time_kernel_size - 1, 1, 1)
+            )  # b c t h w
+            x = torch.concatenate((first_frame_pad, x), dim=2)  # 3 + 16
+            return self.conv(x)
+
+
+
 class CausalConv3d_GC(CausalConv3d):
     def __init__(self, chan_in, chan_out, kernel_size: Union[int, Tuple[int]], init_method="random", **kwargs):
         super().__init__(chan_in, chan_out, kernel_size, init_method, **kwargs)

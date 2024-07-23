@@ -6,6 +6,13 @@ from .ops import nonlinearity, video_to_image
 from .conv import CausalConv3d, CausalConv3d_GC
 from .block import Block
 from torch.utils.checkpoint import checkpoint
+try:
+    import torch_npu
+    from opensora.npu_config import npu_config
+except:
+    torch_npu = None
+    npu_config = None
+
 
 class ResnetBlock2D(Block):
     def __init__(self, *, in_channels, out_channels=None, conv_shortcut=False,
@@ -72,10 +79,16 @@ class ResnetBlock3D(Block):
 
     def forward(self, x):
         h = x
-        h = self.norm1(h)
+        if npu_config is None:
+            h = self.norm1(h)
+        else:
+            h = npu_config.run_group_norm(self.norm1, h)
         h = nonlinearity(h)
         h = self.conv1(h)
-        h = self.norm2(h)
+        if npu_config is None:
+            h = self.norm2(h)
+        else:
+            h = npu_config.run_group_norm(self.norm2, h)
         h = nonlinearity(h)
         h = self.dropout(h)
         h = self.conv2(h)

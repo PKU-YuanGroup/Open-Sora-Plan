@@ -21,7 +21,7 @@ torchrun --nproc_per_node=8 opensora/sample/sample_t2v_sp_on_npu.py \
     --cache_dir "../cache_dir" \
     --text_encoder_name ${WEIGHT_PATH}/google/mt5-xxl \
     --text_prompt examples/prompt_list_0.txt \
-    --ae CausalVAEModel_4x8x8 \
+    --ae CausalVAEModel_D4_4x8x8 \
     --ae_path "${WEIGHT_PATH}/test140k/" \
     --save_img_path "${SAMPLE_SAVE_PATH}/${PROJECT_NAME}/sp" \
     --fps 24 \
@@ -30,4 +30,5 @@ torchrun --nproc_per_node=8 opensora/sample/sample_t2v_sp_on_npu.py \
     --sample_method PNDM \
     --enable_tiling \
     --tile_overlap_factor 0.125 \
-    --model_3d
+    --model_3d \
+    --save_memory
