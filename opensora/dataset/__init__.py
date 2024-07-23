@@ -13,10 +13,9 @@ from torchvision.transforms import Lambda
 #     npu_config = None
 #     from .t2v_datasets import T2V_dataset
 from .t2v_datasets import T2V_dataset
-from .inpaint_datasets import Inpaint_dataset
-from .videoip_datasets import VideoIP_dataset
-from .transform import ToTensorVideo, TemporalRandomCrop, RandomHorizontalFlipVideo, CenterCropResizeVideo, LongSideResizeVideo, SpatialStrideCropVideo, NormalizeVideo, ToTensorDino
-
+from .inpaint_datasets import get_inpaint_dataset
+from .transform import ToTensorVideo, TemporalRandomCrop, RandomHorizontalFlipVideo, CenterCropResizeVideo, LongSideResizeVideo, SpatialStrideCropVideo, NormalizeVideo, ToTensorAfterResize
+from opensora.models.diffusion.opensora.modeling_inpaint import ModelType, STR_TO_TYPE, TYPE_TO_STR
 
 ae_norm = {
     'CausalVAEModel_D8_4x8x8': Lambda(lambda x: 2. * x - 1.),
@@ -86,70 +85,45 @@ def getdataset(args):
         # tokenizer = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
         return T2V_dataset(args, transform=transform, temporal_sample=temporal_sample, tokenizer=tokenizer, 
                            transform_topcrop=transform_topcrop)
-    elif args.dataset == 'i2v' or args.dataset == 'inpaint':
-        resize_topcrop = [CenterCropResizeVideo((args.max_height, args.max_width), top_crop=True), ]
-        # if args.multi_scale:
-        #     resize = [
-        #         LongSideResizeVideo(args.max_image_size, skip_low_resolution=True),
-        #         SpatialStrideCropVideo(args.stride)
-        #         ]
-        # else:
-        resize = [CenterCropResizeVideo((args.max_height, args.max_width)), ]
-        transform = transforms.Compose([
-            ToTensorVideo(),
-            *resize, 
-            # RandomHorizontalFlipVideo(p=0.5),  # in case their caption have position decription
-            norm_fun
-        ])
-        transform_topcrop = transforms.Compose([
-            ToTensorVideo(),
-            *resize_topcrop, 
-            # RandomHorizontalFlipVideo(p=0.5),  # in case their caption have position decription
-            norm_fun
-        ])
-        transform_topcrop = transforms.Compose([
-            ToTensorVideo(),
-            *resize_topcrop, 
-            # RandomHorizontalFlipVideo(p=0.5),  # in case their caption have position decription
-            norm_fun
-        ])
-        # tokenizer = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
-        tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir)
-        return Inpaint_dataset(args, transform=transform, temporal_sample=temporal_sample, tokenizer=tokenizer, 
-                           transform_topcrop=transform_topcrop)
-    elif args.dataset == 'vip':
+    elif args.dataset == 'inpaint' or args.dataset == 'i2v' or args.dataset == 'vip':
         resize_topcrop = CenterCropResizeVideo((args.max_height, args.max_width), top_crop=True)
         resize = CenterCropResizeVideo((args.max_height, args.max_width))
         transform = transforms.Compose([
-            ToTensorVideo(),
+            ToTensorAfterResize(),
             # RandomHorizontalFlipVideo(p=0.5),  # in case their caption have position decription
             norm_fun
         ])
         transform_topcrop = transforms.Compose([
-            ToTensorVideo(),
+            ToTensorAfterResize(),
             # RandomHorizontalFlipVideo(p=0.5),  # in case their caption have position decription
             norm_fun
         ])
-        
-        if args.max_width / args.max_height == 4 / 3:
-            image_processor_center_crop = transforms.CenterCrop((518, 686))
-        elif args.max_width / args.max_height == 16 / 9:
-            image_processor_center_crop = transforms.CenterCrop((518, 910))
-        else:
-            image_processor_center_crop = transforms.CenterCrop((518, 518))
 
-        # dino image processor
-        image_processor = transforms.Compose([
-            transforms.Resize(518, interpolation=transforms.InterpolationMode.BICUBIC, antialias=True, max_size=None),
-            image_processor_center_crop, #
-            ToTensorDino(),
-            transforms.Normalize((0.4850, 0.4560, 0.4060), (0.2290, 0.2240, 0.2250)),
-        ])
+        if STR_TO_TYPE[args.model_type] != ModelType.INPAINT_ONLY:
+            if args.max_width / args.max_height == 4 / 3:
+                image_processor_center_crop = transforms.CenterCrop((518, 686))
+            elif args.max_width / args.max_height == 16 / 9:
+                image_processor_center_crop = transforms.CenterCrop((518, 910))
+            else:
+                image_processor_center_crop = transforms.CenterCrop((518, 518))
+
+            # dino image processor
+            image_processor = transforms.Compose([
+                transforms.Resize(518, interpolation=transforms.InterpolationMode.BICUBIC, antialias=True, max_size=None),
+                image_processor_center_crop, #
+                ToTensorAfterResize(),
+                transforms.Normalize((0.4850, 0.4560, 0.4060), (0.2290, 0.2240, 0.2250)),
+            ])
+        else:
+            image_processor = None
         # tokenizer = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
         tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir)
 
-        return VideoIP_dataset(args, transform=transform, resize_transform=resize, resize_transform_topcrop=resize_topcrop, temporal_sample=temporal_sample, tokenizer=tokenizer, 
+        dataset = get_inpaint_dataset(args.model_type)
+
+        return dataset(args, transform=transform, resize_transform=resize, resize_transform_topcrop=resize_topcrop, temporal_sample=temporal_sample, tokenizer=tokenizer, 
                            transform_topcrop=transform_topcrop, image_processor=image_processor)
+    
     raise NotImplementedError(args.dataset)
 
 

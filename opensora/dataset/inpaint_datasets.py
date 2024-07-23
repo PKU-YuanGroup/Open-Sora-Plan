@@ -28,41 +28,99 @@ from accelerate.logging import get_logger
 from opensora.utils.dataset_utils import DecordInit
 from opensora.utils.utils import text_preprocessing
 
+from opensora.models.diffusion.opensora.modeling_inpaint import ModelType, STR_TO_TYPE, TYPE_TO_STR
+
 from .t2v_datasets import filter_json_by_existed_files, random_video_noise, find_closest_y, filter_resolution
 from .t2v_datasets import SingletonMeta, DataSetProg
 from .t2v_datasets import T2V_dataset
 
 logger = get_logger(__name__)
 
-
 dataset_prog = DataSetProg()
 
-class Inpaint_dataset(T2V_dataset):
-    def __init__(self, args, transform, temporal_sample, tokenizer, transform_topcrop):
+def get_inpaint_dataset(model_type):
+    model_type = STR_TO_TYPE[model_type]
+    if model_type == ModelType.INPAINT_ONLY:
+        return Inpaint_dataset
+    elif model_type == ModelType.VIP_ONLY:
+        return VIP_dataset
+    elif model_type == ModelType.VIP_INPAINT:
+        return VIPInpaint_dataset
+    else:
+        raise NotImplementedError(f"Model type {TYPE_TO_STR[model_type]} not implemented.")
+
+
+class Meta_dataset(T2V_dataset):
+    def __init__(self, args, transform, resize_transform, temporal_sample, tokenizer, transform_topcrop, resize_transform_topcrop, image_processor):
         super().__init__(args, transform, temporal_sample, tokenizer, transform_topcrop)
 
-        # inpaint
-        # The proportion of executing the i2v task.
-        self.i2v_ratio = args.i2v_ratio
-        self.transition_ratio = args.transition_ratio
-        assert self.i2v_ratio + self.transition_ratio < 1, 'The sum of i2v_ratio and transition_ratio should be less than 1.'
+        self.resize_transform = resize_transform
+        self.resize_transform_topcrop = resize_transform_topcrop
+        self.image_processor = image_processor
+
+        if self.num_frames != 1:
+            # inpaint
+            # The proportion of executing the i2v task.
+            self.i2v_ratio = args.i2v_ratio
+            self.transition_ratio = args.transition_ratio
+            self.v2v_ratio = args.v2v_ratio
+            self.clear_video_ratio = args.clear_video_ratio
+            assert self.i2v_ratio + self.transition_ratio + self.v2v_ratio + self.clear_video_ratio < 1, 'The sum of i2v_ratio, transition_ratio, v2v_ratio and clear video ratio should be less than 1.'
+        
         self.default_text_ratio = args.default_text_ratio
+        self.default_text = f"The {'video' if self.num_frames != 1 else 'image'} showcases a scene with coherent and clear visuals."
+    
+    def get_mask_masked_video(self, video):
+        # video shape (T, C, H, W)
+        # 1 means masked, 0 means not masked
+        mask = torch.ones_like(video, device=video.device, dtype=video.dtype)
+        
+        rand_num = random.random()
+        # i2v
+        if rand_num < self.i2v_ratio:
+            mask[0] = 0
+        # transition
+        elif rand_num < self.i2v_ratio + self.transition_ratio:
+            mask[0] = 0
+            mask[-1] = 0
+        # video continuation
+        elif rand_num < self.i2v_ratio + self.transition_ratio + self.v2v_ratio:
+            end_idx = random.randint(1, self.num_frames)
+            mask[:end_idx] = 0
+        # clear video
+        elif rand_num < self.i2v_ratio + self.transition_ratio + self.v2v_ratio + self.clear_video_ratio:
+            mask = 0
+        # random mask
+        else:
+            idx_to_select = random.randint(0, self.num_frames - 1)
+            selected_indices = random.sample(range(0, self.num_frames), idx_to_select)
+            mask[selected_indices] = 0
 
+        masked_video = video * (mask < 0.5)
+        return dict(mask=mask, masked_video=masked_video)
+
+    def drop(self, text):
+        rand_num = random.random()
+        rand_num_text = random.random()
+
+        if rand_num < self.cfg:
+            text = self.default_text if rand_num_text < self.default_text_ratio else ''
+
+        return dict(text=text)
+
+    
+class Inpaint_dataset(Meta_dataset):
     def get_video(self, idx):
-        # npu_config.print_msg(f"current idx is {idx}")
-        # video = random.choice([random_video_noise(65, 3, 336, 448), random_video_noise(65, 3, 1024, 1024), random_video_noise(65, 3, 360, 480)])
-        # # print('random shape', video.shape)
-        # input_ids = torch.ones(1, 120).to(torch.long).squeeze(0)
-        # cond_mask = torch.cat([torch.ones(1, 60).to(torch.long), torch.ones(1, 60).to(torch.long)], dim=1).squeeze(0)
-
-        video_path = dataset_prog.vid_cap_list[idx]['path']
+        video_path = dataset_prog.cap_list[idx]['path']
         assert os.path.exists(video_path), f"file {video_path} do not exist!"
-        # frame_indice = self.vid_cap_list[idx]['sample_frame_index']
+        # frame_indice = self.cap_list[idx]['sample_frame_index']
         video = self.decord_read(video_path)
 
         h, w = video.shape[-2:]
         assert h / w <= 17 / 16 and h / w >= 8 / 16, f'Only videos with a ratio (h/w) less than 17/16 and more than 8/16 are supported. But video ({video_path}) found ratio is {round(h / w, 2)} with the shape of {video.shape}'
         t = video.shape[0]
+
+        video = self.resize_transform(video)
         video = self.transform(video)  # T C H W -> T C H W
 
         # inpaint
@@ -73,13 +131,13 @@ class Inpaint_dataset(T2V_dataset):
         # video = torch.rand(221, 3, 480, 640)
 
         video = video.transpose(0, 1)  # T C H W -> C T H W
-        text = dataset_prog.vid_cap_list[idx]['cap']
+        text = dataset_prog.cap_list[idx]['cap']
         if not isinstance(text, list):
             text = [text]
         text = [random.choice(text)]
 
         text = text_preprocessing(text, support_Chinese=self.support_Chinese)
-        
+
         text = self.drop(text)['text']
 
         text_tokens_and_mask = self.tokenizer(
@@ -93,34 +151,214 @@ class Inpaint_dataset(T2V_dataset):
         )
         input_ids = text_tokens_and_mask['input_ids']
         cond_mask = text_tokens_and_mask['attention_mask']
-        return dict(video=video, input_ids=input_ids, cond_mask=cond_mask)
+        return dict(pixel_values=video, input_ids=input_ids, cond_mask=cond_mask)
     
-    def drop(self, text):
+    
+class VIP_dataset(Meta_dataset):
+    def __init__(self, args, transform, resize_transform, temporal_sample, tokenizer, transform_topcrop, resize_transform_topcrop, image_processor):
+        super().__init__(args, transform, resize_transform, temporal_sample, tokenizer, transform_topcrop, resize_transform_topcrop, image_processor)
+        self.use_clip_mask = args.use_clip_mask
+
+    def drop(self, text, clip_image, clip_mask=None):
         rand_num = random.random()
         rand_num_text = random.random()
 
         if rand_num < self.cfg:
-            text = 'The video showcases a scene with coherent and clear visuals.' if rand_num_text < self.default_text_ratio else ''
+            text = self.default_text if rand_num_text < self.default_text_ratio else ''
+        elif rand_num < self.cfg * 2:
+            clip_image = torch.zeros_like(clip_image, device=clip_image.device, dtype=clip_image.dtype)
+            clip_mask = torch.ones_like(clip_mask, device=clip_mask.device, dtype=clip_mask.dtype) if clip_mask is not None else None
+        elif rand_num < self.cfg * 3:
+            text = self.default_text if rand_num_text < self.default_text_ratio else ''
+            clip_image = torch.zeros_like(clip_image, device=clip_image.device, dtype=clip_image.dtype)
+            clip_mask = torch.ones_like(clip_mask, device=clip_mask.device, dtype=clip_mask.dtype) if clip_mask is not None else None
 
-        return dict(text=text)
+        return dict(text=text, clip_image=clip_image, clip_mask=clip_mask)
+    
 
     def get_mask_masked_video(self, video):
         # video shape (T, C, H, W)
-        mask = torch.zeros_like(video)
+        # 1 means masked, 0 means not masked
+        mask = torch.ones_like(video, device=video.device, dtype=video.dtype)
+        clip_mask = torch.ones([video.shape[0], 1, 1, 1]) if self.use_clip_mask else None
         
         rand_num = random.random()
-        # To ensure the effectiveness of the i2v task, it is necessary to guarantee that a certain proportion of samples undergo i2v.
+        # i2v
         if rand_num < self.i2v_ratio:
-            mask = 1 - mask
             mask[0] = 0
+            if self.use_clip_mask:
+                clip_mask[0] = 0
+        # transition
         elif rand_num < self.i2v_ratio + self.transition_ratio:
-            mask = 1 - mask
             mask[0] = 0
             mask[-1] = 0
+            if self.use_clip_mask:
+                clip_mask[0] = 0
+                clip_mask[-1] = 0
+        # video continuation
+        elif rand_num < self.i2v_ratio + self.transition_ratio + self.v2v_ratio:
+            end_idx = random.randint(1, self.num_frames)
+            mask[:end_idx] = 0
+            if self.use_clip_mask:
+                clip_mask[:end_idx] = 0
+        # clear video
+        elif rand_num < self.i2v_ratio + self.transition_ratio + self.v2v_ratio + self.clear_video_ratio:
+            mask = torch.zeros_like(mask, device=mask.device, dtype=mask.dtype)
+            if self.use_clip_mask:
+                clip_mask = torch.zeros_like(clip_mask, device=clip_mask.device, dtype=clip_mask.dtype)
+        # random mask
         else:
-            idx_to_select = random.randint(1, self.num_frames - 1)
-            selected_indices = random.sample(range(1, self.num_frames), idx_to_select)
-            mask[selected_indices] = 1
+            idx_to_select = random.randint(0, self.num_frames - 1)
+            selected_indices = random.sample(range(0, self.num_frames), idx_to_select)
+            mask[selected_indices] = 0
+            if self.use_clip_mask:
+                clip_mask[selected_indices] = 0
 
         masked_video = video * (mask < 0.5)
-        return dict(mask=mask, masked_video=masked_video)
+        return dict(mask=mask, masked_video=masked_video, clip_mask=clip_mask)
+
+
+    def get_image(self, idx):
+        image_data = dataset_prog.cap_list[idx]  # [{'path': path, 'cap': cap}, ...]
+
+        # import ipdb;ipdb.set_trace()
+        image = Image.open(image_data['path']).convert('RGB')  # [h, w, c]
+        image = torch.from_numpy(np.array(image))  # [h, w, c]
+        image = rearrange(image, 'h w c -> c h w').unsqueeze(0)  #  [1 c h w]
+        # for i in image:
+        #     h, w = i.shape[-2:]
+        #     assert h / w <= 17 / 16 and h / w >= 8 / 16, f'Only image with a ratio (h/w) less than 17/16 and more than 8/16 are supported. But found ratio is {round(h / w, 2)} with the shape of {i.shape}'
+        
+        image = self.resize_transform_topcrop(image) if 'human_images' in image_data['path'] else self.resize_transform(image)  #  [1 C H W] -> [1 C H W]
+
+        clip_image = self.image_processor(image) # [1 C H W]
+
+        image = self.transform_topcrop(image) if 'human_images' in image_data['path'] else self.transform(image) #  [1 C H W] -> [1 C H W]
+
+        # image = [torch.rand(1, 3, 480, 640) for i in image_data]
+        image = image.transpose(0, 1)  # [1 C H W] -> [C 1 H W]
+
+        caps = image_data['cap'] if isinstance(image_data['cap'], list) else [image_data['cap']]
+        caps = [random.choice(caps)]
+        text = text_preprocessing(caps, support_Chinese=self.support_Chinese)
+        
+        drop_results = self.drop(text, clip_image)
+        text = drop_results['text']
+        clip_image = drop_results['clip_image']
+
+        text_tokens_and_mask = self.tokenizer(
+            text,
+            max_length=self.model_max_length,
+            padding='max_length',
+            truncation=True,
+            return_attention_mask=True,
+            add_special_tokens=True,
+            return_tensors='pt'
+        )
+        input_ids = text_tokens_and_mask['input_ids']  # 1, l
+        cond_mask = text_tokens_and_mask['attention_mask']  # 1, l
+
+        return dict(pixel_values=image, input_ids=input_ids, cond_mask=cond_mask, clip_data=clip_image, clip_mask=None)
+
+    def get_video(self, idx):
+        video_path = dataset_prog.cap_list[idx]['path']
+        assert os.path.exists(video_path), f"file {video_path} do not exist!"
+        # frame_indice = self.cap_list[idx]['sample_frame_index']
+        video = self.decord_read(video_path)
+
+        h, w = video.shape[-2:]
+        assert h / w <= 17 / 16 and h / w >= 8 / 16, f'Only videos with a ratio (h/w) less than 17/16 and more than 8/16 are supported. But video ({video_path}) found ratio is {round(h / w, 2)} with the shape of {video.shape}'
+        t = video.shape[0]
+
+        video = self.resize_transform(video)
+
+        inpaint_cond_data = self.get_mask_masked_video(video)
+        masked_video = inpaint_cond_data['masked_video']
+        clip_video = self.image_processor(masked_video) # T C H W
+
+        clip_mask = inpaint_cond_data['clip_mask'] # T 1 1 1 
+
+        video = self.transform(video)  # T C H W -> T C H W
+
+        # video = torch.rand(221, 3, 480, 640)
+
+        video = video.transpose(0, 1)  # T C H W -> C T H W
+        text = dataset_prog.cap_list[idx]['cap']
+        if not isinstance(text, list):
+            text = [text]
+        text = [random.choice(text)]
+
+        text = text_preprocessing(text, support_Chinese=self.support_Chinese)
+
+        drop_results = self.drop(text, clip_video, clip_mask=clip_mask)
+        text = drop_results['text']
+        clip_video = drop_results['clip_image']
+        clip_mask = drop_results['clip_mask']
+
+        text_tokens_and_mask = self.tokenizer(
+            text,
+            max_length=self.model_max_length,
+            padding='max_length',
+            truncation=True,
+            return_attention_mask=True,
+            add_special_tokens=True,
+            return_tensors='pt'
+        )
+        input_ids = text_tokens_and_mask['input_ids']
+        cond_mask = text_tokens_and_mask['attention_mask']
+        return dict(pixel_values=video, input_ids=input_ids, cond_mask=cond_mask, clip_data=clip_video, clip_mask=clip_mask)
+
+
+class VIPInpaint_dataset(VIP_dataset):
+    def get_video(self, idx):
+        video_path = dataset_prog.cap_list[idx]['path']
+        assert os.path.exists(video_path), f"file {video_path} do not exist!"
+        # frame_indice = self.cap_list[idx]['sample_frame_index']
+        video = self.decord_read(video_path)
+
+        h, w = video.shape[-2:]
+        assert h / w <= 17 / 16 and h / w >= 8 / 16, f'Only videos with a ratio (h/w) less than 17/16 and more than 8/16 are supported. But video ({video_path}) found ratio is {round(h / w, 2)} with the shape of {video.shape}'
+        t = video.shape[0]
+
+        video = self.resize_transform(video)
+
+        inpaint_cond_data = self.get_mask_masked_video(video)
+        masked_video = inpaint_cond_data['masked_video']
+        mask = inpaint_cond_data['mask']
+        clip_video = self.image_processor(masked_video) # T C H W
+
+        clip_mask = inpaint_cond_data['clip_mask'] # T 1 1 1
+
+        video = torch.cat([video, masked_video], dim=1) # T 2*C H W
+        video = self.transform(video)  # T C H W -> T C H W
+
+        video = torch.cat([video, mask], dim=1) # T 3*C H W
+
+        # video = torch.rand(221, 3, 480, 640)
+
+        video = video.transpose(0, 1)  # T C H W -> C T H W
+        text = dataset_prog.cap_list[idx]['cap']
+        if not isinstance(text, list):
+            text = [text]
+        text = [random.choice(text)]
+
+        text = text_preprocessing(text, support_Chinese=self.support_Chinese)
+
+        drop_results = self.drop(text, clip_video, clip_mask=clip_mask)
+        text = drop_results['text']
+        clip_video = drop_results['clip_image']
+        clip_mask = drop_results['clip_mask']
+
+        text_tokens_and_mask = self.tokenizer(
+            text,
+            max_length=self.model_max_length,
+            padding='max_length',
+            truncation=True,
+            return_attention_mask=True,
+            add_special_tokens=True,
+            return_tensors='pt'
+        )
+        input_ids = text_tokens_and_mask['input_ids']
+        cond_mask = text_tokens_and_mask['attention_mask']
+        return dict(pixel_values=video, input_ids=input_ids, cond_mask=cond_mask, clip_data=clip_video, clip_mask=clip_mask)
+    

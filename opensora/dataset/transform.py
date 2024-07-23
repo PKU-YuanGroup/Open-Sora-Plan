@@ -485,7 +485,7 @@ class ToTensorVideo:
         return self.__class__.__name__
     
 
-class ToTensorDino:
+class ToTensorAfterResize:
     """
     Convert tensor data type from uint8 to float, divide value by 255.0 and
     permute the dimensions of clip tensor

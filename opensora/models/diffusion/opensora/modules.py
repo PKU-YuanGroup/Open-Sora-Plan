@@ -797,8 +797,8 @@ class AttnProcessor2_0:
                 value = rearrange(value, 's b h d -> b h s d')
                 # print('rearrange query', query.shape, 'key', key.shape, 'value', value.shape)
 
-                if attention_mask is None or not torch.all(attention_mask.bool()):  # 0 mean visible
-                    attention_mask = None
+                # if attention_mask is None or not torch.all(attention_mask.bool()):  # 0 mean visible
+                #     attention_mask = None
                 # the output of sdp = (batch, num_heads, seq_len, head_dim)
                 # TODO: add support for attn.scale when we move to Torch 2.1
                 # import ipdb;ipdb.set_trace()
@@ -843,8 +843,8 @@ class AttnProcessor2_0:
                     
                 value = value.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
 
-                if attention_mask is None or not torch.all(attention_mask.bool()):  # 0 mean visible
-                    attention_mask = None
+                # if attention_mask is None or not torch.all(attention_mask.bool()):  # 0 mean visible
+                #     attention_mask = None
                 # the output of sdp = (batch, num_heads, seq_len, head_dim)
                 # TODO: add support for attn.scale when we move to Torch 2.1
                 # import ipdb;ipdb.set_trace()

@@ -136,36 +136,31 @@ class Collate:
 
         return pad_batch_tubes, attention_mask
 
-class VideoIP_Collate(Collate):
+class Inpaint_Collate(Collate):
     def __init__(self, args):
         super().__init__(args)
 
 
     def package_clip_data(self, batch):
 
-        clip_vid, clip_img = None, None
-        if self.num_frames > 1:
-            clip_vid = torch.stack([i['video_data']['clip_video'] for i in batch]) # [b t c h w]
-        
-        if self.num_frames == 1 or self.use_image_num != 0:
-            clip_img = torch.stack([i['image_data']['clip_image'] for i in batch]) # [b num_img c h w]
-
-        return clip_vid, clip_img
+        try:
+            clip_data = torch.stack([i['clip_data'] for i in batch]) # [b num_img c h w]
+        except:
+            clip_data = None
+            
+        try:
+            clip_mask = torch.stack([i['clip_mask'] for i in batch]) # [b num_img 1 h w]
+        except:
+            clip_mask = None
+    
+        return clip_data, clip_mask
 
     def __call__(self, batch):
-        clip_vid, clip_img = self.package_clip_data(batch)
+        clip_data, clip_mask = self.package_clip_data(batch)
 
         pad_batch_tubes, attention_mask, input_ids, cond_mask = super().__call__(batch)
 
-        if self.num_frames > 1 and self.use_image_num == 0:
-            clip_data = clip_vid # b t c h w
-        elif self.num_frames > 1 and self.use_image_num != 0:
-            raise NotImplementedError
-            clip_data = torch.cat([clip_vid, clip_img], dim=1) # b t+num_img c h w
-        else: # num_frames == 1 (only image) 
-            clip_data = clip_img # b 1 c h w
-        
-        return pad_batch_tubes, attention_mask, input_ids, cond_mask, clip_data
+        return pad_batch_tubes, attention_mask, input_ids, cond_mask, clip_data, clip_mask
         
 def split_to_even_chunks(indices, lengths, num_chunks):
     """

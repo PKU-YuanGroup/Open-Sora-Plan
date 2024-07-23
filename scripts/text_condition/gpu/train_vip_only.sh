@@ -1,5 +1,5 @@
-PROJECT="videoip_3d_480p_f93_bs1x16_lr1e-5_snrgamma5_0_noiseoffset0_02_dino518_ema0_999"
-# PROJECT="videoip_3d_480p_test"
+PROJECT="video_test"
+# PROJECT="inpaint_3d_720p_f93_bs16x8x1_lr1e-5_snrgamma5_0_noiseoffset0_02_dino518_ema0_999"
 export WANDB_API_KEY="720d886d8c437c2142c88056a1eab8ef78d64a1f"
 export WANDB_MODE="offline"
 export ENTITY="yunyangge"
@@ -23,13 +23,15 @@ export MKL_NUM_THREADS=1
 export PDSH_RCMD_TYPE=ssh
 
 accelerate launch \
-    --config_file scripts/accelerate_configs/multi_node_example.yaml \
-    opensora/train/train_videoip.py \
-    --model OpenSoraInpaint-ROPE-L/122 \
+    --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
+    opensora/train/train_inpaint_all_in_one.py \
+    --model OpenSoraT2V-ROPE-L/122 \
     --text_encoder_name google/mt5-xxl \
     --image_encoder_name vit_giant_patch14_reg4_dinov2.lvd142m \
+    --image_encoder_path /storage/cache_dir/hub/models--timm--vit_giant_patch14_reg4_dinov2.lvd142m/snapshots/a2208b21b069f6b2e45999870fcce4b7e43d1a2c/model.safetensors \
     --cache_dir "/storage/cache_dir" \
-    --dataset vip_inpaint \
+    --dataset vip \
+    --model_type vip_only \
     --ae CausalVAEModel_4x8x8 \
     --ae_path "/storage/CausalVAEModel_4x8x8" \
     --data "scripts/train_data/video_data.txt" \
@@ -42,7 +44,7 @@ accelerate launch \
     --interpolation_scale_h 1.0 \
     --interpolation_scale_w 1.0 \
     --attention_mode xformers \
-    --train_batch_size=2 \
+    --train_batch_size=1 \
     --dataloader_num_workers 10 \
     --gradient_accumulation_steps=1 \
     --gradient_checkpointing \
@@ -53,21 +55,22 @@ accelerate launch \
     --mixed_precision="bf16" \
     --report_to="wandb" \
     --enable_tracker \
-    --checkpointing_steps=1000 \
+    --checkpointing_steps=500 \
     --output_dir runs/$PROJECT \
     --allow_tf32 \
     --model_max_length 512 \
     --enable_tiling \
     --tile_overlap_factor 0.125 \
     --validation_dir "validation_dir" \
-    --guidance_scale 2.5 \
+    --guidance_scale 5.0 \
     --num_sampling_steps 50 \
     --ema_start_step 0 \
     --use_ema \
     --cfg 0.05 \
     --i2v_ratio 0.4 \
     --transition_ratio 0.4 \
-    --clear_video_ratio 0.1 \
+    --v2v_ratio 0.1 \
+    --clear_video_ratio 0.05 \
     --default_text_ratio 0.5 \
     --seed 42 \
     --snr_gamma 5.0 \
@@ -75,8 +78,15 @@ accelerate launch \
     --vip_num_attention_heads 16 \
     --ema_decay 0.999 \
     --use_rope \
-    --pretrained "/storage/ongoing/new/Open-Sora-Plan/bs36x8x1_125x480p_lr1e-4_snr5_noioff0.02_opensora122_rope_mt5xxl_pandamovie_aes_mo_sucai_mo_speed1.2/checkpoint-4500/model_ema/diffusion_pytorch_model.safetensors" \
+    --train_vip \
+    --pretrained_transformer_model_path "/storage/ongoing/new/Open-Sora-Plan/bs36x8x1_125x480p_lr1e-4_snr5_noioff0.02_opensora122_rope_mt5xxl_pandamovie_aes_mo_sucai_mo_speed1.2/checkpoint-4500/model_ema" \
     --pretrained_vip_adapter_path "/storage/gyy/hw/Open-Sora-Plan/runs/videoip_3d_480p_f29_bs2x16_lr1e-5_snrgamma5_0_noiseoffset0_02_dino518_ema0_999/checkpoint-14000/model" \
+    --use_clip_mask \
+    --clip_loss_lambda 0.9 \
+    --need_validation \
+    # --sp_size 8 \
+    # --train_sp_batch_size 2 \
+    # --train_vip \
     # --resume_from_checkpoint "latest" \
     # --zero_terminal_snr \
     # 基模型权重没有参与训练所以一定要加载
