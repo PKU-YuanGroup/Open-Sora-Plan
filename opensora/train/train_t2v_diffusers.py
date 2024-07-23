@@ -54,12 +54,11 @@ from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel, compute_snr
 from diffusers.utils import check_min_version, is_wandb_available
 
-from opensora.dataset import getdataset, ae_denorm
-from opensora.models.ae import getae, getae_wrapper
-from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModelWrapper
-from opensora.models.diffusion.latte.modeling_latte import LatteT2V
+from opensora.dataset import getdataset
+from opensora.models import CausalVAEModelWrapper
 from opensora.models.text_encoder import get_text_enc, get_text_warpper
-from opensora.models.ae import ae_stride_config, ae_channel_config
+from opensora.models.causalvideovae import ae_stride_config, ae_channel_config
+from opensora.models.causalvideovae import ae_norm, ae_denorm
 from opensora.models.diffusion import Diffusion_models, Diffusion_models_class
 from opensora.utils.dataset_utils import Collate, LengthGroupedSampler
 from opensora.sample.pipeline_opensora import OpenSoraPipeline
@@ -217,7 +216,7 @@ def main(args):
 
     # Create model:
     kwargs = {}
-    ae = getae_wrapper(args.ae)(args.ae_path, cache_dir=args.cache_dir, **kwargs).eval()
+    ae = CausalVAEModelWrapper(args.ae_path, cache_dir=args.cache_dir, **kwargs).eval()
     if args.enable_tiling:
         ae.vae.enable_tiling()
         ae.vae.tile_overlap_factor = args.tile_overlap_factor

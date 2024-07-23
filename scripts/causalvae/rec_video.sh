@@ -1,6 +1,6 @@
 CUDA_VISIBLE_DEVICES=0 python examples/rec_video.py \
-    --ae_path "/storage/dataset/test140k" \
-    --video_path /storage/dataset/test.mp4 \
+    --ae_path "/storage/dataset/6_10_latent8" \
+    --video_path /storage/clh/gen/64dim_488/origin/134445.mp4 \
     --rec_path rec.mp4 \
     --device cuda \
     --sample_rate 1 \
