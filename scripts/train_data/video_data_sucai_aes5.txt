@@ -1,9 +1,0 @@
-/storage/dataset,/storage/dataset/filter_aes/filter_sucai_json/step1.5_canva_final_95441_65422_5.0plus.json
-/storage/dataset,/storage/dataset/filter_aes/filter_sucai_json/step1.5_clipchamp_final_452264_231178_5.0plus.json
-/storage/dataset,/storage/dataset/filter_aes/filter_sucai_json/step1.5_coverr_final_3002_1274_5.0plus.json
-/storage/dataset,/storage/dataset/filter_aes/filter_sucai_json/step1.5_istock_final_815070_405120_5.0plus.json
-/storage/dataset,/storage/dataset/filter_aes/filter_sucai_json/step1.5_kapwing_final_68473_27757_5.0plus.json
-/storage/dataset,/storage/dataset/filter_aes/filter_sucai_json/step1.5_mixkit_final_4490_2634_5.0plus.json
-/storage/dataset,/storage/dataset/filter_aes/filter_sucai_json/step1.5_pexels_final_267395_148323_5.0plus.json
-/storage/dataset,/storage/dataset/filter_aes/filter_sucai_json/step1.5_pixabay_v2_final_21608_11400_5.0plus.json
-/storage/dataset,/storage/dataset/filter_aes/filter_sucai_json/step1.5_storyblocks_final_1270947_825948_5.0plus.json

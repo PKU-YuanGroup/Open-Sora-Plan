@@ -1,2 +1,1 @@
 /storage/dataset/image/human_images,/storage/anno_jsons/human_images_162094_resolution.json
-/storage/dataset,/storage/zhubin/video_statistics_data/task1.5/Final_format_dataset_data_v2/step1.5_canva_final_95441.json

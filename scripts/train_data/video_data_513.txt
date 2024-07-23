@@ -1,1 +1,0 @@
-/storage/dataset/mixkit,/storage/anno_jsons/video_mixkit_65f_54735.json
