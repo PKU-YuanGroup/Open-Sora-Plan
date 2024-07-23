@@ -1,4 +1,0 @@
-/home/local_dataset_6t/image_data_obs/mj_unzip_files,/home/opensora/captions/linbin_captions/tuzhan_mj_4615265.json
-/home/local_dataset_6t/image_data_obs/mj_unzip_files,/home/opensora/captions/tuzhan_mj_4615265_cn.json
-/home/local_dataset_6t/image_data_obs/sa_unzip_files,/home/opensora/captions/linbin_captions/sam_image_11185255.json
-/home/local_dataset_6t/image_data_obs/images/,/home/opensora/captions/linbin_captions/human_images_162094.json

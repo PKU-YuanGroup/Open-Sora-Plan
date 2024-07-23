@@ -16,4 +16,4 @@ CUDA_VISIBLE_DEVICES=7 python opensora/sample/sample_t2v.py \
     --enable_tiling \
     --max_sequence_length 512 \
     --sample_method DPMSolverMultistep \
-    --model_type udit
+    --model_type dit

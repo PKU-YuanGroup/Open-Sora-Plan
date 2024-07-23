@@ -19,7 +19,7 @@ export MKL_NUM_THREADS=1
 # export NCCL_ALGO=Tree
 
 accelerate launch \
-    --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
+    --config_file scripts/accelerate_configs/multi_node_example.yaml \
     opensora/train/train_t2v_diffusers.py \
     --model OpenSoraT2V-ROPE-L/122 \
     --text_encoder_name google/mt5-xxl \
@@ -29,7 +29,7 @@ accelerate launch \
     --ae CausalVAEModel_D4_4x8x8 \
     --ae_path "/storage/dataset/test140k" \
     --sample_rate 1 \
-    --num_frames 29 \
+    --num_frames 93 \
     --max_height 480 \
     --max_width 640 \
     --interpolation_scale_t 1.0 \
@@ -46,7 +46,7 @@ accelerate launch \
     --lr_warmup_steps=0 \
     --mixed_precision="bf16" \
     --report_to="wandb" \
-    --checkpointing_steps=100 \
+    --checkpointing_steps=250 \
     --allow_tf32 \
     --model_max_length 512 \
     --use_image_num 0 \
@@ -58,8 +58,8 @@ accelerate launch \
     --noise_offset 0.02 \
     --use_rope \
     --resume_from_checkpoint="latest" \
-    --ema_decay 0.9999 \
-    --enable_tracker \
+    --ema_decay 0.999 \
     --enable_tiling \
     --group_frame \
-    --output_dir="debug" 
+    --pretrained "/storage/ongoing/new/Open-Sora-Plan/bs32x8x1_93x720p_lr1e-4_snr5_ema999_opensora122_rope_fp32_mt5xxl_high_moviepanda_speed1.0/checkpoint-3000/model_ema/diffusion_pytorch_model.safetensors" \
+    --output_dir="bs16x8x1_93x480p_lr1e-4_snr5_ema999_opensora122_rope_mt5xxl_high_pandamovie_speed1.0" 

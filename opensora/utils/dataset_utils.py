@@ -218,7 +218,7 @@ def split_to_even_chunks(indices, lengths, num_chunks, batch_size):
                 chunk = chunk + [random.choice(chunk) for _ in range(batch_size - len(chunk))]
             else:
                 chunk = random.choice(pad_chunks)
-                print(indices, chunks[idx], '->', chunk, pad_chunks)
+                print(chunks[idx], '->', chunk)
         pad_chunks.append(chunk)
     return pad_chunks
 

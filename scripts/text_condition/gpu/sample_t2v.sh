@@ -6,14 +6,14 @@ CUDA_VISIBLE_DEVICES=7 python opensora/sample/sample_t2v.py \
     --width 640 \
     --cache_dir "cache_dir" \
     --text_encoder_name google/mt5-xxl \
-    --text_prompt examples/prompt_list_1.txt \
+    --text_prompt examples/prompt_list_0.txt \
     --ae CausalVAEModel_D4_4x8x8 \
     --ae_path "/storage/dataset/test140k" \
-    --save_img_path "./sample_video_hw_29x4800p_cfg5.0_step50_test" \
+    --save_img_path "./sample_video_29x4800p_cfg7.5_step100" \
     --fps 24 \
-    --guidance_scale 5.0 \
-    --num_sampling_steps 50 \
+    --guidance_scale 7.5 \
+    --num_sampling_steps 100 \
     --enable_tiling \
     --max_sequence_length 512 \
-    --sample_method PNDM \
+    --sample_method EulerAncestralDiscrete \
     --model_type "dit"
