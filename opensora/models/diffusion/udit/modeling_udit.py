@@ -896,9 +896,9 @@ UDiT_models_class = {
 if __name__ == '__main__':
     import sys
     from copy import deepcopy
-    from opensora.models.ae import ae_channel_config, ae_stride_config
-    from opensora.models.ae import getae, getae_wrapper
-    from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModelWrapper
+    from opensora.models.causalvideovae import ae_channel_config, ae_stride_config
+    from opensora.models.causalvideovae import getae, getae_wrapper
+    from opensora.models.causalvideovae import CausalVAEModelWrapper
 
     args = type('args', (), 
     {
@@ -922,10 +922,7 @@ if __name__ == '__main__':
     num_timesteps = 1000
     ae_stride_t, ae_stride_h, ae_stride_w = ae_stride_config[args.ae]
     latent_size = (args.max_height // ae_stride_h, args.max_width // ae_stride_w)
-    if getae_wrapper(args.ae) == CausalVQVAEModelWrapper or getae_wrapper(args.ae) == CausalVAEModelWrapper:
-        num_frames = (args.num_frames - 1) // ae_stride_t + 1
-    else:
-        num_frames = args.num_frames // ae_stride_t
+    num_frames = (args.num_frames - 1) // ae_stride_t + 1
 
     device = torch.device('cuda:0')
 

@@ -598,8 +598,11 @@ class CausalVAEModel(VideoBaseAE):
                     print("Deleting key {} from state_dict.".format(k))
                     del sd[k]
         
-        self.load_state_dict(sd, strict=True)
-        
+        miss, unexpected = self.load_state_dict(sd, strict=False)
+        assert len(miss) == 0, f"miss key: {miss}"
+        if len(unexpected) > 0:
+            for i in unexpected:
+                assert 'loss' in i, "unexpected key: {i}"
 
 
 

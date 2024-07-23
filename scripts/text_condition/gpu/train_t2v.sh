@@ -27,7 +27,7 @@ accelerate launch \
     --cache_dir "./cache_dir" \
     --dataset t2v \
     --data "scripts/train_data/image_data.txt" \
-    --ae CausalVAEModel_4x8x8 \
+    --ae CausalVAEModel_D4_4x8x8 \
     --ae_path "/storage/dataset/test140k" \
     --sample_rate 1 \
     --num_frames 1 \

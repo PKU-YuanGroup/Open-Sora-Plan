@@ -9,7 +9,7 @@ torchrun --nnodes=1 --nproc_per_node 8  --master_port 29503 \
     --cache_dir "../cache_dir" \
     --text_encoder_name google/mt5-xxl \
     --text_prompt examples/prompt_list_2.txt \
-    --ae CausalVAEModel_4x8x8 \
+    --ae CausalVAEModel_D4_4x8x8 \
     --ae_path "/storage/dataset/test140k" \
     --save_img_path "./sample_video_test" \
     --fps 24 \

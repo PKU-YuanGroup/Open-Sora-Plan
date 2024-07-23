@@ -27,7 +27,7 @@ accelerate launch \
     --cache_dir "/storage/ongoing/new/cache_dir" \
     --dataset i2v \
     --video_data "scripts/train_data/video_data_aesmovie_sucai_panda.txt" \
-    --ae CausalVAEModel_4x8x8 \
+    --ae CausalVAEModel_D4_4x8x8 \
     --ae_path "/storage/dataset/test140k" \
     --sample_rate 1 \
     --num_frames 125 \

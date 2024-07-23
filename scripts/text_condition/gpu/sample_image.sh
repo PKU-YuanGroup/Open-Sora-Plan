@@ -7,7 +7,7 @@ CUDA_VISIBLE_DEVICES=7 python opensora/sample/sample_t2v.py \
     --cache_dir "../cache_dir" \
     --text_encoder_name google/mt5-xxl \
     --text_prompt examples/prompt_list_1.txt \
-    --ae CausalVAEModel_4x8x8 \
+    --ae CausalVAEModel_D4_4x8x8 \
     --ae_path "/storage/dataset/test140k" \
     --save_img_path "sample_image_fp32_257000_cfg4.5_step40_480p_pos_neg" \
     --fps 24 \

@@ -53,7 +53,7 @@ from diffusers.configuration_utils import ConfigMixin, register_to_config
 
 from opensora.dataset import getdataset, ae_denorm
 from opensora.models.ae import getae, getae_wrapper
-from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModelWrapper
+from opensora.models.ae.videobase import CausalVAEModelWrapper
 from opensora.models.diffusion.latte.modeling_latte import LatteT2V
 from opensora.models.text_encoder import get_text_enc, get_text_warpper
 from opensora.utils.dataset_utils import VideoIP_Collate as Collate

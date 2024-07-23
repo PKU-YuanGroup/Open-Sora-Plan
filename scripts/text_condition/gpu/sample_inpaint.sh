@@ -5,7 +5,7 @@ CUDA_VISIBLE_DEVICES=6 python opensora/sample/sample_inpaint.py \
     --width 640 \
     --cache_dir "../cache_dir" \
     --text_encoder_name google/mt5-xxl \
-    --ae CausalVAEModel_4x8x8 \
+    --ae CausalVAEModel_D4_4x8x8 \
     --ae_path "/storage/dataset/test140k" \
     --save_img_path "./sample_inpaint_125x480p_bs1_lr1e-5_snr5_noioff0.02_new_mask" \
     --fps 24 \
