@@ -62,11 +62,11 @@ accelerate launch \
     --enable_tiling \
     --tile_overlap_factor 0.125 \
     --validation_dir "validation_dir" \
-    --guidance_scale 5.0 \
+    --guidance_scale 2.5 \
     --num_sampling_steps 50 \
     --ema_start_step 0 \
     --use_ema \
-    --cfg 0.1 \
+    --cfg 0.05 \
     --i2v_ratio 0.5 \
     --transition_ratio 0.4 \
     --clear_video_ratio 0.0 \

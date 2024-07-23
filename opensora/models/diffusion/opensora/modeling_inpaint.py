@@ -11,7 +11,7 @@ from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.models.modeling_utils import ModelMixin
 from diffusers.models.normalization import AdaLayerNormSingle
 from diffusers.models.embeddings import PixArtAlphaTextProjection
-from accelerate.logging import get_logger
+
 from opensora.models.diffusion.opensora.modules import OverlapPatchEmbed3D, OverlapPatchEmbed2D, PatchEmbed2D, BasicTransformerBlock
 from opensora.utils.utils import to_2tuple
 try:
@@ -31,7 +31,8 @@ import glob
 from .modeling_opensora import OpenSoraT2V
 from .videoip import VideoIPAdapter, VideoIPAttnProcessor
 
-logger = get_logger(__name__)
+
+
 
 class ModelType(Enum):
     VIP_ONLY = auto()
@@ -324,12 +325,12 @@ class VIPNet(ModelMixin, ConfigMixin):
         # init adapter modules
         model_sd = model.state_dict()
         attn_procs = {}
-        logger.info("set vip adapter...")
+        print("set vip adapter...")
         for name, attn_processor in model.attn_processors.items():
             if name.endswith(".attn2.processor"):
                 new_attn_processor = self.attn_procs[name]
                 if init_from_original_attn_processor: 
-                    logger.info(f"init from original attn processor {name}...")
+                    print(f"init from original attn processor {name}...")
                     layer_name = name.split(".processor")[0]
                     weights = {
                         "to_k_vip.weight": model_sd[layer_name + ".to_k.weight"],
@@ -348,8 +349,8 @@ class VIPNet(ModelMixin, ConfigMixin):
         assert len(pretrained_model_path) > 0, f"Cannot find pretrained model in {pretrained_model_path}"
         pretrained_model_path = pretrained_model_path[0]
 
-        logger.info(f'Loading {self.__class__.__name__} pretrained weights...')
-        logger.info(f'Loading pretrained model from {pretrained_model_path}...')
+        print(f'Loading {self.__class__.__name__} pretrained weights...')
+        print(f'Loading pretrained model from {pretrained_model_path}...')
         model_state_dict = self.state_dict()
         if 'safetensors' in pretrained_model_path:  # pixart series
             from safetensors.torch import load_file as safe_load
@@ -365,8 +366,8 @@ class VIPNet(ModelMixin, ConfigMixin):
                 checkpoint = checkpoint['model']
         
         missing_keys, unexpected_keys = self.load_state_dict(checkpoint, strict=False)
-        logger.info(f'missing_keys {len(missing_keys)} {missing_keys}, unexpected_keys {len(unexpected_keys)}')
-        logger.info(f'Successfully load {len(self.state_dict()) - len(missing_keys)}/{len(model_state_dict)} keys from {pretrained_model_path}!')
+        print(f'missing_keys {len(missing_keys)} {missing_keys}, unexpected_keys {len(unexpected_keys)}')
+        print(f'Successfully load {len(self.state_dict()) - len(missing_keys)}/{len(model_state_dict)} keys from {pretrained_model_path}!')
             
         
 
@@ -453,8 +454,8 @@ def hacked_load_state_dict(self, pretrained_model_path, load_mask=False, model_t
     assert len(pretrained_model_path) > 0, f"Cannot find pretrained model in {pretrained_model_path}"
     pretrained_model_path = pretrained_model_path[0]
 
-    logger.info(f'Loading {self.__class__.__name__} pretrained weights...')
-    logger.info(f'Loading pretrained model from {pretrained_model_path}...')
+    print(f'Loading {self.__class__.__name__} pretrained weights...')
+    print(f'Loading pretrained model from {pretrained_model_path}...')
     model_state_dict = self.state_dict()
     if 'safetensors' in pretrained_model_path:  # pixart series
         from safetensors.torch import load_file as safe_load
@@ -478,8 +479,8 @@ def hacked_load_state_dict(self, pretrained_model_path, load_mask=False, model_t
             checkpoint['pos_embed_mask.0.proj.bias'] = checkpoint['pos_embed.proj.bias']
 
     missing_keys, unexpected_keys = self.load_state_dict(checkpoint, strict=False)
-    logger.info(f'missing_keys {len(missing_keys)} {missing_keys}, unexpected_keys {len(unexpected_keys)}')
-    logger.info(f'Successfully load {len(self.state_dict()) - len(missing_keys)}/{len(model_state_dict)} keys from {pretrained_model_path}!')
+    print(f'missing_keys {len(missing_keys)} {missing_keys}, unexpected_keys {len(unexpected_keys)}')
+    print(f'Successfully load {len(self.state_dict()) - len(missing_keys)}/{len(model_state_dict)} keys from {pretrained_model_path}!')
     
 def operate_on_patched_inputs(model_type=ModelType.VIP_ONLY):
     def hacked_func(

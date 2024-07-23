@@ -1262,10 +1262,10 @@ def main(args):
             cond = cond.reshape(B, N, L, -1)
 
             def preprocess_clip_mask(clip_mask):
+                clip_mask = 1 - clip_mask # 1 means visible, 0 means invisible
                 clip_mask = F.pad(clip_mask, (0, 0, 0, 0, 0, 0, ae_stride_t - 1, 0), value=0)
                 c, h, w = clip_mask.shape[2:]
                 assert c * h * w == 1, 'clip_mask should be 1 1 1'
-                clip_mask = 1 - clip_mask # 1 means visible, 0 means invisible
                 clip_mask = rearrange(clip_mask, 'b t c h w -> b (c h w) t') # B T 1 1 1 -> B (1 1 1) T
                 clip_mask = F.max_pool1d(clip_mask, kernel_size=ae_stride_t, stride=ae_stride_t)
                 logger.warning(f'clip_mask: {clip_mask}')

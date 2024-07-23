@@ -1,7 +1,7 @@
-PROJECT="video_test"
-# PROJECT="inpaint_3d_720p_f93_bs16x8x1_lr1e-5_snrgamma5_0_noiseoffset0_02_dino518_ema0_999"
+# PROJECT="video_test"
+PROJECT="videoip_3ddit_480p_f93_bs4x8x1_lr1e-5_snrgamma5_0_noiseoffset0_02_dino518_ema0_999_cliploss"
 export WANDB_API_KEY="720d886d8c437c2142c88056a1eab8ef78d64a1f"
-export WANDB_MODE="offline"
+export WANDB_MODE="online"
 export ENTITY="yunyangge"
 export PROJECT=$PROJECT
 export HF_DATASETS_OFFLINE=1 
@@ -23,7 +23,7 @@ export MKL_NUM_THREADS=1
 export PDSH_RCMD_TYPE=ssh
 
 accelerate launch \
-    --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
+    --config_file scripts/accelerate_configs/multi_node_example.yaml \
     opensora/train/train_inpaint_all_in_one.py \
     --model OpenSoraT2V-ROPE-L/122 \
     --text_encoder_name google/mt5-xxl \
@@ -83,7 +83,7 @@ accelerate launch \
     --pretrained_vip_adapter_path "/storage/gyy/hw/Open-Sora-Plan/runs/videoip_3d_480p_f29_bs2x16_lr1e-5_snrgamma5_0_noiseoffset0_02_dino518_ema0_999/checkpoint-14000/model" \
     --use_clip_mask \
     --clip_loss_lambda 0.9 \
-    --need_validation \
+    # --need_validation \
     # --sp_size 8 \
     # --train_sp_batch_size 2 \
     # --train_vip \

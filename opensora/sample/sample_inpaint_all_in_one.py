@@ -136,7 +136,7 @@ def validation(args):
         transformer_model = OpenSoraT2V.from_pretrained(transformer_model_path, torch_dtype=weight_dtype)
         model_cls = OpenSoraT2V
     else:
-        transformer_model = OpenSoraInpaint.from_config(transformer_model_path,  torch_dtype=weight_dtype)
+        transformer_model = OpenSoraInpaint.from_pretrained(transformer_model_path,  torch_dtype=weight_dtype)
         model_cls = OpenSoraInpaint
 
     hacked_model(transformer_model, model_type, model_cls)
