@@ -12,12 +12,8 @@ from decord import VideoReader, cpu
 from torch.nn import functional as F
 from pytorchvideo.transforms import ShortSideScale
 from torchvision.transforms import Lambda, Compose
-import sys
-sys.path.append(".")
-
-from opensora.models.ae import getae_wrapper
+from opensora.models import CausalVAEModelWrapper
 from opensora.dataset.transform import ToTensorVideo, CenterCropResizeVideo
-from opensora.models.ae.videobase import CausalVAEModel
 
 
 def array_to_video(image_array: npt.NDArray, fps: float = 30.0, output_file: str = 'output_video.mp4') -> None:
@@ -85,7 +81,7 @@ def main(args: argparse.Namespace):
     device = args.device
     kwarg = {}
     # vae = getae_wrapper(args.ae)(args.model_path, subfolder="vae", cache_dir='cache_dir', **kwarg).to(device)
-    vae = getae_wrapper(args.ae)(args.ae_path, **kwarg).to(device)
+    vae = CausalVAEModelWrapper(args.ae_path, **kwarg).to(device)
     if args.enable_tiling:
         vae.vae.enable_tiling()
         vae.vae.tile_overlap_factor = args.tile_overlap_factor

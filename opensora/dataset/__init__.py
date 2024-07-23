@@ -15,45 +15,7 @@ from torchvision.transforms import Lambda
 from opensora.dataset.t2v_datasets import T2V_dataset
 from opensora.dataset.inpaint_datasets import Inpaint_dataset
 from opensora.dataset.transform import ToTensorVideo, TemporalRandomCrop, RandomHorizontalFlipVideo, CenterCropResizeVideo, LongSideResizeVideo, SpatialStrideCropVideo
-
-
-ae_norm = {
-    'CausalVAEModel_D8_4x8x8': Lambda(lambda x: 2. * x - 1.),
-    'CausalVAEModel_2x8x8': Lambda(lambda x: 2. * x - 1.),
-    'CausalVAEModel_4x8x8': Lambda(lambda x: 2. * x - 1.),
-    'CausalVQVAEModel_4x4x4': Lambda(lambda x: x - 0.5),
-    'CausalVQVAEModel_4x8x8': Lambda(lambda x: x - 0.5),
-    'VQVAEModel_4x4x4': Lambda(lambda x: x - 0.5),
-    'VQVAEModel_4x8x8': Lambda(lambda x: x - 0.5),
-    "bair_stride4x2x2": Lambda(lambda x: x - 0.5),
-    "ucf101_stride4x4x4": Lambda(lambda x: x - 0.5),
-    "kinetics_stride4x4x4": Lambda(lambda x: x - 0.5),
-    "kinetics_stride2x4x4": Lambda(lambda x: x - 0.5),
-    'stabilityai/sd-vae-ft-mse': transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], inplace=True),
-    'stabilityai/sd-vae-ft-ema': transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], inplace=True),
-    'vqgan_imagenet_f16_1024': Lambda(lambda x: 2. * x - 1.),
-    'vqgan_imagenet_f16_16384': Lambda(lambda x: 2. * x - 1.),
-    'vqgan_gumbel_f8': Lambda(lambda x: 2. * x - 1.),
-
-}
-ae_denorm = {
-    'CausalVAEModel_D8_4x8x8': lambda x: (x + 1.) / 2.,
-    'CausalVAEModel_2x8x8': lambda x: (x + 1.) / 2.,
-    'CausalVAEModel_4x8x8': lambda x: (x + 1.) / 2.,
-    'CausalVQVAEModel_4x4x4': lambda x: x + 0.5,
-    'CausalVQVAEModel_4x8x8': lambda x: x + 0.5,
-    'VQVAEModel_4x4x4': lambda x: x + 0.5,
-    'VQVAEModel_4x8x8': lambda x: x + 0.5,
-    "bair_stride4x2x2": lambda x: x + 0.5,
-    "ucf101_stride4x4x4": lambda x: x + 0.5,
-    "kinetics_stride4x4x4": lambda x: x + 0.5,
-    "kinetics_stride2x4x4": lambda x: x + 0.5,
-    'stabilityai/sd-vae-ft-mse': lambda x: 0.5 * x + 0.5,
-    'stabilityai/sd-vae-ft-ema': lambda x: 0.5 * x + 0.5,
-    'vqgan_imagenet_f16_1024': lambda x: (x + 1.) / 2.,
-    'vqgan_imagenet_f16_16384': lambda x: (x + 1.) / 2.,
-    'vqgan_gumbel_f8': lambda x: (x + 1.) / 2.,
-}
+from opensora.models.causalvideovae import ae_norm, ae_denorm
 
 def getdataset(args):
     temporal_sample = TemporalRandomCrop(args.num_frames)  # 16 x

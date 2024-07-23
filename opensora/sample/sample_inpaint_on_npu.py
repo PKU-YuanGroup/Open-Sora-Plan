@@ -18,12 +18,10 @@ from transformers import T5EncoderModel, MT5EncoderModel, T5Tokenizer, AutoToken
 import os, sys
 
 from opensora.adaptor.modules import replace_with_fp32_forwards
-from opensora.models.ae import ae_stride_config, getae, getae_wrapper
-from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModelWrapper
+from opensora.adaptor.modules import replace_with_fp32_forwards
+from opensora.models.causalvideovae import ae_stride_config, ae_channel_config, ae_norm, ae_denorm, CausalVQVAEModelWrapper
 from opensora.models.diffusion.udit.modeling_udit import UDiTT2V
 from opensora.models.diffusion.opensora.modeling_opensora import OpenSoraT2V
-from opensora.models.diffusion.latte.modeling_latte import LatteT2V
-from opensora.models.diffusion.udit_ultra.modeling_udit_ultra import UDiTUltraT2V
 
 from opensora.models.diffusion.opensora.modeling_inpaint import OpenSoraInpaint
 
@@ -245,7 +243,7 @@ if __name__ == "__main__":
     device = torch.cuda.current_device()
 
     # vae = getae_wrapper(args.ae)(args.model_path, subfolder="vae", cache_dir=args.cache_dir)
-    vae = getae_wrapper(args.ae)(args.ae_path)
+    vae = CausalVQVAEModelWrapper(args.ae_path)
     vae.vae = vae.vae.to(device=device, dtype=weight_dtype)
     if args.enable_tiling:
         vae.vae.enable_tiling()
