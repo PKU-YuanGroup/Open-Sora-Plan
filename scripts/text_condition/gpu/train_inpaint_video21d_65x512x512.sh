@@ -20,7 +20,7 @@ accelerate launch \
     --text_encoder_name DeepFloyd/t5-v1_1-xxl \
     --cache_dir "/storage/cache_dir" \
     --dataset inpaint \
-    --ae CausalVAEModel_4x8x8 \
+    --ae CausalVAEModel_D4_4x8x8 \
     --ae_path "/storage/CausalVAEModel_4x8x8" \
     --video_data "scripts/train_data/video_data_debug.txt" \
     --sample_rate 1 \

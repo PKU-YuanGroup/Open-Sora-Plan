@@ -16,7 +16,7 @@ from transformers import T5EncoderModel, MT5EncoderModel, UMT5EncoderModel, Auto
 
 
 from opensora.adaptor.modules import replace_with_fp32_forwards
-from opensora.models.causalvideovae import ae_stride_config, ae_channel_config, ae_norm, ae_denorm, CausalVQVAEModelWrapper
+from opensora.models.causalvideovae import ae_stride_config, ae_channel_config, ae_norm, ae_denorm, CausalVAEModelWrapper
 from opensora.models.diffusion.opensora.modeling_opensora import OpenSoraT2V
 from opensora.models.diffusion.udit.modeling_udit import UDiTT2V
 
@@ -35,7 +35,7 @@ def main(args):
     device = torch.device(args.device)
 
     # vae = getae_wrapper(args.ae)(args.model_path, subfolder="vae", cache_dir=args.cache_dir)
-    vae = CausalVQVAEModelWrapper(args.ae_path)
+    vae = CausalVAEModelWrapper(args.ae_path)
     vae.vae = vae.vae.to(device=device, dtype=weight_dtype)
     if args.enable_tiling:
         vae.vae.enable_tiling()

@@ -1,3 +1,0 @@
-/storage/dataset/image/tuzhan_mj,/storage/anno_jsons/tuzhan_mj_4615265.json
-/storage/dataset/image/human_images,/storage/anno_jsons/human_images_162094.json
-/storage/dataset/image/sam,/storage/anno_jsons/sam_image_11185255.json

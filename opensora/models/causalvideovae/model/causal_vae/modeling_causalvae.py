@@ -320,7 +320,7 @@ class CausalVAEModel(VideoBaseAE):
     ) -> None:
         super().__init__()
         
-        self.tile_sample_min_size = 256
+        self.tile_sample_min_size = 512
         self.tile_sample_min_size_t = 65
         self.tile_latent_min_size = int(self.tile_sample_min_size / (2 ** (len(hidden_size_mult) - 1)))
         t_down_ratio = [i for i in encoder_temporal_downsample if len(i) > 0]
@@ -598,8 +598,11 @@ class CausalVAEModel(VideoBaseAE):
                     print("Deleting key {} from state_dict.".format(k))
                     del sd[k]
         
-        self.load_state_dict(sd, strict=True)
-        
+        miss, unexpected = self.load_state_dict(sd, strict=False)
+        assert len(miss) == 0, f"miss key: {miss}"
+        if len(unexpected) > 0:
+            for i in unexpected:
+                assert 'loss' in i, "unexpected key: {i}"
 
 
 
