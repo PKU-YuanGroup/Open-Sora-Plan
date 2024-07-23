@@ -1,36 +1,3 @@
-# import cv2
-# from tqdm import tqdm
-# from glob import glob
-# import json
-# import os
-
-# def get_image_size(image_path):
-#     """
-#     Given an image path, return its width and height.
-#     """
-#     try:
-#         image = cv2.imread(image_path)
-#         height, width = image.shape[:2]
-#         return height, width
-#     except Exception as e:
-#         return None, None
-
-# image_root = '/storage/dataset/image/human_images/'
-# save_root = '/storage/dataset/image'
-# os.makedirs(save_root, exist_ok=True)
-# save_name = 'human_images_{}_resolution.json'
-# all_paths = glob(os.path.join(image_root, '**', f'*.jpg'), recursive=True)
-# items = []
-# for i in tqdm(all_paths):
-#     height, width = get_image_size(i)
-#     path = i.replace(image_root if image_root.endswith('/') else image_root + '/', '')
-#     item = dict(path=path, resolution=dict(height=height, width=width))
-#     items.append(item)
-# with open(os.path.join(save_root, save_name.format(len(items))), 'w') as f:
-#     json.dump(items, f, indent=2)
-
-
-
 
 import cv2
 from tqdm import tqdm
@@ -38,6 +5,7 @@ from glob import glob
 import json
 import os
 from multiprocessing import Pool
+import argparse
 
 def get_image_size(image_path):
     """
@@ -59,10 +27,17 @@ def process_image_paths(image_paths):
     return items
 
 if __name__ == '__main__':
-    image_root = '/storage/dataset/ideogram/Images_ideogram_v1'
-    save_root = '/storage/dataset/image'
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--image_root", type=str, required=True)
+    parser.add_argument("--save_root", type=str, required=True)
+    parser.add_argument("--save_name", type=str, required=True)
+    args = parser.parse_args()
+    # image_root = '/storage/dataset/xx/xx_v1'
+    # save_root = '/storage/dataset/image'
+    image_root = args.image_root
+    save_root = args.save_root
     os.makedirs(save_root, exist_ok=True)
-    save_name = 'ideogram_v1_{}_resolution.json'
+    save_name = '{}_{}_resolution.json'
     all_paths = glob(os.path.join(image_root, '**', '*.jpg'), recursive=True)
 
     num_processes = os.cpu_count()  # Use the number of CPU cores
@@ -72,5 +47,5 @@ if __name__ == '__main__':
 
     items = process_image_paths(results)
 
-    with open(os.path.join(save_root, save_name.format(len(items))), 'w') as f:
+    with open(os.path.join(save_root, save_name.format(args.save_name, len(items))), 'w') as f:
         json.dump(items, f, indent=2)
