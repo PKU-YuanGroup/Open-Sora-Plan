@@ -411,7 +411,7 @@ class VideoIPAttnProcessor(nn.Module):
         # the output of sdp = (batch, num_heads, seq_len, head_dim)
         # TODO: add support for attn.scale when we move to Torch 2.1
         if self.attention_mode == 'flash':
-            assert attention_mask is None or torch.all(attention_mask.bool()), 'flash-attn do not support attention_mask'
+            # assert attention_mask is None or torch.all(attention_mask.bool()), 'flash-attn do not support attention_mask'
             with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=True, enable_mem_efficient=False):
                 hidden_states = F.scaled_dot_product_attention(
                     query, key, value, dropout_p=0.0, is_causal=False

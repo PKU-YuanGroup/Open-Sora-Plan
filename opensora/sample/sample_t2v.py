@@ -33,7 +33,7 @@ import imageio
 
 
 def main(args):
-    # torch.manual_seed(args.seed)
+    torch.manual_seed(args.seed)
     # torch.backends.cuda.matmul.allow_tf32 = False
     weight_dtype = torch.bfloat16
     device = torch.device(args.device)
@@ -230,6 +230,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_sampling_steps", type=int, default=50)
     parser.add_argument("--fps", type=int, default=24)
     parser.add_argument("--run_time", type=int, default=0)
+    parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--text_prompt", nargs='+')
     parser.add_argument('--tile_overlap_factor', type=float, default=0.125)
     parser.add_argument('--enable_tiling', action='store_true')

@@ -630,16 +630,44 @@ class AttnProcessor2_0:
         self.rope = RoPE3D(interpolation_scale_thw=interpolation_scale_thw)
         self.position_getter = PositionGetter3D()
     
-    def _sparse_1d(self, x):
+    def _sparse_1d(self, x, attention_mask, frame, height, width):
+        """
+        require the shape of (batch_size x nheads x ntokens x dim)
+        attention_mask: b nheads 1 thw
+        """
+        l = x.shape[-2]
+        assert l == frame*height*width
+        pad_len = self.sparse_n * self.sparse_n - l % (self.sparse_n * self.sparse_n)
+        if pad_len != 0:
+            x = F.pad(x, (0, 0, 0, pad_len))
+            if attention_mask is not None and not self.is_cross_attn:
+                attention_mask = F.pad(attention_mask, (0, pad_len, 0, 0), value=-9980.0)
+        if not self.sparse_group:
+            x = rearrange(x, 'b h (g k) d -> (k b) h g d', k=self.sparse_n)
+            if attention_mask is not None and not self.is_cross_attn:
+                attention_mask = rearrange(attention_mask, 'b h 1 (g k) -> (k b) h 1 g', k=self.sparse_n)
+        else:
+            x = rearrange(x, 'b h (n m k) d -> (m b) h (n k) d', m=self.sparse_n, k=self.sparse_n)
+            if attention_mask is not None and not self.is_cross_attn:
+                attention_mask = rearrange(attention_mask, 'b h 1 (n m k) -> (m b) h 1 (n k)', m=self.sparse_n, k=self.sparse_n)
+
+        if self.is_cross_attn:
+            attention_mask = repeat(attention_mask, 'b h 1 l -> (k b) h 1 l', k=self.sparse_n)
+
+        return x, attention_mask, pad_len
+    
+    def _reverse_sparse_1d(self, x, frame, height, width, pad_len):
         """
         require the shape of (batch_size x nheads x ntokens x dim)
         """
+        assert x.shape[2] == (frame*height*width+pad_len) // self.sparse_n
         if not self.sparse_group:
-            x = rearrange(x, 'b h (g k) d -> (k b) h g d', k=self.sparse_n)
+            x = rearrange(x, '(k b) h g d -> b h (g k) d', k=self.sparse_n)
         else:
-            x = rearrange(x, 'b h (n m k) d -> (m b) h (n k) d', m=self.sparse_n, k=self.sparse_n)
+            x = rearrange(x, '(m b) h (n k) d -> b h (n m k) d', m=self.sparse_n, k=self.sparse_n)
+        x = x[:, :, :frame*height*width, :]
         return x
-
+    
     def _sparse_1d_kv(self, x):
         """
         require the shape of (batch_size x nheads x ntokens x dim)
@@ -647,14 +675,64 @@ class AttnProcessor2_0:
         x = repeat(x, 'b h s d -> (k b) h s d', k=self.sparse_n)
         return x
     
-    def _reverse_sparse(self, x):
+    def _sparse_2d(self, x, attention_mask, frame, height, width):
+        """
+        require the shape of (batch_size x nheads x ntokens x dim)
+        attention_mask: b nheads 1 thw
+        """
+        d = x.shape[-1]
+        x = rearrange(x, 'b h (T H W) d -> b h T H W d', T=frame, H=height, W=width)
+        if attention_mask is not None and not self.is_cross_attn:
+            attention_mask = rearrange(attention_mask, 'b h 1 (T H W) -> b h T H W', T=frame, H=height, W=width)
+        pad_height = self.sparse_n*self.sparse_n - height % (self.sparse_n*self.sparse_n)
+        pad_width = self.sparse_n*self.sparse_n - width % (self.sparse_n*self.sparse_n)
+        if pad_height != 0 or pad_width != 0:
+            x = rearrange(x, 'b h T H W d -> b (h d) T H W')
+            x = F.pad(x, (0, pad_width, 0, pad_height, 0, 0))
+            x = rearrange(x, 'b (h d) T H W -> b h T H W d', d=d)
+            if attention_mask is not None and not self.is_cross_attn:
+                attention_mask = F.pad(attention_mask, (0, pad_width, 0, pad_height, 0, 0), value=-9500.0)
+
+        if not self.sparse_group:
+            x = rearrange(x, 'b h t (g1 k1) (g2 k2) d -> (k1 k2 b) h (t g1 g2) d', 
+                          k1=self.sparse_n, k2=self.sparse_n)
+            if attention_mask is not None and not self.is_cross_attn:
+                attention_mask = rearrange(attention_mask, 'b h t (g1 k1) (g2 k2) -> (k1 k2 b) h 1 (t g1 g2)', 
+                          k1=self.sparse_n, k2=self.sparse_n)
+        else:
+            x = rearrange(x, 'b h t (n1 m1 k1) (n2 m2 k2) d -> (m1 m2 b) h (t n1 n2 k1 k2) d', 
+                          m1=self.sparse_n, k1=self.sparse_n, m2=self.sparse_n, k2=self.sparse_n)
+            if attention_mask is not None and not self.is_cross_attn:
+                attention_mask = rearrange(attention_mask, 'b h t (n1 m1 k1) (n2 m2 k2) -> (m1 m2 b) h 1 (t n1 n2 k1 k2)', 
+                          m1=self.sparse_n, k1=self.sparse_n, m2=self.sparse_n, k2=self.sparse_n)
+        
+        if self.is_cross_attn:
+            attention_mask = repeat(attention_mask, 'b h 1 l -> (k1 k2 b) h 1 l', k1=self.sparse_n, k2=self.sparse_n)
+        return x, attention_mask, pad_height, pad_width
+    
+    def _reverse_sparse_2d(self, x, frame, height, width, pad_height, pad_width):
         """
         require the shape of (batch_size x nheads x ntokens x dim)
         """
+        assert x.shape[2] == frame*(height+pad_height)*(width+pad_width)//self.sparse_n//self.sparse_n
         if not self.sparse_group:
-            x = rearrange(x, '(k b) h g d -> b h (g k) d', k=self.sparse_n)
+            x = rearrange(x, '(k1 k2 b) h (t g1 g2) d -> b h t (g1 k1) (g2 k2) d', 
+                          k1=self.sparse_n, k2=self.sparse_n, 
+                          g1=(height+pad_height)//self.sparse_n, g2=(width+pad_width)//self.sparse_n)
         else:
-            x = rearrange(x, '(m b) h (n k) d -> b h (n m k) d', m=self.sparse_n, k=self.sparse_n)
+            x = rearrange(x, '(m1 m2 b) h (t n1 n2 k1 k2) d -> b h t (n1 m1 k1) (n2 m2 k2) d', 
+                          m1=self.sparse_n, k1=self.sparse_n, m2=self.sparse_n, k2=self.sparse_n, 
+                          n1=(height+pad_height)//self.sparse_n//self.sparse_n, n2=(width+pad_width)//self.sparse_n//self.sparse_n)
+        x = x[:, :, :, :height, :width, :]
+        x = rearrange(x, 'b h T H W d -> b h (T H W) d')
+        return x
+    
+    
+    def _sparse_2d_kv(self, x):
+        """
+        require the shape of (batch_size x nheads x ntokens x dim)
+        """
+        x = repeat(x, 'b h s d -> (k1 k2 b) h s d', k1=self.sparse_n, k2=self.sparse_n)
         return x
 
 
@@ -674,7 +752,6 @@ class AttnProcessor2_0:
         if len(args) > 0 or kwargs.get("scale", None) is not None:
             deprecation_message = "The `scale` argument is deprecated and will be ignored. Please remove it, as passing it will raise an error in the future. `scale` should directly be passed while calling the underlying pipeline component i.e., via `cross_attention_kwargs`."
             deprecate("scale", "1.0.0", deprecation_message)
-
 
         if attn.downsampler is not None:
             hidden_states, attention_mask = attn.downsampler(hidden_states, attention_mask, t=frame, h=height, w=width)
@@ -728,7 +805,7 @@ class AttnProcessor2_0:
 
         inner_dim = key.shape[-1]
         head_dim = inner_dim // attn.heads
-
+        
         if npu_config is not None and npu_config.on_npu:
             if get_sequence_parallel_state():
                 query = query.view(-1, attn.heads, head_dim)  # [s // sp, b, h * d] -> [s // sp * b, h, d]
@@ -814,14 +891,16 @@ class AttnProcessor2_0:
                 value = rearrange(value, 's b h d -> b h s d')
                 # print('rearrange query', query.shape, 'key', key.shape, 'value', value.shape)
 
-                if attention_mask is None or not torch.all(attention_mask.bool()):  # 0 mean visible
+                # 0, -10000 ->(bool) False, True ->(any) True ->(not) False
+                # 0, 0 ->(bool) False, False ->(any) False ->(not) True
+                if attention_mask is None or not torch.any(attention_mask.bool()):  # 0 mean visible
                     attention_mask = None
                 # the output of sdp = (batch, num_heads, seq_len, head_dim)
                 # TODO: add support for attn.scale when we move to Torch 2.1
                 # import ipdb;ipdb.set_trace()
                 # print(attention_mask)
                 if self.attention_mode == 'flash':
-                    assert attention_mask is None or not torch.all(attention_mask.bool()), 'flash-attn do not support attention_mask'
+                    assert attention_mask is None, 'flash-attn do not support attention_mask'
                     with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=True, enable_mem_efficient=False):
                         hidden_states = F.scaled_dot_product_attention(
                             query, key, value, dropout_p=0.0, is_causal=False
@@ -857,31 +936,36 @@ class AttnProcessor2_0:
                     pos_thw = self.position_getter(batch_size, t=frame, h=height, w=width, device=query.device)
                     query = self.rope(query, pos_thw)
                     key = self.rope(key, pos_thw)
-                    
+                
                 value = value.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
                 if self.sparse1d:
-                    query = self._sparse_1d(query)
+                    query, attention_mask, pad_len = self._sparse_1d(query, attention_mask, frame, height, width)
                     if self.is_cross_attn:
                         key = self._sparse_1d_kv(key)
                         value = self._sparse_1d_kv(value)
                     else:
-                        key = self._sparse_1d(key)
-                        value = self._sparse_1d(value)
+                        key, _, pad_len = self._sparse_1d(key, None, frame, height, width)
+                        value, _, pad_len = self._sparse_1d(value, None, frame, height, width)
 
                 elif self.sparse2d:
-                    raise NotImplementedError
+                    # import ipdb;ipdb.set_trace()
+                    query, attention_mask, pad_height, pad_width = self._sparse_2d(query, attention_mask, frame, height, width)
                     if self.is_cross_attn:
-                        raise NotImplementedError
+                        key = self._sparse_2d_kv(key)
+                        value = self._sparse_2d_kv(value)
+                    else:
+                        key, _, pad_height, pad_width = self._sparse_2d(key, None, frame, height, width)
+                        value, _, pad_height, pad_width = self._sparse_2d(value, None, frame, height, width)
                 
 
-                if attention_mask is None or not torch.all(attention_mask.bool()):  # 0 mean visible
+                # 0, -10000 ->(bool) False, True ->(any) True ->(not) False
+                # 0, 0 ->(bool) False, False ->(any) False ->(not) True
+                if attention_mask is None or not torch.any(attention_mask.bool()):  # 0 mean visible
                     attention_mask = None
                 # the output of sdp = (batch, num_heads, seq_len, head_dim)
                 # TODO: add support for attn.scale when we move to Torch 2.1
-                # import ipdb;ipdb.set_trace()
-                # print(attention_mask)
                 if self.attention_mode == 'flash':
-                    assert attention_mask is None or not torch.all(attention_mask.bool()), 'flash-attn do not support attention_mask'
+                    assert attention_mask is None, 'flash-attn do not support attention_mask'
                     with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=True, enable_mem_efficient=False):
                         hidden_states = F.scaled_dot_product_attention(
                             query, key, value, dropout_p=0.0, is_causal=False
@@ -899,7 +983,9 @@ class AttnProcessor2_0:
                     raise NotImplementedError(f'Found attention_mode: {self.attention_mode}')
                 
                 if self.sparse1d:
-                    hidden_states = self._reverse_sparse(hidden_states)
+                    hidden_states = self._reverse_sparse_1d(hidden_states, frame, height, width, pad_len)
+                elif self.sparse2d:
+                    hidden_states = self._reverse_sparse_2d(hidden_states, frame, height, width, pad_height, pad_width)
 
                 hidden_states = hidden_states.transpose(1, 2).reshape(batch_size, -1, attn.heads * head_dim)
         hidden_states = hidden_states.to(query.dtype)
@@ -1296,7 +1382,7 @@ class BasicTransformerBlock(nn.Module):
         # 1. Prepare GLIGEN inputs
         cross_attention_kwargs = cross_attention_kwargs.copy() if cross_attention_kwargs is not None else {}
         gligen_kwargs = cross_attention_kwargs.pop("gligen", None)
-
+        
         attn_output = self.attn1(
             norm_hidden_states,
             encoder_hidden_states=encoder_hidden_states if self.only_cross_attention else None,
@@ -1337,7 +1423,7 @@ class BasicTransformerBlock(nn.Module):
             attn_output = self.attn2(
                 norm_hidden_states,
                 encoder_hidden_states=encoder_hidden_states,
-                attention_mask=encoder_attention_mask,
+                attention_mask=encoder_attention_mask, frame=frame, height=height, width=width,
                 **cross_attention_kwargs,
             )
             hidden_states = attn_output + hidden_states

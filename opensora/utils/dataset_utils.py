@@ -214,10 +214,7 @@ def last_group_data_fun(shuffled_megabatches, lengths):
     for i_megabatch, megabatch in enumerate(shuffled_megabatches):
         re_megabatch = []
         for i_batch, batch in enumerate(megabatch):
-            if len(batch) == 0:
-                # print(i_megabatch, i_batch, megabatch, batch)
-                re_megabatch.append(batch)
-                continue
+            assert len(batch) != 0
                 
             len_each_batch = [lengths[i] for i in batch]
             idx_length_dict = dict([*zip(batch, len_each_batch)])
@@ -266,10 +263,14 @@ def split_to_even_chunks(indices, lengths, num_chunks, batch_size):
             if len(chunks[cur_chunk]) == num_indices_per_chunk:
                 cur_chunk += 1
     pad_chunks = []
-    for chunk in chunks:
+    for idx, chunk in enumerate(chunks):
         if batch_size != len(chunk):
             assert batch_size > len(chunk)
-            chunk = chunk + [random.choice(chunk) for _ in range(batch_size - len(chunk))]
+            if len(chunk) != 0:
+                chunk = chunk + [random.choice(chunk) for _ in range(batch_size - len(chunk))]
+            else:
+                chunk = random.choice(pad_chunks)
+                print(chunks[idx], '->', chunk)
         pad_chunks.append(chunk)
     return pad_chunks
 

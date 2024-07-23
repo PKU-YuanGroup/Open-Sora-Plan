@@ -440,7 +440,7 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
                 timestep_vid = timestep_vid.view(batch_size, 6, -1).transpose(0, 1).contiguous()
                 # print('timestep_vid', timestep_vid.shape)
 
-                
+        
         for block in self.transformer_blocks:
             if self.training and self.gradient_checkpointing:
 
@@ -664,7 +664,7 @@ if __name__ == '__main__':
         'attention_mode': 'xformers', 
         'use_rope': True, 
         'model_max_length': 300, 
-        'max_height': 320,
+        'max_height': 240,
         'max_width': 240,
         'num_frames': 1,
         'use_image_num': 0, 
@@ -672,8 +672,8 @@ if __name__ == '__main__':
         'interpolation_scale_t': 1,
         'interpolation_scale_h': 1,
         'interpolation_scale_w': 1,
-        "sparse1d": True, 
-        "sparse2d": False, 
+        "sparse1d": False, 
+        "sparse2d": True, 
         "sparse_n": 2, 
     }
     )
