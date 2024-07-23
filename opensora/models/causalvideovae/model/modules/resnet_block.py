@@ -12,8 +12,7 @@ try:
 except:
     torch_npu = None
     npu_config = None
-
-
+    
 class ResnetBlock2D(Block):
     def __init__(self, *, in_channels, out_channels=None, conv_shortcut=False,
                  dropout):

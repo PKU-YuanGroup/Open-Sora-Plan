@@ -15,7 +15,7 @@ class PositionGetter3D(object):
         self.cache_positions = {}
         
     def __call__(self, b, t, h, w, device):
-        if not (t,h,w) in self.cache_positions:
+        if not (b, t,h,w) in self.cache_positions:
             x = torch.arange(w, device=device)
             y = torch.arange(h, device=device)
             z = torch.arange(t, device=device)
@@ -28,8 +28,8 @@ class PositionGetter3D(object):
             poses = (pos[0].contiguous(), pos[1].contiguous(), pos[2].contiguous())
             max_poses = (int(poses[0].max()), int(poses[1].max()), int(poses[2].max()))
 
-            self.cache_positions[t, h, w] = (poses, max_poses)
-        pos = self.cache_positions[t, h, w]
+            self.cache_positions[b, t, h, w] = (poses, max_poses)
+        pos = self.cache_positions[b, t, h, w]
 
         return pos
     

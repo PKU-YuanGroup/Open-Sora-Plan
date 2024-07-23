@@ -335,13 +335,17 @@ class CausalVAEModel(VideoBaseAE):
     ) -> None:
         super().__init__()
         
+        
         self.tile_sample_min_size = 512
-        self.tile_sample_min_size_t = 65
+        self.tile_sample_min_size_t = 33
         self.tile_latent_min_size = int(self.tile_sample_min_size / (2 ** (len(hidden_size_mult) - 1)))
-        t_down_ratio = [i for i in encoder_temporal_downsample if len(i) > 0]
-        self.tile_latent_min_size_t = int((self.tile_sample_min_size_t-1) / (2 ** len(t_down_ratio))) + 1
-        self.tile_overlap_factor = 0.25
+        
+        # t_down_ratio = [i for i in encoder_temporal_downsample if len(i) > 0]
+        # self.tile_latent_min_size_t = int((self.tile_sample_min_size_t-1) / (2 ** len(t_down_ratio))) + 1
+        self.tile_latent_min_size_t = 16
+        self.tile_overlap_factor = 0.125
         self.use_tiling = False
+        
         self.use_quant_layer = use_quant_layer
 
         self.encoder = Encoder(

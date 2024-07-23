@@ -797,14 +797,16 @@ class AttnProcessor2_0:
                 value = rearrange(value, 's b h d -> b h s d')
                 # print('rearrange query', query.shape, 'key', key.shape, 'value', value.shape)
 
-                if attention_mask is None or not torch.all(attention_mask.bool()):  # 0 mean visible
+                # 0, -10000 ->(bool) False, True ->(any) True ->(not) False
+                # 0, 0 ->(bool) False, False ->(any) False ->(not) True
+                if attention_mask is None or not torch.any(attention_mask.bool()):  # 0 mean visible
                     attention_mask = None
                 # the output of sdp = (batch, num_heads, seq_len, head_dim)
                 # TODO: add support for attn.scale when we move to Torch 2.1
                 # import ipdb;ipdb.set_trace()
                 # print(attention_mask)
                 if self.attention_mode == 'flash':
-                    assert attention_mask is None or not torch.all(attention_mask.bool()), 'flash-attn do not support attention_mask'
+                    assert attention_mask is None, 'flash-attn do not support attention_mask'
                     with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=True, enable_mem_efficient=False):
                         hidden_states = F.scaled_dot_product_attention(
                             query, key, value, dropout_p=0.0, is_causal=False
@@ -843,14 +845,16 @@ class AttnProcessor2_0:
                     
                 value = value.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
 
-                if attention_mask is None or not torch.all(attention_mask.bool()):  # 0 mean visible
+                # 0, -10000 ->(bool) False, True ->(any) True ->(not) False
+                # 0, 0 ->(bool) False, False ->(any) False ->(not) True
+                if attention_mask is None or not torch.any(attention_mask.bool()):  # 0 mean visible
                     attention_mask = None
                 # the output of sdp = (batch, num_heads, seq_len, head_dim)
                 # TODO: add support for attn.scale when we move to Torch 2.1
                 # import ipdb;ipdb.set_trace()
                 # print(attention_mask)
                 if self.attention_mode == 'flash':
-                    assert attention_mask is None or not torch.all(attention_mask.bool()), 'flash-attn do not support attention_mask'
+                    assert attention_mask is None, 'flash-attn do not support attention_mask'
                     with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=True, enable_mem_efficient=False):
                         hidden_states = F.scaled_dot_product_attention(
                             query, key, value, dropout_p=0.0, is_causal=False

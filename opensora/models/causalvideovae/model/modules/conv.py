@@ -14,7 +14,6 @@ except:
     torch_npu = None
     npu_config = None
 
-
 class Conv2d(nn.Conv2d):
     def __init__(
         self,
@@ -48,6 +47,7 @@ class Conv2d(nn.Conv2d):
     def forward(self, x):
         return super().forward(x)
         
+
 
 class CausalConv3d(nn.Module):
     def __init__(
@@ -113,9 +113,8 @@ class CausalConv3d(nn.Module):
             )  # b c t h w
             x = torch.concatenate((first_frame_pad, x), dim=2)  # 3 + 16
             return self.conv(x)
-
-
-
+    
+    
 class CausalConv3d_GC(CausalConv3d):
     def __init__(self, chan_in, chan_out, kernel_size: Union[int, Tuple[int]], init_method="random", **kwargs):
         super().__init__(chan_in, chan_out, kernel_size, init_method, **kwargs)

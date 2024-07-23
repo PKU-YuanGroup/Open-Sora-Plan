@@ -436,7 +436,7 @@ def main(args):
                 lengths=train_dataset.lengths, 
                 group_frame=args.group_frame, 
                 group_resolution=args.group_resolution, 
-            ) if args.group_frame or args.group_resolution else None
+            ) if (args.group_frame or args.group_resolution) else None
     train_dataloader = DataLoader(
         train_dataset,
         shuffle=sampler is None,
@@ -444,7 +444,7 @@ def main(args):
         collate_fn=Collate(args),
         batch_size=args.train_batch_size,
         num_workers=args.dataloader_num_workers,
-        sampler=sampler if args.group_frame or args.group_resolution else None, 
+        sampler=sampler if (args.group_frame or args.group_resolution) else None, 
         drop_last=True, 
         # prefetch_factor=4
     )

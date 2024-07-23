@@ -25,11 +25,11 @@ accelerate launch \
     --text_encoder_name google/mt5-xxl \
     --cache_dir "./cache_dir" \
     --dataset t2v \
-    --data "scripts/train_data/merge_data.txt" \
+    --data "scripts/train_data/merge_data1.txt" \
     --ae CausalVAEModel_D4_4x8x8 \
     --ae_path "/storage/dataset/test140k" \
     --sample_rate 1 \
-    --num_frames 1 \
+    --num_frames 29 \
     --max_height 480 \
     --max_width 640 \
     --interpolation_scale_t 1.0 \
@@ -37,7 +37,7 @@ accelerate launch \
     --interpolation_scale_w 1.0 \
     --attention_mode xformers \
     --gradient_checkpointing \
-    --train_batch_size=16 \
+    --train_batch_size=1 \
     --dataloader_num_workers 10 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
@@ -46,7 +46,7 @@ accelerate launch \
     --lr_warmup_steps=0 \
     --mixed_precision="bf16" \
     --report_to="wandb" \
-    --checkpointing_steps=1000 \
+    --checkpointing_steps=100 \
     --allow_tf32 \
     --model_max_length 512 \
     --use_image_num 0 \
@@ -60,4 +60,6 @@ accelerate launch \
     --resume_from_checkpoint="latest" \
     --ema_decay 0.9999 \
     --enable_tracker \
+    --enable_tiling \
+    --group_frame \
     --output_dir="debug" 

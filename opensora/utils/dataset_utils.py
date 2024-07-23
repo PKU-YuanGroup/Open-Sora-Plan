@@ -91,7 +91,7 @@ class Collate:
         # pad to max multiple of ds_stride
         batch_input_size = [i.shape for i in batch_tubes]  # [(c t h w), (c t h w)]
         assert len(batch_input_size) == self.batch_size
-        if self.group_frame or self.batch_size == 1:  #
+        if self.group_frame or self.group_resolution or self.batch_size == 1:  #
             len_each_batch = batch_input_size
             idx_length_dict = dict([*zip(list(range(self.batch_size)), len_each_batch)])
             count_dict = Counter(len_each_batch)
@@ -152,7 +152,7 @@ class Collate:
                                                                0, max_latent_size[1] - i[1],
                                                                0, max_latent_size[0] - i[0]), value=0) for i in valid_latent_size]
         attention_mask = torch.stack(attention_mask)  # b t h w
-        if self.batch_size == 1 or self.group_frame:
+        if self.batch_size == 1 or self.group_frame or self.group_resolution:
             assert torch.all(attention_mask.bool())
             
         input_ids = torch.stack(input_ids)  # b 1 l
@@ -197,7 +197,6 @@ def split_to_even_chunks(indices, lengths, num_chunks, batch_size):
 
     if len(indices) % num_chunks != 0:
         chunks = [indices[i::num_chunks] for i in range(num_chunks)]
-
     else:
         num_indices_per_chunk = len(indices) // num_chunks
 
@@ -209,12 +208,17 @@ def split_to_even_chunks(indices, lengths, num_chunks, batch_size):
             chunks_lengths[shortest_chunk] += lengths[index]
             if len(chunks[shortest_chunk]) == num_indices_per_chunk:
                 chunks_lengths[shortest_chunk] = float("inf")
+    # return chunks
 
     pad_chunks = []
-    for chunk in chunks:
+    for idx, chunk in enumerate(chunks):
         if batch_size != len(chunk):
             assert batch_size > len(chunk)
-            chunk = chunk + [random.choice(chunk) for _ in range(batch_size - len(chunk))]
+            if len(chunk) != 0:
+                chunk = chunk + [random.choice(chunk) for _ in range(batch_size - len(chunk))]
+            else:
+                chunk = random.choice(pad_chunks)
+                print(indices, chunks[idx], '->', chunk, pad_chunks)
         pad_chunks.append(chunk)
     return pad_chunks
 
@@ -237,11 +241,7 @@ def last_group_frame_fun(shuffled_megabatches, lengths):
     for i_megabatch, megabatch in enumerate(shuffled_megabatches):
         re_megabatch = []
         for i_batch, batch in enumerate(megabatch):
-            if len(batch) == 0:
-                # print(i_megabatch, i_batch, megabatch, batch)
-                re_megabatch.append(batch)
-                continue
-                
+            assert len(batch) != 0
             len_each_batch = [lengths[i] for i in batch]
             idx_length_dict = dict([*zip(batch, len_each_batch)])
             count_dict = Counter(len_each_batch)

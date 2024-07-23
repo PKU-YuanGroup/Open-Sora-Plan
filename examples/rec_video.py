@@ -85,6 +85,12 @@ def main(args: argparse.Namespace):
     if args.enable_tiling:
         vae.vae.enable_tiling()
         vae.vae.tile_overlap_factor = args.tile_overlap_factor
+        vae.vae.tile_overlap_factor = args.tile_overlap_factor
+        if args.save_memory:
+            vae.vae.tile_sample_min_size = 256
+            vae.vae.tile_latent_min_size = 32
+            vae.vae.tile_sample_min_size_t = 29
+            vae.vae.tile_latent_min_size_t = 8
     vae.eval()
     vae = vae.to(device)
     vae = vae.half()
@@ -119,6 +125,7 @@ if __name__ == '__main__':
     parser.add_argument('--tile_overlap_factor', type=float, default=0.25)
     parser.add_argument('--tile_sample_min_size', type=int, default=256)
     parser.add_argument('--enable_tiling', action='store_true')
+    parser.add_argument('--save_memory', action='store_true')
 
     args = parser.parse_args()
     main(args)
