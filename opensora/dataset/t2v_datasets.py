@@ -288,13 +288,19 @@ class T2V_dataset(Dataset):
                     if resolution.get('height', None) is None or resolution.get('width', None) is None:
                         cnt_no_resolution += 1
                         continue
-                    if not filter_resolution(resolution['height'], resolution['width']):
+                    height, width = i['resolution']['height'], i['resolution']['width']
+                    aspect = self.max_height / self.max_width
+                    hw_aspect_thr = 1.5
+                    is_pick = filter_resolution(height, width, max_h_div_w_ratio=hw_aspect_thr*aspect, 
+                                                min_h_div_w_ratio=1/hw_aspect_thr*aspect)
+                    if not is_pick:
                         cnt_resolution_mismatch += 1
                         continue
-                    # ignore image resolution mismatch
-                    if self.max_height > resolution['height'] or self.max_width > resolution['width']:
-                        cnt_resolution_mismatch += 1
-                        continue
+
+                    # # ignore image resolution mismatch
+                    # if self.max_height > resolution['height'] or self.max_width > resolution['width']:
+                    #     cnt_resolution_mismatch += 1
+                    #     continue
 
                 # import ipdb;ipdb.set_trace()
                 i['num_frames'] = int(fps * duration)

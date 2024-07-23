@@ -12,8 +12,8 @@ ae_stride_config = {
 ae_channel_config = {
     'CausalVAEModel_D4_2x8x8': 4,
     'CausalVAEModel_D8_2x8x8': 8,
-    'CausalVAEModel_D4_4x8x8': 8,
-    'CausalVAEModel_D8_4x8x8': 4,
+    'CausalVAEModel_D4_4x8x8': 4,
+    'CausalVAEModel_D8_4x8x8': 8,
 }
 
 

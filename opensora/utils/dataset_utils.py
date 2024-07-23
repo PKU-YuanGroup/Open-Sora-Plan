@@ -91,7 +91,7 @@ class Collate:
         # pad to max multiple of ds_stride
         batch_input_size = [i.shape for i in batch_tubes]  # [(c t h w), (c t h w)]
         assert len(batch_input_size) == self.batch_size
-        if self.group_data or self.batch_size == 1:  #
+        if self.group_frame or self.batch_size == 1:  #
             len_each_batch = batch_input_size
             idx_length_dict = dict([*zip(list(range(self.batch_size)), len_each_batch)])
             count_dict = Counter(len_each_batch)
@@ -158,7 +158,7 @@ class Collate:
         input_ids = torch.stack(input_ids)  # b 1 l
         cond_mask = torch.stack(cond_mask)  # b 1 l
 
-        return pad_batch_tubes, attention_mask
+        return pad_batch_tubes, attention_mask, input_ids, cond_mask
 
 class VideoIP_Collate(Collate):
     def __init__(self, args):
