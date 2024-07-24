@@ -232,15 +232,15 @@ if __name__ == "__main__":
 
     vae.vae_scale_factor = ae_stride_config[args.ae]
 
-    text_encoder = MT5EncoderModel.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", 
-                                                   cache_dir=args.cache_dir, low_cpu_mem_usage=True, 
-                                                   torch_dtype=weight_dtype).to(device)
-    tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", 
-                                              cache_dir=args.cache_dir)
+    # text_encoder = MT5EncoderModel.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", 
+    #                                                cache_dir=args.cache_dir, low_cpu_mem_usage=True, 
+    #                                                torch_dtype=weight_dtype).to(device)
+    # tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", 
+    #                                           cache_dir=args.cache_dir)
     
-    # text_encoder = MT5EncoderModel.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir,
-    #                                               low_cpu_mem_usage=True, torch_dtype=weight_dtype).to(device)
-    # tokenizer = T5Tokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
+    text_encoder = MT5EncoderModel.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir,
+                                                  low_cpu_mem_usage=True, torch_dtype=weight_dtype).to(device)
+    tokenizer = T5Tokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
 
     # set eval mode
     vae.eval()
@@ -292,7 +292,7 @@ if __name__ == "__main__":
         # else:
         #     print(f"The latest_path is {latest_path}")
 
-        
+
         # full_path = f"{args.model_path}/{latest_path}/model_ema"
         full_path = f"{args.model_path}"
         # full_path = f"{args.model_path}/{latest_path}/model"

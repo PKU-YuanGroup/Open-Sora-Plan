@@ -19,7 +19,7 @@ torchrun \
     --nnodes=1 --nproc_per_node=8 \
     --master_addr=localhost \
     --master_port=29600 \
-    opensora/models/causalvideovae/train_ddp.py \
+    scripts/causalvae/train_causalvae.py \
     --exp_name ${EXP_NAME} \
     --model_config scripts/config.json \
     --video_path /storage/dataset/pexels/ \

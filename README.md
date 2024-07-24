@@ -62,10 +62,10 @@ Open-Sora Plan shows excellent performance in video generation.
 
 ### Gradio Web UI
 
-Highly recommend trying out our web demo by the following command. We also provide [online demo](https://huggingface.co/spaces/LanguageBind/Open-Sora-Plan-v1.1.0). 
+Highly recommend trying out our web demo by the following command.
 
 ```bash
-python -m opensora.serve.gradio_web_server --version 221x512x512
+python -m opensora.serve.gradio_web_server --model_path "path/to/model" --ae_path "path/to/causalvideovae"
 ```
 
 ### ComfyUI
@@ -331,7 +331,7 @@ Coming soon...
 ### Inference
 Coming soon...
 
-# 💡 How to Contribute to the Open-Sora Plan Community
+# 💡 How to Contribute
 We greatly appreciate your contributions to the Open-Sora Plan open-source community and helping us make it even better than it is now!
 
 For more details, please refer to the [Contribution Guidelines](docs/Contribution_Guidelines.md)

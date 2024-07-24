@@ -172,10 +172,6 @@ def run_model_and_save_images(pipeline, model_path):
     dist.all_gather_into_tensor(gathered_tensor, video_grids.contiguous())
     video_grids = gathered_tensor.cpu()
 
-    # video_grids = video_grids.repeat(world_size, 1, 1, 1)
-    # output = torch.zeros(video_grids.shape, dtype=video_grids.dtype, device=device)
-    # dist.all_to_all_single(output, video_grids)
-    # video_grids = output.cpu()
     def get_file_name():
         return os.path.join(args.save_img_path,
                             f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}_{checkpoint_name}.{ext}')
@@ -254,15 +250,16 @@ if __name__ == "__main__":
             vae.vae.tile_latent_min_size_t = 8
     vae.vae_scale_factor = ae_stride_config[args.ae]
 
-    text_encoder = MT5EncoderModel.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", 
-                                                   cache_dir=args.cache_dir, low_cpu_mem_usage=True, 
-                                                   torch_dtype=weight_dtype).to(device)
-    tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", 
-                                              cache_dir=args.cache_dir)
+    # text_encoder = MT5EncoderModel.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", 
+    #                                                cache_dir=args.cache_dir, low_cpu_mem_usage=True, 
+    #                                                torch_dtype=weight_dtype).to(device)
+    # tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", 
+    #                                           cache_dir=args.cache_dir)
     
-    # text_encoder = T5EncoderModel.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir,
-    #                                               low_cpu_mem_usage=True, torch_dtype=weight_dtype).to(device)
-    # tokenizer = T5Tokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
+    text_encoder = MT5EncoderModel.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir,
+                                                  low_cpu_mem_usage=True, torch_dtype=weight_dtype).to(device)
+    tokenizer = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
+
     if args.refine_caption:
         from transformers import AutoModel, AutoTokenizer
         new_path = '/storage/zhubin/ShareGPT4Video/sharegpt4video/sharecaptioner_v1'

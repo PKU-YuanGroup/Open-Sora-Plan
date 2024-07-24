@@ -18,13 +18,13 @@ export MKL_NUM_THREADS=1
 # export NCCL_ALGO=Tree
 
 accelerate launch \
-    --config_file scripts/accelerate_configs/multi_node_example.yaml \
+    --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
     opensora/train/train_t2v_diffusers.py \
     --model OpenSoraT2V-ROPE-L/122 \
     --text_encoder_name google/mt5-xxl \
     --cache_dir "./cache_dir" \
     --dataset t2v \
-    --data "scripts/train_data/merge_data1.txt" \
+    --data "scripts/train_data/merge_data.txt" \
     --ae CausalVAEModel_D4_4x8x8 \
     --ae_path "/storage/dataset/test140k" \
     --sample_rate 1 \
@@ -61,4 +61,6 @@ accelerate launch \
     --enable_tiling \
     --speed_factor 1.0 \
     --group_frame \
+    --sp_size 8 \
+    --train_sp_batch_size 2 \
     --output_dir="bs16x8x1_29x480p_lr1e-4_snr5_ema999_opensora122_rope_mt5xxl_speed1.0" 

@@ -15,7 +15,6 @@ DESCRIPTION = """
         #### [Open-Sora Plan 93x720p](https://github.com/PKU-YuanGroup/Open-Sora-Plan) is a transformer-based text-to-video diffusion system trained on text embeddings from mT5. This demo uses the []() checkpoint.
         #### Multilingual prompts SUPPORT; 支持多语言
         #### Welcome to Star🌟 our [GitHub](https://github.com/PKU-YuanGroup/Open-Sora-Plan)
-        ### <span style='color: red;'>You may change frame to 29 if you're not satisfied with the speed, as generating short video is significantly faster than long one.
         """
 NEG_PROMPT = """
     nsfw, lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, 
