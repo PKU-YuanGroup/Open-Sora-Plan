@@ -39,7 +39,7 @@ This project aims to create a simple and scalable repo, to reproduce [Sora](http
 
 <table class="center">
 <tr>
-  <td><video src="" autoplay></td>
+  <td><video src="https://github.com/user-attachments/assets/1c84bc92-d585-46c9-ae7c-e5f79cefea88" autoplay></td>
 </tr>
 </table>
 
