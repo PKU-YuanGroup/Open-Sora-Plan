@@ -15,6 +15,7 @@ import torch.distributed as dist
 from torch import inf
 from PIL import Image
 from typing import Union, Iterable
+import collections
 from collections import OrderedDict
 from torch.utils.tensorboard import SummaryWriter
 
@@ -31,6 +32,11 @@ if is_ftfy_available():
     import ftfy
 
 _tensor_or_tensors = Union[torch.Tensor, Iterable[torch.Tensor]]
+
+def to_2tuple(x):
+    if isinstance(x, collections.abc.Iterable):
+        return x
+    return (x, x)
 
 def find_model(model_name):
     """
@@ -50,27 +56,6 @@ def find_model(model_name):
 #################################################################################
 #                             Training Clip Gradients                           #
 #################################################################################
-import deepspeed
-def print_grad_norm(model):
-    # 计算并打印梯度范数
-    # model_engine = accelerator.deepspeed_engine_wrapped.engine
-    # gradients = model_engine.get_gradients()
-    # grad_norm = get_grad_norm(gradients)
-    # 计算并打印梯度范数
-    grad_norm = 0
-    n_grad = 0
-    for name, param in model.named_parameters():
-        grad_data = deepspeed.utils.safe_get_full_grad(param)
-        # self.print_tensor_stats(grad_data, name=name)
-
-        if grad_data is not None:
-            param_norm = grad_data.norm(2)
-            grad_norm += param_norm.item() ** 2
-            n_grad += 1
-    grad_norm = (grad_norm / n_grad) ** (1. / 2)
-
-    # self.print_msg('=' * 50)
-    print(f'Gradient Norm is : {grad_norm}')
 
 def get_grad_norm(
         parameters: _tensor_or_tensors, norm_type: float = 2.0) -> torch.Tensor:
@@ -357,10 +342,10 @@ def collect_env():
 
 bad_punct_regex = re.compile(r'['+'#®•©™&@·º½¾¿¡§~'+'\)'+'\('+'\]'+'\['+'\}'+'\{'+'\|'+'\\'+'\/'+'\*' + r']{1,}')  # noqa
 
-def text_preprocessing(text):
+def text_preprocessing(text, support_Chinese=True):
     # The exact text cleaning as was in the training stage:
-    text = clean_caption(text)
-    text = clean_caption(text)
+    text = clean_caption(text, support_Chinese=support_Chinese)
+    text = clean_caption(text, support_Chinese=support_Chinese)
     return text
 
 def basic_clean(text):
@@ -368,7 +353,7 @@ def basic_clean(text):
     text = html.unescape(html.unescape(text))
     return text.strip()
 
-def clean_caption(caption):
+def clean_caption(caption, support_Chinese=True):
     caption = str(caption)
     caption = ul.unquote_plus(caption)
     caption = caption.strip().lower()
@@ -399,7 +384,8 @@ def clean_caption(caption):
     caption = re.sub(r'[\u3300-\u33ff]+', '', caption)
     caption = re.sub(r'[\u3400-\u4dbf]+', '', caption)
     caption = re.sub(r'[\u4dc0-\u4dff]+', '', caption)
-    caption = re.sub(r'[\u4e00-\u9fff]+', '', caption)
+    if not support_Chinese:
+        caption = re.sub(r'[\u4e00-\u9fff]+', '', caption)  # Chinese
     #######################################################
 
     # все виды тире / all types of dash --> "-"
@@ -476,5 +462,10 @@ def clean_caption(caption):
     return caption.strip()
 
 
-
+if __name__ == '__main__':
+    
+    # caption = re.sub(r'[\u4e00-\u9fff]+', '', caption)
+    a = "امرأة مسنة بشعر أبيض ووجه مليء بالتجاعيد تجلس داخل سيارة قديمة الطراز، تنظر من خلال النافذة الجانبية بتعبير تأملي أو حزين قليلاً."
+    print(a)
+    print(text_preprocessing(a))
 

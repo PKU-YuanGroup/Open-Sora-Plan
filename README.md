@@ -1,14 +1,16 @@
-# Open-Sora Plan
-<!--
-[[Project Page]](https://pku-yuangroup.github.io/Open-Sora-Plan/) [[中文主页]](https://pku-yuangroup.github.io/Open-Sora-Plan/blog_cn.html)
--->
 
 
-[![slack badge](https://img.shields.io/badge/Discord-join-blueviolet?logo=discord&amp)](https://discord.gg/YtsBNg7n)
+<h1 align="left"> <a href="">Open-Sora Plan</a></h1>
+
+This project aims to create a simple and scalable repo, to reproduce [Sora](https://openai.com/sora) (OpenAI, but we prefer to call it "ClosedAI" ). We wish the open-source community can contribute to this project. Pull requests are welcome! The current code supports complete training and inference using the Huawei Ascend AI computing system. Models trained on Huawei Ascend can also output video quality comparable to industry standards.
+
+本项目希望通过开源社区的力量复现Sora，由北大-兔展AIGC联合实验室共同发起，当前版本离目标差距仍然较大，仍需持续完善和快速迭代，欢迎Pull request！目前代码同时支持使用国产AI计算系统（华为昇腾）进行完整的训练和推理。基于昇腾训练出的模型，也可输出持平业界的视频质量。
+
+<h5 align="left">
+  
+[![slack badge](https://img.shields.io/badge/Discord-join-blueviolet?logo=discord&amp)](https://discord.gg/FkFm5M2J)
 [![WeChat badge](https://img.shields.io/badge/微信-加入-green?logo=wechat&amp)](https://github.com/PKU-YuanGroup/Open-Sora-Plan/issues/53#issuecomment-1987226516)
-[![hf_space](https://img.shields.io/badge/🤗-Open%20In%20Spaces-blue.svg)](https://huggingface.co/spaces/LanguageBind/Open-Sora-Plan-v1.1.0)
 [![Twitter](https://img.shields.io/badge/-Twitter@LinBin46984-black?logo=twitter&logoColor=1D9BF0)](https://x.com/LinBin46984/status/1795018003345510687) <br>
-[![hf_space](https://img.shields.io/badge/🤗-Open%20In%20Spaces-blue.svg)](https://huggingface.co/spaces/LanguageBind/Open-Sora-Plan-v1.1.0)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](https://github.com/PKU-YuanGroup/Open-Sora-Plan/blob/main/LICENSE) 
 [![GitHub repo contributors](https://img.shields.io/github/contributors-anon/PKU-YuanGroup/Open-Sora-Plan?style=flat&label=Contributors)](https://github.com/PKU-YuanGroup/Open-Sora-Plan/graphs/contributors) 
 [![GitHub Commit](https://img.shields.io/github/commit-activity/m/PKU-YuanGroup/Open-Sora-Plan?label=Commit)](https://github.com/PKU-YuanGroup/Open-Sora-Plan/commits/main/)
@@ -19,289 +21,73 @@
 [![GitHub repo forks](https://img.shields.io/github/forks/PKU-YuanGroup/Open-Sora-Plan?style=flat&logo=github&logoColor=whitesmoke&label=Forks)](https://github.com/PKU-YuanGroup/Open-Sora-Plan/network)&#160;
 [![GitHub repo watchers](https://img.shields.io/github/watchers/PKU-YuanGroup/Open-Sora-Plan?style=flat&logo=github&logoColor=whitesmoke&label=Watchers)](https://github.com/PKU-YuanGroup/Open-Sora-Plan/watchers)&#160;
 [![GitHub repo size](https://img.shields.io/github/repo-size/PKU-YuanGroup/Open-Sora-Plan?style=flat&logo=github&logoColor=whitesmoke&label=Repo%20Size)](https://github.com/PKU-YuanGroup/Open-Sora-Plan/archive/refs/heads/main.zip)
-
-<details>
-<summary>v1.0.0 badge</summary>
-[![Twitter](https://img.shields.io/badge/-Twitter@LinBin46984-black?logo=twitter&logoColor=1D9BF0)](https://x.com/LinBin46984/status/1763476690385424554?s=20) <br>
-[![hf_space](https://img.shields.io/badge/🤗-Open%20In%20Spaces-blue.svg)](https://huggingface.co/spaces/LanguageBind/Open-Sora-Plan-v1.0.0)
-[![hf_space](https://img.shields.io/badge/🤗-Open%20In%20Spaces-blue.svg)](https://huggingface.co/spaces/fffiloni/Open-Sora-Plan-v1-0-0)
-[![Replicate demo and cloud API](https://replicate.com/camenduru/open-sora-plan-512x512/badge)](https://replicate.com/camenduru/open-sora-plan-512x512)
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/camenduru/Open-Sora-Plan-jupyter/blob/main/Open_Sora_Plan_jupyter.ipynb) <br>
-</details>
-
-We are thrilled to present **Open-Sora-Plan v1.1.0**, which significantly enhances video generation quality and text control capabilities. See our [report](docs/Report-v1.1.0.md). We show compressed .gif on GitHub, which loses some quality.
-
-Thanks to **HUAWEI Ascend Team** for supporting us. In the second stage, we used Huawei Ascend computing power for training. This stage's training and inference were fully supported by Huawei. Models trained on Huawei Ascend can also be loaded into GPUs and generate videos of the same quality.
-
-目前已经支持使用国产AI计算系统(华为昇腾，期待更多国产算力芯片)进行完整的训练和推理。在项目第二阶段，所有训练和推理任务完全由华为昇腾计算系统支持。此外，基于华为昇腾的512卡集群训练出的模型，也可以无缝地在GPU上运行，并保持相同的视频质量。详细信息请参考我们的[hw branch](https://github.com/PKU-YuanGroup/Open-Sora-Plan/tree/hw). 
+</h5>
+<h5 align="left"> If you like our project, please give us a star ⭐ on GitHub for latest update.  </h2>
 
 
-### 221×512×512 Text-to-Video Generation
+# 📣 News
+* **[2024.07.24]** 🔥🔥🔥 v1.2.0 is here! Utilizing a 3D full attention architecture instead of 2+1D. We released a true 3D video diffusion model trained on 4s 720p. Checking out our latest [report](docs/Report-v1.2.0.md).
+* **[2024.05.27]** 🎉 We are launching Open-Sora Plan v1.1.0, which significantly improves video quality and length, and is fully open source! Please check out our latest [report](docs/Report-v1.1.0.md). Thanks to [ShareGPT4Video's](https://sharegpt4video.github.io/) capability to annotate long videos.
+* **[2024.04.09]** 🤝 Excited to share our latest exploration on metamorphic time-lapse video generation: [MagicTime](https://github.com/PKU-YuanGroup/MagicTime), which learns real-world physics knowledge from time-lapse videos.
+* **[2024.04.07]** 🎉🎉🎉 Today, we are thrilled to present Open-Sora-Plan v1.0.0, which significantly enhances video generation quality and text control capabilities. See our [report](docs/Report-v1.0.0.md). Thanks to HUAWEI NPU for supporting us.
+* **[2024.03.27]** 🚀🚀🚀 We release the report of [VideoCausalVAE](docs/CausalVideoVAE.md), which supports both images and videos. We present our reconstructed video in this demonstration as follows. The text-to-video model is on the way.
+* **[2024.03.01]** 🤗 We launched a plan to reproduce Sora, called Open-Sora Plan! Welcome to **watch** 👀 this repository for the latest updates.
 
+# 😍 Gallery
+
+93×1280×720 Text-to-Video Generation. The video quality has been compressed for playback on GitHub.
 
 <table class="center">
 <tr>
-  <td style="text-align:center;"><b>3D animation of a small, round, fluffy creature with big, expressive eyes explores ...</b></td>
-  <td style="text-align:center;"><b>A single drop of liquid metal falls from a floating orb, landing on a mirror-like ...</b></td>
-  <td style="text-align:center;"><b>The video presents an abstract composition centered around a hexagonal shape adorned ...</b></td>
-</tr>
-<tr>
-  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/ded7da21-0567-44d9-8a49-7c6d7d6bbbf1" autoplay></td>
-  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/db9ab03c-28cc-4561-ab03-a221582fcfa3" autoplay></td>
-  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/10664bc7-1133-405e-a6ce-651fe06bd272" autoplay></td>
-</tr>
-<tr>
-  <td style="text-align:center;"><b>A drone camera circles around a beautiful historic church built on a rocky outcropping ...</b></td>
-  <td style="text-align:center;"><b>Aerial view of Santorini during the blue hour, showcasing the stunning architecture ...</b></td>
-  <td style="text-align:center;"><b>An aerial shot of a lighthouse standing tall on a rocky cliff, its beacon cutting ...</b></td>
-</tr>
-<tr>
-  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/e65e34ca-59d2-407e-a782-574a606505a9" autoplay></td>
-  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/a69fff5f-583c-430c-a5bc-a5a5cba8a003" autoplay></td>
-  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/21cd3137-91e6-4996-aa07-d785294d3bc0" autoplay></td>
-</tr>
-<tr>
-  <td style="text-align:center;"><b>A snowy forest landscape with a dirt road running through it. The road is flanked by ...</b></td>
-  <td style="text-align:center;"><b>Drone shot along the Hawaii jungle coastline, sunny day. Kayaks in the water.</b></td>
-  <td style="text-align:center;"><b>The camera rotates around a large stack of vintage televisions all showing different ...</b></td>
-</tr>
-<tr>
-  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/511e25ec-2fd3-4b0f-8975-8b439f62ea00" autoplay></td>
-  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/06c0b0fe-f8f5-4a1f-8e64-449f7e20ccca" autoplay></td>
-  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/97a79402-9c9a-4bf5-a880-f9a9f9f48746" autoplay></td>
+  <td><video src="" autoplay></td>
 </tr>
 </table>
-
-
-
-
-### 65×512×512 Text-to-Video Generation
-
-
-
-<table class="center">
-<tr>
-  <td style="text-align:center;"><b>In an ornate, historical hall, a massive tidal wave peaks and begins to crash. Two ...</b></td>
-  <td style="text-align:center;"><b>A Shiba Inu dog wearing a beret and black turtleneck.</b></td>
-  <td style="text-align:center;"><b>A painting of a boat on water comes to life, with waves crashing and the boat becoming ...</b></td>
-</tr>
-<tr>
-  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/a7a81d96-8565-463c-9ea3-71ab2602e22d" autoplay></td>
-  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/552b3b3e-1d07-4daf-ac66-22541e03a954" autoplay></td>
-  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/060b6417-195b-4579-b13c-885da5d8bb6b" autoplay></td>
-</tr>
-<tr>
-  <td style="text-align:center;"><b>A person clad in a space suit with a helmet and equipped with a chest light and arm ...</b></td>
-  <td style="text-align:center;"><b>3D animation of a small, round, fluffy creature with big, expressive eyes explores a ...</b></td>
-  <td style="text-align:center;"><b>In a studio, there is a painting depicting a ship sailing through the rough sea.</b></td>
-</tr>
-<tr>
-  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/dfc8b58b-a5d7-4933-9ad7-ed0f0a7999af" autoplay></td>
-  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/5530a1c4-31ca-4c62-8a08-d66bbfc0763c" autoplay></td>
-  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/54a22473-c24b-4270-ba40-c95ecedc69e5" autoplay></td>
-</tr>
-<tr>
-  <td style="text-align:center;"><b>A robot dog trots down a deserted alley at night, its metallic paws clinking softly ...</b></td>
-  <td style="text-align:center;"><b>A lone surfer rides a massive wave, skillfully maneuvering through the surf. The water ...</b></td>
-  <td style="text-align:center;"><b>A solitary cheetah sprints across the savannah, its powerful muscles propelling it ...</b></td>
-</tr>
-<tr>
-  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/453a3f37-f5ac-4f59-a16b-b712422f5142" autoplay></td>
-  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/0b058c81-a339-4be9-b5c2-bc2c379a1f23" autoplay></td>
-  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/c05a8082-f21e-4618-b56b-2e0f71ef5340" autoplay></td>
-</tr>
-</table>
-
-
-
-### 65×512×512 Video Editing
-
-
-<table class="center">
-<tr>
-  <td style="text-align:center;"><b>Generated</b></td>
-  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/cdc988cb-e471-4292-9fb5-a554393e66aa" autoplay></td>
-  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/fccedc52-18c9-413e-a026-d877ed4ec76b" autoplay></td>
-  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/b817969d-f1f9-4ab7-bdd4-5d9dd235bb24" autoplay></td>
-</tr>
-<tr>
-  <td style="text-align:center;"><b>Edited</b></td>
-  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/b94866bd-4f42-47af-b56b-06f39f010b8f" autoplay></td>
-  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/c53ddecb-0914-4b67-a7a5-d218115c0466" autoplay></td>
-  <td><video src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/7f6ba225-6ff1-4c8b-a735-51f87d751812" autoplay></td>
-</tr>
-</table>
-
-
-### 512×512 Text-to-Image Generation
-
-<img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/62638829/e44b7f8a-5da2-49c2-87c4-52ea680ad43b" width=512> 
-
-
-
-
-## 📰 News
-
-**[2024.05.27]** 🚀🚀🚀 We are launching Open-Sora Plan v1.1.0, which significantly improves video quality and length, and is fully open source! Please check out our latest [report](docs/Report-v1.1.0.md). Thanks to [ShareGPT4Video's](https://sharegpt4video.github.io/) capability to annotate long videos.
-
-**[2024.04.09]** 🚀 Excited to share our latest exploration on metamorphic time-lapse video generation: [MagicTime](https://github.com/PKU-YuanGroup/MagicTime), which learns real-world physics knowledge from time-lapse videos. Here is the dataset for train (updating): [Open-Sora-Dataset](https://github.com/PKU-YuanGroup/Open-Sora-Dataset).
-
-**[2024.04.07]** 🔥🔥🔥 Today, we are thrilled to present Open-Sora-Plan v1.0.0, which significantly enhances video generation quality and text control capabilities. See our [report](docs/Report-v1.0.0.md). Thanks to HUAWEI NPU for supporting us.
-
-**[2024.03.27]** 🚀🚀🚀 We release the report of [VideoCausalVAE](docs/CausalVideoVAE.md), which supports both images and videos. We present our reconstructed video in this demonstration as follows. The text-to-video model is on the way.
-
-<details>
-<summary>View more</summary>
-  
-**[2024.03.10]** 🚀🚀🚀 This repo supports training a latent size of 225×90×90 (t×h×w), which means we are able to **train 1 minute of 1080P video with 30FPS** (2× interpolated frames and 2× super resolution) under class-condition.
-
-**[2024.03.08]** We support the training code of text condition with 16 frames of 512x512. The code is mainly borrowed from [Latte](https://github.com/Vchitect/Latte).
-
-**[2024.03.07]** We support training with 128 frames (when sample rate = 3, which is about 13 seconds) of 256x256, or 64 frames (which is about 6 seconds) of 512x512.
-
-**[2024.03.05]** See our latest [todo](https://github.com/PKU-YuanGroup/Open-Sora-Plan?tab=readme-ov-file#todo), pull requests are welcome.
-
-**[2024.03.04]** We re-organize and modulize our code to make it easy to [contribute](https://github.com/PKU-YuanGroup/Open-Sora-Plan?tab=readme-ov-file#how-to-contribute-to-the-open-sora-plan-community) to the project, to contribute please see the [Repo structure](https://github.com/PKU-YuanGroup/Open-Sora-Plan?tab=readme-ov-file#repo-structure).
-
-**[2024.03.03]** We open some [discussions](https://github.com/PKU-YuanGroup/Open-Sora-Plan/discussions) to clarify several issues.
-
-**[2024.03.01]** Training code is available now! Learn more on our [project page](https://pku-yuangroup.github.io/Open-Sora-Plan/). Please feel free to watch 👀 this repository for the latest updates.
-
-</details>
-
-## 💪 Goal
-This project aims to create a simple and scalable repo, to reproduce [Sora](https://openai.com/sora) (OpenAI, but we prefer to call it "ClosedAI" ). We wish the open-source community can contribute to this project. Pull requests are welcome!!!
-
-本项目希望通过开源社区的力量复现Sora，由北大-兔展AIGC联合实验室共同发起，当前版本离目标差距仍然较大，仍需持续完善和快速迭代，欢迎Pull request！！！
-
-Project stages:
-- Primary
-1. Setup the codebase and train an un-conditional model on a landscape dataset.
-2. Train models that boost resolution and duration.
-
-- Extensions
-3. Conduct text2video experiments on landscape dataset.
-4. Train the 1080p model on video2text dataset.
-5. Control model with more conditions.
-
-
-<div style="display: flex; justify-content: center;"> 
-  <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/88202804/6b3095e9-88e8-4481-9b1b-ff9aaa25caf1" width=200> 
-  <img src="https://github.com/PKU-YuanGroup/Open-Sora-Plan/assets/88202804/f0a2ebca-6d25-4f94-be29-bd0a29cd9230" width=600> 
-</div>
 
   
-<details>
-<summary>✊ Todo</summary>
+# 😮 Highlights
 
-#### Setup the codebase and train an unconditional model on landscape dataset
-- [x] Fix typos & Update readme. 🤝 Thanks to [@mio2333](https://github.com/mio2333), [@CreamyLong](https://github.com/CreamyLong), [@chg0901](https://github.com/chg0901), [@Nyx-177](https://github.com/Nyx-177), [@HowardLi1984](https://github.com/HowardLi1984), [@sennnnn](https://github.com/sennnnn), [@Jason-fan20](https://github.com/Jason-fan20)
-- [x] Setup environment. 🤝 Thanks to [@nameless1117](https://github.com/nameless1117)
-- [ ] Add docker file. ⌛ [WIP] 🤝 Thanks to [@Mon-ius](https://github.com/Mon-ius), [@SimonLeeGit](https://github.com/SimonLeeGit)
-- [ ] Enable type hints for functions. 🤝 Thanks to [@RuslanPeresy](https://github.com/RuslanPeresy), 🙏 **[Need your contribution]**
-- [x] Resume from checkpoint.
-- [x] Add Video-VQVAE model, which is borrowed from [VideoGPT](https://github.com/wilson1yan/VideoGPT).
-- [x] Support variable aspect ratios, resolutions, durations training on [DiT](https://github.com/facebookresearch/DiT).
-- [x] Support Dynamic mask input inspired by [FiT](https://github.com/whlzy/FiT).
-- [x] Add class-conditioning on embeddings.
-- [x] Incorporating [Latte](https://github.com/Vchitect/Latte) as main codebase.
-- [x] Add VAE model, which is borrowed from [Stable Diffusion](https://github.com/CompVis/latent-diffusion).
-- [x] Joint dynamic mask input with VAE.
-- [ ] Add VQVAE from [VQGAN](https://github.com/CompVis/taming-transformers). 🙏 **[Need your contribution]**
-- [ ] Make the codebase ready for the cluster training. Add SLURM scripts. 🙏 **[Need your contribution]**
-- [x] Refactor VideoGPT. 🤝 Thanks to [@qqingzheng](https://github.com/qqingzheng), [@luo3300612](https://github.com/luo3300612), [@sennnnn](https://github.com/sennnnn)
-- [x] Add sampling script.
-- [ ] Add DDP sampling script. ⌛ [WIP]
-- [x] Use accelerate on multi-node. 🤝 Thanks to [@sysuyy](https://github.com/sysuyy)
-- [x] Incorporate [SiT](https://github.com/willisma/SiT). 🤝 Thanks to [@khan-yin](https://github.com/khan-yin)
-- [x] Add evaluation scripts (FVD, CLIP score). 🤝 Thanks to [@rain305f](https://github.com/rain305f)
+Open-Sora Plan shows excellent performance in video generation.
 
-#### Train models that boost resolution and duration
-- [x] Add [PI](https://arxiv.org/abs/2306.15595) to support out-of-domain size. 🤝 Thanks to [@jpthu17](https://github.com/jpthu17)
-- [x] Add 2D RoPE to improve generalization ability as [FiT](https://github.com/whlzy/FiT). 🤝 Thanks to [@jpthu17](https://github.com/jpthu17)
-- [x] Compress KV according to [PixArt-sigma](https://pixart-alpha.github.io/PixArt-sigma-project). 
-- [x] Support deepspeed for videogpt training. 🤝 Thanks to [@sennnnn](https://github.com/sennnnn)
-- [x] Train a **low dimension** Video-AE, whether it is VAE or VQVAE.
-- [x] Extract offline feature.
-- [x] Train with offline feature.
-- [x] Add frame interpolation model. 🤝 Thanks to [@yunyangge](https://github.com/yunyangge)
-- [x] Add super resolution model. 🤝 Thanks to [@Linzy19](https://github.com/Linzy19)
-- [x] Add accelerate to automatically manage training.
-- [x] Joint training with images.
-- [ ] Implement [MaskDiT](https://github.com/Anima-Lab/MaskDiT) technique for fast training. 🙏 **[Need your contribution]**
-- [ ] Incorporate [NaViT](https://arxiv.org/abs/2307.06304). 🙏 **[Need your contribution]**
-- [ ] Add [FreeNoise](https://github.com/arthur-qiu/FreeNoise-LaVie) support for training-free longer video generation. 🙏 **[Need your contribution]**
+### 🔥 High performance CausalVideoVAE, but with fewer training cost
+- High compression ratio with excellent performance, capable of **compressing videos by 256 times (4×8×8)**. Causal convolution supports simultaneous inference of images and videos.
 
-#### Conduct text2video experiments on landscape dataset.
-- [x] Load pretrained weights from [Latte](https://github.com/Vchitect/Latte).
-- [ ] Implement [PeRFlow](https://github.com/magic-research/piecewise-rectified-flow) for improving the sampling process. 🙏 **[Need your contribution]**
-- [x] Finish data loading, pre-processing utils.
-- [x] Add T5 support. 
-- [x] Add CLIP support. 🤝 Thanks to [@Ytimed2020](https://github.com/Ytimed2020)
-- [x] Add text2image training script.
-- [ ] Add prompt captioner. 
-  - [ ] Collect training data.
-    - [ ] Need video-text pairs with caption. 🙏 **[Need your contribution]**
-    - [ ] Extract multi-frame descriptions by large image-language models. 🤝 Thanks to [@HowardLi1984](https://github.com/HowardLi1984)
-    - [ ] Extract video description by large video-language models. 🙏 **[Need your contribution]**
-    - [ ] Integrate captions to get a dense caption by using a large language model, such as GPT-4. 🤝 Thanks to [@HowardLi1984](https://github.com/HowardLi1984)
-  - [ ] Train a captioner to refine captions. 🚀 **[Require more computation]**
+### 🚀 Video Diffusion Model based on 3D attention, joint learning of spatiotemporal features.
+- With a **3D full attention architecture** instead of a 2+1D model, 3D attention can better capture joint spatial and temporal features.
 
-#### Train the 1080p model on video2text dataset
-- [ ] Looking for a suitable dataset, welcome to discuss and recommend. 🙏 **[Need your contribution]**
-- [ ] Add synthetic video created by game engines or 3D representations. 🙏 **[Need your contribution]**
-- [x] Finish data loading, and pre-processing utils.
-- [x] Support memory friendly training.
-  - [x] Add flash-attention2 from pytorch.
-  - [x] Add xformers.  🤝 Thanks to [@jialin-zhao](https://github.com/jialin-zhao)
-  - [x] Support mixed precision training.
-  - [x] Add gradient checkpoint.
-  - [x] Support for ReBased and Ring attention. 🤝 Thanks to [@kabachuha](https://github.com/kabachuha)
-  - [x] Train using the deepspeed engine. 🤝 Thanks to [@sennnnn](https://github.com/sennnnn)
-- [ ] Train with a text condition. Here we could conduct different experiments: 🚀 **[Require more computation]**
-  - [x] Train with T5 conditioning.
-  - [ ] Train with CLIP conditioning.
-  - [ ] Train with CLIP + T5 conditioning (probably costly during training and experiments).
-- [ ] Support Chinese. ⌛ [WIP]
+<p align="center">
+    <img src="https://s21.ax1x.com/2024/07/22/pk7cob8.png" width="650" style="margin-bottom: 0.2;"/>
+<p>
 
-#### Control model with more condition
-- [ ] Incorporating [ControlNet](https://github.com/lllyasviel/ControlNet). ⌛ [WIP] 🙏 **[Need your contribution]**
-- [ ] Incorporating [ReVideo](https://github.com/MC-E/ReVideo). ⌛ [WIP]
+# 🤗 Demo
 
-</details>
- 
-## 📂 Repo structure (WIP)
-```
-├── README.md
-├── docs
-│   ├── Data.md                    -> Datasets description.
-│   ├── Contribution_Guidelines.md -> Contribution guidelines description.
-├── scripts                        -> All scripts.
-├── opensora
-│   ├── dataset
-│   ├── models
-│   │   ├── ae                     -> Compress videos to latents
-│   │   │   ├── imagebase
-│   │   │   │   ├── vae
-│   │   │   │   └── vqvae
-│   │   │   └── videobase
-│   │   │       ├── vae
-│   │   │       └── vqvae
-│   │   ├── captioner
-│   │   ├── diffusion              -> Denoise latents
-│   │   │   ├── diffusion         
-│   │   │   ├── dit
-│   │   │   ├── latte
-│   │   │   └── unet
-│   │   ├── frame_interpolation
-│   │   ├── super_resolution
-│   │   └── text_encoder
-│   ├── sample
-│   ├── train                      -> Training code
-│   └── utils
+### Gradio Web UI
+
+Highly recommend trying out our web demo by the following command.
+
+```bash
+python -m opensora.serve.gradio_web_server --model_path "path/to/model" --ae_path "path/to/causalvideovae"
 ```
 
-## 🛠️ Requirements and Installation
+### ComfyUI
+
+Coming soon...
+
+# 🐳 Model Zoo
+
+| Version | Architecture |  Diffusion Model | CausalVideoVAE |
+|---|---|---|---|
+| v1.2.0 | 3D | [93x720p](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0/tree/main/93x720p), [93x480p](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0/tree/main/93x480p) | [Anysize](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0/tree/main/vae)|
+| v1.1.0 | 2+1D | [221x512x512](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.1.0/tree/main/221x512x512), [65x512x512](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.1.0/tree/main/65x512x512) |[Anysize](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.1.0/tree/main/vae) |
+| v1.0.0 | 2+1D | [65x512x512](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.0.0/tree/main/65x512x512), [65x256x256](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.0.0/tree/main/65x256x256), [17x256x256](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.0.0/tree/main/17x256x256) | [Anysize](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.0.0/tree/main/vae) |
+
+> [!Warning]
+> <div align="left">
+> <b>
+> 🚨 For version 1.2.0, we no longer support 2+1D models.
+> </b>
+> </div>
+
+# ⚙️ Requirements and Installation
 
 1. Clone this repository and navigate to Open-Sora-Plan folder
 ```
@@ -309,6 +95,10 @@ git clone https://github.com/PKU-YuanGroup/Open-Sora-Plan
 cd Open-Sora-Plan
 ```
 2. Install required packages
+We recommend the requirements as follows.
+* Python >= 3.8
+* Pytorch >= 2.1.0
+* CUDA Version >= 11.7
 ```
 conda create -n opensora python=3.8 -y
 conda activate opensora
@@ -317,117 +107,231 @@ pip install -e .
 3. Install additional packages for training cases
 ```
 pip install -e ".[train]"
-pip install flash-attn --no-build-isolation
 ```
 4. Install optional requirements such as static type checking:
 ```
 pip install -e '.[dev]'
 ```
 
-## 🗝️ Usage
+# 🗝️ Training & Validating
+
+## 🗜️ CausalVideoVAE
+
+### Data prepare
+The organization of the training data is easy. We only need to put all the videos recursively in a directory. This makes the training more convenient when using multiple datasets.
+``` shell
+Training Dataset
+|——sub_dataset1
+    |——sub_sub_dataset1
+        |——video1.mp4
+        |——video2.mp4
+        ......
+    |——sub_sub_dataset2
+        |——video3.mp4
+        |——video4.mp4
+        ......
+|——sub_dataset2
+    |——video5.mp4
+    |——video6.mp4
+    ......
+|——video7.mp4
+|——video8.mp4
+```
+### Training
+``` shell
+bash scripts/causalvae/train.sh
+```
+We introduce the important args for training.
+| Argparse | Usage |
+|:---|:---|
+|_Training size_||
+|`--num_frames`|The number of using frames for training videos|
+|`--resolution`|The resolution of the input to the VAE|
+|`--batch_size`|The local batch size in each GPU|
+|`--sample_rate`|The frame interval of when loading training videos|
+|_Data processing_||
+|`--video_path`|/path/to/dataset|
+|_Load weights_||
+|`--model_config`|/path/to/config.json The model config of VAE. If you want to train from scratch use this parameter.|
+|`--pretrained_model_name_or_path`|A directory containing a model checkpoint and its config. Using this parameter will only load its weight but not load the state of the optimizer|
+|`--resume_from_checkpoint`|/path/to/checkpoint It will resume the training process from the checkpoint including the weight and the optimizer.|
+### Inference
+``` shell
+bash scripts/causalvae/rec_video.sh
+```
+We introduce the important args for inference.
+| Argparse | Usage |
+|:---|:---|
+|_Ouoput video size_||
+|`--num_frames`|The number of frames of generated videos|
+|`--height`|The resolution of generated videos|
+|`--width`|The resolution of generated videos|
+|_Data processing_||
+|`--video_path`|The path to the original video|
+|`--rec_path`|The path to the generated video|
+|_Load weights_||
+|`--ae_path`|/path/to/model_dir. A directory containing the checkpoint of VAE is used for inference and its model config.json|
+|_Other_||
+|`--enable_tilintg`|Use tiling to deal with videos of high resolution and long duration|
+|`--save_memory`|Save memory to inference but lightly influence quality|
 
 
-### 🤗 Demo
+### Evaluation
 
-#### Gradio Web UI  <a href='https://github.com/gradio-app/gradio'><img src='https://img.shields.io/github/stars/gradio-app/gradio'></a> 
 
-Highly recommend trying out our web demo by the following command. We also provide [online demo](https://huggingface.co/spaces/LanguageBind/Open-Sora-Plan-v1.1.0) [![hf_space](https://img.shields.io/badge/🤗-Open%20In%20Spaces-blue.svg)](https://huggingface.co/spaces/LanguageBind/Open-Sora-Plan-v1.1.0). 
+For evaluation, you should save the original video clips by using `--output_origin`.
+``` shell
+bash scripts/causalvae/prepare_eval.sh
+```
+We introduce the important args for inference.
+| Argparse | Usage |
+|:---|:---|
+|_Ouoput video size_||
+|`--num_frames`|The number of frames of generated videos|
+|`--resolution`|The resolution of generated videos|
+|_Data processing_||
+|`--real_video_dir`|The directory of the original videos.|
+|`--generated_video_dir`|The directory of the generated videos.|
+|_Load weights_||
+|`--ckpt`|/path/to/model_dir. A directory containing the checkpoint of VAE is used for inference and its model config.|
+|_Other_||
+|`--enable_tilintg`|Use tiling to deal with videos of high resolution and long time.|
+|`--output_origin`|Output the original video clips, fed into the VAE.|
 
-<details>
-<summary>v1.0.0</summary>
-  
-Highly recommend trying out our web demo by the following command. We also provide [online demo](https://huggingface.co/spaces/LanguageBind/Open-Sora-Plan-v1.0.0) [![hf_space](https://img.shields.io/badge/🤗-Open%20In%20Spaces-blue.svg)](https://huggingface.co/spaces/LanguageBind/Open-Sora-Plan-v1.0.0) and [![hf_space](https://img.shields.io/badge/🤗-Open%20In%20Spaces-blue.svg)](https://huggingface.co/spaces/fffiloni/Open-Sora-Plan-v1-0-0) in Huggingface Spaces. 
 
-🤝 Enjoying the [![Replicate demo and cloud API](https://replicate.com/camenduru/open-sora-plan-512x512/badge)](https://replicate.com/camenduru/open-sora-plan-512x512) and [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/camenduru/Open-Sora-Plan-jupyter/blob/main/Open_Sora_Plan_jupyter.ipynb), created by [@camenduru](https://github.com/camenduru), who generously supports our research!
+Then, we begin to eval. We introduce the important args in the script for evaluation.
+``` shell
+bash scripts/causalvae/eval.sh
+```
+| Argparse | Usage |
+|:---|:---|
+|`--metric`|The metric, such as psnr, ssim, lpips|
+|`--real_video_dir`|The directory of the original videos.|
+|`--generated_video_dir`|The directory of the generated videos.|
 
-</details>
+## 📜 Text-to-Video 
 
-For the 65 frames.
-
-```bash
-python -m opensora.serve.gradio_web_server --version 65x512x512
+### Data prepare
+We use a `data.txt` file to specify all the training data. Each line in the file consists of `DATA_ROOT` and `DATA_JSON`. The example of `data.txt` is as follows.
+```
+/path/to/data_root_1,/path/to/data_json_1.json
+/path/to/data_root_2,/path/to/data_json_2.json
+...
+```
+Then, we introduce the format of the annotation json file. The absolute data path is the concatenation of `DATA_ROOT` and the `"path"` field in the annotation json file.
+#### For image
+The format of image annotation file is as follows.
+```
+[
+  {
+    "path": "00168/001680102.jpg",
+    "cap": [
+      "xxxxx."
+    ],
+    "resolution": {
+      "height": 512,
+      "width": 683
+    }
+  },
+  ...
+]
 ```
 
-For the 221 frames.
-```bash
-python -m opensora.serve.gradio_web_server --version 221x512x512
+#### For video
+The format of image annotation file is as follows.
+```
+[
+  {
+    "path": "panda70m_part_5565/qLqjjDhhD5Q/qLqjjDhhD5Q_segment_0.mp4",
+    "cap": [
+      "A man and a woman are sitting down on a news anchor talking to each other."
+    ],
+    "resolution": {
+      "height": 720,
+      "width": 1280
+    },
+    "fps": 29.97002997002997,
+    "duration": 11.444767
+  },
+  ...
+]
 ```
 
-#### CLI Inference
-
-```bash
-sh scripts/text_condition/sample_video.sh
+### Training
+```
+bash scripts/text_condition/gpu/train_t2v.sh
 ```
 
-### Datasets
-Refer to [Data.md](docs/Data.md)
+We introduce some key parameters in order to customize your training process.
 
-###  Evaluation
-Refer to the document [EVAL.md](docs/EVAL.md).
+| Argparse | Usage |
+|:---|:---|
+|_Training size_||
+|`--num_frames 61`|To train videos of different durations, e.g, 29, 61, 93, 125...|
+|`--max_height 640`|To train videos of different resolutions|
+|`--max_width 480`|To train videos of different resolutions|
+|_Data processing_||
+|`--data /path/to/data.txt`|Specify your training data.|
+|`--speed_factor 1.25`|To accelerate 1.25x videos. |
+|`--drop_short_ratio 1.0`|Do not want to train on videos of dynamic durations, discard all video data with frame counts not equal to `--num_frames`|
+|`--group_frame`|If you want to train with videos of dynamic durations, we highly recommend specifying `--group_frame` as well. It improves computational efficiency during training.|
+|_Multi-stage transfer learning_||
+|`--interpolation_scale_h 1.0`|When training a base model, such as 240p (`--max_height 240`, `--interpolation_scale_h 1.0`) , and you want to initialize higher resolution models like 480p (height 480) from 240p's weights, you need to adjust `--max_height 480`, `--interpolation_scale_h 2.0`, and set `--pretrained` to your 240p weights path (path/to/240p/xxx.safetensors).|
+|`--interpolation_scale_w 1.0`|Same as `--interpolation_scale_h 1.0`|
+|_Load weights_||
+|`--pretrained`|This is typically used for loading pretrained weights across stages, such as using 240p weights to initialize 480p training. Or when switching datasets and you do not want the previous optimizer state.|
+|`--resume_from_checkpoint`|It will resume the training process from the latest checkpoint in `--output_dir`. Typically, we set `--resume_from_checkpoint="latest"`, which is useful in cases of unexpected interruptions during training.|
+|_Sequence Parallelism_||
+|`--sp_size 8 --train_sp_batch_size 2`|It means running a batch size of 2 across 8 GPUs (8 GPUs on the same node).|
 
-### CausalVideoVAE
+> [!Warning]
+> <div align="left">
+> <b>
+> 🚨 We have two ways to load weights: `--pretrained` and `--resume_from_checkpoint`. The latter will override the former.
+> </b>
+> </div>
 
-#### Reconstructing
+### Inference
 
-Example:
+We provide multiple inference scripts to support various requirements. We recommend configuration `--guidance_scale 7.5 --num_sampling_steps 100 --sample_method EulerAncestralDiscrete` for sampling.
 
-```Python
-python examples/rec_imvi_vae.py --video_path test_video.mp4 --rec_path output_video.mp4 --fps 24 --resolution 512 --crop_size 512 --num_frames 128 --sample_rate 1 --ae CausalVAEModel_4x8x8 --model_path pretrained_488_release --enable_tiling --enable_time_chunk
+**Inference on 93×720p**, we report speed on H100.
+
+| Size | 1 GPU | 8 GPUs (sp) | 
+|---|---|---|
+|29×720p|420s/100step|80s/100step|
+|93×720p|3400s/100step|450s/100step|
+
+#### 🖥️ 1 GPU 
+If you only have one GPU, it will perform inference on each sample sequentially, one at a time.
+```
+bash scripts/text_condition/gpu/sample_t2v.sh
 ```
 
-Parameter explanation:
-
-- `--enable_tiling`: This parameter is a flag to enable a tiling conv.
-
-#### Training and Eval
-
-Please refer to the document [CausalVideoVAE](docs/Train_And_Eval_CausalVideoVAE.md).
-
-### VideoGPT VQVAE
-
-Please refer to the document [VQVAE](docs/VQVAE.md).
-
-### Video Diffusion Transformer
-
-#### Training
+#### 🖥️🖥️ Multi-GPUs 
+If you want to batch infer a large number of samples, each GPU will infer one sample.
 ```
-sh scripts/text_condition/train_videoae_65x512x512.sh
-```
-```
-sh scripts/text_condition/train_videoae_221x512x512.sh
-```
-```
-sh scripts/text_condition/train_videoae_513x512x512.sh
+bash scripts/text_condition/gpu/sample_t2v_ddp.sh
 ```
 
-<!--
-## 🚀 Improved Training Performance
+#### 🖥️🖥️ Multi-GPUs & Sequence Parallelism 
+If you want to quickly infer one sample, it will utilize all GPUs simultaneously to infer that sample.
+```
+bash scripts/text_condition/gpu/sample_t2v_sp.sh
+```
 
-In comparison to the original implementation, we implement a selection of training speed acceleration and memory saving features including gradient checkpointing, mixed precision training, and pre-extracted features, xformers, deepspeed. Some data points using **a batch size of 1 with a A100**:
- 
-### 64×32×32 (origin size: 256×256×256)
+## 🖼️ Image-to-Video
 
-| gradient checkpointing | mixed precision | xformers | feature pre-extraction | deepspeed config | compress kv | training speed | memory       |
-|:----------------------:|:---------------:|:--------:|:----------------------:|:----------------:|:--------------:|:------------:|:------------:|
-| ✔                     | ✔               | ✔        | ✔                     | ❌               | ❌            |0.64 steps/sec  |   43G        |
-| ✔                     | ✔               | ✔        | ✔                     | Zero2             | ❌            |0.66 steps/sec  |   14G        |
-| ✔                     | ✔               | ✔        | ✔                     | Zero2             | ✔             |0.66 steps/sec  |   15G        |
-| ✔                     | ✔               | ✔        | ✔                     | Zero2 offload     | ❌            |0.33 steps/sec  |   11G        |
-| ✔                     | ✔               | ✔        | ✔                     | Zero2 offload     | ✔             |0.31 steps/sec  |   12G        |
+### Data prepare
+Coming soon...
 
-### 128×64×64 (origin size: 512×512×512)
+### Training
+Coming soon...
 
-| gradient checkpointing | mixed precision | xformers | feature pre-extraction | deepspeed config | compress kv | training speed | memory       |
-|:----------------------:|:---------------:|:--------:|:----------------------:|:----------------:|:--------------:|:------------:|:------------:|
-| ✔                     | ✔               | ✔        | ✔                     | ❌               | ❌            |0.08 steps/sec  |   77G        |
-| ✔                     | ✔               | ✔        | ✔                     | Zero2             | ❌            |0.08 steps/sec  |   41G        |
-| ✔                     | ✔               | ✔        | ✔                     | Zero2             | ✔             |0.09 steps/sec  |   36G        |
-| ✔                     | ✔               | ✔        | ✔                     | Zero2 offload     | ❌            |0.07 steps/sec  |   39G        |
-| ✔                     | ✔               | ✔        | ✔                     | Zero2 offload     | ✔             |0.07 steps/sec  |   33G        |
+### Inference
+Coming soon...
 
--->
-
-## 💡 How to Contribute to the Open-Sora Plan Community
+# 💡 How to Contribute
 We greatly appreciate your contributions to the Open-Sora Plan open-source community and helping us make it even better than it is now!
 
 For more details, please refer to the [Contribution Guidelines](docs/Contribution_Guidelines.md)
@@ -435,8 +339,8 @@ For more details, please refer to the [Contribution Guidelines](docs/Contributio
 
 
 
-## 👍 Acknowledgement
-* [Latte](https://github.com/Vchitect/Latte): The **main codebase** we built upon and it is an wonderful video generated model.
+# 👍 Acknowledgement
+* [Latte](https://github.com/Vchitect/Latte): It is an wonderful 2+1D video generated model.
 * [PixArt-alpha](https://github.com/PixArt-alpha/PixArt-alpha): Fast Training of Diffusion Transformer for Photorealistic Text-to-Image Synthesis.
 * [ShareGPT4Video](https://github.com/InternLM/InternLM-XComposer/tree/main/projects/ShareGPT4Video): Improving Video Understanding and Generation with Better Captions.
 * [VideoGPT](https://github.com/wilson1yan/VideoGPT): Video Generation using VQ-VAE and Transformers.
@@ -445,7 +349,7 @@ For more details, please refer to the [Contribution Guidelines](docs/Contributio
 * [Positional Interpolation](https://arxiv.org/abs/2306.15595): Extending Context Window of Large Language Models via Positional Interpolation.
 
 
-## 🔒 License
+# 🔒 License
 * See [LICENSE](LICENSE) for details.
 
 <!--
@@ -455,9 +359,9 @@ For more details, please refer to the [Contribution Guidelines](docs/Contributio
 -->
 
 
-## ✏️ Citing
+# ✏️ Citing
 
-### BibTeX
+## BibTeX
 
 ```bibtex
 @software{pku_yuan_lab_and_tuzhan_ai_etc_2024_10948109,
@@ -470,12 +374,13 @@ For more details, please refer to the [Contribution Guidelines](docs/Contributio
   url          = {https://doi.org/10.5281/zenodo.10948109}
 }
 ```
-### Latest DOI
+## Latest DOI
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.10948109.svg)](https://zenodo.org/records/10948109)
 
-## 🤝 Community contributors
+# 🤝 Community contributors
 
 <a href="https://github.com/PKU-YuanGroup/Open-Sora-Plan/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=PKU-YuanGroup/Open-Sora-Plan" />
 </a>
+

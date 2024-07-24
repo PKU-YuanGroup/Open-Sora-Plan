@@ -1,3 +1,0 @@
-/dxyl_data02/datasets/images,/dxyl_data02/anno_jsons/human_images_162094.json
-/dxyl_data02/datasets/anytext3m,/dxyl_data02/anno_jsons/anytext_en_1886137.json
-/dxyl_data02/datasets/sam,/dxyl_data02/anno_jsons/sam_image_11185255.json
