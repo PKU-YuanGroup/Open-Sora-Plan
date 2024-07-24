@@ -49,7 +49,7 @@ This project aims to create a simple and scalable repo, to reproduce [Sora](http
 Open-Sora Plan shows excellent performance in video generation.
 
 ### 🔥 High performance CausalVideoVAE, but with fewer training cost
-- High compression ratio with excellent performance, capable of **compressing videos by 256 times (4×8×8)**. Causal convolution supports simultaneous inference of images and videos.
+- High compression ratio with excellent performance, capable of **compressing videos by 256 times (4×8×8)**. Causal convolution supports simultaneous inference of images and videos but only need **1 node to train**.
 
 ### 🚀 Video Diffusion Model based on 3D attention, joint learning of spatiotemporal features.
 - With a **3D full attention architecture** instead of a 2+1D model, 3D attention can better capture joint spatial and temporal features.
