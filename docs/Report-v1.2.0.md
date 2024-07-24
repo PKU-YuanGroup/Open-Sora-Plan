@@ -152,7 +152,7 @@ The video model is initialized with weights from a 480p image model. We first tr
 | Compute (#Num x #Hours) | 32 Ascend × 81 | 32 Ascend × 142 |  128 Ascend × 38 | 256 H100 × 64 | 256 H100 × 84 |
 | Checkpoint | - | - | - | - | [HF](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0) |
 | Log | - | - | [wandb](https://api.wandb.ai/links/1471742727-Huawei/trdu2kba) | [wandb](https://api.wandb.ai/links/linbin/vvxvcd7s) | [wandb](https://api.wandb.ai/links/linbin/easg3qkl)
-| Training Data | 10M SAM | 5M intern image data | 4M Panda70M | 7M Panda70M | 1M HQ Panda70M |
+| Training Data | 10M SAM | 5M internal image data | 4M Panda70M | 7M Panda70M | 1M HQ Panda70M |
 
 ### Training Image-to-Video Diffusion Model
 
