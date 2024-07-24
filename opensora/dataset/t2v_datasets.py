@@ -313,7 +313,7 @@ class T2V_dataset(Dataset):
 
                 # resample in case high fps, such as 50/60/90/144 -> train_fps(e.g, 24)
                 frame_interval = fps / self.train_fps
-                start_frame_idx = 8 if '/storage/dataset/movie' in i['path'] else 0  # special video
+                start_frame_idx = 0 
                 frame_indices = np.arange(start_frame_idx, i['num_frames'], frame_interval).astype(int)
                 frame_indices = frame_indices[frame_indices < i['num_frames']]
 
@@ -334,8 +334,6 @@ class T2V_dataset(Dataset):
                     continue
                 frame_indices = frame_indices[:end_frame_idx]
 
-                if '/storage/dataset/movie' in i['path']:
-                    cnt_movie += 1
                 i['sample_frame_index'] = frame_indices.tolist()
                 new_cap_list.append(i)
                 i['sample_num_frames'] = len(i['sample_frame_index'])  # will use in dataloader(group sampler)
@@ -361,7 +359,7 @@ class T2V_dataset(Dataset):
         # import ipdb;ipdb.set_trace()
         # resample in case high fps, such as 50/60/90/144 -> train_fps(e.g, 24)
         frame_interval = 1.0 if abs(fps - self.train_fps) < 0.1 else fps / self.train_fps
-        start_frame_idx = 8 if '/storage/dataset/movie' in path else 0  # special video
+        start_frame_idx = 0  
         frame_indices = np.arange(start_frame_idx, total_frames, frame_interval).astype(int)
         frame_indices = frame_indices[frame_indices < total_frames]
         #import ipdb;ipdb.set_trace()
