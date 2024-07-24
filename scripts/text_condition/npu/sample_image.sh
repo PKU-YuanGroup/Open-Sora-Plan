@@ -14,7 +14,7 @@ fi
 
 torchrun --nproc_per_node=8 opensora/sample/sample_t2v_on_npu.py \
     --model_path /home/image_data/checkpoints/${PROJECT_NAME} \
-    --num_frames ${NUM_FRAME} \
+    --num_frames 1 \
     --height $SAMPLE_HEIGHT \
     --width $SAMPLE_WIDTH \
     --cache_dir "../cache_dir" \
@@ -27,4 +27,5 @@ torchrun --nproc_per_node=8 opensora/sample/sample_t2v_on_npu.py \
     --guidance_scale 5.0 \
     --num_sampling_steps 50 \
     --sample_method PNDM \
-    --model_3d
+    --model_3d \
+    --save_memory

@@ -29,4 +29,5 @@ torchrun --nproc_per_node=8 opensora/sample/sample_t2v_on_npu.py \
     --sample_method PNDM \
     --enable_tiling \
     --tile_overlap_factor 0.125 \
-    --model_3d
+    --model_3d \
+    --save_memory

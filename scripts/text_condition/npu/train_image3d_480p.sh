@@ -1,23 +1,23 @@
 export PROJECT=$PROJECT_NAME
 WEIGHT_PATH="/home/opensora/pre_weights/"
 env
-export WANDB_MODE='offline'
+#export WANDB_MODE='offline'
 export HCCL_OP_BASE_FFTS_MODE_ENABLE=TRUE
 export HCCL_ALGO="level0:NA;level1:H-D_R"
+export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
 
 accelerate launch \
     --config_file scripts/accelerate_configs/multi_node_example_by_deepspeed.yaml \
     --machine_rank=${MACHINE_RANK} \
     --main_process_ip=${MAIN_PROCESS_IP_VALUE} \
     opensora/train/train_t2v_diffusers.py \
-    --model OpenSoraT2V-L/122 \
+    --model OpenSoraT2V-ROPE-L/122 \
     --text_encoder_name ${WEIGHT_PATH}/google/mt5-xxl \
     --cache_dir "../cache_dir" \
     --dataset t2v \
-    --ae CausalVAEModel_4x8x8 \
+    --data "scripts/train_data/merge_data_on_npu.txt" \
+    --ae CausalVAEModel_D4_4x8x8 \
     --ae_path "${WEIGHT_PATH}/test140k/" \
-    --video_data "./scripts/train_data/video_data_on_npu.txt" \
-    --image_data "./scripts/train_data/image_data_on_npu.txt" \
     --sample_rate 1 \
     --num_frames 1 \
     --max_height 480 \
@@ -31,8 +31,8 @@ accelerate launch \
     --dataloader_num_workers 20 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
-    --learning_rate=4e-5 \
-    --lr_scheduler="cosine" \
+    --learning_rate=1e-4 \
+    --lr_scheduler="constant" \
     --seed=10 \
     --lr_warmup_steps=500 \
     --mixed_precision="bf16" \
@@ -47,8 +47,8 @@ accelerate launch \
     --ema_start_step 0 \
     --cfg 0.1 \
     --enable_tiling \
-    --tile_overlap_factor 0.125 \
+    --tile_overlap_factor 0.0 \
+    --use_rope \
     --noise_offset 0.02 \
-    --pretrained "/home/image_data/checkpoints/image3d_256p_zp_umt5_from_initial_layer_40_head_16/checkpoint-176000/model_ema/diffusion_pytorch_model.safetensors" \
     --resume_from_checkpoint="latest"
 

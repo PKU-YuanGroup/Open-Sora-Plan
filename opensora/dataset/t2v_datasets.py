@@ -29,13 +29,15 @@ from opensora.utils.dataset_utils import DecordInit
 from opensora.utils.utils import text_preprocessing
 logger = get_logger(__name__)
 
-def filter_json_by_existed_files(directory, data, postfix=".mp4"):
+def filter_json_by_existed_files(directory, data, postfixes=[".mp4", ".jpg"]):
     # 构建搜索模式，以匹配指定后缀的文件
-    pattern = os.path.join(directory, '**', f'*{postfix}')
-    mp4_files = glob.glob(pattern, recursive=True)  # 使用glob查找所有匹配的文件
+    matching_files = []
+    for postfix in postfixes:
+        pattern = os.path.join(directory, '**', f'*{postfix}')
+        matching_files.extend(glob.glob(pattern, recursive=True))
 
     # 使用文件的绝对路径构建集合
-    mp4_files_set = set(os.path.abspath(path) for path in mp4_files)
+    mp4_files_set = set(os.path.abspath(path) for path in matching_files)
 
     # 过滤数据条目，只保留路径在mp4文件集合中的条目
     filtered_items = [item for item in data if item['path'] in mp4_files_set]
@@ -159,9 +161,6 @@ class T2V_dataset(Dataset):
         return dataset_prog.n_elements
 
     def __getitem__(self, idx):
-        if npu_config is not None:
-            worker_info = get_worker_info()
-            idx = dataset_prog.get_item(worker_info)
         try:
             data = self.get_data(idx)
             return data
@@ -395,7 +394,7 @@ class T2V_dataset(Dataset):
         video_data = video_data.permute(0, 3, 1, 2)  # (T, H, W, C) -> (T C H W)
         return video_data
 
-    def read_jsons(self, data, postfix=".jpg"):
+    def read_jsons(self, data):
         cap_lists = []
         with open(data, 'r') as f:
             folder_anno = [i.strip().split(',') for i in f.readlines() if len(i.strip()) > 0]
@@ -405,11 +404,6 @@ class T2V_dataset(Dataset):
             logger.info(f'Building {anno}...')
             for i in range(len(sub_list)):
                 sub_list[i]['path'] = opj(folder, sub_list[i]['path'])
-            if npu_config is not None:
-                if "civitai" in anno or "ideogram" in anno or "human" in anno:
-                    sub_list = sub_list[npu_config.get_node_id()::npu_config.get_node_size()]
-                else:
-                    sub_list = filter_json_by_existed_files(folder, sub_list, postfix=postfix)
             cap_lists += sub_list
         return cap_lists
 
@@ -426,18 +420,5 @@ class T2V_dataset(Dataset):
     #     return img_cap_lists[:-1]  # drop last to avoid error length
 
     def get_cap_list(self):
-        if npu_config is None:
-            cap_lists = self.read_jsons(self.data, postfix=".mp4")
-        else:
-            cap_lists = npu_config.try_load_pickle("cap_lists5",
-                                                       lambda: self.read_jsons(self.data, postfix=".mp4"))
-            # npu_config.print_msg(f"length of cap_lists is {len(cap_lists)}")
-            cap_lists = cap_lists[npu_config.get_local_rank()::npu_config.N_NPU_PER_NODE]
-            cap_lists_final = []
-            for item in cap_lists:
-                if os.path.exists(item['path']) and os.path.getsize(item['path']) > 10240:
-                    cap_lists_final.append(item)
-            cap_lists = cap_lists_final
-            npu_config.print_msg(f"length of cap_lists is {len(cap_lists)}")
-
+        cap_lists = self.read_jsons(self.data)
         return cap_lists

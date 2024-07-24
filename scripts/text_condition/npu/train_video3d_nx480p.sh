@@ -1,9 +1,10 @@
 export PROJECT=$PROJECT_NAME
 WEIGHT_PATH="/home/opensora/pre_weights/"
 env
-export WANDB_MODE='offline'
+#export WANDB_MODE='offline'
 export HCCL_OP_BASE_FFTS_MODE_ENABLE=TRUE
 export HCCL_ALGO="level0:NA;level1:H-D_R"
+export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
 
 accelerate launch \
     --config_file scripts/accelerate_configs/multi_node_example_by_deepspeed.yaml \
@@ -14,10 +15,9 @@ accelerate launch \
     --text_encoder_name ${WEIGHT_PATH}/google/mt5-xxl \
     --cache_dir "../cache_dir" \
     --dataset t2v \
-    --ae CausalVAEModel_4x8x8 \
+    --data "scripts/train_data/merge_data_on_npu.txt" \
+    --ae CausalVAEModel_D4_4x8x8 \
     --ae_path "${WEIGHT_PATH}/test140k/" \
-    --video_data "./scripts/train_data/video_data_on_npu.txt" \
-    --image_data "./scripts/train_data/image_data_on_npu.txt" \
     --sample_rate 1 \
     --num_frames ${NUM_FRAME} \
     --max_height 480 \
@@ -29,15 +29,15 @@ accelerate launch \
     --gradient_checkpointing \
     --train_batch_size=1 \
     --dataloader_num_workers 8 \
-    --gradient_accumulation_steps=8 \
+    --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
-    --learning_rate=4e-5 \
-    --lr_scheduler="cosine" \
+    --learning_rate=1e-4 \
+    --lr_scheduler="constant" \
     --seed=10 \
     --lr_warmup_steps=500 \
     --mixed_precision="bf16" \
     --report_to="wandb" \
-    --checkpointing_steps=2000 \
+    --checkpointing_steps=1000 \
     --output_dir="/home/image_data/checkpoints/${PROJECT}/" \
     --allow_tf32 \
     --model_max_length 512 \
@@ -50,5 +50,8 @@ accelerate launch \
     --tile_overlap_factor 0.125 \
     --use_rope \
     --noise_offset 0.02 \
-    --pretrained "/home/image_data/checkpoints/image3d_rope_480p_from_pretrain/checkpoint-14000/model_ema/diffusion_pytorch_model.safetensors" \
-    --resume_from_checkpoint="latest"
+    --resume_from_checkpoint="latest" \
+    --enable_stable_fp32 \
+    --ema_decay 0.999 \
+    --speed_factor 1.0 \
+    --drop_short_ratio 1.0
