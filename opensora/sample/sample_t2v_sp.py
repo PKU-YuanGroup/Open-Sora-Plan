@@ -43,6 +43,7 @@ import time
 
 
 def load_t2v_checkpoint(model_path):
+    print('load_t2v_checkpoint, ', model_path)
     if args.model_type == 'udit':
         transformer_model = UDiTT2V.from_pretrained(model_path, cache_dir=args.cache_dir,
                                                         low_cpu_mem_usage=False, device_map=None,
@@ -100,8 +101,10 @@ def run_model_and_save_images(pipeline, model_path):
         text_prompt = open(args.text_prompt[0], 'r').readlines()
         args.text_prompt = [i.strip() for i in text_prompt]
 
-    checkpoint_name = f"{os.path.basename(model_path)}"
-
+    try:
+        checkpoint_name = f"{os.path.basename(model_path)}"
+    except:
+        checkpoint_name = "final"
     positive_prompt = """
     (masterpiece), (best quality), (ultra-detailed), (unwatermarked), 
     {}. 
@@ -276,22 +279,25 @@ if __name__ == "__main__":
     latest_path = None
     save_img_path = args.save_img_path
     while True:
-        cur_path = get_latest_path()
+        # cur_path = get_latest_path()
         # print(cur_path, latest_path)
-        if cur_path == latest_path:
-            time.sleep(5)
-            continue
+        # if cur_path == latest_path:
+        #     time.sleep(5)
+        #     continue
+        # time.sleep(1)
+        # latest_path = cur_path
 
-        time.sleep(1)
-        latest_path = cur_path
-        if npu_config is not None:
-            npu_config.print_msg(f"The latest_path is {latest_path}")
-        else:
-            print(f"The latest_path is {latest_path}")
-        full_path = f"{args.model_path}/{latest_path}/model_ema"
+        # if npu_config is not None:
+        #     npu_config.print_msg(f"The latest_path is {latest_path}")
+        # else:
+        #     print(f"The latest_path is {latest_path}")
+
+        
+        # full_path = f"{args.model_path}/{latest_path}/model_ema"
+        full_path = f"{args.model_path}"
         # full_path = f"{args.model_path}/{latest_path}/model"
         pipeline = load_t2v_checkpoint(full_path)
-        # print('load model')
+        print('load model')
         if npu_config is not None and npu_config.on_npu and npu_config.profiling:
             experimental_config = torch_npu.profiler._ExperimentalConfig(
                 profiler_level=torch_npu.profiler.ProfilerLevel.Level1,

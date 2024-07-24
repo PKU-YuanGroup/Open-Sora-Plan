@@ -1,6 +1,5 @@
 CUDA_VISIBLE_DEVICES=7 python opensora/sample/sample_t2v.py \
     --model_path /path/to/checkpoint-xxx/model_ema \
-    --version 65x512x512 \
     --num_frames 1 \
     --height 480 \
     --width 640 \

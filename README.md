@@ -139,7 +139,7 @@ Training Dataset
 ```
 ### Training
 ``` shell
-bash scripts/train_vae.sh
+bash scripts/causalvae/train.sh
 ```
 We introduce the important args for training.
 | Argparse | Usage |
@@ -157,7 +157,31 @@ We introduce the important args for training.
 |`--resume_from_checkpoint`|/path/to/checkpoint It will resume the training process from the checkpoint including the weight and the optimizer.|
 ### Inference
 ``` shell
-bash scripts/rec_causalvideo_vae.sh
+bash scripts/causalvae/rec_video.sh
+```
+We introduce the important args for inference.
+| Argparse | Usage |
+|:---|:---|
+|_Ouoput video size_||
+|`--num_frames`|The number of frames of generated videos|
+|`--height`|The resolution of generated videos|
+|`--width`|The resolution of generated videos|
+|_Data processing_||
+|`--video_path`|The path to the original video|
+|`--rec_path`|The path to the generated video|
+|_Load weights_||
+|`--ae_path`|/path/to/model_dir. A directory containing the checkpoint of VAE is used for inference and its model config.json|
+|_Other_||
+|`--enable_tilintg`|Use tiling to deal with videos of high resolution and long duration|
+|`--save_memory`|Save memory to inference but lightly influence quality|
+
+
+### Evaluation
+
+
+For evaluation, you should save the original video clips by using `--output_origin`.
+``` shell
+bash scripts/causalvae/prepare_eval.sh
 ```
 We introduce the important args for inference.
 | Argparse | Usage |
@@ -174,11 +198,10 @@ We introduce the important args for inference.
 |`--enable_tilintg`|Use tiling to deal with videos of high resolution and long time.|
 |`--output_origin`|Output the original video clips, fed into the VAE.|
 
-For evaluation, you should save the original video clips by using `--output_origin`.
-### Evaluation
-We introduce the important args in the script for evaluation.
+
+Then, we begin to eval. We introduce the important args in the script for evaluation.
 ``` shell
-bash scripts/eval.sh
+bash scripts/causalvae/eval.sh
 ```
 | Argparse | Usage |
 |:---|:---|
