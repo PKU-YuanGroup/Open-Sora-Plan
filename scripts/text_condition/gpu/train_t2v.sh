@@ -1,4 +1,3 @@
-export WANDB_KEY="953e958793b218efb850fa194e85843e2c3bd88b"
 # export WANDB_MODE="offline"
 export ENTITY="linbin"
 export HF_DATASETS_OFFLINE=1 
@@ -29,7 +28,7 @@ accelerate launch \
     --ae CausalVAEModel_D4_4x8x8 \
     --ae_path "/storage/dataset/test140k" \
     --sample_rate 1 \
-    --num_frames 93 \
+    --num_frames 29 \
     --max_height 480 \
     --max_width 640 \
     --interpolation_scale_t 1.0 \
@@ -60,6 +59,6 @@ accelerate launch \
     --resume_from_checkpoint="latest" \
     --ema_decay 0.999 \
     --enable_tiling \
+    --speed_factor 1.0 \
     --group_frame \
-    --pretrained "/storage/ongoing/new/Open-Sora-Plan/bs32x8x1_93x720p_lr1e-4_snr5_ema999_opensora122_rope_fp32_mt5xxl_high_moviepanda_speed1.0/checkpoint-3000/model_ema/diffusion_pytorch_model.safetensors" \
-    --output_dir="bs16x8x1_93x480p_lr1e-4_snr5_ema999_opensora122_rope_mt5xxl_high_pandamovie_speed1.0" 
+    --output_dir="bs16x8x1_29x480p_lr1e-4_snr5_ema999_opensora122_rope_mt5xxl_speed1.0" 

@@ -1,7 +1,7 @@
 
 torchrun --nnodes=1 --nproc_per_node 8  --master_port 29503 \
     -m opensora.sample.sample_t2v_sp \
-    --model_path /storage/ongoing/new/Open-Sora-Plan-bak/7.14bak/bs16x8x1_93x480p_lr1e-4_snr5_ema999_opensora122_rope_mt5xxl_high_pandamovie_speed1.0 \
+    --model_path /path/to/checkpoint-xxx/model_ema \
     --version 65x512x512 \
     --num_frames 93 \
     --height 480 \
@@ -10,7 +10,7 @@ torchrun --nnodes=1 --nproc_per_node 8  --master_port 29503 \
     --text_encoder_name google/mt5-xxl \
     --text_prompt examples/prompt_list_0.txt \
     --ae CausalVAEModel_D4_4x8x8 \
-    --ae_path "/storage/dataset/test140k" \
+    --ae_path "/path/to/causalvideovae" \
     --save_img_path "./sample_video_test" \
     --fps 24 \
     --guidance_scale 7.5 \

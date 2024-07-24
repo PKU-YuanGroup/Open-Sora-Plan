@@ -2,17 +2,15 @@
 
 <h1 align="left"> <a href="">Open-Sora Plan</a></h1>
 
-This project aims to create a simple and scalable repo, to reproduce [Sora](https://openai.com/sora) (OpenAI, but we prefer to call it "ClosedAI" ). We wish the open-source community can contribute to this project. Pull requests are welcome!!!
+This project aims to create a simple and scalable repo, to reproduce [Sora](https://openai.com/sora) (OpenAI, but we prefer to call it "ClosedAI" ). We wish the open-source community can contribute to this project. Pull requests are welcome! The current code supports complete training and inference using the Huawei Ascend AI computing system. Models trained on Huawei Ascend can also output video quality comparable to industry standards.
 
-本项目希望通过开源社区的力量复现Sora，由北大-兔展AIGC联合实验室共同发起，当前版本离目标差距仍然较大，仍需持续完善和快速迭代，欢迎Pull request！！！
+本项目希望通过开源社区的力量复现Sora，由北大-兔展AIGC联合实验室共同发起，当前版本离目标差距仍然较大，仍需持续完善和快速迭代，欢迎Pull request！目前代码同时支持使用国产AI计算系统（华为昇腾）进行完整的训练和推理。基于昇腾训练出的模型，也可输出持平业界的视频质量。
 
 <h5 align="left">
   
-[![slack badge](https://img.shields.io/badge/Discord-join-blueviolet?logo=discord&amp)](https://discord.gg/YtsBNg7n)
+[![slack badge](https://img.shields.io/badge/Discord-join-blueviolet?logo=discord&amp)](https://discord.gg/FkFm5M2J)
 [![WeChat badge](https://img.shields.io/badge/微信-加入-green?logo=wechat&amp)](https://github.com/PKU-YuanGroup/Open-Sora-Plan/issues/53#issuecomment-1987226516)
-[![hf_space](https://img.shields.io/badge/🤗-Open%20In%20Spaces-blue.svg)](https://huggingface.co/spaces/LanguageBind/Open-Sora-Plan-v1.1.0)
 [![Twitter](https://img.shields.io/badge/-Twitter@LinBin46984-black?logo=twitter&logoColor=1D9BF0)](https://x.com/LinBin46984/status/1795018003345510687) <br>
-[![hf_space](https://img.shields.io/badge/🤗-Open%20In%20Spaces-blue.svg)](https://huggingface.co/spaces/LanguageBind/Open-Sora-Plan-v1.1.0)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](https://github.com/PKU-YuanGroup/Open-Sora-Plan/blob/main/LICENSE) 
 [![GitHub repo contributors](https://img.shields.io/github/contributors-anon/PKU-YuanGroup/Open-Sora-Plan?style=flat&label=Contributors)](https://github.com/PKU-YuanGroup/Open-Sora-Plan/graphs/contributors) 
 [![GitHub Commit](https://img.shields.io/github/commit-activity/m/PKU-YuanGroup/Open-Sora-Plan?label=Commit)](https://github.com/PKU-YuanGroup/Open-Sora-Plan/commits/main/)
@@ -28,7 +26,7 @@ This project aims to create a simple and scalable repo, to reproduce [Sora](http
 
 
 # 📣 News
-* **[2024.07.25]** 🔥🔥🔥 v1.2.0 is here! Utilizing a 3D full attention architecture instead of 2+1D. We released a true 3D video diffusion model trained on 4s 720p. Checking out our latest [report](docs/Report-v1.2.0.md).
+* **[2024.07.24]** 🔥🔥🔥 v1.2.0 is here! Utilizing a 3D full attention architecture instead of 2+1D. We released a true 3D video diffusion model trained on 4s 720p. Checking out our latest [report](docs/Report-v1.2.0.md).
 * **[2024.05.27]** 🎉 We are launching Open-Sora Plan v1.1.0, which significantly improves video quality and length, and is fully open source! Please check out our latest [report](docs/Report-v1.1.0.md). Thanks to [ShareGPT4Video's](https://sharegpt4video.github.io/) capability to annotate long videos.
 * **[2024.04.09]** 🤝 Excited to share our latest exploration on metamorphic time-lapse video generation: [MagicTime](https://github.com/PKU-YuanGroup/MagicTime), which learns real-world physics knowledge from time-lapse videos.
 * **[2024.04.07]** 🎉🎉🎉 Today, we are thrilled to present Open-Sora-Plan v1.0.0, which significantly enhances video generation quality and text control capabilities. See our [report](docs/Report-v1.0.0.md). Thanks to HUAWEI NPU for supporting us.
@@ -37,34 +35,15 @@ This project aims to create a simple and scalable repo, to reproduce [Sora](http
 
 # 😍 Gallery
 
+93×1280×720 Text-to-Video Generation. The video quality has been compressed for playback on GitHub.
 
 <table class="center">
 <tr>
-  <td style="text-align:center;"><b>3D animation of a small, round, fluffy creature with big, expressive eyes explores ...</b></td>
-  <td style="text-align:center;"><b>A single drop of liquid metal falls from a floating orb, landing on a mirror-like ...</b></td>
-</tr>
-<tr>
-  <td><video src="" autoplay></td>
-  <td><video src="" autoplay></td>
-</tr>
-<tr>
-  <td style="text-align:center;"><b>A drone camera circles around a beautiful historic church built on a rocky outcropping ...</b></td>
-  <td style="text-align:center;"><b>Aerial view of Santorini during the blue hour, showcasing the stunning architecture ...</b></td>
-</tr>
-<tr>
-  <td><video src="" autoplay></td>
-  <td><video src="" autoplay></td>
-</tr>
-<tr>
-  <td style="text-align:center;"><b>A snowy forest landscape with a dirt road running through it. The road is flanked by ...</b></td>
-  <td style="text-align:center;"><b>Drone shot along the Hawaii jungle coastline, sunny day. Kayaks in the water.</b></td>
-</tr>
-<tr>
-  <td><video src="" autoplay></td>
   <td><video src="" autoplay></td>
 </tr>
 </table>
-    
+
+  
 # 😮 Highlights
 
 Open-Sora Plan shows excellent performance in video generation.
@@ -95,9 +74,18 @@ Coming soon...
 
 # 🐳 Model Zoo
 
-| Model | Transformers(HF) |
-|---|---|
-|||
+| Version | Architecture |  Diffusion Model | CausalVideoVAE |
+|---|---|---|---|
+| v1.2.0 | 3D | [93x720p](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0/tree/main/93x720p), [93x480p](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0/tree/main/93x480p) | [Anysize](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0/tree/main/vae)|
+| v1.1.0 | 2+1D | [221x512x512](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.1.0/tree/main/221x512x512), [65x512x512](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.1.0/tree/main/65x512x512) |[Anysize](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.1.0/tree/main/vae) |
+| v1.0.0 | 2+1D | [65x512x512](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.0.0/tree/main/65x512x512), [65x256x256](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.0.0/tree/main/65x256x256), [17x256x256](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.0.0/tree/main/17x256x256) | [Anysize](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.0.0/tree/main/vae) |
+
+> [!Warning]
+> <div align="left">
+> <b>
+> 🚨 For version 1.2.0, we no longer support 2+1D models.
+> </b>
+> </div>
 
 # ⚙️ Requirements and Installation
 
@@ -282,7 +270,14 @@ We introduce some key parameters in order to customize your training process.
 
 ### Inference
 
-We provide multiple inference scripts to accommodate various requirements.
+We provide multiple inference scripts to support various requirements. We recommend configuration `--guidance_scale 7.5 --num_sampling_steps 100 --sample_method EulerAncestralDiscrete` for sampling.
+
+**Inference on 93×720p**, we report speed on H100.
+
+| Size | 1 GPU | 8 GPUs (sp) | 
+|---|---|---|
+|29×720p|420s/100step|80s/100step|
+|93×720p|3400s/100step|450s/100step|
 
 #### 🖥️ 1 GPU 
 If you only have one GPU, it will perform inference on each sample sequentially, one at a time.
@@ -305,10 +300,13 @@ bash scripts/text_condition/gpu/sample_t2v_sp.sh
 ## 🖼️ Image-to-Video
 
 ### Data prepare
+Coming soon...
 
 ### Training
+Coming soon...
 
 ### Inference
+Coming soon...
 
 # 💡 How to Contribute to the Open-Sora Plan Community
 We greatly appreciate your contributions to the Open-Sora Plan open-source community and helping us make it even better than it is now!
