@@ -1,5 +1,5 @@
 CUDA_VISIBLE_DEVICES=0 python examples/rec_video.py \
-    --ae_path "/storage/dataset/test140k" \
+    --ae_path "/storage/dataset/488dim4_plus" \
     --video_path /storage/clh/gen/64dim_488/origin/134445.mp4 \
     --rec_path rec.mp4 \
     --device cuda \

@@ -1,6 +1,5 @@
 CUDA_VISIBLE_DEVICES=7 python opensora/sample/sample_t2v.py \
-    --model_path /storage/ongoing/new/Open-Sora-Plan-bak/7.14bak/bs4x8x16_480p_lr1e-4_snr5_noioff0.02_ema9999_udit122_rope_fp32_mt5xxl_sam/checkpoint-257000/model_ema \
-    --version 65x512x512 \
+    --model_path /path/to/checkpoint-xxx/model_ema \
     --num_frames 1 \
     --height 480 \
     --width 640 \
@@ -8,7 +7,7 @@ CUDA_VISIBLE_DEVICES=7 python opensora/sample/sample_t2v.py \
     --text_encoder_name google/mt5-xxl \
     --text_prompt examples/prompt_list_1.txt \
     --ae CausalVAEModel_D4_4x8x8 \
-    --ae_path "/storage/dataset/test140k" \
+    --ae_path "/path/to/causalvideovae" \
     --save_img_path "sample_image_fp32_257000_cfg4.5_step40_480p_pos_neg" \
     --fps 24 \
     --guidance_scale 4.5 \
