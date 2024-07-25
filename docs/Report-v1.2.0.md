@@ -11,7 +11,7 @@ Compared to previous video generation models, Open-Sora-Plan v1.2.0 offers the f
 ### Open-Source Release
 We open-source the Open-Sora-Plan to facilitate future development of Video Generation in the community. Code, data, model will be made publicly available.
 - Code: All training scripts and sample scripts.
-- Model: Both Diffusion Model and CasualVideoVAE [here](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0).
+- Model: Both Diffusion Model and CausalVideoVAE [here](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0).
 
 ## Gallery
 
@@ -25,7 +25,7 @@ We open-source the Open-Sora-Plan to facilitate future development of Video Gene
   
 ## Detailed Technical Report
 
-### CasualVideoVAE
+### CausalVideoVAE
 
 #### Model Structure
 
@@ -161,7 +161,7 @@ Coming soon...
 
 ## Future Work and Discussion
 
-#### CasualVideoVAE
+#### CausalVideoVAE
 We observed that high-frequency motion information in videos tends to exhibit jitter, and increasing training duration and data volume does not significantly alleviate this issue. In videos, compressing the duration while maintaining the original latent dimension can lead to significant information loss. A more robust VAE will be released in the next version.
 
 #### Diffusion Model
