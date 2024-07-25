@@ -9,9 +9,10 @@ Compared to previous video generation models, Open-Sora-Plan v1.2.0 offers the f
 
 
 ### Open-Source Release
-We open-source the Open-Sora-Plan to facilitate future development of Video Generation in the community. Code, data, model will be made publicly available.
+We open-source the Open-Sora-Plan to facilitate future development of Video Generation in the community. Code, data, model are made publicly available.
 - Code: All training scripts and sample scripts.
 - Model: Both Diffusion Model and CasualVideoVAE [here](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0).
+- Data: Filtered data [here](https://huggingface.co/datasets/LanguageBind/Open-Sora-Plan-v1.2.0).
 
 ## Gallery
 
@@ -143,7 +144,7 @@ When supporting dynamic resolutions, we simply replace each sample's frame seque
 
 Similar to previous work, we use a multi-stage training approach. With the 3D DiT architecture, all parameters can be transferred from images to videos without loss. To explore training costs, all parameters of the diffusion model are trained from scratch. Therefore, we first train an text-to-image model, using the training strategy from [Pixart-alpha](https://arxiv.org/abs/2310.00426).
 
-The video model is initialized with weights from a 480p image model. We first train 480p videos with 29 frames. Next, we adapt the weights to 720p resolution, training on approximately 7 million samples from panda70m, filtered for aesthetic quality and motion. Finally, we refine the model with a higher-quality (HQ) subset of 1 million samples. After that, we use a filtered data (collected in v1.1.0) for fine-tuning 93-frame 720p videos. Below is our training card.
+The video model is initialized with weights from a 480p image model. We first train 480p videos with 29 frames. Next, we adapt the weights to 720p resolution, training on approximately 6 million higher-quality (HQ) samples from Panda70M, filtered for aesthetic quality and motion. Finally, we refine the model with a more higher-quality (HQ) subset of 1 million samples. After that, we use a filtered data (collected in v1.1.0) for fine-tuning 93-frame 720p videos. Below is our training card. We release the annotation file [here](https://huggingface.co/datasets/LanguageBind/Open-Sora-Plan-v1.2.0/tree/main/anno_json).
 
 | Name | Stage 1 | Stage 2 | Stage 3 | Stage 4 |Stage 5 |
 |---|---|---|---|---|---|
@@ -152,7 +153,7 @@ The video model is initialized with weights from a 480p image model. We first tr
 | Compute (#Num x #Hours) | 32 Ascend × 81 | 32 Ascend × 142 |  128 Ascend × 38 | 256 H100 × 64 | 256 H100 × 84 |
 | Checkpoint | - | - | - | - | [HF](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0) |
 | Log | - | - | [wandb](https://api.wandb.ai/links/1471742727-Huawei/trdu2kba) | [wandb](https://api.wandb.ai/links/linbin/vvxvcd7s) | [wandb](https://api.wandb.ai/links/linbin/easg3qkl)
-| Training Data | 10M SAM | 5M internal image data | 4M Panda70M | 7M Panda70M | 1M HQ Panda70M and 100k HQ data (collected in v1.1.0) |
+| Training Data | [10M SAM](https://huggingface.co/datasets/LanguageBind/Open-Sora-Plan-v1.2.0/blob/main/anno_json/sam_image_11185255_resolution.json) | 5M internal image data | [6M HQ Panda70M](https://huggingface.co/datasets/LanguageBind/Open-Sora-Plan-v1.2.0/blob/main/anno_json/Panda70M_HQ6M.json) | [6M HQ Panda70M](https://huggingface.co/datasets/LanguageBind/Open-Sora-Plan-v1.2.0/blob/main/anno_json/Panda70M_HQ6M.json) | [1M HQ Panda70M](https://huggingface.co/datasets/LanguageBind/Open-Sora-Plan-v1.2.0/blob/main/anno_json/Panda70M_HQ1M.json) and [100k HQ data](https://huggingface.co/datasets/LanguageBind/Open-Sora-Plan-v1.2.0/tree/main/anno_json) (collected in v1.1.0) |
 
 ### Training Image-to-Video Diffusion Model
 
