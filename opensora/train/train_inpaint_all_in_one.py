@@ -131,6 +131,46 @@ def ema_save_pretrained(self, path, **kwargs):
     self.copy_to(model.parameters())
     model.save_pretrained(path)
 
+def save_model_func(args, accelerator, net, ema_net, output_dir, model_type):
+    if accelerator.is_main_process:
+        if args.use_ema:
+            ema_net.save_pretrained(os.path.join(output_dir, "model_ema"), model_name=args.model, model_type=model_type, train_vip=args.train_vip)
+
+        unwrap_net = accelerator.unwrap_model(net) 
+        unwrap_net.save_pretrained(os.path.join(output_dir, "model"))
+
+
+def load_model_func(args, accelerator, net, ema_net, input_dir, model_type):
+    if args.use_ema:
+        if os.path.exists(os.path.join(input_dir, "model_ema")):
+            logger.info("loading ema model...")
+            load_model = EMAModel.from_pretrained(
+                os.path.join(input_dir, "model_ema"), 
+                Net, 
+                model_name=args.model, 
+                model_type=model_type, 
+                train_vip=args.train_vip, 
+                pretrained_transformer_model_path=args.pretrained_transformer_model_path
+            )
+            ema_net.load_state_dict(load_model.state_dict())
+            ema_net.to(accelerator.device)
+            del load_model
+
+    logger.info("loading model...")
+    unwarp_net = accelerator.unwrap_model(net)
+    # load diffusers style into model
+    load_model = Net.from_pretrained(
+        os.path.join(input_dir, "model"), 
+        model_name=args.model, 
+        model_type=model_type, 
+        train_vip=args.train_vip,
+        pretrained_transformer_model_path=args.pretrained_transformer_model_path
+    )
+    unwarp_net.register_to_config(**load_model.config)
+    unwarp_net.load_state_dict(load_model.state_dict())
+
+    del load_model
+
 # we use timm styled model
 def get_clip_feature(clip_data, image_encoder):
     batch_size = clip_data.shape[0]
@@ -190,10 +230,12 @@ class Net(ModelMixin, ConfigMixin):
         model_type = kwargs.get("model_type", ModelType.INPAINT_ONLY)
         train_vip = kwargs.get('train_vip', False)
         model = Diffusion_models_class[model_name].from_config(config.get('transformer_model')) # model should be always loaded
+        hacked_model(model, model_type=model_type, model_cls=Diffusion_models_class[model_name])
         # whatever the train_vip is, vip should be loaded when model_type is not INPAINT_ONLY
         if model_type != ModelType.INPAINT_ONLY:
             vip = VIPNet.from_config(config.get('vipnet'))
             vip.set_vip_adapter(model, init_from_original_attn_processor=False)
+            vip.register_get_clip_feature_func(get_clip_feature)
         else:
             vip = None
 
@@ -212,9 +254,9 @@ class Net(ModelMixin, ConfigMixin):
         transformer_model_path = os.path.join(pretrained_model_name_or_path, "transformer_model")
         vipnet_path = os.path.join(pretrained_model_name_or_path, "vip")
 
-        model_config, model_unused_kwargs = Diffusion_models_class[model_name].load_config(transformer_model_path) if model_type != ModelType.VIP_ONLY else ({}, {})
+        model_config, model_unused_kwargs = Diffusion_models_class[model_name].load_config(transformer_model_path, return_unused_kwargs=return_unused_kwargs) if model_type != ModelType.VIP_ONLY else ({}, {})
         # when model_type is not INPAINT_ONLY and train_vip is True, we save chcekpoint with vipnet, so we only load vipnet in this case
-        vip_config, vip_unused_kwargs = VIPNet.load_config(vipnet_path) if model_type != ModelType.INPAINT_ONLY and train_vip else ({}, {})
+        vip_config, vip_unused_kwargs = VIPNet.load_config(vipnet_path, return_unused_kwargs=return_unused_kwargs) if model_type != ModelType.INPAINT_ONLY and train_vip else ({}, {})
 
         config.update({'transformer_model': model_config})
         config.update({'vipnet': vip_config})
@@ -265,11 +307,13 @@ class Net(ModelMixin, ConfigMixin):
         if model_type != ModelType.VIP_ONLY:
             transformer_model_path = os.path.join(pretrained_model_name_or_path, "transformer_model")
             transformer_model = Diffusion_models_class[model_name].from_pretrained(transformer_model_path)
+            hacked_model(transformer_model, model_type=model_type, model_cls=Diffusion_models_class[model_name])
         else:
-            pretrained_transformer_model_path = kwargs.get("pretrained_transformer_model_path", None)
-            assert pretrained_transformer_model_path is not None, "pretrained_transformer_model_path must be provided"
-            transformer_model = Diffusion_models_class[model_name].from_config(pretrained_transformer_model_path)
-            transformer_model.custom_load_state_dict(pretrained_transformer_model_path)
+            transformer_model_path = kwargs.get("pretrained_transformer_model_path", None)
+            assert transformer_model_path is not None, "pretrained_transformer_model_path must be provided"
+            transformer_model = Diffusion_models_class[model_name].from_config(transformer_model_path)
+            hacked_model(transformer_model, model_type=model_type, model_cls=Diffusion_models_class[model_name])
+            transformer_model.custom_load_state_dict(transformer_model_path)
 
         train_vip = kwargs.get("train_vip", False) if model_type != ModelType.VIP_ONLY else True
 
@@ -277,6 +321,12 @@ class Net(ModelMixin, ConfigMixin):
             vip_path = os.path.join(pretrained_model_name_or_path, "vip")
             vipnet = VIPNet.from_pretrained(vip_path)
             vipnet.set_vip_adapter(transformer_model, init_from_original_attn_processor=False)
+            vipnet.register_get_clip_feature_func(get_clip_feature)
+
+        if transformer_model is not None:
+            logger.info(f"loading transformer model successfully from {transformer_model_path}") 
+        if vipnet is not None:
+            logger.info(f"loading vip model successfully from {pretrained_model_name_or_path}")
         
         return cls(transformer_model, vipnet, model_type=model_type, train_vip=train_vip)
     
@@ -393,13 +443,14 @@ def log_validation(
     videos = []
     prompts = []
     gen_img = False
-    max_val_img_num = 5
+    max_val_img_num = 1
+    current_val_img_num = 0
 
     for idx, (prompt, images) in enumerate(zip(validation_prompt, validation_images_list)):
         if not isinstance(images, list):
             images = [images]
 
-        if (idx + 1) > max_val_img_num:
+        if (current_val_img_num + 1) > max_val_img_num:
             break
             
         condition_images, condition_images_indices= None, None
@@ -416,15 +467,7 @@ def log_validation(
         if model_type != ModelType.INPAINT_ONLY:
             if args.num_frames != 1:
                 if len(images) == 1 and images[0].split('/')[-1].split('_')[0] == 'img': 
-                    vip_tokens, vip_cond_mask, negative_vip_tokens, negative_vip_cond_mask = vip.get_image_embeds(
-                        images=images, 
-                        image_processor=image_processor,
-                        image_encoder=image_encoder, 
-                        transform=resize_transform,
-                        device=accelerator.device,
-                        weight_dtype=weight_dtype
-                    )
-                    gen_img = True
+                    continue
                 else:
                     vip_tokens, vip_cond_mask, negative_vip_tokens, negative_vip_cond_mask = vip.get_video_embeds(
                         condition_images=images,
@@ -472,6 +515,8 @@ def log_validation(
         videos.append(video[0])
         prompts.append(prompt)
         gen_img = False
+
+        current_val_img_num += 1
     # import ipdb;ipdb.set_trace()
 
     # Save the generated videos
@@ -734,64 +779,11 @@ def main(args):
         EMAModel.from_pretrained = ema_from_pretrained
         ema_net = deepcopy(net)
         # when model_type is INPAINT_ONLY, net includes only dit; when others, net includes both dit and vip
-        ema_net = EMAModel(ema_net.parameters(), update_after_step=args.ema_start_step,
+        ema_net = EMAModel(ema_net.parameters(), decay=args.ema_decay, update_after_step=args.ema_start_step,
                            model_cls=Net, model_config=net.config)
         ema_net.save_pretrained = ema_save_pretrained.__get__(ema_net, EMAModel)
 
-    # `accelerate` 0.16.0 will have better support for customized saving
-    if version.parse(accelerate.__version__) >= version.parse("0.16.0"):
-        # create custom saving & loading hooks so that `accelerator.save_state(...)` serializes in a nice format
-        def save_model_hook(models, weights, output_dir):
-            if accelerator.is_main_process:
-                if args.use_ema:
-                    ema_net.save_pretrained(os.path.join(output_dir, "model_ema"), model_name=args.model, model_type=model_type, train_vip=args.train_vip)
-
-                for i, model in enumerate(models):
-                    model.save_pretrained(os.path.join(output_dir, "model"))
-                    if weights:  # Don't pop if empty
-                        # make sure to pop weight so that corresponding model is not saved again
-                        weights.pop()
-
-        def load_model_hook(models, input_dir):
-            if args.use_ema:
-                if os.path.exists(os.path.join(input_dir, "model_ema")):
-                    logger.info("loading ema model...")
-                    load_model = EMAModel.from_pretrained(
-                        os.path.join(input_dir, "model_ema"), 
-                        Net, 
-                        model_name=args.model, 
-                        model_type=model_type, 
-                        train_vip=args.train_vip, 
-                        pretrained_transformer_model_path=args.pretrained_transformer_model_path
-                    )
-                    missing_keys, unexpected_keys = ema_net.load_state_dict(load_model.state_dict(), strict=False)
-                    logger.log(f'missing_keys {len(missing_keys)} {missing_keys}, unexpected_keys {len(unexpected_keys)}')
-                    ema_net.to(accelerator.device)
-                    del load_model
-
-            logger.info("loading model...")
-            for i in range(len(models)):
-
-                # pop models so that they are not loaded again
-                model = models.pop()
-
-                # load diffusers style into model
-                load_model = Net.from_pretrained(
-                    os.path.join(input_dir, "model"), 
-                    model_name=args.model, 
-                    model_type=model_type, 
-                    train_vip=args.train_vip,
-                    pretrained_transformer_model_path=args.pretrained_transformer_model_path
-                )
-                model.register_to_config(**load_model.config)
-                
-                missing_keys, unexpected_keys = model.load_state_dict(load_model.state_dict(), strict=False)
-                logger.log(f'missing_keys {len(missing_keys)} {missing_keys}, unexpected_keys {len(unexpected_keys)}')
-
-                del load_model
-
-        accelerator.register_save_state_pre_hook(save_model_hook)
-        accelerator.register_load_state_pre_hook(load_model_hook)
+   
 
     # Enable TF32 for faster training on Ampere GPUs,
     # cf https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices
@@ -964,6 +956,7 @@ def main(args):
         else:
             accelerator.print(f"Resuming from checkpoint {path}")
             accelerator.load_state(os.path.join(args.output_dir, path))
+            load_model_func(args, accelerator, net, ema_net, input_dir=os.path.join(args.output_dir, path), model_type=model_type)
             global_step = int(path.split("-")[1])
 
             initial_global_step = global_step
@@ -1024,6 +1017,7 @@ def main(args):
 
                 save_path = os.path.join(args.output_dir, f"checkpoint-{progress_info.global_step}")
                 accelerator.save_state(save_path)
+                save_model_func(args, accelerator, net, ema_net, output_dir=save_path, model_type=model_type)
                 logger.info(f"Saved state to {save_path}")
 
         logs = {"step_loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
@@ -1093,6 +1087,7 @@ def main(args):
             raise ValueError(f"Unknown prediction type {noise_scheduler.config.prediction_type}")
 
         mask = model_kwargs.get('attention_mask', None)
+        clip_mask = model_kwargs.get('clip_mask', None)
 
         # if torch.all(mask.bool()):
         #     mask = None
@@ -1108,7 +1103,6 @@ def main(args):
 
         if model_type != ModelType.INPAINT_ONLY and args.use_clip_mask:
             clip_loss_lambda = args.clip_loss_lambda 
-            clip_mask = model_kwargs.get('clip_mask', None)
 
             assert clip_mask is not None, "clip_mask is None!"
 

@@ -1,13 +1,13 @@
 export MASTER_PORT=12359
 export MASTER_ADDR='localhost'
 export TOKENIZERS_PARALLELISM=false
-MODEL_PATH=videoip_3ddit_480p_f93_bs4x8x1_lr1e-5_snrgamma5_0_noiseoffset0_02_dino518_ema0_999
+MODEL_PATH=inpaint_only_480p_f93_bs4x8x1_lr1e-5_snrgamma5_0_noiseoffset0_02_dino518_ema0_999
 # export HF_DATASETS_OFFLINE=1 
 # export TRANSFORMERS_OFFLINE=1
 
 torchrun --nproc_per_node=8 opensora/sample/sample_inpaint_all_in_one.py \
     --model_path /storage/gyy/hw/Open-Sora-Plan/runs/$MODEL_PATH \
-    --model_type 'vip_only' \
+    --model_type 'inpaint_only' \
     --num_frames 93 \
     --height 480 \
     --width 640 \
@@ -17,7 +17,7 @@ torchrun --nproc_per_node=8 opensora/sample/sample_inpaint_all_in_one.py \
     --ae_path "/storage/dataset/test140k" \
     --save_img_path "./samples/$MODEL_PATH" \
     --fps 24 \
-    --guidance_scale 2.5 \
+    --guidance_scale 7.5 \
     --num_sampling_steps 50 \
     --enable_tiling \
     --max_sequence_length 512 \
@@ -27,5 +27,5 @@ torchrun --nproc_per_node=8 opensora/sample/sample_inpaint_all_in_one.py \
     --pretrained_vipnet_path /storage/gyy/hw/Open-Sora-Plan/runs/videoip_3d_480p_f29_bs2x16_lr1e-5_snrgamma5_0_noiseoffset0_02_dino518_ema0_999/checkpoint-14000/model \
     --image_encoder_name vit_giant_patch14_reg4_dinov2.lvd142m \
     --image_encoder_path /storage/cache_dir/hub/models--timm--vit_giant_patch14_reg4_dinov2.lvd142m/snapshots/a2208b21b069f6b2e45999870fcce4b7e43d1a2c/model.safetensors \
-    --max_sample_num 8 \
+    --max_sample_num 24 \
     --seed 42

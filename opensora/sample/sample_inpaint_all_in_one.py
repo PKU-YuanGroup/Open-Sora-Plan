@@ -119,6 +119,15 @@ def validation(args):
     if args.enable_tiling:
         vae.vae.enable_tiling()
         vae.vae.tile_overlap_factor = args.tile_overlap_factor
+        vae.vae.tile_sample_min_size = 512
+        vae.vae.tile_latent_min_size = 64
+        vae.vae.tile_sample_min_size_t = 29
+        vae.vae.tile_latent_min_size_t = 8
+        if args.save_memory:
+            vae.vae.tile_sample_min_size = 256
+            vae.vae.tile_latent_min_size = 32
+            vae.vae.tile_sample_min_size_t = 29
+            vae.vae.tile_latent_min_size_t = 8
     vae.vae_scale_factor = ae_stride_config[args.ae]
 
     text_encoder = MT5EncoderModel.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir, low_cpu_mem_usage=True, torch_dtype=weight_dtype)
@@ -437,6 +446,7 @@ if __name__ == "__main__":
     parser.add_argument("--text_prompt", nargs='+')
     parser.add_argument('--tile_overlap_factor', type=float, default=0.125)
     parser.add_argument('--enable_tiling', action='store_true')
+    parser.add_argument('--save_memory', action='store_true')
     parser.add_argument('--model_3d', action='store_true')
     parser.add_argument('--enable_stable_fp32', action='store_true')
 

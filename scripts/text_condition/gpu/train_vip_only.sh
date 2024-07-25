@@ -1,7 +1,7 @@
 # PROJECT="video_test"
-PROJECT="videoip_3ddit_480p_f93_bs4x8x1_lr1e-5_snrgamma5_0_noiseoffset0_02_dino518_ema0_999_cliploss"
+PROJECT="videoip_3ddit_480p_f93_bs4x8x1_lr1e-5_snrgamma5_0_noiseoffset0_02_dino518_ema0_999"
 export WANDB_API_KEY="720d886d8c437c2142c88056a1eab8ef78d64a1f"
-export WANDB_MODE="online"
+export WANDB_MODE="offline"
 export ENTITY="yunyangge"
 export PROJECT=$PROJECT
 export HF_DATASETS_OFFLINE=1 
@@ -62,7 +62,7 @@ accelerate launch \
     --enable_tiling \
     --tile_overlap_factor 0.125 \
     --validation_dir "validation_dir" \
-    --guidance_scale 5.0 \
+    --guidance_scale 2.5 \
     --num_sampling_steps 50 \
     --ema_start_step 0 \
     --use_ema \
@@ -79,14 +79,16 @@ accelerate launch \
     --ema_decay 0.999 \
     --use_rope \
     --train_vip \
-    --pretrained_transformer_model_path "/storage/ongoing/new/Open-Sora-Plan/bs36x8x1_125x480p_lr1e-4_snr5_noioff0.02_opensora122_rope_mt5xxl_pandamovie_aes_mo_sucai_mo_speed1.2/checkpoint-4500/model_ema" \
+    --pretrained_transformer_model_path "/storage/ongoing/new/Open-Sora-Plan-bak/7.14bak/bs16x8x1_93x480p_lr1e-4_snr5_ema999_opensora122_rope_mt5xxl_high_pandamovie_speed1.0/checkpoint-3500/model_ema" \
     --pretrained_vip_adapter_path "/storage/gyy/hw/Open-Sora-Plan/runs/videoip_3d_480p_f29_bs2x16_lr1e-5_snrgamma5_0_noiseoffset0_02_dino518_ema0_999/checkpoint-14000/model" \
-    --use_clip_mask \
-    --clip_loss_lambda 0.9 \
+    # --speed_factor 1.5 \
+    # --resume_from_checkpoint "latest" \
+    # --need_validation
+    # --use_clip_mask \
+    # --clip_loss_lambda 0.9 \
     # --need_validation \
     # --sp_size 8 \
     # --train_sp_batch_size 2 \
     # --train_vip \
-    # --resume_from_checkpoint "latest" \
     # --zero_terminal_snr \
     # 基模型权重没有参与训练所以一定要加载

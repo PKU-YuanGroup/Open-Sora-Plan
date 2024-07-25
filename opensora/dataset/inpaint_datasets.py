@@ -76,7 +76,7 @@ class Meta_dataset(T2V_dataset):
         mask = torch.ones_like(video, device=video.device, dtype=video.dtype)
         
         rand_num = random.random()
-        # i2v
+       # i2v
         if rand_num < self.i2v_ratio:
             mask[0] = 0
         # transition
@@ -89,13 +89,12 @@ class Meta_dataset(T2V_dataset):
             mask[:end_idx] = 0
         # clear video
         elif rand_num < self.i2v_ratio + self.transition_ratio + self.v2v_ratio + self.clear_video_ratio:
-            mask = 0
+            mask[:] = 0
         # random mask
         else:
             idx_to_select = random.randint(0, self.num_frames - 1)
             selected_indices = random.sample(range(0, self.num_frames), idx_to_select)
             mask[selected_indices] = 0
-
         masked_video = video * (mask < 0.5)
         return dict(mask=mask, masked_video=masked_video)
 
@@ -203,9 +202,9 @@ class VIP_dataset(Meta_dataset):
                 clip_mask[:end_idx] = 0
         # clear video
         elif rand_num < self.i2v_ratio + self.transition_ratio + self.v2v_ratio + self.clear_video_ratio:
-            mask = torch.zeros_like(mask, device=mask.device, dtype=mask.dtype)
+            mask[:] = 0
             if self.use_clip_mask:
-                clip_mask = torch.zeros_like(clip_mask, device=clip_mask.device, dtype=clip_mask.dtype)
+                clip_mask[:] = 0
         # random mask
         else:
             idx_to_select = random.randint(0, self.num_frames - 1)
