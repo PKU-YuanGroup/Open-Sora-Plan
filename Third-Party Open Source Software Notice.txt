@@ -231,7 +231,15 @@ Copyright 2022- The HuggingFace Team. All rights reserved.
 
 
 Software Notice
+Software Open-Sora
+License: Apache License 2.0
+For the full text of the license, please go to the above.
+
+Copyright Notice included in the software: 
+Copyright 2022- The HuggingFace Team. All rights reserved.
+Software Notice
 Software Megatron
+
 
 License: 
 # Redistribution and use in source and binary forms, with or without
