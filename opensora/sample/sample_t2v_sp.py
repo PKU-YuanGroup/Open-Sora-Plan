@@ -101,10 +101,7 @@ def run_model_and_save_images(pipeline, model_path):
         text_prompt = open(args.text_prompt[0], 'r').readlines()
         args.text_prompt = [i.strip() for i in text_prompt]
 
-    try:
-        checkpoint_name = f"{os.path.basename(model_path)}"
-    except:
-        checkpoint_name = "final"
+    checkpoint_name = f"{os.path.basename(model_path)}"
     positive_prompt = """
     (masterpiece), (best quality), (ultra-detailed), (unwatermarked), 
     {}. 
@@ -278,7 +275,7 @@ if __name__ == "__main__":
 
     latest_path = None
     save_img_path = args.save_img_path
-    while True:
+    # while True:
         # cur_path = get_latest_path()
         # print(cur_path, latest_path)
         # if cur_path == latest_path:
@@ -293,31 +290,33 @@ if __name__ == "__main__":
         #     print(f"The latest_path is {latest_path}")
 
 
-        # full_path = f"{args.model_path}/{latest_path}/model_ema"
-        full_path = f"{args.model_path}"
-        # full_path = f"{args.model_path}/{latest_path}/model"
-        pipeline = load_t2v_checkpoint(full_path)
-        print('load model')
-        if npu_config is not None and npu_config.on_npu and npu_config.profiling:
-            experimental_config = torch_npu.profiler._ExperimentalConfig(
-                profiler_level=torch_npu.profiler.ProfilerLevel.Level1,
-                aic_metrics=torch_npu.profiler.AiCMetrics.PipeUtilization
-            )
-            profile_output_path = "/home/image_data/npu_profiling_t2v"
-            os.makedirs(profile_output_path, exist_ok=True)
+    if latest_path is None:
+        latest_path = ''
+    # full_path = f"{args.model_path}/{latest_path}/model_ema"
+    full_path = f"{args.model_path}"
+    # full_path = f"{args.model_path}/{latest_path}/model"
+    pipeline = load_t2v_checkpoint(full_path)
+    print('load model')
+    if npu_config is not None and npu_config.on_npu and npu_config.profiling:
+        experimental_config = torch_npu.profiler._ExperimentalConfig(
+            profiler_level=torch_npu.profiler.ProfilerLevel.Level1,
+            aic_metrics=torch_npu.profiler.AiCMetrics.PipeUtilization
+        )
+        profile_output_path = "/home/image_data/npu_profiling_t2v"
+        os.makedirs(profile_output_path, exist_ok=True)
 
-            with torch_npu.profiler.profile(
-                    activities=[torch_npu.profiler.ProfilerActivity.NPU, torch_npu.profiler.ProfilerActivity.CPU],
-                    with_stack=True,
-                    record_shapes=True,
-                    profile_memory=True,
-                    experimental_config=experimental_config,
-                    schedule=torch_npu.profiler.schedule(wait=10000, warmup=0, active=1, repeat=1,
-                                                         skip_first=0),
-                    on_trace_ready=torch_npu.profiler.tensorboard_trace_handler(f"{profile_output_path}/")
-            ) as prof:
-                run_model_and_save_images(pipeline, latest_path)
-                prof.step()
-        else:
-            # print('gpu')
+        with torch_npu.profiler.profile(
+                activities=[torch_npu.profiler.ProfilerActivity.NPU, torch_npu.profiler.ProfilerActivity.CPU],
+                with_stack=True,
+                record_shapes=True,
+                profile_memory=True,
+                experimental_config=experimental_config,
+                schedule=torch_npu.profiler.schedule(wait=10000, warmup=0, active=1, repeat=1,
+                                                        skip_first=0),
+                on_trace_ready=torch_npu.profiler.tensorboard_trace_handler(f"{profile_output_path}/")
+        ) as prof:
             run_model_and_save_images(pipeline, latest_path)
+            prof.step()
+    else:
+        # print('gpu')
+        run_model_and_save_images(pipeline, latest_path)
