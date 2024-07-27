@@ -165,12 +165,8 @@ def hacked_pipeline_call(
             raise ValueError("condition_images should be a list of torch.Tensor")
 
         input_video = torch.zeros([3, num_frames, height, width], dtype=self.vae.vae.dtype, device=device)
-        condition_images = torch.cat(condition_images, dim=1).to(device=device) # C 1/2 H W -> C F H W
+        condition_images = torch.cat(condition_images, dim=1).to(device=device) # C 1or2 H W -> C F H W
         
-        print("vae dtype", self.vae.vae.dtype)
-        print("condition_image dtype", condition_images.dtype)
-        print("input_video dtype", input_video.dtype)
-
         input_video[:, condition_images_indices] = condition_images
 
         print(condition_images_indices)

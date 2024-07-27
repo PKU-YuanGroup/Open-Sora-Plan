@@ -1,7 +1,7 @@
 # PROJECT="video_test"
-PROJECT="videoip_3ddit_480p_f93_bs4x8x1_lr1e-5_snrgamma5_0_noiseoffset0_02_dino518_ema0_999"
+PROJECT="vip_only_480p_f93_bs4x8x1_lr1e-5_snrgamma5_0_noiseoffset0_02_dino518_ema0_999"
 export WANDB_API_KEY="720d886d8c437c2142c88056a1eab8ef78d64a1f"
-export WANDB_MODE="offline"
+export WANDB_MODE="online"
 export ENTITY="yunyangge"
 export PROJECT=$PROJECT
 export HF_DATASETS_OFFLINE=1 
@@ -23,7 +23,7 @@ export MKL_NUM_THREADS=1
 export PDSH_RCMD_TYPE=ssh
 
 accelerate launch \
-    --config_file scripts/accelerate_configs/multi_node_example.yaml \
+    --config_file scripts/accelerate_configs/multi_node_example2.yaml \
     opensora/train/train_inpaint_all_in_one.py \
     --model OpenSoraT2V-ROPE-L/122 \
     --text_encoder_name google/mt5-xxl \
@@ -33,7 +33,7 @@ accelerate launch \
     --dataset vip \
     --model_type vip_only \
     --ae CausalVAEModel_4x8x8 \
-    --ae_path "/storage/CausalVAEModel_4x8x8" \
+    --ae_path "/storage/dataset/test140k" \
     --data "scripts/train_data/video_data.txt" \
     --sample_rate 1 \
     --num_frames 93 \
@@ -55,7 +55,7 @@ accelerate launch \
     --mixed_precision="bf16" \
     --report_to="wandb" \
     --enable_tracker \
-    --checkpointing_steps=500 \
+    --checkpointing_steps=200 \
     --output_dir runs/$PROJECT \
     --allow_tf32 \
     --model_max_length 512 \
@@ -79,16 +79,12 @@ accelerate launch \
     --ema_decay 0.999 \
     --use_rope \
     --train_vip \
+    --group_frame \
     --pretrained_transformer_model_path "/storage/ongoing/new/Open-Sora-Plan-bak/7.14bak/bs16x8x1_93x480p_lr1e-4_snr5_ema999_opensora122_rope_mt5xxl_high_pandamovie_speed1.0/checkpoint-3500/model_ema" \
     --pretrained_vip_adapter_path "/storage/gyy/hw/Open-Sora-Plan/runs/videoip_3d_480p_f29_bs2x16_lr1e-5_snrgamma5_0_noiseoffset0_02_dino518_ema0_999/checkpoint-14000/model" \
-    # --speed_factor 1.5 \
-    # --resume_from_checkpoint "latest" \
-    # --need_validation
-    # --use_clip_mask \
-    # --clip_loss_lambda 0.9 \
-    # --need_validation \
     # --sp_size 8 \
     # --train_sp_batch_size 2 \
-    # --train_vip \
+    # --need_validation \
+    # --resume_from_checkpoint "latest" \
     # --zero_terminal_snr \
     # 基模型权重没有参与训练所以一定要加载

@@ -33,13 +33,13 @@ accelerate launch \
     --dataset inpaint \
     --model_type inpaint_only \
     --ae CausalVAEModel_4x8x8 \
-    --ae_path "/storage/CausalVAEModel_4x8x8" \
+    --ae_path "/storage/dataset/test140k" \
     --data "scripts/train_data/video_data.txt" \
     --sample_rate 1 \
     --num_frames 93 \
     --use_image_num 0 \
-    --max_height 720 \
-    --max_width 1280 \
+    --max_height 480 \
+    --max_width 640 \
     --interpolation_scale_t 1.0 \
     --interpolation_scale_h 1.0 \
     --interpolation_scale_w 1.0 \
@@ -55,20 +55,21 @@ accelerate launch \
     --mixed_precision="bf16" \
     --report_to="wandb" \
     --enable_tracker \
-    --checkpointing_steps=50 \
+    --checkpointing_steps=200 \
     --output_dir runs/$PROJECT \
     --allow_tf32 \
     --model_max_length 512 \
     --enable_tiling \
     --tile_overlap_factor 0.125 \
     --validation_dir "validation_dir" \
-    --guidance_scale 2.5 \
+    --guidance_scale 5.0 \
     --num_sampling_steps 50 \
     --ema_start_step 0 \
     --use_ema \
-    --cfg 0.05 \
+    --cfg 0.1 \
     --i2v_ratio 0.5 \
     --transition_ratio 0.4 \
+    --v2v_ratio 0.1 \
     --clear_video_ratio 0.0 \
     --default_text_ratio 0.5 \
     --seed 42 \
@@ -78,6 +79,7 @@ accelerate launch \
     --ema_decay 0.999 \
     --use_rope \
     --speed_factor 1.5 \
+    --group_frame \
     --pretrained_transformer_model_path "/storage/ongoing/new/Open-Sora-Plan/bs32x8x1_93x720p_lr2e-5_snr5_ema999_opensora122_rope_fp32_mt5xxl_sucai_aes5.5_speed1.5/checkpoint-400/model_ema" \
     --pretrained_vip_adapter_path "/storage/gyy/hw/Open-Sora-Plan/runs/videoip_3d_480p_f93_bs1x16_lr1e-5_snrgamma5_0_noiseoffset0_02_dino518_ema0_999/checkpoint-3000/model" \
     # --sp_size 8 \

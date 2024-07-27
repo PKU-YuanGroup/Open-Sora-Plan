@@ -34,9 +34,15 @@ from .t2v_datasets import filter_json_by_existed_files, random_video_noise, find
 from .t2v_datasets import SingletonMeta, DataSetProg
 from .t2v_datasets import T2V_dataset
 
+import imageio
+
 logger = get_logger(__name__)
 
 dataset_prog = DataSetProg()
+
+def save_video(video, name='video.mp4'):
+    imageio.mimwrite(
+        name, video, fps=24, quality=6)  # highest quality is 10, lowest is 0
 
 def get_inpaint_dataset(model_type):
     model_type = STR_TO_TYPE[model_type]
@@ -73,10 +79,11 @@ class Meta_dataset(T2V_dataset):
     def get_mask_masked_video(self, video):
         # video shape (T, C, H, W)
         # 1 means masked, 0 means not masked
+        t, c, h, w = video.shape
         mask = torch.ones_like(video, device=video.device, dtype=video.dtype)
         
         rand_num = random.random()
-       # i2v
+        # i2v
         if rand_num < self.i2v_ratio:
             mask[0] = 0
         # transition
@@ -85,17 +92,19 @@ class Meta_dataset(T2V_dataset):
             mask[-1] = 0
         # video continuation
         elif rand_num < self.i2v_ratio + self.transition_ratio + self.v2v_ratio:
-            end_idx = random.randint(1, self.num_frames)
+            end_idx = random.randint(1, t)
             mask[:end_idx] = 0
         # clear video
         elif rand_num < self.i2v_ratio + self.transition_ratio + self.v2v_ratio + self.clear_video_ratio:
             mask[:] = 0
         # random mask
         else:
-            idx_to_select = random.randint(0, self.num_frames - 1)
-            selected_indices = random.sample(range(0, self.num_frames), idx_to_select)
+            idx_to_select = random.randint(0, t - 1)
+            selected_indices = random.sample(range(0, t), idx_to_select)
             mask[selected_indices] = 0
         masked_video = video * (mask < 0.5)
+
+        # save_video(masked_video.permute(0, 2, 3, 1).cpu().numpy(), 'masked_video.mp4')
         return dict(mask=mask, masked_video=masked_video)
 
     def drop(self, text):
@@ -178,6 +187,7 @@ class VIP_dataset(Meta_dataset):
     def get_mask_masked_video(self, video):
         # video shape (T, C, H, W)
         # 1 means masked, 0 means not masked
+        t, c, h, w = video.shape
         mask = torch.ones_like(video, device=video.device, dtype=video.dtype)
         clip_mask = torch.ones([video.shape[0], 1, 1, 1]) if self.use_clip_mask else None
         
@@ -196,7 +206,7 @@ class VIP_dataset(Meta_dataset):
                 clip_mask[-1] = 0
         # video continuation
         elif rand_num < self.i2v_ratio + self.transition_ratio + self.v2v_ratio:
-            end_idx = random.randint(1, self.num_frames)
+            end_idx = random.randint(1, t)
             mask[:end_idx] = 0
             if self.use_clip_mask:
                 clip_mask[:end_idx] = 0
@@ -207,8 +217,8 @@ class VIP_dataset(Meta_dataset):
                 clip_mask[:] = 0
         # random mask
         else:
-            idx_to_select = random.randint(0, self.num_frames - 1)
-            selected_indices = random.sample(range(0, self.num_frames), idx_to_select)
+            idx_to_select = random.randint(0, t - 1)
+            selected_indices = random.sample(range(0, t), idx_to_select)
             mask[selected_indices] = 0
             if self.use_clip_mask:
                 clip_mask[selected_indices] = 0
@@ -361,3 +371,57 @@ class VIPInpaint_dataset(VIP_dataset):
         cond_mask = text_tokens_and_mask['attention_mask']
         return dict(pixel_values=video, input_ids=input_ids, cond_mask=cond_mask, clip_data=clip_video, clip_mask=clip_mask)
     
+if __name__ == "__main__":
+
+    from .transform import CenterCropResizeVideo, ToTensorAfterResize, RandomHorizontalFlipVideo, NormalizeVideo, TemporalRandomCrop
+    from transformers import AutoTokenizer
+    from torchvision.transforms import Lambda
+
+    class Args:
+        max_height = 480
+        max_width = 640
+        model_max_length = 512
+        cache_dir = '../cache_dir'
+        data = '/storage/gyy/hw/Open-Sora-Plan/scripts/train_data/video_data.txt'
+        num_frames = 93
+        train_fps = 24
+        use_image_num = 0
+        use_img_from_vid = False
+        cfg = 0.05
+        speed_factor = 1.0
+        drop_short_ratio = 0.0
+        text_encoder_name = 'google/mt5-xxl'
+        dataloader_num_workers = 10
+        i2v_ratio = 0.0
+        transition_ratio = 0.0
+        v2v_ratio = 0.0
+        clear_video_ratio = 0.9
+        default_text_ratio = 0.1
+
+    args = Args()
+
+    temporal_sample = TemporalRandomCrop(args.num_frames)
+    norm_fun = Lambda(lambda x: 2. * x - 1.)
+    resize_topcrop = CenterCropResizeVideo((args.max_height, args.max_width), top_crop=True)
+    resize = CenterCropResizeVideo((args.max_height, args.max_width))
+    transform = transforms.Compose([
+        ToTensorAfterResize(),
+        # RandomHorizontalFlipVideo(p=0.5),  # in case their caption have position decription
+        norm_fun
+    ])
+    transform_topcrop = transforms.Compose([
+        ToTensorAfterResize(),
+        # RandomHorizontalFlipVideo(p=0.5),  # in case their caption have position decription
+        norm_fun
+    ])
+
+    # tokenizer = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
+    tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir)
+
+    dataset = Inpaint_dataset(args, transform=transform, resize_transform=resize, resize_transform_topcrop=resize_topcrop, temporal_sample=temporal_sample, tokenizer=tokenizer, transform_topcrop=transform_topcrop, image_processor=None)
+    print(len(dataset))
+    results = dataset[1]
+    video = results['pixel_values']
+    input_ids = results['input_ids']
+    cond_mask = results['cond_mask']
+    print(video.shape, input_ids.shape, cond_mask.shape)

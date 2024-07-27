@@ -8,44 +8,18 @@
 A minimal training script for DiT using PyTorch DDP.
 """
 import argparse
-
 import logging
 import math
-
 import os
-
 import shutil
 from pathlib import Path
-
 from typing import Optional
 import gc
 import numpy as np
 from einops import rearrange
 from tqdm import tqdm
-import itertools
-
-from opensora.models.ae.videobase.modules import attention
-
-import time
-from dataclasses import field, dataclass
-from torch.utils.data import DataLoader
-from copy import deepcopy
-import accelerate
-import torch
-import torch.nn as nn
-from torch.nn import functional as F
-import transformers
-from accelerate import Accelerator
-from accelerate.logging import get_logger
-from accelerate.utils import DistributedType, ProjectConfiguration, set_seed
-from huggingface_hub import create_repo
-from packaging import version
-from tqdm.auto import tqdm
-
-from math import sqrt
 
 from opensora.adaptor.modules import replace_with_fp32_forwards
-from opensora.train.train_videogpt import train
 
 try:
     import torch_npu
@@ -60,464 +34,52 @@ except:
         destroy_sequence_parallel_group, get_sequence_parallel_state, set_sequence_parallel_state
     from opensora.utils.communications import prepare_parallel_data, broadcast
     pass
+import time
+from dataclasses import field, dataclass
+from torch.utils.data import DataLoader
+from copy import deepcopy
+import accelerate
+import torch
+from torch.nn import functional as F
+import transformers
+from accelerate import Accelerator
+from accelerate.logging import get_logger
+from accelerate.utils import DistributedType, ProjectConfiguration, set_seed
+from packaging import version
+from tqdm.auto import tqdm
+
 import diffusers
 from diffusers import DDPMScheduler, PNDMScheduler, DPMSolverMultistepScheduler
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel, compute_snr
 from diffusers.utils import check_min_version, is_wandb_available
-from diffusers.models.modeling_utils import ModelMixin
-from diffusers.configuration_utils import ConfigMixin, register_to_config
 
 from opensora.dataset import getdataset, ae_denorm
 from opensora.models.ae import getae, getae_wrapper
-
+from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModelWrapper
+from opensora.models.diffusion.latte.modeling_latte import LatteT2V
 from opensora.models.text_encoder import get_text_enc, get_text_warpper
-from opensora.utils.dataset_utils import Inpaint_Collate as Collate, LengthGroupedSampler
 from opensora.models.ae import ae_stride_config, ae_channel_config
 from opensora.models.diffusion import Diffusion_models, Diffusion_models_class
+from opensora.utils.dataset_utils import Collate, LengthGroupedSampler
 from opensora.sample.pipeline_opensora import OpenSoraPipeline
 
 
 # for validation
+import glob
 from PIL import Image
 from torchvision import transforms
 from torchvision.transforms import Lambda
-from transformers import CLIPVisionModelWithProjection, AutoModel, AutoImageProcessor, CLIPImageProcessor
 from opensora.dataset.transform import ToTensorVideo, CenterCropResizeVideo, TemporalRandomCrop, LongSideResizeVideo, SpatialStrideCropVideo
-from opensora.sample.pipeline_opensora import OpenSoraPipeline
-
-from opensora.models.diffusion.opensora.modeling_inpaint import VIPNet, VideoIPAttnProcessor, STR_TO_TYPE, TYPE_TO_STR, ModelType
-from opensora.models.diffusion.opensora.modeling_inpaint import hacked_model
 from opensora.sample.pipeline_inpaint import hacked_pipeline_call, decode_latents
-
-import timm
-
-import glob
-from torchvision.utils import save_image
+from opensora.models.diffusion.opensora.modeling_inpaint import hacked_model
+from opensora.models.diffusion.opensora.modeling_inpaint import STR_TO_TYPE, TYPE_TO_STR, ModelType
 import imageio
-import safetensors
-from typing import Union
-
-SAFETENSORS_WEIGHTS_NAME = "diffusion_pytorch_model.safetensors"
-WEIGHTS_NAME = "diffusion_pytorch_model.bin"
 
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 check_min_version("0.24.0")
 logger = get_logger(__name__)
-
-@classmethod
-def ema_from_pretrained(cls, path, model_cls, **kwargs) -> "EMAModel":
-    _, ema_kwargs = model_cls.load_config(path, return_unused_kwargs=True, **kwargs)
-    model = model_cls.from_pretrained(path, **kwargs)
-
-    ema_model = cls(model.parameters(), model_cls=model_cls, model_config=model.config)
-
-    ema_model.load_state_dict(ema_kwargs)
-    return ema_model
-
-def ema_save_pretrained(self, path, **kwargs):
-    if self.model_cls is None:
-        raise ValueError("`save_pretrained` can only be used if `model_cls` was defined at __init__.")
-
-    if self.model_config is None:
-        raise ValueError("`save_pretrained` can only be used if `model_config` was defined at __init__.")
-
-    model = self.model_cls.from_config(self.model_config, **kwargs)
-    state_dict = self.state_dict()
-    state_dict.pop("shadow_params", None)
-
-    model.register_to_config(**state_dict)
-    self.copy_to(model.parameters())
-    model.save_pretrained(path)
-
-# we use timm styled model
-def get_clip_feature(clip_data, image_encoder):
-    batch_size = clip_data.shape[0]
-    clip_data = rearrange(clip_data, 'b t c h w -> (b t) c h w') # B T+image_num C H W -> B * (T+image_num) C H W
-    # NOTE using last layer of DINO as clip feature
-    clip_feature = image_encoder.forward_features(clip_data)
-    clip_feature = clip_feature[:, 5:] # drop cls token and reg tokens
-    clip_feature_height = 518 // 14 # 37, dino height
-    clip_feature = rearrange(clip_feature, '(b t) (h w) c -> b c t h w', b=batch_size, h=clip_feature_height) # B T+image_num H W D  
-    
-    return clip_feature
-
-class Net(ModelMixin, ConfigMixin):
-    def __init__(
-        self,
-        transformer_model: Union[ModelMixin, ConfigMixin],
-        vipnet: Union[ModelMixin, ConfigMixin] = None,
-        model_type=ModelType.INPAINT_ONLY,
-        train_vip=False,
-    ):
-        super().__init__()
-        self.model = transformer_model
-        self.vip = vipnet
-        self.model_type = model_type
-
-        self.train_vip = train_vip
-
-        if self.model_type == ModelType.VIP_ONLY: 
-            self.train_vip = True
-            self.model.requires_grad_(False)
-            self.vip.requires_grad_(True) # reset requires_grad of vip to True to avoid vip attn processor to be freezed
-
-        if self.model_type == ModelType.VIP_INPAINT and not self.train_vip:
-            self.model.requires_grad_(True)
-            self.vip.requires_grad_(False) # reset requires_grad of vip to False to guarantee vip attn processor to be freezed
-
-    def register_to_config(self, **kwargs):
-        if self.model_type != ModelType.VIP_ONLY:
-            self.model.register_to_config(**kwargs)
-        if self.model_type != ModelType.INPAINT_ONLY and self.train_vip:
-            self.vip.register_to_config(**kwargs)
-
-    @property
-    def config(self):
-        conf = {}
-        conf.update({'transformer_model': self.model.config if self.model is not None else {}})
-        conf.update({'vipnet': self.vip.config if self.vip is not None else {}})
-        conf.update({'model_type': TYPE_TO_STR[self.model_type], 'train_vip': self.train_vip})
-
-        return conf
-
-    # initialize a instance from config dict
-    @classmethod
-    def from_config(cls, config, **kwargs):
-        model_name = kwargs.get("model_name", "OpenSoraInpaint-ROPE-L/122") 
-        model_type = kwargs.get("model_type", ModelType.INPAINT_ONLY)
-        train_vip = kwargs.get('train_vip', False)
-        model = Diffusion_models_class[model_name].from_config(config.get('transformer_model')) # model should be always loaded
-        hacked_model(model, model_type=model_type, model_cls=Diffusion_models_class[model_name])
-        # whatever the train_vip is, vip should be loaded when model_type is not INPAINT_ONLY
-        if model_type != ModelType.INPAINT_ONLY:
-            vip = VIPNet.from_config(config.get('vipnet'))
-            vip.set_vip_adapter(model, init_from_original_attn_processor=False)
-            vip.register_get_clip_feature_func(get_clip_feature)
-        else:
-            vip = None
-
-        return cls(model, vip, model_type=model_type, train_vip=train_vip)
-
-    # load config dict from config file
-    @classmethod
-    def load_config(cls, pretrained_model_name_or_path, return_unused_kwargs=True, **kwargs):
-        config = {}
-        unused_kwargs = {}
-
-        model_name = kwargs.get("model_name", "OpenSoraInpaint-ROPE-L/122") 
-        model_type = kwargs.get("model_type", ModelType.INPAINT_ONLY)
-        train_vip = kwargs.get('train_vip', False)
-
-        transformer_model_path = os.path.join(pretrained_model_name_or_path, "transformer_model")
-        vipnet_path = os.path.join(pretrained_model_name_or_path, "vip")
-
-        model_config, model_unused_kwargs = Diffusion_models_class[model_name].load_config(transformer_model_path, return_unused_kwargs=return_unused_kwargs) if model_type != ModelType.VIP_ONLY else ({}, {})
-        # when model_type is not INPAINT_ONLY and train_vip is True, we save chcekpoint with vipnet, so we only load vipnet in this case
-        vip_config, vip_unused_kwargs = VIPNet.load_config(vipnet_path, return_unused_kwargs=return_unused_kwargs) if model_type != ModelType.INPAINT_ONLY and train_vip else ({}, {})
-
-        config.update({'transformer_model': model_config})
-        config.update({'vipnet': vip_config})
-        config.update({'model_type': TYPE_TO_STR[model_type], 'train_vip': train_vip})
-
-        unused_kwargs.update(model_unused_kwargs)
-        unused_kwargs.update(vip_unused_kwargs)
-
-        if return_unused_kwargs:
-            return (config, unused_kwargs)
-
-        return config
-
-    def save_pretrained(
-        self,
-        save_directory: Union[str, os.PathLike],
-        safe_serialization: bool = True,
-    ):
-        if os.path.isfile(save_directory):
-            logger.error(f"Provided path ({save_directory}) should be a directory, not a file")
-            return
-
-        os.makedirs(save_directory, exist_ok=True)
-
-        if self.model_type != ModelType.VIP_ONLY:
-            os.makedirs(os.path.join(save_directory, "transformer_model"), exist_ok=True)
-            self.model.save_pretrained(os.path.join(save_directory, "transformer_model"), safe_serialization=safe_serialization)
-
-        if self.model_type != ModelType.INPAINT_ONLY and self.train_vip:
-            os.makedirs(os.path.join(save_directory, "vip"), exist_ok=True)
-            self.vip.save_pretrained(os.path.join(save_directory, "vip"), safe_serialization=safe_serialization)
-
-
-        logger.info(f"Model weights saved in {save_directory}")
-
-
-    @classmethod
-    def from_pretrained(cls, pretrained_model_name_or_path: Optional[Union[str, os.PathLike]], **kwargs):
-
-        model_type = kwargs.get("model_type", None)
-        assert model_type is not None, "model_type must be provided"
-
-        transformer_model, vipnet = None, None
-
-        model_name = kwargs.get("model_name", None)
-        assert model_name is not None, "model_name must be provided"
-
-        if model_type != ModelType.VIP_ONLY:
-            transformer_model_path = os.path.join(pretrained_model_name_or_path, "transformer_model")
-            transformer_model = Diffusion_models_class[model_name].from_pretrained(transformer_model_path)
-            hacked_model(transformer_model, model_type=model_type, model_cls=Diffusion_models_class[model_name])
-        else:
-            transformer_model_path = kwargs.get("pretrained_transformer_model_path", None)
-            assert transformer_model_path is not None, "pretrained_transformer_model_path must be provided"
-            transformer_model = Diffusion_models_class[model_name].from_config(transformer_model_path)
-            hacked_model(transformer_model, model_type=model_type, model_cls=Diffusion_models_class[model_name])
-            transformer_model.custom_load_state_dict(transformer_model_path)
-
-        train_vip = kwargs.get("train_vip", False) if model_type != ModelType.VIP_ONLY else True
-
-        if model_type != ModelType.INPAINT_ONLY and train_vip:
-            vip_path = os.path.join(pretrained_model_name_or_path, "vip")
-            vipnet = VIPNet.from_pretrained(vip_path)
-            vipnet.set_vip_adapter(transformer_model, init_from_original_attn_processor=False)
-            vipnet.register_get_clip_feature_func(get_clip_feature)
-
-        if transformer_model is not None:
-            logger.info(f"loading transformer model successfully from {transformer_model_path}") 
-        if vipnet is not None:
-            logger.info(f"loading vip model successfully from {pretrained_model_name_or_path}")
-        
-        return cls(transformer_model, vipnet, model_type=model_type, train_vip=train_vip)
-    
-    def forward_vip(self, clip_feature, use_image_num=0):
-        assert self.vip is not None, "vip model must be provided"
-        vip_out = self.vip(clip_feature=clip_feature, use_image_num=use_image_num)
-        vip_tokens, vip_cond_mask = vip_out['vip_tokens'], vip_out['vip_cond_mask']
-        return vip_tokens, vip_cond_mask
-        
-    def forward(self, latent_model_input, timestep, **model_kwargs):
-
-        encoder_hidden_states = model_kwargs.pop('encoder_hidden_states', None)
-        attention_mask = model_kwargs.pop('attention_mask', None)
-        encoder_attention_mask = model_kwargs.pop('encoder_attention_mask', None)
-        use_image_num = model_kwargs.pop('use_image_num', 0)
-
-        vip_tokens = model_kwargs.pop('vip_tokens', None)
-        vip_cond_mask = model_kwargs.pop('vip_cond_mask', None)
-
-        if self.model_type != ModelType.INPAINT_ONLY:
-            assert vip_tokens is not None and vip_cond_mask is not None, "vip_tokens and vip_cond_mask must be provided when model_type is not INPAINT_ONLY"
-            model_pred = self.model(
-                hidden_states=latent_model_input, 
-                timestep=timestep, 
-                attention_mask=attention_mask,
-                encoder_hidden_states=encoder_hidden_states,
-                encoder_attention_mask=encoder_attention_mask,
-                use_image_num=use_image_num,
-                vip_hidden_states=vip_tokens,
-                vip_attention_mask=vip_cond_mask,
-            )[0]
-        else:
-            model_pred = self.model(
-                hidden_states=latent_model_input, 
-                timestep=timestep, 
-                attention_mask=attention_mask,
-                encoder_hidden_states=encoder_hidden_states,
-                encoder_attention_mask=encoder_attention_mask,
-                use_image_num=use_image_num,
-            )[0]
-
-        return model_pred
-
-@torch.inference_mode()
-def log_validation(
-    args,   
-    net=None,
-    vae=None, 
-    text_encoder=None, 
-    tokenizer=None, 
-    image_processor=None,
-    resize_transform=None,
-    transform=None,
-    image_encoder=None,
-    accelerator=None, 
-    weight_dtype=torch.bfloat16, 
-    global_step=0, 
-    model_type=ModelType.INPAINT_ONLY,
-    ema=False,
-):
-
-    negative_prompt = """nsfw, lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry, 
-                        """
-
-    validation_dir = args.validation_dir if args.validation_dir is not None else "./validation"
-    prompt_file = os.path.join(validation_dir, "prompt.txt")
-
-    with open(prompt_file, 'r') as f:
-        validation_prompt = f.readlines()
-
-    index = 0
-    validation_images_list = []
-    while True:
-        temp = glob.glob(os.path.join(validation_dir, f"*_{index:04d}*.png"))
-        logger.info(temp)
-        if len(temp) > 0:
-            validation_images_list.append(sorted(temp))
-            index += 1
-        else:
-            break
-
-    logger.info(f"Running {'normal' if not ema else 'ema'} validation....\n")
-
-    net = accelerator.unwrap_model(net)
-    net.eval()
-    model = net.model
-    vip = net.vip
-
-    # scheduler = PNDMScheduler()
-    scheduler = DPMSolverMultistepScheduler()
-    pipeline = OpenSoraPipeline(
-        vae=vae,
-        text_encoder=text_encoder,
-        tokenizer=tokenizer,
-        scheduler=scheduler,
-        transformer=model
-    ).to(device=accelerator.device)
-
-    pipeline.__call__ = hacked_pipeline_call.__get__(pipeline, OpenSoraPipeline)
-    pipeline.decode_latents = decode_latents.__get__(pipeline, OpenSoraPipeline)
-
-    def preprocess_images(images):
-        if len(images) == 1:
-            condition_images_indices = [0]
-        elif len(images) == 2:
-            condition_images_indices = [0, -1]
-        condition_images = [Image.open(image).convert("RGB") for image in images]
-        condition_images = [torch.from_numpy(np.copy(np.array(image))) for image in condition_images]
-        condition_images = [rearrange(image, 'h w c -> c h w').unsqueeze(0) for image in condition_images]
-        condition_images = [resize_transform(image) for image in condition_images]
-        condition_images = [transform(image).to(accelerator.device, dtype=weight_dtype) for image in condition_images]
-        return dict(condition_images=condition_images, condition_images_indices=condition_images_indices)
-    
-    videos = []
-    prompts = []
-    gen_img = False
-    max_val_img_num = 1
-    current_val_img_num = 0
-
-    for idx, (prompt, images) in enumerate(zip(validation_prompt, validation_images_list)):
-        if not isinstance(images, list):
-            images = [images]
-
-        if (current_val_img_num + 1) > max_val_img_num:
-            break
-            
-        condition_images, condition_images_indices= None, None
-
-        vip_tokens, vip_cond_mask, negative_vip_tokens, negative_vip_cond_mask = None, None, None, None
-        
-        logger.info('Processing the ({}) prompt and the images ({})'.format(prompt, images))
-
-        if model_type != ModelType.VIP_ONLY:
-            pre_results = preprocess_images(images)
-            condition_images = pre_results['condition_images']
-            condition_images_indices = pre_results['condition_images_indices']
-
-        if model_type != ModelType.INPAINT_ONLY:
-            if args.num_frames != 1:
-                if len(images) == 1 and images[0].split('/')[-1].split('_')[0] == 'img': 
-                    continue
-                else:
-                    vip_tokens, vip_cond_mask, negative_vip_tokens, negative_vip_cond_mask = vip.get_video_embeds(
-                        condition_images=images,
-                        num_frames=args.num_frames,
-                        image_processor=image_processor,
-                        image_encoder=image_encoder,
-                        transform=resize_transform,
-                        device=accelerator.device,
-                        weight_dtype=weight_dtype
-                    )
-            else:
-                # if len(images) == 1 and images[0].split('/')[-1].split('_')[0] == 'img': 
-                vip_tokens, vip_cond_mask, negative_vip_tokens, negative_vip_cond_mask = vip.get_image_embeds(
-                    images=images[0], # only using first image
-                    image_processor=image_processor,
-                    image_encoder=image_encoder, 
-                    transform=resize_transform,
-                    device=accelerator.device,
-                    weight_dtype=weight_dtype
-                )
-                gen_img = True
-                # else:
-                #     break
-
-        video = pipeline.__call__(
-            prompt=prompt,
-            condition_images=condition_images,
-            condition_images_indices=condition_images_indices,
-            negative_prompt=negative_prompt,
-            vip_tokens=vip_tokens,
-            vip_attention_mask=vip_cond_mask,
-            negative_vip_tokens=negative_vip_tokens,
-            negative_vip_attention_mask=negative_vip_cond_mask,
-            num_frames=(1 if gen_img else args.num_frames),
-            height=args.max_height,
-            width=args.max_width,
-            num_inference_steps=args.num_sampling_steps,
-            guidance_scale=args.guidance_scale,
-            num_images_per_prompt=1,
-            mask_feature=True,
-            device=accelerator.device,
-            max_sequence_length=args.model_max_length,
-            model_type=model_type,
-        ).images
-        videos.append(video[0])
-        prompts.append(prompt)
-        gen_img = False
-
-        current_val_img_num += 1
-    # import ipdb;ipdb.set_trace()
-
-    # Save the generated videos
-    save_dir = os.path.join(args.output_dir, f"val_{global_step:09d}" if not ema else f"val_ema_{global_step:09d}")
-    os.makedirs(save_dir, exist_ok=True)
-
-    for idx, video in enumerate(videos):
-
-        if video.shape[0] == 1: # image
-            ext = 'png'
-            Image.fromarray(video[0].cpu().numpy()).save(os.path.join(save_dir, f'{idx}.{ext}'))
-        else: # video
-            ext = 'mp4'
-            imageio.mimwrite(
-                os.path.join(save_dir, f'{idx}.{ext}'), video, fps=24, quality=6)  # highest quality is 10, lowest is 0
-        
-
-    # for wandb
-    wandb_resize_transform = transforms.Compose(
-        [CenterCropResizeVideo((args.max_height // 4, args.max_width // 4))]
-    )
-
-    videos = [wandb_resize_transform(video.permute(0, 3, 1, 2)) for video in videos]
-
-    for tracker in accelerator.trackers:
-        if tracker.name == "wandb":
-            import wandb
-            logs = {}
-            logs[f"{'ema_' if ema else ''}validation_videos"] = []
-            logs[f"{'ema_' if ema else ''}validation_images"] = []
-            for i, (video, prompt) in enumerate(zip(videos, prompts)):
-                if video.shape[0] == 1: # image
-                    logs[f"{'ema_' if ema else ''}validation_images"].append(wandb.Image(video[0], caption=f"{i}: {prompt}"))
-                else: # video
-                    logs[f"{'ema_' if ema else ''}validation_videos"].append(wandb.Video(video, caption=f"{i}: {prompt}", fps=24))
-
-            tracker.log(logs, step=global_step)
-
-    logger.info("delete validation pipeline...")
-    del pipeline
-    gc.collect()
-    torch.cuda.empty_cache()
 
 
 class ProgressInfo:
@@ -586,9 +148,6 @@ def main(args):
     elif accelerator.mixed_precision == "bf16":
         weight_dtype = torch.bfloat16
 
-    # Get the type of inpaint model
-    model_type = STR_TO_TYPE[args.model_type]
-
     # Create model:
     kwargs = {}
     ae = getae_wrapper(args.ae)(args.ae_path, cache_dir=args.cache_dir, **kwargs).eval()
@@ -654,104 +213,39 @@ def main(args):
     model.gradient_checkpointing = args.gradient_checkpointing
 
     # NOTE replace some functions in model
-    hacked_model(model, model_type=model_type, model_cls=Diffusion_models_class[args.model])
+    hacked_model(model, model_type=ModelType.INPAINT_ONLY, model_cls=Diffusion_models_class[args.model])
 
     # # use pretrained model?
     if args.pretrained_transformer_model_path is not None:
         model.custom_load_state_dict(args.pretrained_transformer_model_path)
 
-    noise_scheduler = DDPMScheduler()
-
-    # Freeze main models
+    # Freeze vae and text encoders.
     ae.vae.requires_grad_(False)
     text_enc.requires_grad_(False)
+    # Set model as trainable.
+    model.train()
 
+    noise_scheduler = DDPMScheduler()
     # Move unet, vae and text_encoder to device and cast to weight_dtype
     # The VAE is in float32 to avoid NaN losses.
     ae.vae.to(accelerator.device, dtype=torch.float32)
     # ae.vae.to(accelerator.device, dtype=weight_dtype)
     text_enc.to(accelerator.device, dtype=weight_dtype)
 
-    if model_type != ModelType.INPAINT_ONLY:
-        # load image encoder
-        if 'dino' in args.image_encoder_name:
-            logger.info(f"load {args.image_encoder_name} as image encoder...")
-            image_encoder = timm.create_model(args.image_encoder_name, dynamic_img_size=True, checkpoint_path=args.image_encoder_path)
-            image_encoder.requires_grad_(False)
-            image_encoder.to(accelerator.device, dtype=weight_dtype)
-        else:
-            raise NotImplementedError
-        
-        attn_proc_type_dict = {}        
-        for name, attn_processor in model.attn_processors.items():
-            # replace all attn2.processor with VideoIPAttnProcessor
-            if name.endswith('.attn2.processor'):
-                attn_proc_type_dict[name] = 'VideoIPAttnProcessor'
-            else:
-                attn_proc_type_dict[name] = attn_processor.__class__.__name__
-
-        
-        if args.max_width / args.max_height == 16 / 9:
-            pooled_token_output_size = (16, 28) # 720p or 1080p
-        elif args.max_width / args.max_height == 4 / 3:
-            pooled_token_output_size = (12, 16) # 480p
-        else:
-            raise NotImplementedError
-
-        num_tokens = pooled_token_output_size[0] // 4 * pooled_token_output_size[1] // 4 * latent_size_t
-
-        if accelerator.is_main_process:
-            logger.info(f"initialize VIPNet, num_tokens: {num_tokens}, pooled_token_output_size: {pooled_token_output_size}")
-
-        vip = VIPNet(
-            image_encoder_out_channels=1536,
-            cross_attention_dim=2304,
-            num_tokens=num_tokens, # NOTE should be modified 
-            pooled_token_output_size=pooled_token_output_size, # NOTE should be modified, (h, w). when 480p, (12, 16); when 720p or 1080p, (16, 28) (93frames)
-            vip_num_attention_heads=args.vip_num_attention_heads, # for dinov2
-            vip_attention_head_dim=72,
-            vip_num_attention_layers=[1, 3],
-            attention_mode=args.attention_mode,
-            gradient_checkpointing=False,
-            vae_scale_factor_t=ae_stride_t,
-            num_frames=args.num_frames,
-            use_rope=args.use_rope,
-            attn_proc_type_dict=attn_proc_type_dict,
-        )
-
-        vip.custom_load_state_dict(args.pretrained_vip_adapter_path)
-
-        init_from_original_attn_processor = False if (args.pretrained_vip_adapter_path is not None or args.resume_from_checkpoint is not None) else True
-        vip.set_vip_adapter(model, init_from_original_attn_processor=init_from_original_attn_processor)
-
-        vip.register_get_clip_feature_func(get_clip_feature)
-    else:
-        vip, image_encoder = None, None
-
-    # trainable net
-    net = Net(model, vip, model_type=model_type, train_vip=args.train_vip)
-    net.train()
-
-    net.to(accelerator.device, dtype=weight_dtype)
-
     # Create EMA for the unet.
     if args.use_ema:
-        EMAModel.from_pretrained = ema_from_pretrained
-        ema_net = deepcopy(net)
-        # when model_type is INPAINT_ONLY, net includes only dit; when others, net includes both dit and vip
-        ema_net = EMAModel(ema_net.parameters(), decay=args.ema_decay, update_after_step=args.ema_start_step,
-                           model_cls=Net, model_config=ema_net.config)
-        ema_net.save_pretrained = ema_save_pretrained.__get__(ema_net, EMAModel)
+        ema_model = deepcopy(model)
+        ema_model = EMAModel(ema_model.parameters(), decay=args.ema_decay, update_after_step=args.ema_start_step,
+                             model_cls=Diffusion_models_class[args.model], model_config=ema_model.config)
 
-     # `accelerate` 0.16.0 will have better support for customized saving
+    # `accelerate` 0.16.0 will have better support for customized saving
     if version.parse(accelerate.__version__) >= version.parse("0.16.0"):
         # create custom saving & loading hooks so that `accelerator.save_state(...)` serializes in a nice format
         def save_model_hook(models, weights, output_dir):
             if accelerator.is_main_process:
-                # saving ema
                 if args.use_ema:
-                    ema_net.save_pretrained(os.path.join(output_dir, "model_ema"), model_name=args.model, model_type=model_type, train_vip=args.train_vip)
-                # saving net with customed 'save_pretrained' function
+                    ema_model.save_pretrained(os.path.join(output_dir, "model_ema"))
+
                 for i, model in enumerate(models):
                     model.save_pretrained(os.path.join(output_dir, "model"))
                     if weights:  # Don't pop if empty
@@ -759,36 +253,18 @@ def main(args):
                         weights.pop()
 
         def load_model_hook(models, input_dir):
-            # loading ema with customed 'from_pretrained' function
             if args.use_ema:
-                if os.path.exists(os.path.join(input_dir, "model_ema")):
-                    logger.info("loading ema model...")
-                    load_model = EMAModel.from_pretrained(
-                        os.path.join(input_dir, "model_ema"), 
-                        Net, 
-                        model_name=args.model, 
-                        model_type=model_type, 
-                        train_vip=args.train_vip, 
-                        pretrained_transformer_model_path=args.pretrained_transformer_model_path
-                    )
-                    ema_net.load_state_dict(load_model.state_dict())
-                    ema_net.to(accelerator.device)
-                    del load_model
-            
-            # this case will not be called if you use deepspeed, because deepspeed will load model by model_state.pt
+                load_model = EMAModel.from_pretrained(os.path.join(input_dir, "model_ema"), Diffusion_models_class[args.model])
+                ema_model.load_state_dict(load_model.state_dict())
+                ema_model.to(accelerator.device)
+                del load_model
+
             for i in range(len(models)):
                 # pop models so that they are not loaded again
                 model = models.pop()
 
-                logger.info("loading model...")
                 # load diffusers style into model
-                load_model = Net.from_pretrained(
-                    os.path.join(input_dir, "model"), 
-                    model_name=args.model, 
-                    model_type=model_type, 
-                    train_vip=args.train_vip,
-                    pretrained_transformer_model_path=args.pretrained_transformer_model_path
-                )
+                load_model = Diffusion_models_class[args.model].from_pretrained(input_dir, subfolder="model")
                 model.register_to_config(**load_model.config)
 
                 model.load_state_dict(load_model.state_dict())
@@ -807,7 +283,7 @@ def main(args):
                 args.learning_rate * args.gradient_accumulation_steps * args.train_batch_size * accelerator.num_processes
         )
 
-    params_to_optimize = list(filter(lambda p: p.requires_grad, net.parameters()))
+    params_to_optimize = model.parameters()
     # Optimizer creation
     if not (args.optimizer.lower() == "prodigy" or args.optimizer.lower() == "adamw"):
         logger.warning(
@@ -887,7 +363,6 @@ def main(args):
         batch_size=args.train_batch_size,
         num_workers=args.dataloader_num_workers,
         sampler=sampler if args.group_frame or args.group_resolution else None, 
-        drop_last=True, 
         # prefetch_factor=4
     )
 
@@ -906,11 +381,13 @@ def main(args):
     )
 
     # Prepare everything with our `accelerator`.
-    net, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
-        net, optimizer, train_dataloader, lr_scheduler
+    # model.requires_grad_(False)
+    # model.pos_embed.requires_grad_(True)
+    model, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
+        model, optimizer, train_dataloader, lr_scheduler
     )
     if args.use_ema:
-        ema_net.to(accelerator.device)
+        ema_model.to(accelerator.device)
 
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
@@ -937,14 +414,14 @@ def main(args):
     total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
     total_batch_size = total_batch_size // args.sp_size * args.train_sp_batch_size
     logger.info("***** Running training *****")
-    logger.info(f"  Model = {net}")
+    logger.info(f"  Model = {model}")
     logger.info(f"  Num examples = {len(train_dataset)}")
     logger.info(f"  Num Epochs = {args.num_train_epochs}")
     logger.info(f"  Instantaneous batch size per device = {args.train_batch_size}")
     logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
     logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
     logger.info(f"  Total optimization steps = {args.max_train_steps}")
-    logger.info(f"  Total trainable parameters = {sum(p.numel() for p in net.parameters() if p.requires_grad) / 1e9} B")
+    logger.info(f"  Total parameters = {sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e9} B")
     global_step = 0
     first_epoch = 0
 
@@ -991,7 +468,7 @@ def main(args):
     def sync_gradients_info(loss):
         # Checks if the accelerator has performed an optimization step behind the scenes
         if args.use_ema:
-            ema_net.step(net.parameters())
+            ema_model.step(model.parameters())
         progress_bar.update(1)
         progress_info.global_step += 1
         end_time = time.time()
@@ -1034,18 +511,14 @@ def main(args):
         progress_bar.set_postfix(**logs)
 
     def run(model_input, model_kwargs, prof):
-
-        net.train()
-
         global start_time
         start_time = time.time()
 
-        if model_type != ModelType.VIP_ONLY:
-            try:
-                in_channels = ae_channel_config[args.ae]
-                model_input, masked_x, video_mask = model_input[:, 0:in_channels], model_input[:, in_channels:2 * in_channels], model_input[:, 2 * in_channels:3 * in_channels]
-            except:
-                raise ValueError("masked_x and video_mask is None!")
+        try:
+            in_channels = ae_channel_config[args.ae]
+            model_input, masked_x, video_mask = model_input[:, 0:in_channels], model_input[:, in_channels:2 * in_channels], model_input[:, 2 * in_channels:]
+        except:
+            raise ValueError("masked_x and video_mask is None!")
 
         noise = torch.randn_like(model_input)
         if args.noise_offset:
@@ -1054,10 +527,9 @@ def main(args):
                                                      device=model_input.device)
 
         bsz = model_input.shape[0]
-        current_step_frame = model_input.shape[2]
         # Sample a random timestep for each image without bias.
         timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=model_input.device)
-        if current_step_frame != 1 and get_sequence_parallel_state():  # image do not need sp
+        if npu_config is not None and get_sequence_parallel_state():
             broadcast(timesteps)
 
         # Add noise to the model input according to the noise magnitude at each timestep
@@ -1065,20 +537,12 @@ def main(args):
 
         noisy_model_input = noise_scheduler.add_noise(model_input, noise, timesteps)
 
-        if model_type != ModelType.VIP_ONLY:
-            model_pred = net(
-                torch.cat([noisy_model_input, masked_x, video_mask], dim=1),
-                timesteps,
-                **model_kwargs,
-            )
-        else:
-            model_pred = net(
-                noisy_model_input,
-                timesteps,
-                **model_kwargs,
-            )
 
-
+        model_pred = model(
+            torch.cat([noisy_model_input, masked_x, video_mask], dim=1),
+            timesteps,
+            **model_kwargs
+        )[0]
         # Get the target for loss depending on the prediction type
         if args.prediction_type is not None:
             # set prediction_type of scheduler if defined
@@ -1097,44 +561,16 @@ def main(args):
             raise ValueError(f"Unknown prediction type {noise_scheduler.config.prediction_type}")
 
         mask = model_kwargs.get('attention_mask', None)
-        clip_mask = model_kwargs.get('clip_mask', None)
-
-        # if torch.all(mask.bool()):
-        #     mask = None
-
-        # if get_sequence_parallel_state():
-        #     assert mask is None
-
-        b, c, t, h, w = model_pred.shape
-
+        b, c, _, _, _ = model_pred.shape
         if mask is not None:
             mask = mask.unsqueeze(1).repeat(1, c, 1, 1, 1).float()  # b t h w -> b c t h w
             mask = mask.reshape(b, -1)
-
-        if model_type != ModelType.INPAINT_ONLY and args.use_clip_mask:
-            clip_loss_lambda = args.clip_loss_lambda 
-
-            assert clip_mask is not None, "clip_mask is None!"
-
-            if torch.all(clip_mask == 0):
-                clip_mask = None
-
-            if clip_mask is not None:
-                assert clip_mask.shape[2] == t, f"clip_mask.shape[2] ({clip_mask.shape[2]}) != t ({t})"
-                clip_mask = clip_mask.repeat(1, c, 1, h, w)
-                clip_mask = clip_mask.reshape(b, -1)
-
         if args.snr_gamma is None:
             # model_pred: b c t h w, attention_mask: b t h w
             loss = F.mse_loss(model_pred.float(), target.float(), reduction="none")
             loss = loss.reshape(b, -1)
-
-            if mask is not None and clip_mask is not None:
-                clip_loss = (loss * mask * clip_mask).sum() / (mask * clip_mask).sum()  
-                un_clip_loss = (loss * mask).sum() / mask.sum()
-                loss = clip_loss_lambda * clip_loss + (1 - clip_loss_lambda) * un_clip_loss
-            elif mask is not None:
-                loss = (loss * mask).sum() / mask.sum() # mean loss on unpad patches
+            if mask is not None:
+                loss = (loss * mask).sum() / mask.sum()  # mean loss on unpad patches
             else:
                 loss = loss.mean()
         else:
@@ -1152,13 +588,8 @@ def main(args):
             loss = F.mse_loss(model_pred.float(), target.float(), reduction="none")
             loss = loss.reshape(b, -1)
             mse_loss_weights = mse_loss_weights.reshape(b, 1)
-
-            if mask is not None and clip_mask is not None:
-                clip_loss = (loss * mask * clip_mask * mse_loss_weights).sum() / (mask * clip_mask).sum() 
-                un_clip_loss = (loss * mask * mse_loss_weights).sum() / mask.sum()
-                loss = clip_loss_lambda * clip_loss + (1 - clip_loss_lambda) * un_clip_loss
-            elif mask is not None:
-                loss = (loss * mask * mse_loss_weights).sum() / mask.sum() # mean loss on unpad patches
+            if mask is not None:
+                loss = (loss * mask * mse_loss_weights).sum() / mask.sum()  # mean loss on unpad patches
             else:
                 loss = (loss * mse_loss_weights).mean()
 
@@ -1169,7 +600,7 @@ def main(args):
         # Backpropagate
         accelerator.backward(loss)
         if accelerator.sync_gradients:
-            params_to_clip = params_to_optimize
+            params_to_clip = model.parameters()
             accelerator.clip_grad_norm_(params_to_clip, args.max_grad_norm)
         optimizer.step()
         lr_scheduler.step()
@@ -1177,48 +608,6 @@ def main(args):
 
         if accelerator.sync_gradients:
             sync_gradients_info(loss)
-
-        if accelerator.is_main_process:
-            if progress_info.global_step % args.checkpointing_steps == 0:
-                if args.need_validation:
-                    if args.enable_tracker:
-                        log_validation(
-                            args=args, 
-                            net=net,
-                            vae=ae, 
-                            text_encoder=text_enc.text_enc,
-                            tokenizer=train_dataset.tokenizer, 
-                            image_processor=train_dataset.image_processor,
-                            resize_transform=train_dataset.resize_transform,
-                            transform=train_dataset.transform,
-                            image_encoder=image_encoder,
-                            accelerator=accelerator,
-                            weight_dtype=weight_dtype, 
-                            global_step=progress_info.global_step,
-                            model_type=model_type,
-                        )
-                    if args.use_ema and npu_config is None:
-                        # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
-                        ema_net.store(net.parameters())
-                        ema_net.copy_to(net.parameters())
-                        log_validation(
-                            args=args, 
-                            net=net,
-                            vae=ae, 
-                            text_encoder=text_enc.text_enc,
-                            tokenizer=train_dataset.tokenizer, 
-                            image_processor=train_dataset.image_processor,
-                            resize_transform=train_dataset.resize_transform,
-                            transform=train_dataset.transform,
-                            image_encoder=image_encoder,
-                            accelerator=accelerator,
-                            weight_dtype=weight_dtype, 
-                            global_step=progress_info.global_step,
-                            model_type=model_type,
-                            ema=True,
-                        )
-                        # Switch back to the original UNet parameters.
-                        ema_net.restore(net.parameters())
 
         if prof is not None:
             prof.step()
@@ -1228,56 +617,40 @@ def main(args):
 
     def train_one_step(step_, data_item_, prof_=None):
         train_loss = 0.0
-        x, attn_mask, input_ids, cond_mask, clip_data, clip_mask = data_item_
+        x, attn_mask, input_ids, cond_mask = data_item_
         # assert torch.all(attn_mask.bool()), 'must all visible'
         # Sample noise that we'll add to the latents
         # import ipdb;ipdb.set_trace()
         if args.group_frame or args.group_resolution:
-            if not args.group_frame:
+            if not torch.all(torch.any(attn_mask.flatten(-2), dim=-1)):
                 each_latent_frame = torch.any(attn_mask.flatten(-2), dim=-1).int().sum(-1).tolist()
                 # logger.info(f'rank: {accelerator.process_index}, step {step_}, special batch has attention_mask '
                 #             f'each_latent_frame: {each_latent_frame}')
-                logger.info(f'rank: {accelerator.process_index}, step {step_}, special batch has attention_mask '
+                print(f'rank: {accelerator.process_index}, step {step_}, special batch has attention_mask '
                             f'each_latent_frame: {each_latent_frame}')
         assert not torch.any(torch.isnan(x)), 'torch.any(torch.isnan(x))'
-        x = x.to(accelerator.device, dtype=ae.vae.dtype)  # B 3*C T H W, 16
-        if model_type != ModelType.INPAINT_ONLY:
-            clip_data = clip_data.to(accelerator.device, dtype=weight_dtype)  # B T C H W
-            if args.use_clip_mask: 
-                clip_mask = clip_mask.to(accelerator.device)
+        x = x.to(accelerator.device, dtype=ae.vae.dtype)  # B 3*C T+num_images H W, 16 + 4
 
-        attn_mask = attn_mask.to(accelerator.device)  # B T H W
-        input_ids = input_ids.to(accelerator.device)  # B 1 L
-        cond_mask = cond_mask.to(accelerator.device)  # B 1 L
-
+        attn_mask = attn_mask.to(accelerator.device)  # B T+num_images H W
+        input_ids = input_ids.to(accelerator.device)  # B 1+num_images L
+        cond_mask = cond_mask.to(accelerator.device)  # B 1+num_images L
         # if accelerator.process_index == 0:
         #     logger.info(f'rank: {accelerator.process_index}, x: {x.shape}, attn_mask: {attn_mask.shape}')
 
         with torch.no_grad():
             # import ipdb;ipdb.set_trace()
             # use for loop to avoid OOM, because T5 is too huge...
-            B, N, L = input_ids.shape  # B 1 L
-            # cond_ = torch.stack([text_enc(input_ids[i], cond_mask[i]) for i in range(B)])  # B 1 L D
+            B, N, L = input_ids.shape  # B 1+num_images L
+            # cond_ = torch.stack([text_enc(input_ids[i], cond_mask[i]) for i in range(B)])  # B 1+num_images L D
 
             # use batch inference
             input_ids_ = input_ids.reshape(-1, L)
             cond_mask_ = cond_mask.reshape(-1, L)
-            cond = text_enc(input_ids_, cond_mask_)  # B 1 L D
+            cond = text_enc(input_ids_, cond_mask_)  # B 1+num_images L D
             cond = cond.reshape(B, N, L, -1)
 
-            def preprocess_clip_mask(clip_mask):
-                clip_mask = 1 - clip_mask # 1 means visible, 0 means invisible
-                clip_mask = F.pad(clip_mask, (0, 0, 0, 0, 0, 0, ae_stride_t - 1, 0), value=0)
-                c, h, w = clip_mask.shape[2:]
-                assert c * h * w == 1, 'clip_mask should be 1 1 1'
-                clip_mask = rearrange(clip_mask, 'b t c h w -> b (c h w) t') # B T 1 1 1 -> B (1 1 1) T
-                clip_mask = F.max_pool1d(clip_mask, kernel_size=ae_stride_t, stride=ae_stride_t)
-                logger.warning(f'clip_mask: {clip_mask}')
-                clip_mask = rearrange(clip_mask, 'b (c h w) t -> b c t h w', c=1, h=1, w=1)
-                return clip_mask
-            
             def preprocess_x_for_inpaint(x):
-                # NOTE vae style mask, deprecated
+                # vae style mask
                 if args.use_vae_preprocessed_mask:
                     x, masked_x, mask = x[:, :3], x[:, 3:6], x[:, 6:9]
                     x, masked_x, mask = ae.encode(x), ae.encode(masked_x), ae.encode(mask)
@@ -1293,18 +666,13 @@ def main(args):
                     mask = mask.view(batch_size, ae_stride_t, latent_size_t, latent_size[0], latent_size[1]).contiguous()
 
                 return x, masked_x, mask
-                
-            clip_feature = get_clip_feature(clip_data, image_encoder) if model_type != ModelType.INPAINT_ONLY else None
-            clip_mask = preprocess_clip_mask(clip_mask) if model_type != ModelType.INPAINT_ONLY and args.use_clip_mask else None
 
-            if model_type != ModelType.VIP_ONLY:
-                # Map input images to latent space + normalize latents
+            # Map input images to latent space + normalize latents
+            if args.use_image_num == 0:
                 x, masked_x, mask = preprocess_x_for_inpaint(x) # B 3*C T H W -> (B C T H W) * 3 
                 x = torch.cat([x, masked_x, mask], dim=1) # (B C T H W) * 3 -> B 3*C T H W
             else:
-                x = ae.encode(x)
-
-        vip_tokens, vip_cond_mask = net.forward_vip(clip_feature=clip_feature, use_image_num=0) if model_type != ModelType.INPAINT_ONLY else (None, None)
+                raise NotImplementedError('inpaint mode only support video input now.')
 
         current_step_frame = x.shape[2]
         current_step_sp_state = get_sequence_parallel_state()
@@ -1323,19 +691,15 @@ def main(args):
                     model_kwargs = dict(encoder_hidden_states=cond[st_idx: ed_idx],
                                         attention_mask=attn_mask[st_idx: ed_idx],
                                         encoder_attention_mask=cond_mask[st_idx: ed_idx], use_image_num=use_image_num)
-                    model_kwargs.update(vip_tokens=vip_tokens, vip_cond_mask=vip_cond_mask)
-                    model_kwargs.update(clip_mask=clip_mask)
                     run(x[st_idx: ed_idx], model_kwargs, prof_)
-
         else:
             with accelerator.accumulate(model):
                 assert not torch.any(torch.isnan(x)), 'after vae'
                 x = x.to(weight_dtype)
                 model_kwargs = dict(encoder_hidden_states=cond, attention_mask=attn_mask,
-                                    encoder_attention_mask=cond_mask, use_image_num=args.use_image_num,)
-                model_kwargs.update(vip_tokens=vip_tokens, vip_cond_mask=vip_cond_mask)
-                model_kwargs.update(clip_mask=clip_mask)
+                                    encoder_attention_mask=cond_mask, use_image_num=args.use_image_num)
                 run(x, model_kwargs, prof_)
+
 
         set_sequence_parallel_state(current_step_sp_state)  # in case the next step use sp, which need broadcast(timesteps)
 
@@ -1351,25 +715,6 @@ def main(args):
                 return True
 
             for step, data_item in enumerate(train_dataloader):
-                if accelerator.is_main_process:
-                    if args.need_validation:
-                        if progress_info.global_step == 0:
-                            logger.info("before training, we need to check the validation mode...")
-                            log_validation(
-                                args=args, 
-                                net=net,
-                                vae=ae, 
-                                text_encoder=text_enc.text_enc,
-                                tokenizer=train_dataset.tokenizer, 
-                                image_processor=train_dataset.image_processor,
-                                resize_transform=train_dataset.resize_transform,
-                                transform=train_dataset.transform,
-                                image_encoder=image_encoder,
-                                accelerator=accelerator,
-                                weight_dtype=weight_dtype, 
-                                global_step=progress_info.global_step,
-                                model_type=model_type,
-                            )
                 if train_one_step(step, data_item, prof_):
                     break
 
@@ -1405,6 +750,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+
 
      # dataset & dataloader
     parser.add_argument("--dataset", type=str, required=True)

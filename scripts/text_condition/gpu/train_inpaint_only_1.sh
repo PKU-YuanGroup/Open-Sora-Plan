@@ -1,5 +1,5 @@
 # PROJECT="video_test"
-PROJECT="inpaint_only_480p_f93_bs4x8x1_lr1e-5_snrgamma5_0_noiseoffset0_02_ema0_999"
+PROJECT="inpaint_only_480p_f93_bs4x8x1_lr1e-5_snrgamma5_0_noiseoffset0_02_ema0_999_old_script"
 export WANDB_API_KEY="720d886d8c437c2142c88056a1eab8ef78d64a1f"
 export WANDB_MODE="online"
 export ENTITY="yunyangge"
@@ -23,8 +23,8 @@ export MKL_NUM_THREADS=1
 export PDSH_RCMD_TYPE=ssh
 
 accelerate launch \
-    --config_file scripts/accelerate_configs/multi_node_example.yaml \
-    opensora/train/train_inpaint_all_in_one.py \
+    --config_file scripts/accelerate_configs/multi_node_example1.yaml \
+    opensora/train/train_inpaint.py \
     --model OpenSoraInpaint-ROPE-L/122 \
     --text_encoder_name google/mt5-xxl \
     --image_encoder_name vit_giant_patch14_reg4_dinov2.lvd142m \
