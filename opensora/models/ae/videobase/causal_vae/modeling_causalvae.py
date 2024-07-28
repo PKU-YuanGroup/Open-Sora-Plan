@@ -328,7 +328,7 @@ class CausalVAEModel(VideoBaseAE_PL):
         decoder_mid_resnet: Module = "ResnetBlock3D",
     ) -> None:
         super().__init__()
-        self.tile_sample_min_size = 512
+        self.tile_sample_min_size = 384
         self.tile_sample_min_size_t = 33
         self.tile_latent_min_size = int(self.tile_sample_min_size / (2 ** (len(hidden_size_mult) - 1)))
         
