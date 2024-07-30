@@ -1,0 +1,2 @@
+class IDDPM:
+    pass
