@@ -22,13 +22,13 @@ export MKL_NUM_THREADS=1
 accelerate launch \
     --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
     opensora/train/train_t2v_diffusers.py \
-    --model OpenSoraT2V-B/122 \
+    --model OpenSoraT2V-L/122 \
     --text_encoder_name DeepFloyd/t5-v1_1-xxl \
     --cache_dir "../../cache_dir/" \
     --dataset t2v \
     --data "scripts/train_data/merge_data_mj.txt" \
-    --ae CausalVAEModel_4x8x8 \
-    --ae_path "/storage/dataset/test140k" \
+    --ae CausalVAEModel_D4_4x8x8 \
+    --ae_path "/storage/dataset/488dim4_plus" \
     --sample_rate 1 \
     --num_frames 1 \
     --max_height 480 \
@@ -69,4 +69,4 @@ accelerate launch \
     --sparse2d \
     --sparse_n 2 \
     --force_resolution \
-    --output_dir="bs1x8x32_480p_lr1e-4_snr5_noioff0.02_ema9999_sparse2d_k2_dit_b_122_rope_t5xxl_mj" 
+    --output_dir="bs1x8x32_480p_lr1e-4_snr5_noioff0.02_ema9999_sparse2d2_k2_dit_l_122_rope_t5xxl_mj" 

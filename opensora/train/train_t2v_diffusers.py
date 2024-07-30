@@ -54,12 +54,12 @@ from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel, compute_snr
 from diffusers.utils import check_min_version, is_wandb_available
 
-from opensora.dataset import getdataset, ae_denorm
-from opensora.models.ae import getae, getae_wrapper
-from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModelWrapper
-from opensora.models.diffusion.latte.modeling_latte import LatteT2V
+from opensora.models.causalvideovae import ae_stride_config, ae_channel_config
+from opensora.models.causalvideovae import ae_norm, ae_denorm
+from opensora.models import CausalVAEModelWrapper
 from opensora.models.text_encoder import get_text_enc, get_text_warpper
-from opensora.models.ae import ae_stride_config, ae_channel_config
+from opensora.dataset import getdataset
+from opensora.models import CausalVAEModelWrapper
 from opensora.models.diffusion import Diffusion_models, Diffusion_models_class
 from opensora.utils.dataset_utils import Collate, LengthGroupedSampler
 from opensora.sample.pipeline_opensora import OpenSoraPipeline
@@ -217,7 +217,7 @@ def main(args):
 
     # Create model:
     kwargs = {}
-    ae = getae_wrapper(args.ae)(args.ae_path, cache_dir=args.cache_dir, **kwargs).eval()
+    ae = CausalVAEModelWrapper(args.ae_path, cache_dir=args.cache_dir, **kwargs).eval()
     if args.enable_tiling:
         ae.vae.enable_tiling()
         ae.vae.tile_overlap_factor = args.tile_overlap_factor
@@ -439,7 +439,7 @@ def main(args):
                 world_size=accelerator.num_processes,
                 lengths=train_dataset.lengths, 
                 group_data=args.group_data, 
-            ) if args.group_data else None
+            ) if args.group_data and args.train_batch_size != 1 else None
     train_dataloader = DataLoader(
         train_dataset,
         shuffle=sampler is None,
@@ -447,7 +447,7 @@ def main(args):
         collate_fn=Collate(args),
         batch_size=args.train_batch_size,
         num_workers=args.dataloader_num_workers,
-        sampler=sampler if args.group_data else None, 
+        sampler=sampler if args.group_data and args.train_batch_size != 1 else None, 
         drop_last=True, 
         # prefetch_factor=4
     )
@@ -470,6 +470,11 @@ def main(args):
     # Prepare everything with our `accelerator`.
     # model.requires_grad_(False)
     # model.pos_embed.requires_grad_(True)
+    if args.adapt_vae:
+        model.requires_grad_(False)
+        for name, param in model.named_parameters():
+            if 'pos_embed' in name or 'proj_out' in name:
+                param.requires_grad = True
     logger.info(f'before accelerator.prepare')
     model, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
         model, optimizer, train_dataloader, lr_scheduler
@@ -864,6 +869,7 @@ if __name__ == "__main__":
     parser.add_argument('--sparse1d', action='store_true')
     parser.add_argument('--sparse2d', action='store_true')
     parser.add_argument('--sparse_n', type=int, default=2)
+    parser.add_argument('--adapt_vae', action='store_true')
     parser.add_argument("--gradient_checkpointing", action="store_true", help="Whether or not to use gradient checkpointing to save memory at the expense of slower backward pass.")
 
     # diffusion setting

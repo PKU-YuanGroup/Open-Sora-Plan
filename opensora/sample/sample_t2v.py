@@ -15,13 +15,11 @@ from torchvision.utils import save_image
 from transformers import T5EncoderModel, MT5EncoderModel, UMT5EncoderModel, AutoTokenizer
 
 import os, sys
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
 from opensora.adaptor.modules import replace_with_fp32_forwards
-from opensora.models.ae import ae_stride_config, getae, getae_wrapper
-from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModelWrapper
+from opensora.models.causalvideovae import ae_stride_config, ae_channel_config, ae_norm, ae_denorm, CausalVAEModelWrapper
+
 from opensora.models.diffusion.opensora.modeling_opensora import OpenSoraT2V
-from opensora.models.diffusion.latte.modeling_latte import LatteT2V
 from opensora.models.diffusion.udit.modeling_udit import UDiTT2V
 
 from opensora.models.text_encoder import get_text_enc
@@ -39,7 +37,7 @@ def main(args):
     device = torch.device(args.device)
 
     # vae = getae_wrapper(args.ae)(args.model_path, subfolder="vae", cache_dir=args.cache_dir)
-    vae = getae_wrapper(args.ae)(args.ae_path)
+    vae = CausalVAEModelWrapper(args.ae_path)
     vae.vae = vae.vae.to(device=device, dtype=weight_dtype)
     if args.enable_tiling:
         vae.vae.enable_tiling()
@@ -71,10 +69,10 @@ def main(args):
                                                      device_map=None, torch_dtype=weight_dtype)
     # ckpt = torch.load('/storage/ongoing/new/image2video_weight/480p_73000_ema_ds_k3_p1_repeat_lowsize2.pt')
     # transformer_model.load_state_dict(ckpt)
-    text_encoder = T5EncoderModel.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/models--DeepFloyd--t5-v1_1-xxl/snapshots/c9c625d2ec93667ec579ede125fd3811d1f81d37", cache_dir=args.cache_dir, low_cpu_mem_usage=True, torch_dtype=weight_dtype)
-    tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/models--DeepFloyd--t5-v1_1-xxl/snapshots/c9c625d2ec93667ec579ede125fd3811d1f81d37", cache_dir=args.cache_dir)
-    # text_encoder = MT5EncoderModel.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir, low_cpu_mem_usage=True, torch_dtype=weight_dtype)
-    # tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir)
+    # text_encoder = T5EncoderModel.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/models--DeepFloyd--t5-v1_1-xxl/snapshots/c9c625d2ec93667ec579ede125fd3811d1f81d37", cache_dir=args.cache_dir, low_cpu_mem_usage=True, torch_dtype=weight_dtype)
+    # tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/models--DeepFloyd--t5-v1_1-xxl/snapshots/c9c625d2ec93667ec579ede125fd3811d1f81d37", cache_dir=args.cache_dir)
+    text_encoder = MT5EncoderModel.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir, low_cpu_mem_usage=True, torch_dtype=weight_dtype)
+    tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir)
     
     
     # set eval mode
@@ -159,6 +157,9 @@ def main(args):
     low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry.
     """
 
+    # positive_prompt = "{}"
+    
+    # negative_prompt = None
     # positive_prompt = """
     # (masterpiece), (best quality), (ultra-detailed), 
     # {}. 

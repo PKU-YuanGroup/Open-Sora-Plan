@@ -654,94 +654,130 @@ OpenSora_models_class = {
 }
 
 if __name__ == '__main__':
-    from opensora.models.ae import ae_channel_config, ae_stride_config
-    from opensora.models.ae import getae, getae_wrapper
-    from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModelWrapper
+    from opensora.models.causalvideovae import ae_stride_config, ae_channel_config
+    from opensora.models.causalvideovae import ae_norm, ae_denorm
+    from opensora.models import CausalVAEModelWrapper
 
     args = type('args', (), 
     {
-        'ae': 'CausalVAEModel_4x8x8', 
+        'ae': 'CausalVAEModel_D8_4x8x8', 
         'attention_mode': 'xformers', 
         'use_rope': True, 
         'model_max_length': 300, 
-        'max_height': 240,
-        'max_width': 240,
-        'num_frames': 1,
+        'max_height': 480,
+        'max_width': 640,
+        'num_frames': 29,
         'use_image_num': 0, 
         'compress_kv_factor': 1, 
         'interpolation_scale_t': 1,
         'interpolation_scale_h': 1,
         'interpolation_scale_w': 1,
-        "sparse1d": False, 
-        "sparse2d": True, 
-        "sparse_n": 2, 
+        "sparse1d": True, 
+        "sparse2d": False, 
+        "sparse_n": 4, 
+        "rank": 64, 
     }
     )
     b = 16
-    c = 8
+    c = 4
     cond_c = 4096
     num_timesteps = 1000
     ae_stride_t, ae_stride_h, ae_stride_w = ae_stride_config[args.ae]
     latent_size = (args.max_height // ae_stride_h, args.max_width // ae_stride_w)
-    if getae_wrapper(args.ae) == CausalVQVAEModelWrapper or getae_wrapper(args.ae) == CausalVAEModelWrapper:
-        num_frames = (args.num_frames - 1) // ae_stride_t + 1
-    else:
-        num_frames = args.num_frames // ae_stride_t
+    num_frames = (args.num_frames - 1) // ae_stride_t + 1
 
-    device = torch.device('cuda:0')
-    model = OpenSoraT2V_S_122(in_channels=c, 
-                              out_channels=c, 
-                              sample_size=latent_size, 
-                              sample_size_t=num_frames, 
-                              activation_fn="gelu-approximate",
-                            attention_bias=True,
-                            attention_type="default",
-                            double_self_attention=False,
-                            norm_elementwise_affine=False,
-                            norm_eps=1e-06,
-                            norm_num_groups=32,
-                            num_vector_embeds=None,
-                            only_cross_attention=False,
-                            upcast_attention=False,
-                            use_linear_projection=False,
-                            use_additional_conditions=False, 
-                            downsampler=None,
-                            interpolation_scale_t=args.interpolation_scale_t, 
-                            interpolation_scale_h=args.interpolation_scale_h, 
-                            interpolation_scale_w=args.interpolation_scale_w, 
-                            use_rope=args.use_rope, 
-                            sparse1d=args.sparse1d, 
-                            sparse2d=args.sparse2d, 
-                            sparse_n=args.sparse_n
-                            ).to(device)
+    # device = torch.device('cuda:0')
+    # model = OpenSoraT2V_L_122(in_channels=c, 
+    #                           out_channels=c, 
+    #                           sample_size=latent_size, 
+    #                           sample_size_t=num_frames, 
+    #                           activation_fn="gelu-approximate",
+    #                         attention_bias=True,
+    #                         attention_type="default",
+    #                         double_self_attention=False,
+    #                         norm_elementwise_affine=False,
+    #                         norm_eps=1e-06,
+    #                         norm_num_groups=32,
+    #                         num_vector_embeds=None,
+    #                         only_cross_attention=False,
+    #                         upcast_attention=False,
+    #                         use_linear_projection=False,
+    #                         use_additional_conditions=False, 
+    #                         downsampler=None,
+    #                         interpolation_scale_t=args.interpolation_scale_t, 
+    #                         interpolation_scale_h=args.interpolation_scale_h, 
+    #                         interpolation_scale_w=args.interpolation_scale_w, 
+    #                         use_rope=args.use_rope, 
+    #                         sparse1d=args.sparse1d, 
+    #                         sparse2d=args.sparse2d, 
+    #                         sparse_n=args.sparse_n
+    #                         ).to(device)
     
-    try:
-        path = "PixArt-Alpha-XL-2-512.safetensors"
-        from safetensors.torch import load_file as safe_load
-        ckpt = safe_load(path, device="cpu")
-        # import ipdb;ipdb.set_trace()
-        if ckpt['pos_embed.proj.weight'].shape != model.pos_embed.proj.weight.shape and ckpt['pos_embed.proj.weight'].ndim == 4:
-            repeat = model.pos_embed.proj.weight.shape[2]
-            ckpt['pos_embed.proj.weight'] = ckpt['pos_embed.proj.weight'].unsqueeze(2).repeat(1, 1, repeat, 1, 1) / float(repeat)
-            del ckpt['proj_out.weight'], ckpt['proj_out.bias']
-        msg = model.load_state_dict(ckpt, strict=False)
-        print(msg)
-    except Exception as e:
-        print(e)
-    print(model)
-    print(f'{sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e9} B')
-    # import sys;sys.exit()
-    x = torch.randn(b, c,  1+(args.num_frames-1)//ae_stride_t+args.use_image_num, args.max_height//ae_stride_h, args.max_width//ae_stride_w).to(device)
-    cond = torch.randn(b, 1+args.use_image_num, args.model_max_length, cond_c).to(device)
-    attn_mask = torch.randint(0, 2, (b, 1+(args.num_frames-1)//ae_stride_t+args.use_image_num, args.max_height//ae_stride_h, args.max_width//ae_stride_w)).to(device)  # B L or B 1+num_images L
-    cond_mask = torch.randint(0, 2, (b, 1+args.use_image_num, args.model_max_length)).to(device)  # B L or B 1+num_images L
-    timestep = torch.randint(0, 1000, (b,), device=device)
-    model_kwargs = dict(hidden_states=x, encoder_hidden_states=cond, attention_mask=attn_mask, 
-                        encoder_attention_mask=cond_mask, use_image_num=args.use_image_num, timestep=timestep)
-    with torch.no_grad():
-        output = model(**model_kwargs)
-    print(output[0].shape)
+    # try:
+    #     path = "/storage/dataset/Open-Sora-Plan-v1.2.0/29x720p/diffusion_pytorch_model.safetensors"
+    #     ckpt = torch.load(path, map_location="cpu")
+    #     msg = model.load_state_dict(ckpt, strict=True)
+    #     print(msg)
+    # except Exception as e:
+    #     print(e)
+    # print(model)
+    # print(f'{sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e9} B')
+    # # import sys;sys.exit()
+    # x = torch.randn(b, c,  1+(args.num_frames-1)//ae_stride_t+args.use_image_num, args.max_height//ae_stride_h, args.max_width//ae_stride_w).to(device)
+    # cond = torch.randn(b, 1+args.use_image_num, args.model_max_length, cond_c).to(device)
+    # attn_mask = torch.randint(0, 2, (b, 1+(args.num_frames-1)//ae_stride_t+args.use_image_num, args.max_height//ae_stride_h, args.max_width//ae_stride_w)).to(device)  # B L or B 1+num_images L
+    # cond_mask = torch.randint(0, 2, (b, 1+args.use_image_num, args.model_max_length)).to(device)  # B L or B 1+num_images L
+    # timestep = torch.randint(0, 1000, (b,), device=device)
+    # model_kwargs = dict(hidden_states=x, encoder_hidden_states=cond, attention_mask=attn_mask, 
+    #                     encoder_attention_mask=cond_mask, use_image_num=args.use_image_num, timestep=timestep)
+    # with torch.no_grad():
+    #     output = model(**model_kwargs)
+    # print(output[0].shape)
 
 
+    from peft import LoraConfig, PeftModel, get_peft_model
+    from opensora.utils.ema_utils import EMAModel
+    lora_config = LoraConfig(
+            r=args.rank,
+            lora_alpha=args.rank,
+            init_lora_weights="gaussian",
+            target_modules=["to_k", "to_q", "to_v", "to_out.0"],
+        )
+    # model_merge = model.merge_and_unload()
+    # model = get_peft_model(model, lora_config)
 
+    # import ipdb;ipdb.set_trace()
+    def check_ema_allclose(model_base, lora_path, ema_path):
+        ema_model = EMAModel.from_pretrained(ema_path, OpenSoraT2V, lora_config, model_base)
+        base_model = OpenSoraT2V.from_pretrained(model_base)
+        model_lora  = PeftModel.from_pretrained(base_model, lora_path)
+        for p, p_ in zip(model_lora.parameters(), ema_model.shadow_params):
+            assert torch.allclose(p, p_)
+        merge_lora = model_lora.merge_and_unload()
+        res = 0
+        for p, p_ in zip(merge_lora.parameters(), base_model.parameters()):
+            res += int(torch.allclose(p, p_))
+        print(f'total {len(list(merge_lora.parameters()))}, allclose {res}')
+    def check_allclose(model_base, lora_path, model_path):
+        model = OpenSoraT2V.from_pretrained(model_path)  # 合并权重的模型
+        base_model = OpenSoraT2V.from_pretrained(model_base) # 基模型
+        model_lora  = PeftModel.from_pretrained(base_model, lora_path)  # 基模型+lora
+        merge_lora = model_lora.merge_and_unload()
+        res = 0
+        for p, p_ in zip(model.parameters(), merge_lora.parameters()):
+            res += int(torch.allclose(p, p_))
+        print(f'total {len(list(merge_lora.parameters()))}, allclose {res}')
+        res = 0
+        for p, p_ in zip(model.parameters(), base_model.parameters()):
+            res += int(torch.allclose(p, p_))
+        print(f'total {len(list(merge_lora.parameters()))}, allclose {res}')
+        import ipdb;ipdb.set_trace()
 
+    model_base = "/storage/dataset/Open-Sora-Plan-v1.2.0/29x720p"
+    lora_path = "/storage/ongoing/new/7.19anyres/Open-Sora-Plan/debug_lora/checkpoint-20/model"
+    model_path = "/storage/ongoing/new/7.19anyres/Open-Sora-Plan/debug_lora/checkpoint-20/model"
+    ema_path = "/storage/ongoing/new/7.19anyres/Open-Sora-Plan/debug_lora/checkpoint-20/model_ema"
+    check_allclose(model_base, lora_path, model_path)
+    import ipdb;ipdb.set_trace()
+    
+    print()

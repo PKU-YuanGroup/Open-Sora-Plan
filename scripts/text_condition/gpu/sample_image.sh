@@ -1,19 +1,20 @@
-CUDA_VISIBLE_DEVICES=5 python opensora/sample/sample_t2v.py \
-    --model_path /storage/ongoing/new/7.19anyres/Open-Sora-Plan/bs1x8x32_480p_lr1e-4_snr5_noioff0.02_ema9999_sparse1d_k2_dit_b_122_rope_t5xxl_mj/checkpoint-56000/model_ema \
+CUDA_VISIBLE_DEVICES=0 python opensora/sample/sample_t2v.py \
+    --model_path /storage/ongoing/new/7.19anyres/Open-Sora-Plan/bs16x8x1_img_29x480p_lr1e-4_snr5_noioff0.02_ema9999_dit_l_122_rope_mt5xxl_movie_panda_mj/checkpoint-2000/model_ema \
     --version 65x512x512 \
     --num_frames 1 \
     --height 480 \
     --width 640 \
     --cache_dir "../cache_dir" \
-    --text_encoder_name DeepFloyd/t5-v1_1-xxl \
+    --text_encoder_name google/mt5-xxl \
     --text_prompt examples/prompt_list_1.txt \
-    --ae CausalVAEModel_4x8x8 \
-    --ae_path "/storage/dataset/test140k" \
-    --save_img_path "sample_image_fp32_cfg2.5_step20_dit_56k_480p_pos_neg_masknone" \
+    --ae CausalVAEModel_D4_4x8x8 \
+    --ae_path "/storage/dataset/488dim4_plus" \
+    --save_img_path "sample_image_hw_dit_img_29x480p" \
     --fps 24 \
-    --guidance_scale 4.5 \
+    --guidance_scale 2.0 \
     --num_sampling_steps 20 \
     --enable_tiling \
     --max_sequence_length 512 \
-    --sample_method PNDM \
-    --model_type dit
+    --sample_method DPMSolverMultistep \
+    --model_type dit \
+    --save_memory

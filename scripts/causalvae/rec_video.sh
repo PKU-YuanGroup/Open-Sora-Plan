@@ -1,11 +1,11 @@
 CUDA_VISIBLE_DEVICES=0 python examples/rec_video.py \
-    --ae_path "/storage/dataset/test140k" \
-    --video_path /storage/dataset/test.mp4 \
+    --ae_path "/storage/dataset/new488dim8" \
+    --video_path /storage/clh/gen/64dim_488/origin/134445.mp4 \
     --rec_path rec.mp4 \
     --device cuda \
     --sample_rate 1 \
-    --num_frames 65 \
-    --height 480 \
-    --width 640 \
-    --ae CausalVAEModel_4x8x8 \
-    --enable_tiling --tile_overlap_factor 0.125 --tile_sample_min_size 256
+    --num_frames 93 \
+    --height 720 \
+    --width 1280 \
+    --ae CausalVAEModel_D8_4x8x8 \
+    --enable_tiling --tile_overlap_factor 0.125

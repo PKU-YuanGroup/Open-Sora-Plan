@@ -57,3 +57,10 @@ bucket.py
 whileinf.py
 bs4x8x16_*
 bs1x8x32*
+bs16x8x1*
+bs8x8x2*
+bs8x8x1*
+bs8x8x8*
+bs1x8x16*
+checklora.py
+dim4todim8.py

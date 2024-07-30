@@ -1,2 +1,1 @@
-/storage/dataset/image/human_images,/storage/anno_jsons/human_images_162094_resolution.json
-/storage/dataset/image/sam,/storage/anno_jsons/sam_image_11185255_resolution.json
+/storage/dataset/movie,/storage/dataset/filter_aes/filter_movie_all_4.5_json/TV01_clips_final_478625_364795_4.5plus.json

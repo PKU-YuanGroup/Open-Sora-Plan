@@ -20,7 +20,7 @@ from typing import Callable, List, Optional, Tuple, Union
 import math
 import torch
 from transformers import T5EncoderModel, T5Tokenizer
-
+from einops import rearrange
 from diffusers.models import AutoencoderKL, Transformer2DModel
 from diffusers.schedulers import DPMSolverMultistepScheduler
 from diffusers.utils import (
@@ -716,10 +716,11 @@ class OpenSoraPipeline(DiffusionPipeline):
 
         # 5. Prepare latents.
         latent_channels = self.transformer.config.in_channels
+        world_size = hccl_info.world_size if torch_npu is not None else nccl_info.world_size
         latents = self.prepare_latents(
             batch_size * num_images_per_prompt,
             latent_channels,
-            (num_frames + nccl_info.world_size - 1) // nccl_info.world_size if get_sequence_parallel_state() else num_frames,
+            (num_frames + world_size - 1) // world_size if get_sequence_parallel_state() else num_frames,
             height,
             width,
             prompt_embeds.dtype,
@@ -727,6 +728,11 @@ class OpenSoraPipeline(DiffusionPipeline):
             generator,
             latents,
         )
+        if get_sequence_parallel_state():
+            prompt_embeds = rearrange(prompt_embeds, 'b (n x) h -> b n x h', n=world_size,
+                                      x=prompt_embeds.shape[1] // world_size).contiguous()
+            rank = hccl_info.rank if torch_npu is not None else nccl_info.rank
+            prompt_embeds = prompt_embeds[:, rank, :, :]
 
         # 6. Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline
         extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
@@ -765,6 +771,8 @@ class OpenSoraPipeline(DiffusionPipeline):
                 # prepare attention_mask.
                 # b c t h w -> b t h w
                 attention_mask = torch.ones_like(latent_model_input)[:, 0]
+                if get_sequence_parallel_state():
+                    attention_mask = attention_mask.repeat(1, world_size, 1, 1)
                 # predict noise model_output
                 noise_pred = self.transformer(
                     latent_model_input,
@@ -799,12 +807,13 @@ class OpenSoraPipeline(DiffusionPipeline):
                         callback(step_idx, t, latents)
         # import ipdb;ipdb.set_trace()
         # latents = latents.squeeze(2)
+        world_size = hccl_info.world_size if torch_npu is not None else nccl_info.world_size
         if get_sequence_parallel_state():
             latents_shape = list(latents.shape)
-            full_shape = [latents_shape[0] * nccl_info.world_size] + latents_shape[1:]
+            full_shape = [latents_shape[0] * world_size] + latents_shape[1:]
             all_latents = torch.zeros(full_shape, dtype=latents.dtype, device=latents.device)
             torch.distributed.all_gather_into_tensor(all_latents, latents)
-            latents_list = list(all_latents.chunk(nccl_info.world_size, dim=0))
+            latents_list = list(all_latents.chunk(world_size, dim=0))
             latents = torch.cat(latents_list, dim=2)
 
         if not output_type == "latent":

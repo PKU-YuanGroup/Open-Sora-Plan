@@ -1,20 +1,20 @@
-CUDA_VISIBLE_DEVICES=7 python opensora/sample/sample_t2v.py \
-    --model_path /storage/dataset/hw29/model_ema/checkpoint-500/model_ema \
+CUDA_VISIBLE_DEVICES=5 python opensora/sample/sample_t2v.py \
+    --model_path /storage/ongoing/new/7.19anyres/Open-Sora-Plan/bs8x8x1_29x480p_lr1e-5_snr5_noioff0.02_ema999_sparse1d4_dit_l_122_rope_t5xxl_movie_panda/checkpoint-21000/model_ema \
     --version 65x512x512 \
-    --num_frames 93 \
-    --height 720 \
-    --width 1280 \
+    --num_frames 29 \
+    --height 480 \
+    --width 640 \
     --cache_dir "cache_dir" \
     --text_encoder_name google/mt5-xxl \
     --text_prompt examples/prompt_list_1.txt \
-    --ae CausalVAEModel_4x8x8 \
-    --ae_path "/storage/dataset/test140k" \
-    --save_img_path "./sample_video_hw_93x720p_cfg5.0_step50_compile" \
+    --ae CausalVAEModel_D4_4x8x8 \
+    --ae_path "/storage/dataset/488dim4_plus" \
+    --save_img_path "./sample_video_29x480p_cfg7.5_step100_sparse1d4_dit_21k" \
     --fps 24 \
-    --guidance_scale 5.0 \
-    --num_sampling_steps 50 \
+    --guidance_scale 7.5 \
+    --num_sampling_steps 100 \
     --enable_tiling \
+    --tile_overlap_factor 0.125 \
     --max_sequence_length 512 \
-    --sample_method PNDM \
-    --model_type "dit" \
-    --compile
+    --sample_method EulerAncestralDiscrete \
+    --model_type "dit"

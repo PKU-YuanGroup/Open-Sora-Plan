@@ -265,7 +265,7 @@ class T2V_dataset(Dataset):
         cnt_resolution_mismatch = 0
         cnt_movie = 0
         cnt_img = 0
-        for i in cap_list:
+        for i in tqdm(cap_list):
             path = i['path']
             cap = i.get('cap', None)
             # ======no caption=====
@@ -295,7 +295,7 @@ class T2V_dataset(Dataset):
                         i['resolution'].update(dict(sample_height=sample_h, sample_width=sample_w))
                     else:
                         aspect = self.max_height / self.max_width
-                        hw_aspect_thr = 1.5
+                        hw_aspect_thr = 1.8
                         is_pick = filter_resolution(height, width, max_h_div_w_ratio=hw_aspect_thr*aspect, 
                                                     min_h_div_w_ratio=1/hw_aspect_thr*aspect)
                         if not is_pick:
@@ -314,7 +314,7 @@ class T2V_dataset(Dataset):
 
                 i['num_frames'] = int(fps * duration)
                 # max 5.0 and min 1.0 are just thresholds to filter some videos which have suitable duration. 
-                if i['num_frames'] > 2.0 * (self.num_frames * fps / self.train_fps * self.speed_factor):  # too long video is not suitable for this training stage (self.num_frames)
+                if i['num_frames'] > 5.0 * (self.num_frames * fps / self.train_fps * self.speed_factor):  # too long video is not suitable for this training stage (self.num_frames)
                     cnt_too_long += 1
                     continue
                 # if i['num_frames'] < 1.0/1 * (self.num_frames * fps / self.train_fps * self.speed_factor):  # too short video is not suitable for this training stage

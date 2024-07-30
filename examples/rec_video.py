@@ -13,11 +13,8 @@ from torch.nn import functional as F
 from pytorchvideo.transforms import ShortSideScale
 from torchvision.transforms import Lambda, Compose
 import sys
-sys.path.append(".")
-
-from opensora.models.ae import getae_wrapper
+from opensora.models.causalvideovae import ae_stride_config, ae_channel_config, ae_norm, ae_denorm, CausalVAEModelWrapper
 from opensora.dataset.transform import ToTensorVideo, CenterCropResizeVideo
-from opensora.models.ae.videobase import CausalVAEModel
 
 
 def array_to_video(image_array: npt.NDArray, fps: float = 30.0, output_file: str = 'output_video.mp4') -> None:
@@ -85,20 +82,36 @@ def main(args: argparse.Namespace):
     device = args.device
     kwarg = {}
     # vae = getae_wrapper(args.ae)(args.model_path, subfolder="vae", cache_dir='cache_dir', **kwarg).to(device)
-    vae = getae_wrapper(args.ae)(args.ae_path, **kwarg).to(device)
+    vae = CausalVAEModelWrapper(args.ae_path, **kwarg).to(device)
     if args.enable_tiling:
         vae.vae.enable_tiling()
         vae.vae.tile_overlap_factor = args.tile_overlap_factor
     vae.eval()
     vae = vae.to(device)
-    vae = vae.half()
 
+    # vae = vae.half()
+    # with torch.no_grad():
+    #     x_vae = preprocess(read_video(args.video_path, args.num_frames, args.sample_rate), args.height,
+    #                        args.width)
+    #     print(x_vae.shape)
+    #     x_vae = x_vae.to(device, dtype=torch.float16)  # b c t h w
+    #     latents = vae.encode(x_vae)
+    #     print(latents.shape)
+    #     latents = latents.to(torch.float16)
+    #     video_recon = vae.decode(latents)  # b t c h w
+    #     print(video_recon.shape)
+
+
+    
+    vae = vae.half()
+    from tqdm import tqdm
     with torch.no_grad():
-        x_vae = preprocess(read_video(args.video_path, args.num_frames, args.sample_rate), args.height,
-                           args.width)
+        x_vae = torch.rand(1, 3, 93, 720, 1280)
         print(x_vae.shape)
         x_vae = x_vae.to(device, dtype=torch.float16)  # b c t h w
-        latents = vae.encode(x_vae)
+        # x_vae = x_vae.to(device)  # b c t h w
+        for i in tqdm(range(100000)):
+            latents = vae.encode(x_vae)
         print(latents.shape)
         latents = latents.to(torch.float16)
         video_recon = vae.decode(latents)  # b t c h w
