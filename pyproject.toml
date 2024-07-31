@@ -25,6 +25,7 @@ include = ["mindspeed_mm"]
 [project.optional-dependencies]
 test = [
     "pytest",
+    "transformers[sentencepiece]",
 ]
 
 lint = [
