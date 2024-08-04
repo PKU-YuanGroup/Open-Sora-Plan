@@ -20,34 +20,34 @@ export MKL_NUM_THREADS=1
 # export NCCL_ALGO=Tree
 
 accelerate launch \
-    --config_file scripts/accelerate_configs/multi_node_example1.yaml \
+    --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
     opensora/train/train_t2v_diffusers.py \
     --model OpenSoraT2V-L/122 \
     --text_encoder_name google/mt5-xxl \
     --cache_dir "../../cache_dir/" \
     --dataset t2v \
-    --data "scripts/train_data/merge_data_panda_movie_mj.txt" \
-    --ae CausalVAEModel_D8_4x8x8 \
-    --ae_path "/storage/dataset/new488dim8/last" \
+    --data "scripts/train_data/merge_data_mj.txt" \
+    --ae CausalVAEModel_D4_4x8x8 \
+    --ae_path "/storage/dataset/488dim4_plus" \
     --sample_rate 1 \
-    --num_frames 93 \
-    --max_height 176 \
-    --max_width 320 \
+    --num_frames 1 \
+    --max_height 720 \
+    --max_width 1280 \
     --interpolation_scale_t 1.0 \
-    --interpolation_scale_h 1.0 \
-    --interpolation_scale_w 1.0 \
+    --interpolation_scale_h 1.5 \
+    --interpolation_scale_w 2.0 \
     --attention_mode xformers \
     --gradient_checkpointing \
-    --train_batch_size=1 \
+    --train_batch_size=16 \
     --dataloader_num_workers 10 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
-    --learning_rate=2e-5 \
+    --learning_rate=1e-4 \
     --lr_scheduler="constant" \
     --lr_warmup_steps=0 \
     --mixed_precision="bf16" \
     --report_to="wandb" \
-    --checkpointing_steps=500 \
+    --checkpointing_steps=1000 \
     --allow_tf32 \
     --model_max_length 512 \
     --use_image_num 0 \
@@ -65,10 +65,9 @@ accelerate launch \
     --speed_factor 1.0 \
     --ema_decay 0.9999 \
     --drop_short_ratio 0.0 \
+    --sparse2d \
+    --sparse_n 4 \
     --force_resolution \
-    --pretrained "/storage/ongoing/new/7.19anyres/Open-Sora-Plan/bs16x8x8_vae8_any320x320_lr1e-4_snr5_noioff0.02_ema9999_dit_l_122_rope_mt5xxl_mj/checkpoint-150000/model_ema/diffusion_pytorch_model.safetensors" \
-    --output_dir="bs8x8x1_93x176x320_fps16_lr2e-5_snr5_noioff0.02_ema9999_sparse1d4_dit_l_mt5xxl_sucaiaes5_fromimgsparse1d4" \
-    --tile_sample_min_size 512 \
-    --tile_sample_min_size_t 125 \
-    --hw_stride 32 \
-    --sparse1d --sparse_n 4 --train_fps 16
+    --enable_tracker \
+    --pretrained "/storage/dataset/hw29/image/model_ema/diffusion_pytorch_model.safetensors" \
+    --output_dir="bs1x8x16_1x720p_lr1e-4_snr5_noioff0.02_ema9999_sparse2d4_dit_l_122_rope_mt5xxl_mj_fromhw480p" 

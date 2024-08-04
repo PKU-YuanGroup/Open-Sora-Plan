@@ -20,26 +20,26 @@ export MKL_NUM_THREADS=1
 # export NCCL_ALGO=Tree
 
 accelerate launch \
-    --config_file scripts/accelerate_configs/debug.yaml \
+    --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
     opensora/train/train_t2v_diffusers_lora.py \
     --model OpenSoraT2V-L/122 \
     --text_encoder_name google/mt5-xxl \
     --cache_dir "../../cache_dir/" \
     --dataset t2v \
-    --data "scripts/train_data/image_data_debug.txt" \
+    --data "scripts/train_data/merge_data_mj.txt" \
     --ae CausalVAEModel_D4_4x8x8 \
     --ae_path "/storage/dataset/488dim4_plus" \
     --sample_rate 1 \
     --num_frames 1 \
-    --max_height 480 \
-    --max_width 640 \
+    --max_height 720 \
+    --max_width 1280 \
     --interpolation_scale_t 1.0 \
-    --interpolation_scale_h 1.0 \
-    --interpolation_scale_w 1.0 \
+    --interpolation_scale_h 1.5 \
+    --interpolation_scale_w 2.0 \
     --attention_mode xformers \
     --gradient_checkpointing \
-    --train_batch_size=8 \
-    --dataloader_num_workers 0 \
+    --train_batch_size=16 \
+    --dataloader_num_workers 10 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
     --learning_rate=1e-5 \
@@ -47,12 +47,10 @@ accelerate launch \
     --lr_warmup_steps=0 \
     --mixed_precision="bf16" \
     --report_to="wandb" \
-    --checkpointing_steps=10 \
+    --checkpointing_steps=1000 \
     --allow_tf32 \
     --model_max_length 512 \
     --use_image_num 0 \
-    --tile_overlap_factor 0.125 \
-    --enable_tiling \
     --snr_gamma 5.0 \
     --use_ema \
     --ema_start_step 0 \
@@ -64,9 +62,9 @@ accelerate launch \
     --skip_low_resolution \
     --speed_factor 1.0 \
     --enable_tracker \
-    --ema_decay 0.9 \
+    --ema_decay 0.9999 \
     --drop_short_ratio 0.0 \
     --force_resolution \
-    --model_base "/storage/dataset/Open-Sora-Plan-v1.2.0/29x720p" \
-    --output_dir="debug_lora" \
-    --enable_lora \
+    --model_base "/storage/dataset/hw29/image/model_ema" \
+    --output_dir="bs1x8x16_1x720p_lr1e-5_snr5_noioff0.02_ema9999_lora64_dit_l_122_rope_mt5xxl_mj_fromhw480p" \
+    --enable_lora --rank 64

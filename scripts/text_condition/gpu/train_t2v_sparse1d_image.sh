@@ -20,7 +20,7 @@ export MKL_NUM_THREADS=1
 # export NCCL_ALGO=Tree
 
 accelerate launch \
-    --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
+    --config_file scripts/accelerate_configs/multi_node_example1.yaml \
     opensora/train/train_t2v_diffusers.py \
     --model OpenSoraT2V-L/122 \
     --text_encoder_name google/mt5-xxl \
@@ -31,18 +31,18 @@ accelerate launch \
     --ae_path "/storage/dataset/488dim4_plus" \
     --sample_rate 1 \
     --num_frames 1 \
-    --max_height 720 \
-    --max_width 1280 \
+    --max_height 480 \
+    --max_width 640 \
     --interpolation_scale_t 1.0 \
-    --interpolation_scale_h 1.5 \
-    --interpolation_scale_w 2.0 \
+    --interpolation_scale_h 1.0 \
+    --interpolation_scale_w 1.0 \
     --attention_mode xformers \
     --gradient_checkpointing \
-    --train_batch_size=16 \
+    --train_batch_size=8 \
     --dataloader_num_workers 10 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
-    --learning_rate=1e-4 \
+    --learning_rate=2e-5 \
     --lr_scheduler="constant" \
     --lr_warmup_steps=0 \
     --mixed_precision="bf16" \
@@ -70,4 +70,4 @@ accelerate launch \
     --force_resolution \
     --enable_tracker \
     --pretrained "/storage/dataset/hw29/image/model_ema/diffusion_pytorch_model.safetensors" \
-    --output_dir="bs1x8x32_1x720p_lr1e-4_snr5_noioff0.02_ema9999_sparse1d4_dit_l_122_rope_mt5xxl_mj_fromhw480p" 
+    --output_dir="bs8x8x8_1x480p_lr2e-5_snr5_noioff0.02_ema9999_sparse1d4_dit_l_122_rope_mt5xxl_mj_fromhw480p" 

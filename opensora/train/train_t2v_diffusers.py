@@ -312,6 +312,9 @@ def main(args):
     # Set model as trainable.
     model.train()
 
+    ae.vae.tile_sample_min_size = args.tile_sample_min_size
+    ae.vae.tile_sample_min_size_t = args.tile_sample_min_size_t
+
     noise_scheduler = DDPMScheduler()
     # Move unet, vae and text_encoder to device and cast to weight_dtype
     # The VAE is in float32 to avoid NaN losses.
@@ -869,6 +872,8 @@ if __name__ == "__main__":
     parser.add_argument('--sparse1d', action='store_true')
     parser.add_argument('--sparse2d', action='store_true')
     parser.add_argument('--sparse_n', type=int, default=2)
+    parser.add_argument('--tile_sample_min_size', type=int, default=512)
+    parser.add_argument('--tile_sample_min_size_t', type=int, default=33)
     parser.add_argument('--adapt_vae', action='store_true')
     parser.add_argument("--gradient_checkpointing", action="store_true", help="Whether or not to use gradient checkpointing to save memory at the expense of slower backward pass.")
 

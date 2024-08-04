@@ -20,7 +20,7 @@ export MKL_NUM_THREADS=1
 # export NCCL_ALGO=Tree
 
 accelerate launch \
-    --config_file scripts/accelerate_configs/multi_node_example1.yaml \
+    --config_file scripts/accelerate_configs/multi_node_example.yaml \
     opensora/train/train_t2v_diffusers.py \
     --model OpenSoraT2V-L/122 \
     --text_encoder_name google/mt5-xxl \
@@ -28,11 +28,11 @@ accelerate launch \
     --dataset t2v \
     --data "scripts/train_data/merge_data_mj.txt" \
     --ae CausalVAEModel_D8_4x8x8 \
-    --ae_path "/storage/dataset/new488dim8" \
+    --ae_path "/storage/dataset/new488dim8/last" \
     --sample_rate 1 \
     --num_frames 1 \
-    --max_height 480 \
-    --max_width 640 \
+    --max_height 320 \
+    --max_width 320 \
     --interpolation_scale_t 1.0 \
     --interpolation_scale_h 1.0 \
     --interpolation_scale_w 1.0 \
@@ -42,7 +42,7 @@ accelerate launch \
     --dataloader_num_workers 10 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
-    --learning_rate=1e-4 \
+    --learning_rate=2e-5 \
     --lr_scheduler="constant" \
     --lr_warmup_steps=0 \
     --mixed_precision="bf16" \
@@ -51,8 +51,6 @@ accelerate launch \
     --allow_tf32 \
     --model_max_length 512 \
     --use_image_num 0 \
-    --tile_overlap_factor 0.125 \
-    --enable_tiling \
     --snr_gamma 5.0 \
     --use_ema \
     --ema_start_step 0 \
@@ -66,6 +64,7 @@ accelerate launch \
     --enable_tracker \
     --ema_decay 0.9999 \
     --drop_short_ratio 0.0 \
-    --force_resolution \
-    --pretrained "hwdim4todim8.pt" \
-    --output_dir="bs8x8x8_vae8_480p_lr1e-4_snr5_noioff0.02_ema9999_dit_l_122_rope_mt5xxl_mj" 
+    --pretrained "/storage/ongoing/new/7.19anyres/Open-Sora-Plan/bs16x8x8_vae8_any320x320_lr1e-4_snr5_noioff0.02_ema9999_dit_l_122_rope_mt5xxl_mj/checkpoint-150000/model_ema/diffusion_pytorch_model.safetensors" \
+    --hw_stride 32 \
+    --sparse1d --sparse_n 4 \
+    --output_dir="bs16x8x8_vae8_any320x320_lr2e-5_snr5_noioff0.02_ema9999_sparse1d4_dit_l_122_rope_mt5xxl_mj" 

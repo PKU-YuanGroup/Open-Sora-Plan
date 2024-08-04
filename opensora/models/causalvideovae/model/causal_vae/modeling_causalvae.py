@@ -331,13 +331,14 @@ class CausalVAEModel(VideoBaseAE):
         super().__init__()
         
         
-        self.tile_sample_min_size = 512000000
-        self.tile_sample_min_size_t = 29
-        self.tile_latent_min_size = int(self.tile_sample_min_size / (2 ** (len(hidden_size_mult) - 1)))
-        
-        # t_down_ratio = [i for i in encoder_temporal_downsample if len(i) > 0]
-        self.tile_latent_min_size_t = int((self.tile_sample_min_size_t-1) / 4) + 1
-        # self.tile_latent_min_size_t = 5
+        self.tile_sample_min_size = 512000
+        self.tile_sample_min_size_t = 93000
+
+        self.tile_sample_min_size_dec = 512
+        self.tile_sample_min_size_t_dec = 33
+        self.tile_latent_min_size = int(self.tile_sample_min_size_dec / (2 ** (len(hidden_size_mult) - 1)))
+        self.tile_latent_min_size_t = int((self.tile_sample_min_size_t_dec-1) / 4) + 1
+
         self.tile_overlap_factor = 0.125
         self.use_tiling = False
         
@@ -393,6 +394,7 @@ class CausalVAEModel(VideoBaseAE):
         return [self.decoder]
     
     def encode(self, x):
+        # import ipdb;ipdb.set_trace()
         if self.use_tiling and (
             x.shape[-1] > self.tile_sample_min_size
             or x.shape[-2] > self.tile_sample_min_size
@@ -402,10 +404,12 @@ class CausalVAEModel(VideoBaseAE):
         h = self.encoder(x)
         if self.use_quant_layer:
             h = self.quant_conv(h)
+        # torch.save(h, 'notileencfea.pt')
         posterior = DiagonalGaussianDistribution(h)
         return posterior
 
     def decode(self, z):
+        # import ipdb;ipdb.set_trace()
         if self.use_tiling and (
             z.shape[-1] > self.tile_latent_min_size
             or z.shape[-2] > self.tile_latent_min_size
@@ -458,7 +462,7 @@ class CausalVAEModel(VideoBaseAE):
     def tiled_encode(self, x):
         t = x.shape[2]
         t_chunk_idx = [i for i in range(0, t, self.tile_sample_min_size_t-1)]
-        # print(t_chunk_idx)
+        # print('tiled_encode', t_chunk_idx)
         if len(t_chunk_idx) == 1 and t_chunk_idx[0] == 0:
             t_chunk_start_end = [[0, t]]
         else:
@@ -469,6 +473,7 @@ class CausalVAEModel(VideoBaseAE):
                 last_start_end = [t_chunk_idx[-1], t]
                 t_chunk_start_end.append(last_start_end)
         moments = []
+        # print('tiled_encode t_chunk_start_end', t_chunk_start_end)
         for idx, (start, end) in enumerate(t_chunk_start_end):
             chunk_x = x[:, :, start: end]
             if idx != 0:
@@ -483,6 +488,7 @@ class CausalVAEModel(VideoBaseAE):
     def tiled_decode(self, x):
         t = x.shape[2]
         t_chunk_idx = [i for i in range(0, t, self.tile_latent_min_size_t-1)]
+        # print('tiled_decode', t_chunk_idx)
         if len(t_chunk_idx) == 1 and t_chunk_idx[0] == 0:
             t_chunk_start_end = [[0, t]]
         else:
@@ -493,6 +499,7 @@ class CausalVAEModel(VideoBaseAE):
                 last_start_end = [t_chunk_idx[-1], t]
                 t_chunk_start_end.append(last_start_end)
         dec_ = []
+        # print('tiled_decode t_chunk_start_end', t_chunk_start_end)
         for idx, (start, end) in enumerate(t_chunk_start_end):
             chunk_x = x[:, :, start: end]
             if idx != 0:
@@ -553,6 +560,7 @@ class CausalVAEModel(VideoBaseAE):
 
         # Split z into overlapping 64x64 tiles and decode them separately.
         # The tiles have an overlap to avoid seams between tiles.
+        # print('tiled_decode2d', list(range(0, z.shape[3], overlap_size)), list(range(0, z.shape[4], overlap_size)))
         rows = []
         for i in range(0, z.shape[3], overlap_size):
             row = []

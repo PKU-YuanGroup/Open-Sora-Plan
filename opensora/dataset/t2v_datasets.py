@@ -373,13 +373,13 @@ class T2V_dataset(Dataset):
         decord_vr = self.v_decoder(path)
         total_frames = len(decord_vr)
         fps = decord_vr.get_avg_fps() if decord_vr.get_avg_fps() > 0 else 30.0
-        # import ipdb;ipdb.set_trace()
+        
         # resample in case high fps, such as 50/60/90/144 -> train_fps(e.g, 24)
         frame_interval = 1.0 if abs(fps - self.train_fps) < 0.1 else fps / self.train_fps
         start_frame_idx = 8 if '/storage/dataset/movie' in path else 0  # special video
         frame_indices = np.arange(start_frame_idx, total_frames, frame_interval).astype(int)
         frame_indices = frame_indices[frame_indices < total_frames]
-        #import ipdb;ipdb.set_trace()
+        
         # speed up
         max_speed_factor = len(frame_indices) / self.num_frames
         if self.speed_factor > 1 and max_speed_factor > 1:

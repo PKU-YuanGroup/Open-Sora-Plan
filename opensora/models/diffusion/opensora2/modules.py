@@ -692,16 +692,15 @@ class AttnProcessor2_0:
             if attention_mask is not None and not self.is_cross_attn:
                 attention_mask = F.pad(attention_mask, (0, pad_len, 0, 0), value=-9980.0)
         if not self.sparse_group:
-            x = rearrange(x, 'b h (g k) d -> (b k) h g d', k=self.sparse_n)
+            x = rearrange(x, 'b h (g k) d -> (k b) h g d', k=self.sparse_n)
             if attention_mask is not None and not self.is_cross_attn:
-                attention_mask = rearrange(attention_mask, 'b h 1 (g k) -> (b k) h 1 g', k=self.sparse_n).contiguous()
+                attention_mask = rearrange(attention_mask, 'b h 1 (g k) -> (k b) h 1 g', k=self.sparse_n).contiguous()
         else:
-            x = rearrange(x, 'b h (n m k) d -> (b m) h (n k) d', m=self.sparse_n, k=self.sparse_n)
+            x = rearrange(x, 'b h (n m k) d -> (m b) h (n k) d', m=self.sparse_n, k=self.sparse_n)
             if attention_mask is not None and not self.is_cross_attn:
-                attention_mask = rearrange(attention_mask, 'b h 1 (n m k) -> (b m) h 1 (n k)', m=self.sparse_n, k=self.sparse_n)
+                attention_mask = rearrange(attention_mask, 'b h 1 (n m k) -> (m b) h 1 (n k)', m=self.sparse_n, k=self.sparse_n)
         if self.is_cross_attn:
-            # attention_mask = attention_mask.repeat(self.sparse_n, 1, 1, 1)
-            attention_mask = torch.repeat_interleave(attention_mask, self.sparse_n, dim=0)
+            attention_mask = attention_mask.repeat(self.sparse_n, 1, 1, 1)
         return x, attention_mask, pad_len
     
     def _reverse_sparse_1d(self, x, frame, height, width, pad_len):
@@ -710,9 +709,9 @@ class AttnProcessor2_0:
         """
         assert x.shape[2] == (frame*height*width+pad_len) // self.sparse_n
         if not self.sparse_group:
-            x = rearrange(x, '(b k) h g d -> b h (g k) d', k=self.sparse_n)
+            x = rearrange(x, '(k b) h g d -> b h (g k) d', k=self.sparse_n)
         else:
-            x = rearrange(x, '(b m) h (n k) d -> b h (n m k) d', m=self.sparse_n, k=self.sparse_n)
+            x = rearrange(x, '(m b) h (n k) d -> b h (n m k) d', m=self.sparse_n, k=self.sparse_n)
         x = x[:, :, :frame*height*width, :]
         # x = x.contiguous()
         return x
@@ -721,8 +720,7 @@ class AttnProcessor2_0:
         """
         require the shape of (batch_size x nheads x ntokens x dim)
         """
-        # x = repeat(x, 'b h s d -> (k b) h s d', k=self.sparse_n)
-        x = torch.repeat_interleave(x, self.sparse_n, dim=0)
+        x = repeat(x, 'b h s d -> (k b) h s d', k=self.sparse_n)
         return x
     
     def _sparse_2d(self, x, attention_mask, frame, height, width):
@@ -1242,6 +1240,7 @@ class BasicTransformerBlock(nn.Module):
         sparse_group: bool = False,
     ):
         super().__init__()
+        print(f'sparse1d {sparse1d}, sparse_group {sparse_group}')
         self.only_cross_attention = only_cross_attention
         self.downsampler = downsampler
 

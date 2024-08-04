@@ -365,22 +365,28 @@ def main(args):
                         unwrap_model = accelerator.unwrap_model(model)
                         unwrap_model_bak = deepcopy(unwrap_model)
 
-                        import ipdb;ipdb.set_trace()
-                        if True:
-                            base_model = Diffusion_models_class[args.model].from_pretrained(args.model_base)
-                            model_lora = PeftModel.from_pretrained(base_model, os.path.join(output_dir, "model"))  # 基模型+lora
-                            res = 0
-                            for p, p_ in zip(unwrap_model_bak.parameters(), model_lora.parameters()):
-                                res += int(torch.allclose(p.detach().float().cpu(), p_.detach().float().cpu(), atol=1e-6))
-                                # [int(torch.allclose(p.detach().cpu().float(), p_.detach().cpu().float(), atol=1e-6)) for p, p_ in zip(unwrap_model_bak.parameters(), model_lora.parameters())]
-                            print(f'total {len(list(unwrap_model_bak.parameters()))}, allclose {res}')
-                        import ipdb;ipdb.set_trace()
+                        # import ipdb;ipdb.set_trace()
+                        # if True:
+                        #     base_model = Diffusion_models_class[args.model].from_pretrained(args.model_base)
+                        #     model_lora = PeftModel.from_pretrained(base_model, os.path.join(output_dir, "model"))  # 基模型+lora
+                        #     res = 0
+                        #     for (n, p), (n_, p_) in zip(unwrap_model_bak.named_parameters(), model_lora.named_parameters()):
+                        #         res += int(torch.allclose(p.detach().float().cpu(), p_.detach().float().cpu(), atol=1e-6))
+                        #         if torch.allclose(p.detach().float().cpu(), p_.detach().float().cpu(), atol=1e-6):
+                        #             print(n, n_)
+                        #         # [int(torch.allclose(p.detach().cpu().float(), p_.detach().cpu().float(), atol=1e-6)) for p, p_ in zip(unwrap_model_bak.parameters(), model_lora.parameters())]
+                        #     print(f'total {len(list(unwrap_model_bak.parameters()))}, allclose {res}')
+                        # import ipdb;ipdb.set_trace()
 
                         model_merge = unwrap_model_bak.merge_and_unload()
                         model_merge.save_pretrained(os.path.join(output_dir, "model"))
 
-
+                        del model_merge
                         del unwrap_model_bak
+                        
+                        gc.collect()
+                        torch.cuda.empty_cache()
+
                     if weights:  # Don't pop if empty
                         # make sure to pop weight so that corresponding model is not saved again
                         weights.pop()
@@ -758,6 +764,9 @@ def main(args):
                         # Switch back to the original UNet parameters.
                         ema_model.restore(model.parameters())
 
+        gc.collect()
+        torch.cuda.empty_cache()
+        
         if prof is not None:
             prof.step()
 
