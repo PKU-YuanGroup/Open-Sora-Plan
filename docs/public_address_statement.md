@@ -1,0 +1,11 @@
+### MindSpeed MM 公网地址声明
+
+- MindSpeed MM 代码中包含公网地址声明如下表所示：
+
+|      类型      |                                           开源代码地址                                           |                    文件名                    |             公网IP地址/公网URL地址/域名/邮箱地址             |        用途说明        |
+| :------------: |:------------------------------------------------------------------------------------------:|:-----------------------------------------:| :----------------------------------------------------------: |:------------------:|
+|  开源引入  | https://github.com/hojonathanho/diffusion/blob/1e0dceb3b3495bbe19116a5e1b3596cd0706c543/diffusion_tf/diffusion_utils_2.py |           mindspeed_mm/models/diffusion/ddpm.py           | https://github.com/hojonathanho/diffusion/blob/1e0dceb3b3495bbe19116a5e1b3596cd0706c543/diffusion_tf/diffusion_utils_2.py | 开源代码参考链接 |
+|  开源引入  | https://github.com/openai/improved-diffusion/blob/main/improved_diffusion/gaussian_diffusion.py |          mindspeed_mm/models/diffusion/ddpm.py          | https://github.com/openai/improved-diffusion/blob/main/improved_diffusion/gaussian_diffusion.py       | 开源代码参考链接 |
+|  开源引入  | https://github.com/PKU-YuanGroup/Open-Sora-Plan/blob/main/opensora/sample/pipeline_opensora.py |          mindspeed_mm/models/diffusion/diffusers_scheduler.py          | https://arxiv.org/pdf/2205.11487.pdf       | Imagen论文链接 |
+|  开源引入  | https://github.com/openai/guided-diffusion/blob/main/guided_diffusion | mindspeed_mm/models/diffusion/diffusers_utils.py | https://github.com/openai/guided-diffusion/blob/main/guided_diffusion       | 开源代码参考链接 |
+|  开源引入  | https://github.com/openai/improved-diffusion/blob/main/improved_diffusion/gaussian_diffusion.py | mindspeed_mm/models/diffusion/diffusers_utils.py | https://github.com/openai/improved-diffusion/blob/main/improved_diffusion/gaussian_diffusion.py       | 开源代码参考链接 |
