@@ -197,8 +197,8 @@ def main(args):
         transformers.utils.logging.set_verbosity_error()
         diffusers.utils.logging.set_verbosity_error()
 
-    # If passed along, set the training seed now.
-    if args.seed is not None:
+    # If passed along, set the training seed now. On GPU...
+    if torch_npu is None and npu_config is None and args.seed is not None:
         set_seed(args.seed)
 
     # Handle the repository creation
