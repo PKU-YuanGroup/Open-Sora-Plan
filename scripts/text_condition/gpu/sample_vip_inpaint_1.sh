@@ -1,12 +1,12 @@
 export MASTER_ADDR='localhost'
 export TOKENIZERS_PARALLELISM=false
-MODEL_PATH=vip_only_480p_f93_bs2x8x1_lr1e-5_snrgamma5_0_noiseoffset0_02_dino518_ema0_999
+MODEL_PATH=vip_inpaint_480p_f93_bs4x8x1_lr1e-5_snrgamma5_0_noiseoffset0_02_ema0_999_all_from_scratch
 # export HF_DATASETS_OFFLINE=1 
 # export TRANSFORMERS_OFFLINE=1
 
 torchrun --nproc_per_node=8 --master_port=29501 opensora/sample/sample_inpaint_all_in_one.py \
     --model_path /storage/gyy/hw/Open-Sora-Plan/runs/$MODEL_PATH \
-    --model_type 'vip_only' \
+    --model_type 'vip_inpaint' \
     --num_frames 93 \
     --height 480 \
     --width 640 \
@@ -16,7 +16,7 @@ torchrun --nproc_per_node=8 --master_port=29501 opensora/sample/sample_inpaint_a
     --ae_path "/storage/dataset/test140k" \
     --save_img_path "./samples/$MODEL_PATH" \
     --fps 24 \
-    --guidance_scale 2.5 \
+    --guidance_scale 5.0 \
     --num_sampling_steps 50 \
     --enable_tiling \
     --max_sequence_length 512 \

@@ -46,17 +46,13 @@ def hacked_pipeline_call(
     generator: Optional[Union[torch.Generator, List[torch.Generator]]] = None,
     latents: Optional[torch.FloatTensor] = None,
     prompt_embeds: Optional[torch.FloatTensor] = None,
-    # NOTE add vip tokens 
-    vip_tokens: Optional[torch.FloatTensor] = None,
+    # NOTE add clip features 
+    clip_features: Optional[torch.FloatTensor] = None,
     prompt_attention_mask: Optional[torch.FloatTensor] = None,
-    # NOTE add vip attention mask
-    vip_attention_mask: Optional[torch.FloatTensor] = None,
     negative_prompt_embeds: Optional[torch.FloatTensor] = None,
-    # NOTE add negative vip tokens
-    negative_vip_tokens: Optional[torch.FloatTensor] = None,
+    # NOTE add negative clip features
+    negative_clip_features: Optional[torch.FloatTensor] = None,
     negative_prompt_attention_mask: Optional[torch.FloatTensor] = None,
-    # NOTE add negative vip attention mask
-    negative_vip_attention_mask: Optional[torch.FloatTensor] = None,
     output_type: Optional[str] = "pil",
     return_dict: bool = True,
     callback: Optional[Callable[[int, int, torch.FloatTensor], None]] = None,
@@ -122,10 +118,7 @@ def hacked_pipeline_call(
         prompt_embeds = torch.cat([negative_prompt_embeds, prompt_embeds], dim=0)
         prompt_attention_mask = torch.cat([negative_prompt_attention_mask, prompt_attention_mask], dim=0)
         if model_type != ModelType.INPAINT_ONLY:
-            # NOTE add vip tokens
-            vip_tokens = torch.cat([negative_vip_tokens, vip_tokens], dim=0)
-            vip_attention_mask = torch.cat([negative_vip_attention_mask, vip_attention_mask], dim=0)
-
+            clip_features = torch.cat([negative_clip_features, clip_features], dim=0)
     # 4. Prepare timesteps
     timesteps, num_inference_steps = retrieve_timesteps(self.scheduler, num_inference_steps, device, timesteps)
 
@@ -161,17 +154,18 @@ def hacked_pipeline_call(
                 condition_images = [condition_image.unsqueeze(1) for condition_image in condition_images] # C H W -> C 1 H W
             elif len(condition_images[0].shape) == 4:
                 condition_images = [condition_image.transpose(0, 1) for condition_image in condition_images] # 1 C H W -> C 1 H W
+            condition_images = torch.cat(condition_images, dim=1).to(device=device) # C F H W
+        elif isinstance(condition_images, torch.Tensor):
+            assert len(condition_images.shape) == 4, "The shape of condition_images should be a tensor with 4 dim"
+            condition_images = condition_images.transpose(0, 1) # F C H W -> C F H W
+            condition_images = condition_images.to(device=device)
         else:
             raise ValueError("condition_images should be a list of torch.Tensor")
 
         input_video = torch.zeros([3, num_frames, height, width], dtype=self.vae.vae.dtype, device=device)
-        condition_images = torch.cat(condition_images, dim=1).to(device=device) # C 1or2 H W -> C F H W
-        
-        input_video[:, condition_images_indices] = condition_images
+        input_video[:, condition_images_indices] = condition_images.to(input_video.dtype)
 
         print(condition_images_indices)
-        assert torch.equal(input_video[:, condition_images_indices[0]], condition_images[:, 0]), "input_video should be the same as condition_images"
-        assert torch.equal(input_video[:, condition_images_indices[-1]], condition_images[:, -1]), "input_video should be the same as condition_images"
 
         input_video = input_video.unsqueeze(0).repeat(batch_size * num_images_per_prompt, 1, 1, 1, 1)
         
@@ -232,9 +226,8 @@ def hacked_pipeline_call(
                     latent_model_input,
                     attention_mask=attention_mask, 
                     encoder_hidden_states=prompt_embeds,
-                    vip_hidden_states=vip_tokens,
+                    clip_features=clip_features,
                     encoder_attention_mask=prompt_attention_mask,
-                    vip_attention_mask=vip_attention_mask,
                     timestep=current_timestep,
                     added_cond_kwargs=added_cond_kwargs,
                     return_dict=False,

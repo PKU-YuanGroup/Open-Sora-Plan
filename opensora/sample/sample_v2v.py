@@ -55,18 +55,6 @@ import glob
 import gc
 import time
 
-# we use timm styled model
-def get_clip_features(clip_data, image_encoder):
-    batch_size = clip_data.shape[0]
-    clip_data = rearrange(clip_data, 'b t c h w -> (b t) c h w') # B T+image_num C H W -> B * (T+image_num) C H W
-    # NOTE using last layer of DINO as clip feature
-    clip_features = image_encoder.forward_features(clip_data)
-    clip_features = clip_features[:, 5:] # drop cls token and reg tokens
-    clip_features_height = 518 // 14 # 37, dino height
-    clip_features = rearrange(clip_features, '(b t) (h w) c -> b c t h w', b=batch_size, h=clip_features_height) # B T+image_num H W D  
-    
-    return clip_features
-
 @torch.inference_mode()
 def validation(args):
 
@@ -85,31 +73,9 @@ def validation(args):
         norm_fun
     ])
 
-    if model_type != ModelType.INPAINT_ONLY:
-        if args.width / args.height == 4 / 3:
-            image_processor_center_crop = transforms.CenterCrop((518, 686))
-        elif args.width / args.height == 16 / 9:
-            image_processor_center_crop = transforms.CenterCrop((518, 910))
-        else:
-            image_processor_center_crop = transforms.CenterCrop((518, 518))
-
-        # dino image processor
-        image_processor = transforms.Compose([
-            transforms.Resize(518, interpolation=transforms.InterpolationMode.BICUBIC, antialias=True, max_size=None),
-            image_processor_center_crop, #
-            ToTensorAfterResize(),
-            transforms.Normalize((0.4850, 0.4560, 0.4060), (0.2290, 0.2240, 0.2250)),
-        ])
 
     def preprocess_images(images):
-        if len(images) == 1:
-            condition_images_indices = [0]
-        elif len(images) == 2:
-            condition_images_indices = [0, -1]
-        condition_images = [Image.open(image).convert("RGB") for image in images]
-        condition_images = [torch.from_numpy(np.copy(np.array(image))) for image in condition_images]
-        condition_images = [rearrange(image, 'h w c -> c h w').unsqueeze(0) for image in condition_images]
-        condition_images = [resize_transform(image) for image in condition_images]
+        condition_images = [resize_transform(image) for image in images]
         condition_images = [transform(image).to(device=device, dtype=weight_dtype) for image in condition_images]
         return dict(condition_images=condition_images, condition_images_indices=condition_images_indices)
     
@@ -146,8 +112,6 @@ def validation(args):
 
     if transformer_model_path != args.model_path:
         pretrained_path = dict(transformer=args.pretrained_transformer_model_path)
-        if model_type != ModelType.INPAINT_ONLY:
-            pretrained_path.update(dict(vip=args.pretrained_vipnet_path))
         transformer_model.custom_load_state_dict(pretrained_path)
     transformer_model.to(dtype=weight_dtype)
 
@@ -160,18 +124,6 @@ def validation(args):
     vae.eval()
     text_encoder.eval()
 
-    if model_type != ModelType.INPAINT_ONLY:
-
-        # load image encoder
-        if 'dino' in args.image_encoder_name:
-            print(f"load {args.image_encoder_name} as image encoder...")
-            image_encoder = timm.create_model(args.image_encoder_name, dynamic_img_size=True, checkpoint_path=args.image_encoder_path)
-            image_encoder.requires_grad_(False)
-            image_encoder.to(device, dtype=weight_dtype)
-        else:
-            raise NotImplementedError
-
-        transformer_model.vip.register_get_clip_features_func(get_clip_features)
 
     if args.sample_method == 'DDIM':  #########
         scheduler = DDIMScheduler(clip_sample=False)
@@ -231,8 +183,9 @@ def validation(args):
 
     index = 0
     validation_images_list = []
+    img_ext = 'png'
     while True:
-        temp = glob.glob(os.path.join(validation_dir, f"*_{index:04d}*.png"))
+        temp = glob.glob(os.path.join(validation_dir, f"*_{index:04d}*.{img_ext}"))
         print(temp)
         if len(temp) > 0:
             validation_images_list.append(sorted(temp))
@@ -247,6 +200,10 @@ def validation(args):
     videos = []
     max_sample_num = args.max_sample_num // args.world_size
     current_sample_num = 0
+
+    v2v_epoch = 1
+    overlapping_ratio = 0.2
+
     for idx, (prompt, images) in enumerate(zip(validation_prompt, validation_images_list)):
 
         if (current_sample_num + 1) > max_sample_num:
@@ -260,72 +217,92 @@ def validation(args):
         if idx % args.world_size != args.rank:
             continue
 
+
+        video_list = []
+
         condition_images, condition_images_indices= None, None
 
-        clip_features, negative_clip_features = None, None
+        video_length = args.num_frames
+        overlapping = int(overlapping_ratio * video_length)
 
-        if model_type != ModelType.VIP_ONLY:
-            pre_results = preprocess_images(images)
-            condition_images = pre_results['condition_images']
-            condition_images_indices = pre_results['condition_images_indices']
+        for epoch_id in range(v2v_epoch):
 
-        if model_type != ModelType.INPAINT_ONLY:
-            if args.num_frames != 1:
-                clip_features, negative_clip_features = transformer_model.vip.get_video_embeds(
-                    condition_images=images,
-                    num_frames=args.num_frames,
-                    image_processor=image_processor,
-                    image_encoder=image_encoder,
-                    transform=resize_transform,
-                    device=device,
-                    weight_dtype=weight_dtype
-                )
+            if epoch_id == 0:
+                if len(images) == 1:
+                    condition_images_indices = [0]
+                elif len(images) == 2:
+                    condition_images_indices = [0, -1]
+                condition_images = [Image.open(image).convert("RGB") for image in images]
+                condition_images = [torch.from_numpy(np.copy(np.array(image))) for image in condition_images]
+                condition_images = [rearrange(image, 'h w c -> c h w').unsqueeze(0) for image in condition_images]
+                condition_images = [resize_transform(image) for image in condition_images]
+                condition_images = [transform(image).to(device=device, dtype=weight_dtype) for image in condition_images]
             else:
-                raise NotImplementedError
+                condition_images = rearrange(condition_images, 'f h w c -> f c h w')
+                condition_images = resize_transform(condition_images)
+                condition_images = transform(condition_images).to(device=device, dtype=weight_dtype)
+            
 
-        video = pipeline.__call__(
-            prompt=prompt,
-            condition_images=condition_images,
-            condition_images_indices=condition_images_indices,
-            negative_prompt=negative_prompt,
-            clip_features=clip_features,
-            negative_clip_features=negative_clip_features,
-            num_frames=args.num_frames,
-            height=args.height,
-            width=args.width,
-            num_inference_steps=args.num_sampling_steps,
-            guidance_scale=args.guidance_scale,
-            num_images_per_prompt=1,
-            mask_feature=True,
-            device=device,
-            max_sequence_length=args.max_sequence_length,
-            model_type=model_type,
-        ).images
-        videos.append(video[0])
+            video = pipeline.__call__(
+                prompt=prompt,
+                condition_images=condition_images,
+                condition_images_indices=condition_images_indices,
+                negative_prompt=negative_prompt,
+                clip_features=None,
+                negative_clip_features=None,
+                num_frames=args.num_frames,
+                height=args.height,
+                width=args.width,
+                num_inference_steps=args.num_sampling_steps,
+                guidance_scale=args.guidance_scale,
+                num_images_per_prompt=1,
+                mask_feature=True,
+                device=device,
+                max_sequence_length=args.max_sequence_length,
+                model_type=model_type,
+            ).images
+
+            video = video[0]
+            start_idx = video_length - overlapping
+            condition_images = video[start_idx:]
+            condition_images_indices = list(range(0, overlapping))
+            video_list.append(video)
+
+            gc.collect()
+            torch.cuda.empty_cache()
+
+        temp_video = [video_list[0]]
+        if v2v_epoch > 1:
+            for i in range(v2v_epoch - 1):
+                temp_video.append(video_list[i + 1][overlapping:])
+
+        video = torch.cat(temp_video, dim=0)
+
+        videos.append(video)
 
         ext = 'mp4'
         imageio.mimwrite(
-            os.path.join(save_dir, f'{idx}.{ext}'), video[0], fps=24, quality=6)  # highest quality is 10, lowest is 0
+            os.path.join(save_dir, f'{idx}.{ext}'), video, fps=24, quality=6)  # highest quality is 10, lowest is 0
         current_sample_num += 1
 
-    dist.barrier()    
-    video_grids = torch.stack(videos, dim=0).to(device=device)
-    shape = list(video_grids.shape)
-    shape[0] *= world_size
-    gathered_tensor = torch.zeros(shape, dtype=video_grids.dtype, device=device)
-    dist.all_gather_into_tensor(gathered_tensor, video_grids.contiguous())
-    video_grids = gathered_tensor.cpu()
+    dist.barrier()   
+    # video_grids = torch.stack(videos, dim=0).to(device=device)
+    # shape = list(video_grids.shape)
+    # shape[0] *= world_size
+    # gathered_tensor = torch.zeros(shape, dtype=video_grids.dtype, device=device)
+    # dist.all_gather_into_tensor(gathered_tensor, video_grids.contiguous())
+    # video_grids = gathered_tensor.cpu()
 
-    if args.rank == 0:
-    # torchvision.io.write_video(args.save_img_path + '_%04d' % args.run_time + '-.mp4', video_grids, fps=6)
-        if args.num_frames == 1:
-            save_image(video_grids / 255.0, os.path.join(args.save_img_path, f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}.{ext}'),
-                    nrow=math.ceil(math.sqrt(len(video_grids))), normalize=True, value_range=(0, 1))
-        else:
-            video_grids = save_video_grid(video_grids)
-            imageio.mimwrite(os.path.join(args.save_img_path, f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}.{ext}'), video_grids, fps=args.fps, quality=8)
+    # if args.rank == 0:
+    # # torchvision.io.write_video(args.save_img_path + '_%04d' % args.run_time + '-.mp4', video_grids, fps=6)
+    #     if args.num_frames == 1:
+    #         save_image(video_grids / 255.0, os.path.join(args.save_img_path, f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}.{ext}'),
+    #                 nrow=math.ceil(math.sqrt(len(video_grids))), normalize=True, value_range=(0, 1))
+    #     else:
+    #         video_grids = save_video_grid(video_grids)
+    #         imageio.mimwrite(os.path.join(args.save_img_path, f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}.{ext}'), video_grids, fps=args.fps, quality=8)
 
-        print('save path {}'.format(args.save_img_path))
+    #     print('save path {}'.format(args.save_img_path))
 
     del pipeline
     del text_encoder
@@ -335,50 +312,19 @@ def validation(args):
     torch.cuda.empty_cache()
 
 def main(args):
+    with open('seed.txt', 'r') as f:
+        rand_num = [int(i) for i in f.readlines()]
+    
+    root_save_img_path = args.save_img_path
+    idx = 0
 
-    lask_ckpt = None
-    root_model_path = args.model_path
-    root_save_path = args.save_img_path
- 
     while True:
-        # Get the most recent checkpoint
-        dirs = os.listdir(root_model_path)
-        dirs = [d for d in dirs if d.startswith("checkpoint")]
-        dirs = sorted(dirs, key=lambda x: int(x.split("-")[1]))
-        path = dirs[-1] if len(dirs) > 0 else None
         dist.barrier()
-        # path = "checkpoint-200"
-        if path != lask_ckpt:
-            print("====================================================")
-            print(f"sample {path}...")
-            args.model_path = os.path.join(root_model_path, path, "model")
-            args.save_img_path = os.path.join(root_save_path, f"{path}_normal")
-            print(f"model path: {args.model_path}, save img path: {args.save_img_path}")
-            while True:
-                if os.path.exists(args.model_path):
-                    validation(args)
-                    break
-                else:
-                    time.sleep(5)
-                    continue
-            print("====================================================")
-            print(f"sample ema {path}...")
-            args.model_path = os.path.join(root_model_path, path, "model_ema")
-            args.save_img_path = os.path.join(root_save_path, f"{path}_ema")
-            print(f"model path: {args.model_path}, save img path: {args.save_img_path}")
-            while True:
-                if os.path.exists(args.model_path):
-                    validation(args)
-                    break
-                else:
-                    time.sleep(5)
-                    continue
-                
-            lask_ckpt = path
-            
-        else:
-            print("no new ckpt, sleeping...")
-        time.sleep(60)
+        set_seed(rand_num[idx])
+        args.save_img_path = os.path.join(root_save_img_path, f"{idx:09d}")
+        validation(args)
+        idx += 1
+        
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

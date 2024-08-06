@@ -1,6 +1,6 @@
 export MASTER_ADDR='localhost'
 export TOKENIZERS_PARALLELISM=false
-MODEL_PATH=inpaint_only_480p_f93_bs4x8x1_lr1e-5_snrgamma5_0_noiseoffset0_02_ema0_999
+MODEL_PATH=inpaint_only_480p_f93_bs4x8x1_lr1e-5_snrgamma5_0_noiseoffset0_02_ema0_999_old_script
 # export HF_DATASETS_OFFLINE=1 
 # export TRANSFORMERS_OFFLINE=1
 

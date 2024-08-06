@@ -172,8 +172,8 @@ class VIPNet(nn.Module):
         print(f'missing_keys {len(missing_keys)} {missing_keys}, unexpected_keys {len(unexpected_keys)}')
         print(f'Successfully load {model_state_num - len(missing_keys)}/{model_state_num} keys from {pretrained_model_path}!')
             
-    def register_get_clip_feature_func(self, get_clip_feature):
-        self.get_clip_feature = get_clip_feature
+    def register_get_clip_features_func(self, get_clip_features):
+        self.get_clip_features = get_clip_features
 
     @torch.no_grad()
     def get_image_embeds(self, images, image_processor, image_encoder, transform, device, weight_dtype=torch.float32):
@@ -190,16 +190,10 @@ class VIPNet(nn.Module):
         images = images.unsqueeze(0) # 1 1 C H W
         negative_images = negative_images.unsqueeze(0)
 
-        images = self.get_clip_feature(images, image_encoder) # 1 1 C H W -> 1 D 1 h w
-        negative_images = self.get_clip_feature(negative_images, image_encoder)
+        clip_features = self.get_clip_features(images, image_encoder) # 1 1 C H W -> 1 D 1 h w
+        negative_clip_features = self.get_clip_features(negative_images, image_encoder)
 
-        vip_out = self.vip_adapter(hidden_states=images, use_image_num=0) 
-        vip_tokens, vip_cond_mask = vip_out.hidden_states, vip_out.vip_cond_mask # 1 1 N D, 1 1 N
-
-        negative_vip_out = self.vip_adapter(hidden_states=negative_images, use_image_num=0)
-        negative_vip_tokens, negative_vip_cond_mask = negative_vip_out.hidden_states, negative_vip_out.vip_cond_mask
-
-        return vip_tokens, vip_cond_mask, negative_vip_tokens, negative_vip_cond_mask
+        return clip_features, negative_clip_features
 
     @torch.no_grad()
     def get_video_embeds(self, condition_images, num_frames, image_processor, image_encoder, transform, device, weight_dtype=torch.float32):
@@ -222,16 +216,10 @@ class VIPNet(nn.Module):
         negative_video = negative_video.unsqueeze(0)
 
         # using the second last layer of image encoder
-        video = self.get_clip_feature(video, image_encoder) # 1 F C H W -> 1 D F h w
-        negative_video = self.get_clip_feature(negative_video, image_encoder)
+        clip_features = self.get_clip_features(video, image_encoder) # 1 F C H W -> 1 D F h w
+        negative_clip_features = self.get_clip_features(negative_video, image_encoder)
 
-        vip_out = self.vip_adapter(hidden_states=video, use_image_num=0)
-        vip_tokens, vip_cond_mask = vip_out.hidden_states, vip_out.vip_cond_mask # 1 1 N D, 1 1 N
-
-        negative_vip_out = self.vip_adapter(hidden_states=negative_video, use_image_num=0)
-        negative_vip_tokens, negative_vip_cond_mask = negative_vip_out.hidden_states, negative_vip_out.vip_cond_mask
-
-        return vip_tokens, vip_cond_mask, negative_vip_tokens, negative_vip_cond_mask
+        return clip_features, negative_clip_features
 
 
     def forward(self, clip_feature, use_image_num):

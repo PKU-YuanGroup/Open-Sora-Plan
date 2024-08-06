@@ -28,7 +28,7 @@ import torch.distributed as dist
 
 from opensora.models.ae import ae_stride_config, getae, getae_wrapper
 from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModelWrapper
-from opensora.models.diffusion.opensora.modeling_inpaint import OpenSoraInpaint, hacked_model, ModelType
+from opensora.models.diffusion.opensora.modeling_inpaint import OpenSoraInpaint, ModelType
 
 from opensora.models.text_encoder import get_text_enc
 from opensora.utils.utils import save_video_grid
@@ -73,8 +73,6 @@ def validation(args):
     transformer_model = OpenSoraInpaint.from_pretrained(args.model_path, cache_dir=args.cache_dir, 
                                                         low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
     
-    hacked_model(transformer_model, model_type=ModelType.INPAINT_ONLY, model_cls=OpenSoraInpaint)
-
     text_encoder = MT5EncoderModel.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir, low_cpu_mem_usage=True, torch_dtype=weight_dtype)
     tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir)
     
