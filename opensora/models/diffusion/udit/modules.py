@@ -11,6 +11,7 @@ from typing import Any, Dict, Optional
 import torch
 import torch.nn.functional as F
 from torch import nn
+from transformers.activations import ACT2FN
 import diffusers
 from diffusers.utils import deprecate, logging
 from diffusers.utils.torch_utils import maybe_allow_in_graph
@@ -18,7 +19,7 @@ from diffusers.models.attention import FeedForward, GatedSelfAttentionDense
 from diffusers.models.attention_processor import Attention as Attention_
 from diffusers.models.embeddings import SinusoidalPositionalEmbedding
 from diffusers.models.normalization import AdaLayerNorm, AdaLayerNormContinuous, AdaLayerNormZero, RMSNorm
-from .rope import PositionGetter3D, RoPE3D
+from opensora.models.diffusion.udit.rope import PositionGetter3D, RoPE3D
 import re
 try:
     import torch_npu
@@ -762,9 +763,9 @@ class Upsample3d(nn.Module):
 
 
 class Downsample2d(nn.Module):
-    def __init__(self, n_feat, is_video_model=False):
+    def __init__(self, n_feat, n_feat_out, is_video_model=False):
         super(Downsample2d, self).__init__()
-        self.body = nn.Conv2d(n_feat, 2*n_feat, kernel_size=3, stride=2, padding=1, bias=False)
+        self.body = nn.Conv2d(n_feat, n_feat_out, kernel_size=3, stride=2, padding=1, bias=False)
 
     def forward(self, x, attention_mask, frames, height, width, pad_h=0, pad_w=0):
         # import ipdb;ipdb.set_trace()
@@ -785,9 +786,9 @@ class Downsample2d(nn.Module):
         return x, attention_bias, attention_mask
     
 class Upsample2d(nn.Module):
-    def __init__(self, n_feat, is_video_model=False):
+    def __init__(self, n_feat, n_feat_out, is_video_model=False):
         super(Upsample2d, self).__init__()
-        self.body = nn.Conv2d(n_feat, n_feat // 2, kernel_size=3, stride=1, padding=1, bias=False)
+        self.body = nn.Conv2d(n_feat, n_feat_out, kernel_size=3, stride=1, padding=1, bias=False)
 
     def forward(self, x, attention_mask, frames, height, width, pad_h=0, pad_w=0):
         x = rearrange(x, 'b (t h w) d -> (b t) d h w', t=frames, h=height, w=width)
@@ -804,40 +805,31 @@ class Upsample2d(nn.Module):
 
         return x, attention_bias, attention_mask
 
+class LlamaMLP(nn.Module):
+    def __init__(
+            self,         
+            dim: int,
+            dim_out: Optional[int] = None,
+            mult: int = 2.5,
+            dropout: float = 0.0,
+            activation_fn: str = "geglu",
+            final_dropout: bool = False,
+            inner_dim=None,
+            bias: bool = True,
+        ):
+        super().__init__()
+        self.hidden_size = dim
+        self.intermediate_size = int(dim * mult)
+        self.gate_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=bias)
+        self.up_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=bias)
+        self.down_proj = nn.Linear(self.intermediate_size, self.hidden_size, bias=bias)
+        self.act_fn = ACT2FN["silu"]
 
-class FeedForward_Conv2d(nn.Module):
-    def __init__(self, downsampler, dim, hidden_features, bias=True):
-        super(FeedForward_Conv2d, self).__init__()
-        
-        self.bias = bias
+    def forward(self, x):
+        down_proj = self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
 
-        self.project_in = nn.Linear(dim, hidden_features, bias=bias)
-        self.act = nn.GELU()
-        self.dwconv = nn.ModuleList([
-            nn.Conv2d(hidden_features, hidden_features, kernel_size=(5, 5), stride=1, padding=(2, 2), dilation=1,
-                        groups=hidden_features, bias=bias),
-            nn.Conv2d(hidden_features, hidden_features, kernel_size=(3, 3), stride=1, padding=(1, 1), dilation=1,
-                        groups=hidden_features, bias=bias),
-            nn.Conv2d(hidden_features, hidden_features, kernel_size=(1, 1), stride=1, padding=(0, 0), dilation=1,
-                        groups=hidden_features, bias=bias)
-        ])
-
-        self.project_out = nn.Linear(hidden_features, dim, bias=bias)
-
-
-    def forward(self, x, t, h, w):
-        # import ipdb;ipdb.set_trace()
-        x = self.project_in(x)
-        x = rearrange(x, 'b (t h w) d -> (b t) d h w', t=t, h=h, w=w)
-        
-        x = self.act(x)
-        out = x
-        for module in self.dwconv:
-            out = out + module(x)
-        out = rearrange(out, '(b t) d h w -> b (t h w) d', t=t, h=h, w=w)
-        x = self.project_out(out)
-        return x
-
+        return down_proj
+    
 @maybe_allow_in_graph
 class BasicTransformerBlock(nn.Module):
     r"""
@@ -1020,12 +1012,8 @@ class BasicTransformerBlock(nn.Module):
         elif norm_type == "layer_norm_i2vgen":
             self.norm3 = None
 
-        self.ff = FeedForward(
+        self.ff = LlamaMLP(
                 dim,
-                dropout=dropout,
-                activation_fn=activation_fn,
-                final_dropout=final_dropout,
-                inner_dim=ff_inner_dim,
                 bias=ff_bias,
             )
 

@@ -54,12 +54,12 @@ from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel, compute_snr
 from diffusers.utils import check_min_version, is_wandb_available
 
-from opensora.dataset import getdataset, ae_denorm
-from opensora.models.ae import getae, getae_wrapper
-from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModelWrapper
-from opensora.models.diffusion.latte.modeling_latte import LatteT2V
+from opensora.models.causalvideovae import ae_stride_config, ae_channel_config
+from opensora.models.causalvideovae import ae_norm, ae_denorm
+from opensora.models import CausalVAEModelWrapper
 from opensora.models.text_encoder import get_text_enc, get_text_warpper
-from opensora.models.ae import ae_stride_config, ae_channel_config
+from opensora.dataset import getdataset
+from opensora.models import CausalVAEModelWrapper
 from opensora.models.diffusion import Diffusion_models, Diffusion_models_class
 from opensora.utils.dataset_utils import Collate, LengthGroupedSampler
 from opensora.sample.pipeline_opensora import OpenSoraPipeline
@@ -76,7 +76,7 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
     negative_prompt = """nsfw, lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry, 
                         """
     validation_prompt = [
-        "A stylish woman walks down a Tokyo street filled with warm glowing neon and animated city signage. She wears a black leather jacket, a long red dress, and black boots, and carries a black purse. She wears sunglasses and red lipstick. She walks confidently and casually. The street is damp and reflective, creating a mirror effect of the colorful lights. Many pedestrians walk about.",
+        "a cat wearing sunglasses and working as a lifeguard at pool.",
         "A serene underwater scene featuring a sea turtle swimming through a coral reef. The turtle, with its greenish-brown shell, is the main focus of the video, swimming gracefully towards the right side of the frame. The coral reef, teeming with life, is visible in the background, providing a vibrant and colorful backdrop to the turtle's journey. Several small fish, darting around the turtle, add a sense of movement and dynamism to the scene."
         ]
     if 'mt5' in args.text_encoder_name:
@@ -217,7 +217,7 @@ def main(args):
 
     # Create model:
     kwargs = {}
-    ae = getae_wrapper(args.ae)(args.ae_path, cache_dir=args.cache_dir, **kwargs).eval()
+    ae = CausalVAEModelWrapper(args.ae_path, cache_dir=args.cache_dir, **kwargs).eval()
     if args.enable_tiling:
         ae.vae.enable_tiling()
         ae.vae.tile_overlap_factor = args.tile_overlap_factor
@@ -276,6 +276,9 @@ def main(args):
         use_rope=args.use_rope,
         # model_max_length=args.model_max_length,
         use_stable_fp32=args.enable_stable_fp32, 
+        sparse1d=args.sparse1d, 
+        sparse2d=args.sparse2d, 
+        sparse_n=args.sparse_n, 
     )
     model.gradient_checkpointing = args.gradient_checkpointing
 
@@ -308,6 +311,9 @@ def main(args):
     text_enc.requires_grad_(False)
     # Set model as trainable.
     model.train()
+
+    ae.vae.tile_sample_min_size = args.tile_sample_min_size
+    ae.vae.tile_sample_min_size_t = args.tile_sample_min_size_t
 
     noise_scheduler = DDPMScheduler()
     # Move unet, vae and text_encoder to device and cast to weight_dtype
@@ -435,9 +441,8 @@ def main(args):
                 args.train_batch_size,
                 world_size=accelerator.num_processes,
                 lengths=train_dataset.lengths, 
-                group_frame=args.group_frame, 
-                group_resolution=args.group_resolution, 
-            ) if args.group_frame or args.group_resolution else None
+                group_data=args.group_data, 
+            ) if args.group_data and args.train_batch_size != 1 else None
     train_dataloader = DataLoader(
         train_dataset,
         shuffle=sampler is None,
@@ -445,7 +450,7 @@ def main(args):
         collate_fn=Collate(args),
         batch_size=args.train_batch_size,
         num_workers=args.dataloader_num_workers,
-        sampler=sampler if args.group_frame or args.group_resolution else None, 
+        sampler=sampler if args.group_data and args.train_batch_size != 1 else None, 
         drop_last=True, 
         # prefetch_factor=4
     )
@@ -468,6 +473,11 @@ def main(args):
     # Prepare everything with our `accelerator`.
     # model.requires_grad_(False)
     # model.pos_embed.requires_grad_(True)
+    if args.adapt_vae:
+        model.requires_grad_(False)
+        for name, param in model.named_parameters():
+            if 'pos_embed' in name or 'proj_out' in name:
+                param.requires_grad = True
     logger.info(f'before accelerator.prepare')
     model, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
         model, optimizer, train_dataloader, lr_scheduler
@@ -609,7 +619,6 @@ def main(args):
         # (this is the forward diffusion process)
 
         noisy_model_input = noise_scheduler.add_noise(model_input, noise, timesteps)
-
         model_pred = model(
             noisy_model_input,
             timesteps,
@@ -711,13 +720,6 @@ def main(args):
     def train_one_step(step_, data_item_, prof_=None):
         train_loss = 0.0
         x, attn_mask, input_ids, cond_mask = data_item_
-        if args.group_frame or args.group_resolution:
-            if not args.group_frame:
-                each_latent_frame = torch.any(attn_mask.flatten(-2), dim=-1).int().sum(-1).tolist()
-                # logger.info(f'rank: {accelerator.process_index}, step {step_}, special batch has attention_mask '
-                #             f'each_latent_frame: {each_latent_frame}')
-                print(f'rank: {accelerator.process_index}, step {step_}, special batch has attention_mask '
-                            f'each_latent_frame: {each_latent_frame}')
         assert not torch.any(torch.isnan(x)), 'torch.any(torch.isnan(x))'
         x = x.to(accelerator.device, dtype=ae.vae.dtype)  # B C T+num_images H W, 16 + 4
 
@@ -843,8 +845,10 @@ if __name__ == "__main__":
     parser.add_argument('--cfg', type=float, default=0.1)
     parser.add_argument("--dataloader_num_workers", type=int, default=10, help="Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process.")
     parser.add_argument("--train_batch_size", type=int, default=16, help="Batch size (per device) for the training dataloader.")
-    parser.add_argument("--group_frame", action="store_true")
-    parser.add_argument("--group_resolution", action="store_true")
+    parser.add_argument("--group_data", action="store_true")
+    parser.add_argument("--hw_stride", type=int, default=32)
+    parser.add_argument("--skip_low_resolution", action="store_true")
+    parser.add_argument("--force_resolution", action="store_true")
 
     # text encoder & vae & diffusion model
     parser.add_argument("--model", type=str, choices=list(Diffusion_models.keys()), default="Latte-XL/122")
@@ -865,6 +869,12 @@ if __name__ == "__main__":
     parser.add_argument("--cache_dir", type=str, default='./cache_dir')
     parser.add_argument("--pretrained", type=str, default=None)
     parser.add_argument('--enable_stable_fp32', action='store_true')
+    parser.add_argument('--sparse1d', action='store_true')
+    parser.add_argument('--sparse2d', action='store_true')
+    parser.add_argument('--sparse_n', type=int, default=2)
+    parser.add_argument('--tile_sample_min_size', type=int, default=512)
+    parser.add_argument('--tile_sample_min_size_t', type=int, default=33)
+    parser.add_argument('--adapt_vae', action='store_true')
     parser.add_argument("--gradient_checkpointing", action="store_true", help="Whether or not to use gradient checkpointing to save memory at the expense of slower backward pass.")
 
     # diffusion setting

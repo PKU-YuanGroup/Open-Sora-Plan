@@ -17,11 +17,10 @@ from transformers import T5EncoderModel, T5Tokenizer, AutoTokenizer, MT5EncoderM
 
 import os, sys
 
-from opensora.models.ae import ae_stride_config, getae, getae_wrapper
-from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModelWrapper
+from opensora.models.causalvideovae import ae_stride_config, ae_channel_config, ae_norm, ae_denorm, CausalVAEModelWrapper
+
 from opensora.models.diffusion.udit.modeling_udit import UDiTT2V
 from opensora.models.diffusion.opensora.modeling_opensora import OpenSoraT2V
-from opensora.models.diffusion.latte.modeling_latte import LatteT2V
 
 from opensora.models.text_encoder import get_text_enc
 from opensora.utils.utils import save_video_grid
@@ -213,7 +212,7 @@ if __name__ == "__main__":
     device = torch.cuda.current_device()
     # print(11111111111111111111, local_rank, device)
     # vae = getae_wrapper(args.ae)(args.model_path, subfolder="vae", cache_dir=args.cache_dir)
-    vae = getae_wrapper(args.ae)(args.ae_path)
+    vae = CausalVAEModelWrapper(args.ae_path)
     vae.vae = vae.vae.to(device=device, dtype=weight_dtype)
     if args.enable_tiling:
         vae.vae.enable_tiling()
@@ -230,11 +229,13 @@ if __name__ == "__main__":
 
     vae.vae_scale_factor = ae_stride_config[args.ae]
 
-    text_encoder = MT5EncoderModel.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", 
-                                                   cache_dir=args.cache_dir, low_cpu_mem_usage=True, 
-                                                   torch_dtype=weight_dtype).to(device)
-    tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", 
-                                              cache_dir=args.cache_dir)
+    # text_encoder = MT5EncoderModel.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", 
+    #                                                cache_dir=args.cache_dir, low_cpu_mem_usage=True, 
+    #                                                torch_dtype=weight_dtype).to(device)
+    # tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", 
+    #                                           cache_dir=args.cache_dir)
+    text_encoder = T5EncoderModel.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/models--DeepFloyd--t5-v1_1-xxl/snapshots/c9c625d2ec93667ec579ede125fd3811d1f81d37", cache_dir=args.cache_dir, low_cpu_mem_usage=True, torch_dtype=weight_dtype)
+    tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/models--DeepFloyd--t5-v1_1-xxl/snapshots/c9c625d2ec93667ec579ede125fd3811d1f81d37", cache_dir=args.cache_dir)
     
     # text_encoder = T5EncoderModel.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir,
     #                                               low_cpu_mem_usage=True, torch_dtype=weight_dtype).to(device)

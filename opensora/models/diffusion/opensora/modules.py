@@ -526,30 +526,61 @@ class OverlapPatchEmbed2D(nn.Module):
         return video_latent, image_latent
     
 class Attention(Attention_):
-    def __init__(self, downsampler, attention_mode, use_rope, interpolation_scale_thw, **kwags):
-        processor = AttnProcessor2_0(attention_mode=attention_mode, use_rope=use_rope, interpolation_scale_thw=interpolation_scale_thw)
+    def __init__(self, downsampler, attention_mode, use_rope, interpolation_scale_thw, 
+                 sparse1d, sparse2d, sparse_n, sparse_group, is_cross_attn, **kwags):
+        processor = AttnProcessor2_0(attention_mode=attention_mode, use_rope=use_rope, interpolation_scale_thw=interpolation_scale_thw, 
+                                     sparse1d=sparse1d, sparse2d=sparse2d, sparse_n=sparse_n, sparse_group=sparse_group, is_cross_attn=is_cross_attn)
         super().__init__(processor=processor, **kwags)
         self.downsampler = None
-        if downsampler: # downsampler  k155_s122
-            downsampler_ker_size = list(re.search(r'k(\d{2,3})', downsampler).group(1)) # 122
-            down_factor = list(re.search(r's(\d{2,3})', downsampler).group(1))
-            downsampler_ker_size = [int(i) for i in downsampler_ker_size]
-            downsampler_padding = [(i - 1) // 2 for i in downsampler_ker_size]
-            down_factor = [int(i) for i in down_factor]
-            
-            if len(downsampler_ker_size) == 2:
-                self.downsampler = DownSampler2d(kwags['query_dim'], kwags['query_dim'], kernel_size=downsampler_ker_size, stride=1,
-                                            padding=downsampler_padding, groups=kwags['query_dim'], down_factor=down_factor,
-                                            down_shortcut=True)
-            elif len(downsampler_ker_size) == 3:
-                self.downsampler = DownSampler3d(kwags['query_dim'], kwags['query_dim'], kernel_size=downsampler_ker_size, stride=1,
-                                            padding=downsampler_padding, groups=kwags['query_dim'], down_factor=down_factor,
-                                            down_shortcut=True)
-                
-        # self.q_norm = nn.LayerNorm(kwags['dim_head'], elementwise_affine=True, eps=1e-6)
-        # self.k_norm = nn.LayerNorm(kwags['dim_head'], elementwise_affine=True, eps=1e-6) 
+        
+    def prepare_attention_mask(
+        self, attention_mask: torch.Tensor, target_length: int, batch_size: int, out_dim: int = 3
+    ) -> torch.Tensor:
+        r"""
+        Prepare the attention mask for the attention computation.
 
+        Args:
+            attention_mask (`torch.Tensor`):
+                The attention mask to prepare.
+            target_length (`int`):
+                The target length of the attention mask. This is the length of the attention mask after padding.
+            batch_size (`int`):
+                The batch size, which is used to repeat the attention mask.
+            out_dim (`int`, *optional*, defaults to `3`):
+                The output dimension of the attention mask. Can be either `3` or `4`.
 
+        Returns:
+            `torch.Tensor`: The prepared attention mask.
+        """
+        head_size = self.heads
+        if get_sequence_parallel_state():
+            head_size = head_size // nccl_info.world_size
+        if attention_mask is None:
+            return attention_mask
+
+        current_length: int = attention_mask.shape[-1]
+        if current_length != target_length:
+            if attention_mask.device.type == "mps":
+                # HACK: MPS: Does not support padding by greater than dimension of input tensor.
+                # Instead, we can manually construct the padding tensor.
+                padding_shape = (attention_mask.shape[0], attention_mask.shape[1], target_length)
+                padding = torch.zeros(padding_shape, dtype=attention_mask.dtype, device=attention_mask.device)
+                attention_mask = torch.cat([attention_mask, padding], dim=2)
+            else:
+                # TODO: for pipelines such as stable-diffusion, padding cross-attn mask:
+                #       we want to instead pad by (0, remaining_length), where remaining_length is:
+                #       remaining_length: int = target_length - current_length
+                # TODO: re-enable tests/models/test_models_unet_2d_condition.py#test_model_xattn_padding
+                attention_mask = F.pad(attention_mask, (0, target_length), value=0.0)
+
+        if out_dim == 3:
+            if attention_mask.shape[0] < batch_size * head_size:
+                attention_mask = attention_mask.repeat_interleave(head_size, dim=0)
+        elif out_dim == 4:
+            attention_mask = attention_mask.unsqueeze(1)
+            attention_mask = attention_mask.repeat_interleave(head_size, dim=1)
+
+        return attention_mask
 
 class DownSampler3d(nn.Module):
     def __init__(self, *args, **kwargs):
@@ -627,7 +658,13 @@ class AttnProcessor2_0:
     Processor for implementing scaled dot-product attention (enabled by default if you're using PyTorch 2.0).
     """
 
-    def __init__(self, attention_mode='xformers', use_rope=False, interpolation_scale_thw=(1, 1, 1)):
+    def __init__(self, attention_mode='xformers', use_rope=False, interpolation_scale_thw=(1, 1, 1), 
+                 sparse1d=False, sparse2d=False, sparse_n=2, sparse_group=False, is_cross_attn=True):
+        self.sparse1d = sparse1d
+        self.sparse2d = sparse2d
+        self.sparse_n = sparse_n
+        self.sparse_group = sparse_group
+        self.is_cross_attn = is_cross_attn
         self.use_rope = use_rope
         self.interpolation_scale_thw = interpolation_scale_thw
         if self.use_rope:
@@ -635,12 +672,121 @@ class AttnProcessor2_0:
         self.attention_mode = attention_mode
         if not hasattr(F, "scaled_dot_product_attention"):
             raise ImportError("AttnProcessor2_0 requires PyTorch 2.0, to use it, please upgrade PyTorch to 2.0.")
-
+        assert not (self.sparse1d and self.sparse2d)
 
     def _init_rope(self, interpolation_scale_thw):
         self.rope = RoPE3D(interpolation_scale_thw=interpolation_scale_thw)
         self.position_getter = PositionGetter3D()
     
+    def _sparse_1d(self, x, attention_mask, frame, height, width):
+        """
+        require the shape of (batch_size x nheads x ntokens x dim)
+        attention_mask: b nheads 1 thw
+        """
+        l = x.shape[-2]
+        assert l == frame*height*width
+        assert attention_mask is None or attention_mask.shape[2] == 1
+        pad_len = self.sparse_n * self.sparse_n - l % (self.sparse_n * self.sparse_n)
+        if pad_len != 0:
+            x = F.pad(x, (0, 0, 0, pad_len))
+            if attention_mask is not None and not self.is_cross_attn:
+                attention_mask = F.pad(attention_mask, (0, pad_len, 0, 0), value=-9980.0)
+        if not self.sparse_group:
+            x = rearrange(x, 'b h (g k) d -> (b k) h g d', k=self.sparse_n)
+            if attention_mask is not None and not self.is_cross_attn:
+                attention_mask = rearrange(attention_mask, 'b h 1 (g k) -> (b k) h 1 g', k=self.sparse_n).contiguous()
+        else:
+            x = rearrange(x, 'b h (n m k) d -> (b m) h (n k) d', m=self.sparse_n, k=self.sparse_n)
+            if attention_mask is not None and not self.is_cross_attn:
+                attention_mask = rearrange(attention_mask, 'b h 1 (n m k) -> (b m) h 1 (n k)', m=self.sparse_n, k=self.sparse_n)
+        if self.is_cross_attn:
+            # attention_mask = attention_mask.repeat(self.sparse_n, 1, 1, 1)
+            attention_mask = torch.repeat_interleave(attention_mask, self.sparse_n, dim=0)
+        return x, attention_mask, pad_len
+    
+    def _reverse_sparse_1d(self, x, frame, height, width, pad_len):
+        """
+        require the shape of (batch_size x nheads x ntokens x dim)
+        """
+        assert x.shape[2] == (frame*height*width+pad_len) // self.sparse_n
+        if not self.sparse_group:
+            x = rearrange(x, '(b k) h g d -> b h (g k) d', k=self.sparse_n)
+        else:
+            x = rearrange(x, '(b m) h (n k) d -> b h (n m k) d', m=self.sparse_n, k=self.sparse_n)
+        x = x[:, :, :frame*height*width, :]
+        # x = x.contiguous()
+        return x
+    
+    def _sparse_1d_kv(self, x):
+        """
+        require the shape of (batch_size x nheads x ntokens x dim)
+        """
+        # x = repeat(x, 'b h s d -> (k b) h s d', k=self.sparse_n)
+        x = torch.repeat_interleave(x, self.sparse_n, dim=0)
+        return x
+    
+    def _sparse_2d(self, x, attention_mask, frame, height, width):
+        """
+        require the shape of (batch_size x nheads x ntokens x dim)
+        attention_mask: b nheads 1 thw
+        """
+        d = x.shape[-1]
+        x = rearrange(x, 'b h (T H W) d -> b h T H W d', T=frame, H=height, W=width)
+        if attention_mask is not None and not self.is_cross_attn:
+            attention_mask = rearrange(attention_mask, 'b h 1 (T H W) -> b h T H W', T=frame, H=height, W=width)
+        pad_height = self.sparse_n*self.sparse_n - height % (self.sparse_n*self.sparse_n)
+        pad_width = self.sparse_n*self.sparse_n - width % (self.sparse_n*self.sparse_n)
+        if pad_height != 0 or pad_width != 0:
+            x = rearrange(x, 'b h T H W d -> b (h d) T H W')
+            x = F.pad(x, (0, pad_width, 0, pad_height, 0, 0))
+            x = rearrange(x, 'b (h d) T H W -> b h T H W d', d=d)
+            if attention_mask is not None and not self.is_cross_attn:
+                attention_mask = F.pad(attention_mask, (0, pad_width, 0, pad_height, 0, 0), value=-9500.0)
+
+        if not self.sparse_group:
+            x = rearrange(x, 'b h t (g1 k1) (g2 k2) d -> (k1 k2 b) h (t g1 g2) d', 
+                          k1=self.sparse_n, k2=self.sparse_n)
+            if attention_mask is not None and not self.is_cross_attn:
+                attention_mask = rearrange(attention_mask, 'b h t (g1 k1) (g2 k2) -> (k1 k2 b) h 1 (t g1 g2)', 
+                          k1=self.sparse_n, k2=self.sparse_n).contiguous()
+        else:
+            x = rearrange(x, 'b h t (n1 m1 k1) (n2 m2 k2) d -> (m1 m2 b) h (t n1 n2 k1 k2) d', 
+                          m1=self.sparse_n, k1=self.sparse_n, m2=self.sparse_n, k2=self.sparse_n)
+            if attention_mask is not None and not self.is_cross_attn:
+                attention_mask = rearrange(attention_mask, 'b h t (n1 m1 k1) (n2 m2 k2) -> (m1 m2 b) h 1 (t n1 n2 k1 k2)', 
+                          m1=self.sparse_n, k1=self.sparse_n, m2=self.sparse_n, k2=self.sparse_n)
+        
+        if self.is_cross_attn:
+            attention_mask = attention_mask.repeat(self.sparse_n*self.sparse_n, 1, 1, 1)
+        return x, attention_mask, pad_height, pad_width
+    
+    def _reverse_sparse_2d(self, x, frame, height, width, pad_height, pad_width):
+        """
+        require the shape of (batch_size x nheads x ntokens x dim)
+        """
+        assert x.shape[2] == frame*(height+pad_height)*(width+pad_width)//self.sparse_n//self.sparse_n
+        if not self.sparse_group:
+            x = rearrange(x, '(k1 k2 b) h (t g1 g2) d -> b h t (g1 k1) (g2 k2) d', 
+                          k1=self.sparse_n, k2=self.sparse_n, 
+                          g1=(height+pad_height)//self.sparse_n, g2=(width+pad_width)//self.sparse_n)
+        else:
+            x = rearrange(x, '(m1 m2 b) h (t n1 n2 k1 k2) d -> b h t (n1 m1 k1) (n2 m2 k2) d', 
+                          m1=self.sparse_n, k1=self.sparse_n, m2=self.sparse_n, k2=self.sparse_n, 
+                          n1=(height+pad_height)//self.sparse_n//self.sparse_n, n2=(width+pad_width)//self.sparse_n//self.sparse_n)
+        x = x[:, :, :, :height, :width, :]
+        x = rearrange(x, 'b h T H W d -> b h (T H W) d')
+        # x = x.contiguous()
+        return x
+    
+    
+    def _sparse_2d_kv(self, x):
+        """
+        require the shape of (batch_size x nheads x ntokens x dim)
+        """
+        x = repeat(x, 'b h s d -> (k1 k2 b) h s d', k1=self.sparse_n, k2=self.sparse_n)
+        return x
+
+
     def __call__(
         self,
         attn: Attention,
@@ -657,7 +803,6 @@ class AttnProcessor2_0:
         if len(args) > 0 or kwargs.get("scale", None) is not None:
             deprecation_message = "The `scale` argument is deprecated and will be ignored. Please remove it, as passing it will raise an error in the future. `scale` should directly be passed while calling the underlying pipeline component i.e., via `cross_attention_kwargs`."
             deprecate("scale", "1.0.0", deprecation_message)
-
 
         if attn.downsampler is not None:
             hidden_states, attention_mask = attn.downsampler(hidden_states, attention_mask, t=frame, h=height, w=width)
@@ -690,13 +835,16 @@ class AttnProcessor2_0:
 
         if attention_mask is not None:
             if npu_config is None:
-                attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length, batch_size)
+                attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length * nccl_info.world_size, batch_size)
                 # scaled_dot_product_attention expects attention_mask shape to be
                 # (batch, heads, source_length, target_length)
-                attention_mask = attention_mask.view(batch_size, attn.heads, -1, attention_mask.shape[-1])
+                if get_sequence_parallel_state():
+                    attention_mask = attention_mask.view(batch_size, attn.heads // nccl_info.world_size, -1, attention_mask.shape[-1])
+                else:
+                    attention_mask = attention_mask.view(batch_size, attn.heads, -1, attention_mask.shape[-1])
             else:
                 attention_mask = attention_mask.view(batch_size, 1, -1, attention_mask.shape[-1])
-
+        
         if attn.group_norm is not None:
             hidden_states = attn.group_norm(hidden_states.transpose(1, 2)).transpose(1, 2)
 
@@ -711,7 +859,7 @@ class AttnProcessor2_0:
 
         inner_dim = key.shape[-1]
         head_dim = inner_dim // attn.heads
-
+        
         if npu_config is not None and npu_config.on_npu:
             if get_sequence_parallel_state():
                 query = query.view(-1, attn.heads, head_dim)  # [s // sp, b, h * d] -> [s // sp * b, h, d]
@@ -777,6 +925,7 @@ class AttnProcessor2_0:
                 h_size = attn.heads * head_dim
                 sp_size = nccl_info.world_size
                 h_size_sp = h_size // sp_size
+                # print(frame, sp_size, height, width)
                 # apply all_to_all to gather sequence and split attention heads [s // sp * b, h, d] -> [s * b, h // sp, d]
                 query = all_to_all_SBH(query, scatter_dim=1, gather_dim=0).reshape(-1, batch_size, h_size_sp)
                 key = all_to_all_SBH(key, scatter_dim=1, gather_dim=0).reshape(-1, batch_size, h_size_sp)
@@ -797,14 +946,38 @@ class AttnProcessor2_0:
                 value = rearrange(value, 's b h d -> b h s d')
                 # print('rearrange query', query.shape, 'key', key.shape, 'value', value.shape)
 
-                # if attention_mask is None or not torch.all(attention_mask.bool()):  # 0 mean visible
-                #     attention_mask = None
+                if self.sparse1d:
+                    query, attention_mask, pad_len = self._sparse_1d(query, attention_mask, frame * sp_size, height, width)
+                    
+                    if self.is_cross_attn:
+                        key = self._sparse_1d_kv(key)
+                        value = self._sparse_1d_kv(value)
+                    else:
+                        key, _, pad_len = self._sparse_1d(key, None, frame * sp_size, height, width)
+                        value, _, pad_len = self._sparse_1d(value, None, frame * sp_size, height, width)
+
+                elif self.sparse2d:
+                    # import ipdb;ipdb.set_trace()
+                    query, attention_mask, pad_height, pad_width = self._sparse_2d(query, attention_mask, frame * sp_size, height, width)
+                    if self.is_cross_attn:
+                        key = self._sparse_2d_kv(key)
+                        value = self._sparse_2d_kv(value)
+                    else:
+                        key, _, pad_height, pad_width = self._sparse_2d(key, None, frame * sp_size, height, width)
+                        value, _, pad_height, pad_width = self._sparse_2d(value, None, frame * sp_size, height, width)
+                
+
+
+                # 0, -10000 ->(bool) False, True ->(any) True ->(not) False
+                # 0, 0 ->(bool) False, False ->(any) False ->(not) True
+                if attention_mask is None or not torch.any(attention_mask.bool()):  # 0 mean visible
+                    attention_mask = None
                 # the output of sdp = (batch, num_heads, seq_len, head_dim)
                 # TODO: add support for attn.scale when we move to Torch 2.1
                 # import ipdb;ipdb.set_trace()
                 # print(attention_mask)
                 if self.attention_mode == 'flash':
-                    assert attention_mask is None or not torch.all(attention_mask.bool()), 'flash-attn do not support attention_mask'
+                    assert attention_mask is None, 'flash-attn do not support attention_mask'
                     with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=True, enable_mem_efficient=False):
                         hidden_states = F.scaled_dot_product_attention(
                             query, key, value, dropout_p=0.0, is_causal=False
@@ -821,10 +994,15 @@ class AttnProcessor2_0:
                 else:
                     raise NotImplementedError(f'Found attention_mode: {self.attention_mode}')
                 
+                if self.sparse1d:
+                    hidden_states = self._reverse_sparse_1d(hidden_states, frame * sp_size, height, width, pad_len)
+                elif self.sparse2d:
+                    hidden_states = self._reverse_sparse_2d(hidden_states, frame * sp_size, height, width, pad_height, pad_width)
+                
                 hidden_states = rearrange(hidden_states, 'b h s d -> s b h d')
 
                 hidden_states = hidden_states.reshape(-1, attn.heads // sp_size, head_dim)
-
+                hidden_states = hidden_states.contiguous()
                 # [s * b, h // sp, d] -> [s // sp * b, h, d] -> [s // sp, b, h * d]
                 hidden_states = all_to_all_SBH(hidden_states, scatter_dim=0, gather_dim=1).reshape(-1, batch_size, h_size)
             else:
@@ -840,17 +1018,38 @@ class AttnProcessor2_0:
                     pos_thw = self.position_getter(batch_size, t=frame, h=height, w=width, device=query.device)
                     query = self.rope(query, pos_thw)
                     key = self.rope(key, pos_thw)
-                    
+                
                 value = value.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
+                
+                if self.sparse1d:
+                    query, attention_mask, pad_len = self._sparse_1d(query, attention_mask, frame, height, width)
+                    
+                    if self.is_cross_attn:
+                        key = self._sparse_1d_kv(key)
+                        value = self._sparse_1d_kv(value)
+                    else:
+                        key, _, pad_len = self._sparse_1d(key, None, frame, height, width)
+                        value, _, pad_len = self._sparse_1d(value, None, frame, height, width)
 
-                # if attention_mask is None or not torch.all(attention_mask.bool()):  # 0 mean visible
-                #     attention_mask = None
+                elif self.sparse2d:
+                    # import ipdb;ipdb.set_trace()
+                    query, attention_mask, pad_height, pad_width = self._sparse_2d(query, attention_mask, frame, height, width)
+                    if self.is_cross_attn:
+                        key = self._sparse_2d_kv(key)
+                        value = self._sparse_2d_kv(value)
+                    else:
+                        key, _, pad_height, pad_width = self._sparse_2d(key, None, frame, height, width)
+                        value, _, pad_height, pad_width = self._sparse_2d(value, None, frame, height, width)
+                # print(frame, height, width, query.shape, key.shape, value.shape)
+                # query, key, value = query.contiguous(), key.contiguous(), value.contiguous()
+                # 0, -10000 ->(bool) False, True ->(any) True ->(not) False
+                # 0, 0 ->(bool) False, False ->(any) False ->(not) True
+                if attention_mask is None or not torch.any(attention_mask.bool()):  # 0 mean visible
+                    attention_mask = None
                 # the output of sdp = (batch, num_heads, seq_len, head_dim)
                 # TODO: add support for attn.scale when we move to Torch 2.1
-                # import ipdb;ipdb.set_trace()
-                # print(attention_mask)
                 if self.attention_mode == 'flash':
-                    assert attention_mask is None or not torch.all(attention_mask.bool()), 'flash-attn do not support attention_mask'
+                    assert attention_mask is None, 'flash-attn do not support attention_mask'
                     with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=True, enable_mem_efficient=False):
                         hidden_states = F.scaled_dot_product_attention(
                             query, key, value, dropout_p=0.0, is_causal=False
@@ -866,6 +1065,12 @@ class AttnProcessor2_0:
                     )
                 else:
                     raise NotImplementedError(f'Found attention_mode: {self.attention_mode}')
+                
+                if self.sparse1d:
+                    hidden_states = self._reverse_sparse_1d(hidden_states, frame, height, width, pad_len)
+                elif self.sparse2d:
+                    hidden_states = self._reverse_sparse_2d(hidden_states, frame, height, width, pad_height, pad_width)
+
                 hidden_states = hidden_states.transpose(1, 2).reshape(batch_size, -1, attn.heads * head_dim)
         hidden_states = hidden_states.to(query.dtype)
 
@@ -1029,6 +1234,10 @@ class BasicTransformerBlock(nn.Module):
         downsampler: str = None, 
         use_rope: bool = False, 
         interpolation_scale_thw: Tuple[int] = (1, 1, 1), 
+        sparse1d: bool = False,
+        sparse2d: bool = False,
+        sparse_n: int = 2,
+        sparse_group: bool = False,
     ):
         super().__init__()
         self.only_cross_attention = only_cross_attention
@@ -1091,6 +1300,11 @@ class BasicTransformerBlock(nn.Module):
             downsampler=downsampler, 
             use_rope=use_rope, 
             interpolation_scale_thw=interpolation_scale_thw, 
+            sparse1d=sparse1d,
+            sparse2d=sparse2d,
+            sparse_n=sparse_n,
+            sparse_group=sparse_group,
+            is_cross_attn=False,
         )
 
         # 2. Cross-Attn
@@ -1125,6 +1339,11 @@ class BasicTransformerBlock(nn.Module):
                 downsampler=False, 
                 use_rope=False, 
                 interpolation_scale_thw=interpolation_scale_thw, 
+                sparse1d=sparse1d,
+                sparse2d=sparse2d,
+                sparse_n=sparse_n,
+                sparse_group=sparse_group,
+                is_cross_attn=True,
             )  # is self-attn if encoder_hidden_states is none
         else:
             self.norm2 = None
@@ -1247,7 +1466,7 @@ class BasicTransformerBlock(nn.Module):
         # 1. Prepare GLIGEN inputs
         cross_attention_kwargs = cross_attention_kwargs.copy() if cross_attention_kwargs is not None else {}
         gligen_kwargs = cross_attention_kwargs.pop("gligen", None)
-
+        
         attn_output = self.attn1(
             norm_hidden_states,
             encoder_hidden_states=encoder_hidden_states if self.only_cross_attention else None,
@@ -1288,7 +1507,7 @@ class BasicTransformerBlock(nn.Module):
             attn_output = self.attn2(
                 norm_hidden_states,
                 encoder_hidden_states=encoder_hidden_states,
-                attention_mask=encoder_attention_mask,
+                attention_mask=encoder_attention_mask, frame=frame, height=height, width=width,
                 **cross_attention_kwargs,
             )
             hidden_states = attn_output + hidden_states

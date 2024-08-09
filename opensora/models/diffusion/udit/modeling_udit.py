@@ -92,6 +92,9 @@ class UDiTT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
         downsampler: str = 'k333_s222', 
         use_rope: bool = False, 
         use_stable_fp32: bool = False, 
+        sparse1d: bool = False, 
+        sparse2d: bool = False, 
+        sparse_n: int = 2, 
     ):
         super().__init__()
 
@@ -227,7 +230,7 @@ class UDiTT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
             ]
         )
         # self.down1_2 = Downsample3d(self.inner_dim) if is_video_model else Downsample2d(self.inner_dim)
-        self.down1_2 = Downsample2d(self.inner_dim)
+        self.down1_2 = Downsample2d(self.inner_dim, self.inner_dim * 2)
         
         self.encoder_level_2 = nn.ModuleList(
             [
@@ -257,7 +260,7 @@ class UDiTT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
             ]
         )
         # self.down2_3 = Downsample3d(self.inner_dim * 2) if is_video_model else Downsample2d(self.inner_dim * 2)
-        self.down2_3 = Downsample2d(self.inner_dim * 2)
+        self.down2_3 = Downsample2d(self.inner_dim * 2, self.inner_dim * 4)
 
         self.latent = nn.ModuleList(
             [
@@ -288,9 +291,9 @@ class UDiTT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
         )
 
         # self.up3_2 = Upsample3d(int(self.inner_dim * 4)) if is_video_model else Upsample2d(self.inner_dim * 4)  ## From Level 4 to Level 3
-        self.up3_2 = Upsample2d(self.inner_dim * 4)  ## From Level 4 to Level 3
+        self.up3_2 = Upsample2d(self.inner_dim * 4, self.inner_dim * 2)  ## From Level 4 to Level 3
         
-        self.reduce_chan_level2_norm = nn.LayerNorm(int(self.inner_dim * 4), elementwise_affine=True, eps=1e-6)
+        # self.reduce_chan_level2_norm = nn.LayerNorm(int(self.inner_dim * 2), elementwise_affine=True, eps=1e-6)
         self.reduce_chan_level2 = nn.Linear(int(self.inner_dim * 4), int(self.inner_dim * 2), bias=True)
         self.decoder_level_2 = nn.ModuleList(
             [
@@ -321,9 +324,9 @@ class UDiTT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
         )
 
         # self.up2_1 = Upsample3d(int(self.inner_dim * 2)) if is_video_model else Upsample2d(self.inner_dim * 2)  ## From Level 4 to Level 3
-        self.up2_1 = Upsample2d(self.inner_dim * 2)  ## From Level 4 to Level 3
+        self.up2_1 = Upsample2d(self.inner_dim * 2, self.inner_dim)  ## From Level 4 to Level 3
         
-        self.reduce_chan_level1_norm = nn.LayerNorm(int(self.inner_dim * 2), elementwise_affine=True, eps=1e-6)
+        # self.reduce_chan_level1_norm = nn.LayerNorm(int(self.inner_dim * 2), elementwise_affine=True, eps=1e-6)
         self.reduce_chan_level1 = nn.Linear(int(self.inner_dim * 2), int(self.inner_dim * 1), bias=True)
         self.decoder_level_1 = nn.ModuleList(
             [
@@ -658,7 +661,7 @@ class UDiTT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
         # frame, height, width = frame * 2 if frame != 1 else frame, height * 2 - pad_h_2, width * 2 - pad_w_2
         height, width = height * 2 - pad_h_2, width * 2 - pad_w_2
         inp_dec_level2 = torch.cat([inp_dec_level2, out_enc_level2], 2)
-        inp_dec_level2 = self.reduce_chan_level2_norm(inp_dec_level2)
+        # inp_dec_level2 = self.reduce_chan_level2_norm(inp_dec_level2)
         inp_dec_level2 = self.reduce_chan_level2(inp_dec_level2)
         out_dec_level2 = inp_dec_level2
 
@@ -703,7 +706,7 @@ class UDiTT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
         # frame, height, width = frame * 2 if frame != 1 else frame, height * 2 - pad_h_1, width * 2 - pad_w_1
         height, width = height * 2 - pad_h_1, width * 2 - pad_w_1
         inp_dec_level1 = torch.cat([inp_dec_level1, out_enc_level1], 2)
-        inp_dec_level1 = self.reduce_chan_level1_norm(inp_dec_level1)
+        # inp_dec_level1 = self.reduce_chan_level1_norm(inp_dec_level1)
         inp_dec_level1 = self.reduce_chan_level1(inp_dec_level1)
         out_dec_level1 = inp_dec_level1
 
@@ -830,66 +833,28 @@ class UDiTT2V(ModelMixin, ConfigMixin, PeftAdapterMixin):
         #     output = output[:, :, 1:]
         return output
 
-
-def UDiTT2V_S_111(**kwargs):
-    return UDiTT2V(depth=[2, 5, 8, 5, 2], attention_head_dim=24, num_attention_heads=16, patch_size_t=1, patch_size=1, 
-                   mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
-
 def UDiTT2V_S_122(**kwargs):
-    return UDiTT2V(depth=[2, 5, 8, 5, 2], attention_head_dim=24, num_attention_heads=16, patch_size_t=1, patch_size=2, 
-                   mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
-
-def UDiTT2V_B_111(**kwargs):
-    return UDiTT2V(depth=[2, 5, 10, 5, 2], attention_head_dim=24, num_attention_heads=24, patch_size_t=1, patch_size=1, 
-                   mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
+    return UDiTT2V(depth=[6, 6, 6, 6, 6], attention_head_dim=48, num_attention_heads=8, patch_size_t=1, patch_size=2, 
+                   norm_type="ada_norm_single", caption_channels=4096, **kwargs)
 
 def UDiTT2V_B_122(**kwargs):
-    return UDiTT2V(depth=[2, 5, 10, 5, 2], attention_head_dim=24, num_attention_heads=24, patch_size_t=1, patch_size=2, 
-                   mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
-
-def UDiTT2V_L_111(**kwargs):
-    return UDiTT2V(depth=[4, 8, 12, 8, 4], attention_head_dim=24, num_attention_heads=32, patch_size_t=1, patch_size=1, 
-                   mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
-
-def UDiTT2V_L_211(**kwargs):
-    return UDiTT2V(depth=[4, 8, 12, 8, 4], attention_head_dim=24, num_attention_heads=32, patch_size_t=2, patch_size=1, 
-                   mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
+    return UDiTT2V(depth=[6, 6, 6, 6, 6], attention_head_dim=48, num_attention_heads=16, patch_size_t=1, patch_size=2, 
+                   norm_type="ada_norm_single", caption_channels=4096, **kwargs)
 
 def UDiTT2V_L_122(**kwargs):
-    return UDiTT2V(depth=[4, 8, 12, 8, 4], attention_head_dim=24, num_attention_heads=32, patch_size_t=1, patch_size=2, 
-                   mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
-
-def UDiTT2V_L_222(**kwargs):
-    return UDiTT2V(depth=[4, 8, 12, 8, 4], attention_head_dim=24, num_attention_heads=32, patch_size_t=2, patch_size=2, 
-                   mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
-
-def UDiTT2V_XL_111(**kwargs):
-    return UDiTT2V(depth=[4, 8, 12, 8, 4], attention_head_dim=24, num_attention_heads=48, patch_size_t=1, patch_size=1, 
-                   mlp_ratio=2, norm_type="ada_norm_single", caption_channels=4096, **kwargs)
-
+    return UDiTT2V(depth=[6, 6, 6, 6, 6], attention_head_dim=48, num_attention_heads=24, patch_size_t=1, patch_size=2, 
+                   norm_type="ada_norm_single", caption_channels=4096, **kwargs)
 
 UDiT_models = {
-    "UDiTT2V-S/111": UDiTT2V_S_111,  # 0.4B    0.7B if video
-    "UDiTT2V-S/122": UDiTT2V_S_122,  # 0.4B    0.7B if video
-    "UDiTT2V-B/111": UDiTT2V_B_111,  # 1.0B    1.6B if video
-    "UDiTT2V-B/122": UDiTT2V_B_122,  # 1.0B    1.6B if video
-    "UDiTT2V-L/111": UDiTT2V_L_111,  # 2.2B    3.3B if video
-    "UDiTT2V-L/211": UDiTT2V_L_211,  # 2.2B    3.3B if video
-    "UDiTT2V-L/122": UDiTT2V_L_122,  # 2.2B    3.3B if video
-    "UDiTT2V-L/222": UDiTT2V_L_222,  # 2.2B    3.3B if video
-    "UDiTT2V-XL/111": UDiTT2V_XL_111,  # 5.0B    7.4B if video
+    "UDiTT2V-S/122": UDiTT2V_S_122,  # 0.4B
+    "UDiTT2V-B/122": UDiTT2V_B_122,  # 1.7B
+    "UDiTT2V-L/122": UDiTT2V_L_122,  # 3.7B
 }
 
 UDiT_models_class = {
-    "UDiTT2V-S/111": UDiTT2V,
     "UDiTT2V-S/122": UDiTT2V,
-    "UDiTT2V-B/111": UDiTT2V,
     "UDiTT2V-B/122": UDiTT2V,
-    "UDiTT2V-L/111": UDiTT2V,
-    "UDiTT2V-L/211": UDiTT2V,
     "UDiTT2V-L/122": UDiTT2V,
-    "UDiTT2V-L/222": UDiTT2V,
-    "UDiTT2V-XL/111": UDiTT2V,
 }
 
 
@@ -1023,7 +988,7 @@ if __name__ == '__main__':
                         encoder_attention_mask=cond_mask, use_image_num=args.use_image_num, timestep=timestep)
     with torch.no_grad():
         output = model(**model_kwargs)[0]
-    import ipdb;ipdb.set_trace()
+    # import ipdb;ipdb.set_trace()
     print(output.shape)
     
 

@@ -4,96 +4,45 @@ from transformers import AutoTokenizer, AutoImageProcessor
 from torchvision import transforms
 from torchvision.transforms import Lambda
 
-# try:
-#     import torch_npu
-#     from opensora.npu_config import npu_config
-# from .t2v_datasets_npu import T2V_dataset
-# except:
-#     torch_npu = None
-#     npu_config = None
-#     from .t2v_datasets import T2V_dataset
-from .t2v_datasets import T2V_dataset
-from .inpaint_datasets import get_inpaint_dataset
-from .transform import ToTensorVideo, TemporalRandomCrop, RandomHorizontalFlipVideo, CenterCropResizeVideo, LongSideResizeVideo, SpatialStrideCropVideo, NormalizeVideo, ToTensorAfterResize
+
+
+from opensora.dataset.t2v_datasets import T2V_dataset
+from opensora.models.causalvideovae import ae_norm, ae_denorm
+from opensora.dataset.transform import ToTensorVideo, TemporalRandomCrop, RandomHorizontalFlipVideo, CenterCropResizeVideo, LongSideResizeVideo, SpatialStrideCropVideo, NormalizeVideo, ToTensorAfterResize
+from opensora.dataset.inpaint_datasets import get_inpaint_dataset
 from opensora.models.diffusion.opensora.modeling_inpaint import ModelType, STR_TO_TYPE, TYPE_TO_STR
 
-ae_norm = {
-    'CausalVAEModel_D8_4x8x8': Lambda(lambda x: 2. * x - 1.),
-    'CausalVAEModel_2x8x8': Lambda(lambda x: 2. * x - 1.),
-    'CausalVAEModel_4x8x8': Lambda(lambda x: 2. * x - 1.),
-    'CausalVQVAEModel_4x4x4': Lambda(lambda x: x - 0.5),
-    'CausalVQVAEModel_4x8x8': Lambda(lambda x: x - 0.5),
-    'VQVAEModel_4x4x4': Lambda(lambda x: x - 0.5),
-    'VQVAEModel_4x8x8': Lambda(lambda x: x - 0.5),
-    "bair_stride4x2x2": Lambda(lambda x: x - 0.5),
-    "ucf101_stride4x4x4": Lambda(lambda x: x - 0.5),
-    "kinetics_stride4x4x4": Lambda(lambda x: x - 0.5),
-    "kinetics_stride2x4x4": Lambda(lambda x: x - 0.5),
-    'stabilityai/sd-vae-ft-mse': transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], inplace=True),
-    'stabilityai/sd-vae-ft-ema': transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], inplace=True),
-    'vqgan_imagenet_f16_1024': Lambda(lambda x: 2. * x - 1.),
-    'vqgan_imagenet_f16_16384': Lambda(lambda x: 2. * x - 1.),
-    'vqgan_gumbel_f8': Lambda(lambda x: 2. * x - 1.),
 
-}
-ae_denorm = {
-    'CausalVAEModel_D8_4x8x8': lambda x: (x + 1.) / 2.,
-    'CausalVAEModel_2x8x8': lambda x: (x + 1.) / 2.,
-    'CausalVAEModel_4x8x8': lambda x: (x + 1.) / 2.,
-    'CausalVQVAEModel_4x4x4': lambda x: x + 0.5,
-    'CausalVQVAEModel_4x8x8': lambda x: x + 0.5,
-    'VQVAEModel_4x4x4': lambda x: x + 0.5,
-    'VQVAEModel_4x8x8': lambda x: x + 0.5,
-    "bair_stride4x2x2": lambda x: x + 0.5,
-    "ucf101_stride4x4x4": lambda x: x + 0.5,
-    "kinetics_stride4x4x4": lambda x: x + 0.5,
-    "kinetics_stride2x4x4": lambda x: x + 0.5,
-    'stabilityai/sd-vae-ft-mse': lambda x: 0.5 * x + 0.5,
-    'stabilityai/sd-vae-ft-ema': lambda x: 0.5 * x + 0.5,
-    'vqgan_imagenet_f16_1024': lambda x: (x + 1.) / 2.,
-    'vqgan_imagenet_f16_16384': lambda x: (x + 1.) / 2.,
-    'vqgan_gumbel_f8': lambda x: (x + 1.) / 2.,
-}
 
 def getdataset(args):
     temporal_sample = TemporalRandomCrop(args.num_frames)  # 16 x
     norm_fun = ae_norm[args.ae]
     if args.dataset == 't2v':
-        resize_topcrop = [CenterCropResizeVideo((args.max_height, args.max_width), top_crop=True), ]
-        # if args.multi_scale:
-        #     resize = [
-        #         LongSideResizeVideo(args.max_image_size, skip_low_resolution=True),
-        #         SpatialStrideCropVideo(args.stride)
-        #         ]
-        # else:
-        resize = [CenterCropResizeVideo((args.max_height, args.max_width)), ]
+        if args.force_resolution:
+            resize = [CenterCropResizeVideo((args.max_height, args.max_width)), ]
+        else:
+            resize = [
+                LongSideResizeVideo((args.max_height, args.max_width), skip_low_resolution=True), 
+                SpatialStrideCropVideo(stride=args.hw_stride), 
+            ]
         transform = transforms.Compose([
             ToTensorVideo(),
             *resize, 
-            # RandomHorizontalFlipVideo(p=0.5),  # in case their caption have position decription
             norm_fun
         ])
-        transform_topcrop = transforms.Compose([
-            ToTensorVideo(),
-            *resize_topcrop, 
-            # RandomHorizontalFlipVideo(p=0.5),  # in case their caption have position decription
-            norm_fun
-        ])
-        # tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/models--DeepFloyd--t5-v1_1-xxl/snapshots/c9c625d2ec93667ec579ede125fd3811d1f81d37", cache_dir=args.cache_dir)
-        # tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/models--google--mt5-xl/snapshots/63fc6450d80515b48e026b69ef2fbbd426433e84", cache_dir=args.cache_dir)
         tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir)
+        # tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/models--DeepFloyd--t5-v1_1-xxl/snapshots/c9c625d2ec93667ec579ede125fd3811d1f81d37", cache_dir=args.cache_dir)
         # tokenizer = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
-        return T2V_dataset(args, transform=transform, temporal_sample=temporal_sample, tokenizer=tokenizer, 
-                           transform_topcrop=transform_topcrop)
+        return T2V_dataset(args, transform=transform, temporal_sample=temporal_sample, tokenizer=tokenizer)
     elif args.dataset == 'inpaint' or args.dataset == 'i2v' or args.dataset == 'vip':
-        resize_topcrop = CenterCropResizeVideo((args.max_height, args.max_width), top_crop=True)
-        resize = CenterCropResizeVideo((args.max_height, args.max_width))
+        if args.force_resolution:
+            resize = [CenterCropResizeVideo((args.max_height, args.max_width)), ]
+        else:
+            resize = [
+                LongSideResizeVideo((args.max_height, args.max_width), skip_low_resolution=True), 
+                SpatialStrideCropVideo(stride=args.hw_stride), 
+            ]
         transform = transforms.Compose([
-            ToTensorAfterResize(),
-            # RandomHorizontalFlipVideo(p=0.5),  # in case their caption have position decription
-            norm_fun
-        ])
-        transform_topcrop = transforms.Compose([
             ToTensorAfterResize(),
             # RandomHorizontalFlipVideo(p=0.5),  # in case their caption have position decription
             norm_fun
@@ -121,9 +70,7 @@ def getdataset(args):
 
         dataset = get_inpaint_dataset(args.model_type)
 
-        return dataset(args, transform=transform, resize_transform=resize, resize_transform_topcrop=resize_topcrop, temporal_sample=temporal_sample, tokenizer=tokenizer, 
-                           transform_topcrop=transform_topcrop, image_processor=image_processor)
-    
+        return dataset(args, transform=transform, resize_transform=resize, temporal_sample=temporal_sample, tokenizer=tokenizer, image_processor=image_processor)
     raise NotImplementedError(args.dataset)
 
 
@@ -141,17 +88,18 @@ if __name__ == "__main__":
         'model_max_length': 300, 
         'max_height': 320,
         'max_width': 240,
-        'num_frames': 1,
+        'hw_stride': 32, 
+        'skip_low_resolution': True, 
+        'num_frames': 330,
         'use_image_num': 0, 
         'compress_kv_factor': 1, 
         'interpolation_scale_t': 1,
         'interpolation_scale_h': 1,
         'interpolation_scale_w': 1,
         'cache_dir': '../cache_dir', 
-        'image_data': '/storage/ongoing/new/Open-Sora-Plan-bak/7.14bak/scripts/train_data/image_data.txt', 
-        'video_data': '1',
+        'data': 'scripts/train_data/merge_data.txt', 
         'train_fps': 24, 
-        'drop_short_ratio': 1.0, 
+        'drop_short_ratio': 0.0, 
         'use_img_from_vid': False, 
         'speed_factor': 1.0, 
         'cfg': 0.1, 
@@ -162,20 +110,6 @@ if __name__ == "__main__":
     )
     accelerator = Accelerator()
     dataset = getdataset(args)
-    num = len(dataset_prog.img_cap_list)
-    zero = 0
-    for idx in tqdm(range(num)):
-        image_data = dataset_prog.img_cap_list[idx]
-        caps = [i['cap'] if isinstance(i['cap'], list) else [i['cap']] for i in image_data]
-        try:
-            caps = [[random.choice(i)] for i in caps]
-        except Exception as e:
-            print(e)
-            # import ipdb;ipdb.set_trace()
-            print(image_data)
-            zero += 1
-            continue
-        assert caps[0] is not None and len(caps[0]) > 0
-    print(num, zero)
+    data = next(iter(dataset))
     import ipdb;ipdb.set_trace()
-    print('end')
+    print()

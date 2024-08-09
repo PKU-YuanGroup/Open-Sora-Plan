@@ -1,19 +1,19 @@
-CUDA_VISIBLE_DEVICES=7 python opensora/sample/sample_t2v.py \
-    --model_path /storage/ongoing/new/Open-Sora-Plan-bak/7.14bak/bs4x8x16_480p_lr1e-4_snr5_noioff0.02_ema9999_udit122_rope_fp32_mt5xxl_sam/checkpoint-85000/model_ema \
+CUDA_VISIBLE_DEVICES=0 python opensora/sample/sample_t2v.py \
+    --model_path /storage/ongoing/new/7.19anyres/Open-Sora-Plan/bs16x8x8_vae8_any320x320_lr2e-5_snr5_noioff0.02_ema9999_sparse1d4_dit_l_122_rope_mt5xxl_mj/checkpoint-148000/model_ema \
     --version 65x512x512 \
     --num_frames 1 \
-    --height 480 \
-    --width 640 \
+    --height 320 \
+    --width 176 \
     --cache_dir "../cache_dir" \
     --text_encoder_name google/mt5-xxl \
     --text_prompt examples/prompt_list_1.txt \
-    --ae CausalVAEModel_4x8x8 \
-    --ae_path "/storage/dataset/test140k" \
-    --save_img_path "sample_image_fp32_73000_cfg5.0_step25_480p_pos_neg" \
+    --ae CausalVAEModel_D8_4x8x8 \
+    --ae_path "/storage/dataset/new488dim8/last" \
+    --save_img_path "sample_image_vae8_sparsedit_148k_320x176" \
     --fps 24 \
-    --guidance_scale 5.0 \
-    --num_sampling_steps 25 \
+    --guidance_scale 2.0 \
+    --num_sampling_steps 20 \
     --enable_tiling \
     --max_sequence_length 512 \
     --sample_method DPMSolverMultistep \
-    --model_type udit
+    --model_type dit 

@@ -32,14 +32,15 @@ Model training requires two key files: one is the `config.json` file, which conf
 
 ### Model Configuration File
 
-Taking the release version model configuration file `release.json` as an example:
+Taking the v1.1.0 version model configuration file as an example:
 
 ```json
 {
   "_class_name": "CausalVAEModel",
   "_diffusers_version": "0.27.2",
+  "_name_or_path": "../results/pretrained_488_tail",
   "attn_resolutions": [],
-  "decoder_attention": "AttnBlock3D",
+  "decoder_attention": "AttnBlock3DFix",
   "decoder_conv_in": "CausalConv3d",
   "decoder_conv_out": "CausalConv3d",
   "decoder_mid_resnet": "ResnetBlock3D",
@@ -58,32 +59,32 @@ Taking the release version model configuration file `release.json` as an example
   "decoder_temporal_upsample": [
     "",
     "",
-    "TimeUpsample2x",
-    "TimeUpsample2x"
+    "TimeUpsampleRes2x",
+    "TimeUpsampleRes2x"
   ],
   "double_z": true,
   "dropout": 0.0,
   "embed_dim": 4,
-  "encoder_attention": "AttnBlock3D",
-  "encoder_conv_in": "CausalConv3d",
+  "encoder_attention": "AttnBlock3DFix",
+  "encoder_conv_in": "Conv2d",
   "encoder_conv_out": "CausalConv3d",
   "encoder_mid_resnet": "ResnetBlock3D",
   "encoder_resnet_blocks": [
-    "ResnetBlock3D",
-    "ResnetBlock3D",
+    "ResnetBlock2D",
+    "ResnetBlock2D",
     "ResnetBlock3D",
     "ResnetBlock3D"
   ],
   "encoder_spatial_downsample": [
-    "SpatialDownsample2x",
-    "SpatialDownsample2x",
-    "SpatialDownsample2x",
+    "Downsample",
+    "Downsample",
+    "Downsample",
     ""
   ],
   "encoder_temporal_downsample": [
-    "TimeDownsample2x",
-    "TimeDownsample2x",
     "",
+    "TimeDownsampleRes2x",
+    "TimeDownsampleRes2x",
     ""
   ],
   "hidden_size": 128,
@@ -93,15 +94,17 @@ Taking the release version model configuration file `release.json` as an example
     4,
     4
   ],
+  "in_channels": 3,
   "loss_params": {
     "disc_start": 2001,
     "disc_weight": 0.5,
     "kl_weight": 1e-06,
     "logvar_init": 0.0
   },
-  "loss_type": "opensora.models.ae.videobase.losses.LPIPSWithDiscriminator",
+  "loss_type": "opensora.models.ae.videobase.losses.LPIPSWithDiscriminator3D",
   "lr": 1e-05,
   "num_res_blocks": 2,
+  "out_channels": 3,
   "q_conv": "CausalConv3d",
   "resolution": 256,
   "z_channels": 4
