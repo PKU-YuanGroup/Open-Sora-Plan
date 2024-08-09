@@ -269,6 +269,9 @@ class OpenSoraInpaint(OpenSoraT2V):
         downsampler: str = None, 
         use_rope: bool = False,
         use_stable_fp32: bool = False,
+        sparse1d: bool = False,
+        sparse2d: bool = False,
+        sparse_n: int = 2,
 
         model_type = 'inpaint_only',
         vae_scale_factor_t=4,
@@ -314,6 +317,9 @@ class OpenSoraInpaint(OpenSoraT2V):
             downsampler=downsampler,
             use_rope=use_rope,
             use_stable_fp32=use_stable_fp32,
+            sparse1d=sparse1d,
+            sparse2d=sparse2d,
+            sparse_n=sparse_n,
         )
 
         self.model_type = STR_TO_TYPE[model_type]

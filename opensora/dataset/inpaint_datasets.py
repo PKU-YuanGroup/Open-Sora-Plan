@@ -30,7 +30,6 @@ from opensora.utils.utils import text_preprocessing
 
 from opensora.models.diffusion.opensora.modeling_inpaint import ModelType, STR_TO_TYPE, TYPE_TO_STR
 
-from .t2v_datasets import filter_json_by_existed_files, random_video_noise, find_closest_y, filter_resolution
 from .t2v_datasets import SingletonMeta, DataSetProg
 from .t2v_datasets import T2V_dataset
 
@@ -57,11 +56,10 @@ def get_inpaint_dataset(model_type):
 
 
 class Meta_dataset(T2V_dataset):
-    def __init__(self, args, transform, resize_transform, temporal_sample, tokenizer, transform_topcrop, resize_transform_topcrop, image_processor):
+    def __init__(self, args, transform, resize_transform, temporal_sample, tokenizer, image_processor):
         super().__init__(args, transform, temporal_sample, tokenizer, transform_topcrop)
 
         self.resize_transform = resize_transform
-        self.resize_transform_topcrop = resize_transform_topcrop
         self.image_processor = image_processor
 
         if self.num_frames != 1:
@@ -163,8 +161,8 @@ class Inpaint_dataset(Meta_dataset):
     
     
 class VIP_dataset(Meta_dataset):
-    def __init__(self, args, transform, resize_transform, temporal_sample, tokenizer, transform_topcrop, resize_transform_topcrop, image_processor):
-        super().__init__(args, transform, resize_transform, temporal_sample, tokenizer, transform_topcrop, resize_transform_topcrop, image_processor)
+    def __init__(self, args, transform, resize_transform, temporal_sample, tokenizer, image_processor):
+        super().__init__(args, transform, resize_transform, temporal_sample, tokenizer, image_processor)
         self.use_clip_mask = args.use_clip_mask
 
     def drop(self, text, clip_image, clip_mask=None):
@@ -238,11 +236,11 @@ class VIP_dataset(Meta_dataset):
         #     h, w = i.shape[-2:]
         #     assert h / w <= 17 / 16 and h / w >= 8 / 16, f'Only image with a ratio (h/w) less than 17/16 and more than 8/16 are supported. But found ratio is {round(h / w, 2)} with the shape of {i.shape}'
         
-        image = self.resize_transform_topcrop(image) if 'human_images' in image_data['path'] else self.resize_transform(image)  #  [1 C H W] -> [1 C H W]
+        image = self.resize_transform(image)  #  [1 C H W] -> [1 C H W]
 
         clip_image = self.image_processor(image) # [1 C H W]
 
-        image = self.transform_topcrop(image) if 'human_images' in image_data['path'] else self.transform(image) #  [1 C H W] -> [1 C H W]
+        image = self.transform(image) #  [1 C H W] -> [1 C H W]
 
         # image = [torch.rand(1, 3, 480, 640) for i in image_data]
         image = image.transpose(0, 1)  # [1 C H W] -> [C 1 H W]
