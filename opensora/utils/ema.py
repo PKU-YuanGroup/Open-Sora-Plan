@@ -4,6 +4,7 @@ import random
 from typing import Any, Dict, Iterable, List, Optional, Union
 
 from diffusers.utils import (
+    deprecate,
     is_torchvision_available,
     is_transformers_available,
 )
@@ -33,7 +34,8 @@ class EMAModel:
         use_ema_warmup: bool = False,
         inv_gamma: Union[float, int] = 1.0,
         power: Union[float, int] = 2 / 3,
-
+        model_cls: Optional[Any] = None,
+        model_config: Dict[str, Any] = None,
         **kwargs,
     ):
         """
@@ -56,9 +58,39 @@ class EMAModel:
             at 215.4k steps).
         """
 
+        if isinstance(parameters, torch.nn.Module):
+            deprecation_message = (
+                "Passing a `torch.nn.Module` to `ExponentialMovingAverage` is deprecated. "
+                "Please pass the parameters of the module instead."
+            )
+            deprecate(
+                "passing a `torch.nn.Module` to `ExponentialMovingAverage`",
+                "1.0.0",
+                deprecation_message,
+                standard_warn=False,
+            )
+            parameters = parameters.parameters()
+
+            # set use_ema_warmup to True if a torch.nn.Module is passed for backwards compatibility
+            use_ema_warmup = True
+
+        if kwargs.get("max_value", None) is not None:
+            deprecation_message = "The `max_value` argument is deprecated. Please use `decay` instead."
+            deprecate("max_value", "1.0.0", deprecation_message, standard_warn=False)
+            decay = kwargs["max_value"]
+
+        if kwargs.get("min_value", None) is not None:
+            deprecation_message = "The `min_value` argument is deprecated. Please use `min_decay` instead."
+            deprecate("min_value", "1.0.0", deprecation_message, standard_warn=False)
+            min_decay = kwargs["min_value"]
 
         parameters = list(parameters)
         self.shadow_params = [p.clone().detach() for p in parameters]
+
+        if kwargs.get("device", None) is not None:
+            deprecation_message = "The `device` argument is deprecated. Please use `to` instead."
+            deprecate("device", "1.0.0", deprecation_message, standard_warn=False)
+            self.to(device=kwargs["device"])
 
         self.temp_stored_params = None
 
@@ -71,25 +103,53 @@ class EMAModel:
         self.optimization_step = 0
         self.cur_decay_value = None  # set in `step()`
 
+        self.model_cls = model_cls
+        self.model_config = model_config
+
+    @classmethod
+    def extract_ema_kwargs(cls, kwargs):
+        """
+        Extracts the EMA kwargs from the kwargs of a class method.
+        """
+        ema_kwargs = {}
+        for key in [
+            "decay",
+            "min_decay",
+            "optimization_step",
+            "update_after_step",
+            "use_ema_warmup",
+            "inv_gamma",
+            "power",
+        ]:
+            if kwargs.get(key, None) is not None:
+                ema_kwargs[key] = kwargs.pop(key)
+        return ema_kwargs
 
     @classmethod
     def from_pretrained(cls, path, model_cls) -> "EMAModel":
-        _, ema_kwargs = model_cls.load_config(path, return_unused_kwargs=True)
+        config = model_cls.load_config(path)
+        ema_kwargs = cls.extract_ema_kwargs(config)
         model = model_cls.from_pretrained(path)
 
-        ema_model = cls(model.parameters(), model_cls=model_cls, model_config=model.config)
+        ema_model = cls(model.parameters(), model_cls=model_cls, model_config=config)
 
         ema_model.load_state_dict(ema_kwargs)
         return ema_model
 
-    def save_pretrained(self, path, model_instance):
+    def save_pretrained(self, path):
+        if self.model_cls is None:
+            raise ValueError("`save_pretrained` can only be used if `model_cls` was defined at __init__.")
 
+        if self.model_config is None:
+            raise ValueError("`save_pretrained` can only be used if `model_config` was defined at __init__.")
+
+        model = self.model_cls.from_config(self.model_config)
         state_dict = self.state_dict()
         state_dict.pop("shadow_params", None)
 
-        model_instance.register_to_config(**state_dict)
-        self.copy_to(model_instance.parameters())
-        model_instance.save_pretrained(path)
+        model.register_to_config(**state_dict)
+        self.copy_to(model.parameters())
+        model.save_pretrained(path)
 
     def get_decay(self, optimization_step: int) -> float:
         """
@@ -112,6 +172,18 @@ class EMAModel:
 
     @torch.no_grad()
     def step(self, parameters: Iterable[torch.nn.Parameter]):
+        if isinstance(parameters, torch.nn.Module):
+            deprecation_message = (
+                "Passing a `torch.nn.Module` to `ExponentialMovingAverage.step` is deprecated. "
+                "Please pass the parameters of the module instead."
+            )
+            deprecate(
+                "passing a `torch.nn.Module` to `ExponentialMovingAverage.step`",
+                "1.0.0",
+                deprecation_message,
+                standard_warn=False,
+            )
+            parameters = parameters.parameters()
 
         parameters = list(parameters)
 
@@ -148,7 +220,6 @@ class EMAModel:
         parameters = list(parameters)
         for s_param, param in zip(self.shadow_params, parameters):
             param.data.copy_(s_param.to(param.device).data)
-            
 
 
     def to(self, device=None, dtype=None) -> None:

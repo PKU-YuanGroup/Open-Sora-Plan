@@ -63,7 +63,7 @@ except:
 import diffusers
 from diffusers import DDPMScheduler, PNDMScheduler, DPMSolverMultistepScheduler
 from diffusers.optimization import get_scheduler
-from diffusers.training_utils import EMAModel, compute_snr
+from diffusers.training_utils import compute_snr
 from diffusers.utils import check_min_version, is_wandb_available
 from diffusers.models.modeling_utils import ModelMixin
 from diffusers.configuration_utils import ConfigMixin, register_to_config
@@ -71,6 +71,7 @@ from diffusers.configuration_utils import ConfigMixin, register_to_config
 from opensora.dataset import getdataset, ae_denorm
 from opensora.models.ae import getae, getae_wrapper
 
+from opensora.utils.ema import EMAModel
 from opensora.models.text_encoder import get_text_enc, get_text_warpper
 from opensora.utils.dataset_utils import Inpaint_Collate as Collate, LengthGroupedSampler
 from opensora.models.ae import ae_stride_config, ae_channel_config
