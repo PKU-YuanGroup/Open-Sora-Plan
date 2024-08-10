@@ -23,6 +23,8 @@ from .diffusion_utils import (
     ModelMeanType,
     ModelVarType,
     LossType,
+    get_beta_schedule,
+    space_timesteps
 )
 
 
@@ -37,19 +39,59 @@ class DDPM:
     """
     def __init__(
         self,
-        betas: List[Tensor],
-        model_mean_type: str,
-        model_var_type: str,
-        loss_type: str,
-        device: str
+        num_sampling_steps: int = None,
+        timestep_respacing: Union[str, List] = None,
+        noise_schedule: str = "linear",
+        use_kl: bool = False,
+        sigma_small: bool = False,
+        predict_xstart: bool = False,
+        learn_sigma: bool = True,
+        rescale_learned_sigmas: bool = False,
+        diffusion_steps: int = 1000,
+        device: str = "npu"
     ):
         self.device = get_device(device)
-        self.model_mean_type = model_mean_type  # xprev, xstart, eps
-        self.model_var_type = model_var_type  # learned, fixedsmall, fixedlarge
-        self.loss_type = loss_type  # kl, mse
-        self.betas = betas.to(self.device)  # use float32 for accuracy
-        self.num_timesteps = int(betas.shape[0])
+        self.betas = get_beta_schedule(noise_schedule, diffusion_steps).to(self.device)
+        # init loss_type
+        if use_kl:
+            self.loss_type = LossType.RESCALED_KL
+        elif rescale_learned_sigmas:
+            self.loss_type = LossType.RESCALED_MSE
+        else:
+            self.loss_type = LossType.MSE
+        # init model_mean_type and model_var_type
+        if predict_xstart:
+            self.model_mean_type = ModelMeanType.START_X
+        else:
+            self.model_mean_type = ModelMeanType.EPSILON
+        if learn_sigma:
+            self.model_var_type = ModelVarType.LEARNED_RANGE
+        elif not sigma_small:
+            self.model_var_type = ModelVarType.FIXED_LARGE
+        else:
+            self.model_var_type = ModelVarType.FIXED_SMALL
+        # space timesteps
+        if num_sampling_steps is not None and timestep_respacing is not None:
+            timestep_respacing = str(num_sampling_steps)
+        elif timestep_respacing is None or timestep_respacing == "":
+            timestep_respacing = [diffusion_steps]
+        use_timesteps = set(space_timesteps(diffusion_steps, timestep_respacing))
+        
+        # init new_betas 
+        alphas = 1.0 - self.betas
+        alphas_cumprod = torch.cumprod(alphas, axis=0)
+        timestep_map = []
+        last_alpha_cumprod = 1.0
+        new_betas = []
+        for i, alpha_cumprod in enumerate(alphas_cumprod):
+            if i in use_timesteps:
+                new_betas.append(1 - alpha_cumprod / last_alpha_cumprod)
+                last_alpha_cumprod = alpha_cumprod
+                timestep_map.append(i)
+        self.betas = torch.FloatTensor(new_betas).to(self.device)
+        self.num_timesteps = int(self.betas.shape[0])
 
+        # Prepare alphas related constant
         alphas = 1.0 - self.betas
         self.alphas_cumprod = torch.cumprod(alphas, axis=0)
         self.alphas_cumprod_prev = torch.cat([torch.tensor([1.0], device=self.device), self.alphas_cumprod[:-1]])
@@ -188,7 +230,9 @@ class DDPM:
         if self.model_mean_type == ModelMeanType.START_X:
             pred_xstart = process_xstart(model_output)
         else:
-            pred_xstart = process_xstart(self._predict_xstart_from_eps(x_t=x, t=t, eps=model_output))
+            pred_xstart = extract_into_tensor(self.sqrt_recip_alphas_cumprod, t, x.shape) * x \
+                          - extract_into_tensor(self.sqrt_recipm1_alphas_cumprod, t, x.shape) * model_output
+            pred_xstart = process_xstart(pred_xstart)
         model_mean, _, _ = self.q_posterior_mean_variance(x_start=pred_xstart, x_t=x, t=t)
 
         if not (model_mean.shape == model_log_variance.shape == pred_xstart.shape == x.shape):
@@ -245,7 +289,7 @@ class DDPM:
         eps = eps - (1 - alpha_bar).sqrt() * cond_fn(x, t, **model_kwargs)
 
         out = p_mean_var.copy()
-        if x_t.shape != eps.shape:
+        if x.shape != eps.shape:
             raise AssertionError("Shape does not match")
         out["pred_xstart"] = (
             extract_into_tensor(self.sqrt_recip_alphas_cumprod, t, x.shape) * x
@@ -389,6 +433,7 @@ class DDPM:
         model_kwargs: dict = None,
         progress: bool = False,
         mask: Tensor = None,
+        **kwargs
     ) -> Tensor:
         """
         Generate samples from the model.

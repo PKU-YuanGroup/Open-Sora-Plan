@@ -9,3 +9,6 @@
 |  开源引入  | https://github.com/PKU-YuanGroup/Open-Sora-Plan/blob/main/opensora/sample/pipeline_opensora.py |          mindspeed_mm/models/diffusion/diffusers_scheduler.py          | https://arxiv.org/pdf/2205.11487.pdf       | Imagen论文链接 |
 |  开源引入  | https://github.com/openai/guided-diffusion/blob/main/guided_diffusion | mindspeed_mm/models/diffusion/diffusers_utils.py | https://github.com/openai/guided-diffusion/blob/main/guided_diffusion       | 开源代码参考链接 |
 |  开源引入  | https://github.com/openai/improved-diffusion/blob/main/improved_diffusion/gaussian_diffusion.py | mindspeed_mm/models/diffusion/diffusers_utils.py | https://github.com/openai/improved-diffusion/blob/main/improved_diffusion/gaussian_diffusion.py       | 开源代码参考链接 |
+| 开源引入 | https://github.com/PKU-YuanGroup/Open-Sora-Plan/tree/v1.1.0/opensora/models/diffusion/diffusion | mindspeed_mm/models/diffusion/iddpm.py | https://github.com/PKU-YuanGroup/Open-Sora-Plan/tree/v1.1.0/opensora/models/diffusion/diffusion | 开源代码参考链接 |
+| 开源引入 | https://github.com/openai/improved-diffusion/blob/main/improved_diffusion/gaussian_diffusion.py | mindspeed_mm/models/diffusion/iddpm.py | https://github.com/openai/improved-diffusion/blob/main/improved_diffusion/gaussian_diffusion.py | 开源代码参考链接 |
+

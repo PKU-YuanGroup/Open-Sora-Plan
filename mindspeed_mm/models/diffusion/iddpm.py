@@ -23,18 +23,28 @@ class IDDPM(DDPM):
     """
     def __init__(
         self,
-        betas: List[Tensor],
-        model_mean_type: str,
-        model_var_type: str,
-        loss_type: str,
-        device: str
+        num_sampling_steps: int = None,
+        timestep_respacing: Union[str, List] = None,
+        noise_schedule: str = "linear",
+        use_kl: bool = False,
+        sigma_small: bool = False,
+        predict_xstart :bool = False,
+        learn_sigma: bool = True,
+        rescale_learned_sigmas: bool = False,
+        diffusion_steps: int = 1000,
+        device: str = "npu"
     ):
         super().__init__(
-            betas,
-            model_mean_type,
-            model_var_type,
-            loss_type,
-            device
+            num_sampling_steps=num_sampling_steps,
+            timestep_respacing=timestep_respacing,
+            noise_schedule=noise_schedule,
+            use_kl=use_kl,
+            sigma_small=sigma_small,
+            predict_xstart=predict_xstart,
+            learn_sigma=learn_sigma,
+            rescale_learned_sigmas=rescale_learned_sigmas,
+            diffusion_steps=diffusion_steps,
+            device=device
         )
 
     def ddim_sample(
@@ -148,6 +158,7 @@ class IDDPM(DDPM):
         model_kwargs: Dict = None,
         progress: bool = False,
         eta: float = 0.0,
+        **kwargs
     ):
         """
         Generate samples from the model using DDIM.
