@@ -54,6 +54,7 @@ from diffusers.optimization import get_scheduler
 from diffusers.training_utils import compute_snr
 from diffusers.utils import check_min_version, is_wandb_available
 
+
 from opensora.utils.ema import EMAModel
 from opensora.dataset import getdataset
 from opensora.models import CausalVAEModelWrapper
@@ -62,98 +63,16 @@ from opensora.models.causalvideovae import ae_stride_config, ae_channel_config
 from opensora.models.causalvideovae import ae_norm, ae_denorm
 from opensora.models.diffusion import Diffusion_models, Diffusion_models_class
 from opensora.utils.dataset_utils import Collate, LengthGroupedSampler
-from opensora.sample.pipeline_opensora import OpenSoraPipeline
 
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 check_min_version("0.24.0")
 logger = get_logger(__name__)
 
-
-@torch.inference_mode()
-def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weight_dtype, global_step, ema=False):
-    positive_prompt = "(masterpiece), (best quality), (ultra-detailed), {}. emotional, harmonious, vignette, 4k epic detailed, shot on kodak, 35mm photo, sharp focus, high budget, cinemascope, moody, epic, gorgeous"
-    negative_prompt = """nsfw, lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry, 
-                        """
-    validation_prompt = [
-        "A stylish woman walks down a Tokyo street filled with warm glowing neon and animated city signage. She wears a black leather jacket, a long red dress, and black boots, and carries a black purse. She wears sunglasses and red lipstick. She walks confidently and casually. The street is damp and reflective, creating a mirror effect of the colorful lights. Many pedestrians walk about.",
-        "A serene underwater scene featuring a sea turtle swimming through a coral reef. The turtle, with its greenish-brown shell, is the main focus of the video, swimming gracefully towards the right side of the frame. The coral reef, teeming with life, is visible in the background, providing a vibrant and colorful backdrop to the turtle's journey. Several small fish, darting around the turtle, add a sense of movement and dynamism to the scene."
-        ]
-    if 'mt5' in args.text_encoder_name:
-        validation_prompt_cn = [
-            "一只戴着墨镜在泳池当救生员的猫咪。",
-            "这是一个宁静的水下场景，一只海龟游过珊瑚礁。海龟带着绿褐色的龟壳，优雅地游向画面右侧，成为视频的焦点。背景中的珊瑚礁生机盎然，为海龟的旅程提供了生动多彩的背景。几条小鱼在海龟周围穿梭，为画面增添了动感和活力。"
-            ]
-        validation_prompt += validation_prompt_cn
-    logger.info(f"Running validation....\n")
-    model = accelerator.unwrap_model(model)
-    scheduler = DPMSolverMultistepScheduler()
-    opensora_pipeline = OpenSoraPipeline(vae=vae,
-                                         text_encoder=text_encoder,
-                                         tokenizer=tokenizer,
-                                         scheduler=scheduler,
-                                         transformer=model).to(device=accelerator.device)
-    videos = []
-    for prompt in validation_prompt:
-        logger.info('Processing the ({}) prompt'.format(prompt))
-        video = opensora_pipeline(
-                                positive_prompt.format(prompt),
-                                negative_prompt=negative_prompt, 
-                                num_frames=args.num_frames,
-                                height=args.max_height,
-                                width=args.max_width,
-                                num_inference_steps=args.num_sampling_steps,
-                                guidance_scale=args.guidance_scale,
-                                enable_temporal_attentions=True,
-                                num_images_per_prompt=1,
-                                mask_feature=True,
-                                max_sequence_length=args.model_max_length,
-                                ).images
-        videos.append(video[0])
-    # import ipdb;ipdb.set_trace()
-    gc.collect()
-    torch.cuda.empty_cache()
-    videos = torch.stack(videos).numpy()
-    videos = rearrange(videos, 'b t h w c -> b t c h w')
-    for tracker in accelerator.trackers:
-        if tracker.name == "tensorboard":
-            if videos.shape[1] == 1:
-                assert args.num_frames == 1
-                images = rearrange(videos, 'b 1 c h w -> (b 1) h w c')
-                np_images = np.stack([np.asarray(img) for img in images])
-                tracker.writer.add_images(f"{'ema_' if ema else ''}validation", np_images, global_step, dataformats="NHWC")
-            else:
-                np_videos = np.stack([np.asarray(vid) for vid in videos])
-                tracker.writer.add_video(f"{'ema_' if ema else ''}validation", np_videos, global_step, fps=24)
-        if tracker.name == "wandb":
-            import wandb
-            if videos.shape[1] == 1:
-                images = rearrange(videos, 'b 1 c h w -> (b 1) h w c')
-                logs = {
-                    f"{'ema_' if ema else ''}validation": [
-                        wandb.Image(image, caption=f"{i}: {prompt}")
-                        for i, (image, prompt) in enumerate(zip(images, validation_prompt))
-                    ]
-                }
-            else:
-                logs = {
-                    f"{'ema_' if ema else ''}validation": [
-                        wandb.Video(video, caption=f"{i}: {prompt}", fps=24)
-                        for i, (video, prompt) in enumerate(zip(videos, validation_prompt))
-                    ]
-                }
-            tracker.log(logs, step=global_step)
-
-    del opensora_pipeline
-    gc.collect()
-    torch.cuda.empty_cache()
-
-
 class ProgressInfo:
     def __init__(self, global_step, train_loss=0.0):
         self.global_step = global_step
         self.train_loss = train_loss
-
 
 #################################################################################
 #                                  Training Loop                                #
@@ -198,8 +117,8 @@ def main(args):
         transformers.utils.logging.set_verbosity_error()
         diffusers.utils.logging.set_verbosity_error()
 
-    # If passed along, set the training seed now. On GPU...
-    if torch_npu is None and npu_config is None and args.seed is not None:
+    # If passed along, set the training seed now.
+    if args.seed is not None:
         set_seed(args.seed)
 
     # Handle the repository creation
@@ -248,6 +167,9 @@ def main(args):
         args.latent_size_t = latent_size_t = (args.num_frames - 1) // ae_stride_t + 1
     else:
         latent_size_t = args.num_frames // ae_stride_t
+
+    model_kwargs = {'vae_scale_factor_t': ae_stride_t}
+
     model = Diffusion_models[args.model](
         in_channels=ae_channel_config[args.ae],
         out_channels=ae_channel_config[args.ae],
@@ -275,41 +197,24 @@ def main(args):
         # compress_kv_factor=args.compress_kv_factor,
         use_rope=args.use_rope,
         # model_max_length=args.model_max_length,
-        use_stable_fp32=args.enable_stable_fp32, 
+        use_stable_fp32=args.enable_stable_fp32,
+        **model_kwargs,
     )
     model.gradient_checkpointing = args.gradient_checkpointing
 
-    # # use pretrained model?
-    if args.pretrained:
-        model_state_dict = model.state_dict()
-        if 'safetensors' in args.pretrained:  # pixart series
-            from safetensors.torch import load_file as safe_load
-            # import ipdb;ipdb.set_trace()
-            pretrained_checkpoint = safe_load(args.pretrained, device="cpu")
-            pretrained_keys = set(list(pretrained_checkpoint.keys()))
-            model_keys = set(list(model_state_dict.keys()))
-            common_keys = list(pretrained_keys & model_keys)
-            checkpoint = {k: pretrained_checkpoint[k] for k in common_keys if model_state_dict[k].numel() == pretrained_checkpoint[k].numel()}
-            # if checkpoint['pos_embed.proj.weight'].shape != model.pos_embed.proj.weight.shape and checkpoint['pos_embed.proj.weight'].ndim == 4:
-            #     logger.info(f"Resize pos_embed, {checkpoint['pos_embed.proj.weight'].shape} -> {model.pos_embed.proj.weight.shape}")
-            #     repeat = model.pos_embed.proj.weight.shape[2]
-            #     checkpoint['pos_embed.proj.weight'] = checkpoint['pos_embed.proj.weight'].unsqueeze(2).repeat(1, 1, repeat, 1, 1) / float(repeat)
-                # del checkpoint['proj_out.weight'], checkpoint['proj_out.bias']
-        else:  # latest stage training weight
-            checkpoint = torch.load(args.pretrained, map_location='cpu')
-            if 'model' in checkpoint:
-                checkpoint = checkpoint['model']
-        missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=False)
-        logger.info(f'missing_keys {len(missing_keys)} {missing_keys}, unexpected_keys {len(unexpected_keys)}')
-        logger.info(f'Successfully load {len(model_state_dict) - len(missing_keys)}/{len(model_state_dict)} keys from {args.pretrained}!')
-
-    # Freeze vae and text encoders.
-    ae.vae.requires_grad_(False)
-    text_enc.requires_grad_(False)
-    # Set model as trainable.
-    model.train()
+    pretrained_transformer_model_path = args.pretrained_transformer_model_path
+    pretrained_model_path = dict(transformer_model=pretrained_transformer_model_path)
+    if pretrained_transformer_model_path is not None:
+        model.custom_load_state_dict(pretrained_model_path)
 
     noise_scheduler = DDPMScheduler()
+
+    # Freeze main models
+    ae.vae.requires_grad_(False)
+    text_enc.requires_grad_(False)
+
+    model.train()
+
     # Move unet, vae and text_encoder to device and cast to weight_dtype
     # The VAE is in float32 to avoid NaN losses.
     ae.vae.to(accelerator.device, dtype=torch.float32)
@@ -321,8 +226,8 @@ def main(args):
         ema_model = deepcopy(model)
         ema_model = EMAModel(ema_model.parameters(), decay=args.ema_decay, update_after_step=args.ema_start_step,
                              model_cls=Diffusion_models_class[args.model], model_config=ema_model.config)
-
-    # `accelerate` 0.16.0 will have better support for customized saving
+    
+     # `accelerate` 0.16.0 will have better support for customized saving
     if version.parse(accelerate.__version__) >= version.parse("0.16.0"):
         # create custom saving & loading hooks so that `accelerator.save_state(...)` serializes in a nice format
         def save_model_hook(models, weights, output_dir):
@@ -336,7 +241,9 @@ def main(args):
                         # make sure to pop weight so that corresponding model is not saved again
                         weights.pop()
 
+
         def load_model_hook(models, input_dir):
+            # loading ema with customed 'from_pretrained' function
             if args.use_ema:
                 load_model = EMAModel.from_pretrained(os.path.join(input_dir, "model_ema"), Diffusion_models_class[args.model])
                 ema_model.load_state_dict(load_model.state_dict())
@@ -367,7 +274,7 @@ def main(args):
                 args.learning_rate * args.gradient_accumulation_steps * args.train_batch_size * accelerator.num_processes
         )
 
-    params_to_optimize = model.parameters()
+    params_to_optimize = list(filter(lambda p: p.requires_grad, model.parameters()))
     # Optimizer creation
     if not (args.optimizer.lower() == "prodigy" or args.optimizer.lower() == "adamw"):
         logger.warning(
@@ -431,13 +338,14 @@ def main(args):
     
     # Setup data:
     train_dataset = getdataset(args)
+    logger.info(f"train_dataset: {train_dataset.__class__.__name__}")
     sampler = LengthGroupedSampler(
                 args.train_batch_size,
                 world_size=accelerator.num_processes,
                 lengths=train_dataset.lengths, 
                 group_frame=args.group_frame, 
                 group_resolution=args.group_resolution, 
-            ) if (args.group_frame or args.group_resolution) else None
+            ) if args.group_frame or args.group_resolution else None
     train_dataloader = DataLoader(
         train_dataset,
         shuffle=sampler is None,
@@ -445,11 +353,10 @@ def main(args):
         collate_fn=Collate(args),
         batch_size=args.train_batch_size,
         num_workers=args.dataloader_num_workers,
-        sampler=sampler if (args.group_frame or args.group_resolution) else None, 
+        sampler=sampler if args.group_frame or args.group_resolution else None, 
         drop_last=True, 
         # prefetch_factor=4
     )
-    logger.info(f'after train_dataloader')
 
     # Scheduler and math around the number of training steps.
     overrode_max_train_steps = False
@@ -466,13 +373,9 @@ def main(args):
     )
 
     # Prepare everything with our `accelerator`.
-    # model.requires_grad_(False)
-    # model.pos_embed.requires_grad_(True)
-    logger.info(f'before accelerator.prepare')
     model, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
         model, optimizer, train_dataloader, lr_scheduler
     )
-    logger.info(f'after accelerator.prepare')
     if args.use_ema:
         ema_model.to(accelerator.device)
 
@@ -485,8 +388,17 @@ def main(args):
 
     # We need to initialize the trackers we use, and also store our configuration.
     # The trackers initializes automatically on the main process.
+    # NOTE wandb
     if accelerator.is_main_process:
-        accelerator.init_trackers(os.path.basename(args.output_dir), config=vars(args))
+        logger.info("init trackers...")
+        project_name = os.getenv('PROJECT', os.path.basename(args.output_dir))
+        entity = os.getenv('ENTITY', None)
+        run_name = os.getenv('WANDB_NAME', None)
+        init_kwargs = {
+            "entity": entity,
+            "run_name": run_name,
+        }
+        accelerator.init_trackers(project_name=project_name, config=vars(args), init_kwargs=init_kwargs)
 
     # Train!
     total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
@@ -499,7 +411,7 @@ def main(args):
     logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
     logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
     logger.info(f"  Total optimization steps = {args.max_train_steps}")
-    logger.info(f"  Total training parameters = {sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e9} B")
+    logger.info(f"  Total trainable parameters = {sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e9} B")
     global_step = 0
     first_epoch = 0
 
@@ -592,6 +504,12 @@ def main(args):
         global start_time
         start_time = time.time()
 
+        try:
+            in_channels = ae_channel_config[args.ae]
+            model_input, masked_x, video_mask = model_input[:, 0:in_channels], model_input[:, in_channels:2 * in_channels], model_input[:, 2 * in_channels:]
+        except:
+            raise ValueError("masked_x and video_mask is None!")
+
         noise = torch.randn_like(model_input)
         if args.noise_offset:
             # https://www.crosslabs.org//blog/diffusion-with-offset-noise
@@ -611,10 +529,11 @@ def main(args):
         noisy_model_input = noise_scheduler.add_noise(model_input, noise, timesteps)
 
         model_pred = model(
-            noisy_model_input,
+            torch.cat([noisy_model_input, masked_x, video_mask], dim=1),
             timesteps,
-            **model_kwargs
+            **model_kwargs,
         )[0]
+       
         # Get the target for loss depending on the prediction type
         if args.prediction_type is not None:
             # set prediction_type of scheduler if defined
@@ -631,6 +550,7 @@ def main(args):
             model_pred = model_pred - noise
         else:
             raise ValueError(f"Unknown prediction type {noise_scheduler.config.prediction_type}")
+
 
         mask = model_kwargs.get('attention_mask', None)
         if torch.all(mask.bool()):
@@ -676,7 +596,7 @@ def main(args):
         # Backpropagate
         accelerator.backward(loss)
         if accelerator.sync_gradients:
-            params_to_clip = model.parameters()
+            params_to_clip = params_to_optimize
             accelerator.clip_grad_norm_(params_to_clip, args.max_grad_norm)
         optimizer.step()
         lr_scheduler.step()
@@ -684,23 +604,6 @@ def main(args):
 
         if accelerator.sync_gradients:
             sync_gradients_info(loss)
-
-        if accelerator.is_main_process:
-
-            if progress_info.global_step % args.checkpointing_steps == 0:
-
-                if args.enable_tracker:
-                    log_validation(args, model, ae, text_enc.text_enc, train_dataset.tokenizer, accelerator,
-                                   weight_dtype, progress_info.global_step)
-
-                    if args.use_ema and npu_config is None:
-                        # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
-                        ema_model.store(model.parameters())
-                        ema_model.copy_to(model.parameters())
-                        log_validation(args, model, ae, text_enc.text_enc, train_dataset.tokenizer, accelerator,
-                                    weight_dtype, progress_info.global_step, ema=True)
-                        # Switch back to the original UNet parameters.
-                        ema_model.restore(model.parameters())
 
         if prof is not None:
             prof.step()
@@ -711,45 +614,53 @@ def main(args):
     def train_one_step(step_, data_item_, prof_=None):
         train_loss = 0.0
         x, attn_mask, input_ids, cond_mask = data_item_
+        # assert torch.all(attn_mask.bool()), 'must all visible'
+        # Sample noise that we'll add to the latents
+        # import ipdb;ipdb.set_trace()
         if args.group_frame or args.group_resolution:
             if not args.group_frame:
                 each_latent_frame = torch.any(attn_mask.flatten(-2), dim=-1).int().sum(-1).tolist()
                 # logger.info(f'rank: {accelerator.process_index}, step {step_}, special batch has attention_mask '
                 #             f'each_latent_frame: {each_latent_frame}')
-                print(f'rank: {accelerator.process_index}, step {step_}, special batch has attention_mask '
+                logger.info(f'rank: {accelerator.process_index}, step {step_}, special batch has attention_mask '
                             f'each_latent_frame: {each_latent_frame}')
         assert not torch.any(torch.isnan(x)), 'torch.any(torch.isnan(x))'
-        x = x.to(accelerator.device, dtype=ae.vae.dtype)  # B C T+num_images H W, 16 + 4
+        x = x.to(accelerator.device, dtype=ae.vae.dtype)  # B 3*C T H W, 16
 
-        attn_mask = attn_mask.to(accelerator.device)  # B T+num_images H W
-        input_ids = input_ids.to(accelerator.device)  # B 1+num_images L
-        cond_mask = cond_mask.to(accelerator.device)  # B 1+num_images L
-        # if accelerator.process_index == 0:
-        #     logger.info(f'rank: {accelerator.process_index}, x: {x.shape}, attn_mask: {attn_mask.shape}')
+        attn_mask = attn_mask.to(accelerator.device)  # B T H W
+        input_ids = input_ids.to(accelerator.device)  # B 1 L
+        cond_mask = cond_mask.to(accelerator.device)  # B 1 L
 
         with torch.no_grad():
-            B, N, L = input_ids.shape  # B 1+num_images L
+            B, N, L = input_ids.shape  # B 1 L
             # use batch inference
             input_ids_ = input_ids.reshape(-1, L)
             cond_mask_ = cond_mask.reshape(-1, L)
-            cond = text_enc(input_ids_, cond_mask_)  # B 1+num_images L D
+            cond = text_enc(input_ids_, cond_mask_)  # B 1 L D
             cond = cond.reshape(B, N, L, -1)
-            # Map input images to latent space + normalize latents
-            x = ae.encode(x)  # B C T H W
 
-            # def custom_to_video(x: torch.Tensor, fps: float = 2.0, output_file: str = 'output_video.mp4') -> None:
-            #     from examples.rec_video import array_to_video
-            #     x = x.detach().cpu()
-            #     x = torch.clamp(x, -1, 1)
-            #     x = (x + 1) / 2
-            #     x = x.permute(1, 2, 3, 0).numpy()
-            #     x = (255*x).astype(np.uint8)
-            #     array_to_video(x, fps=fps, output_file=output_file)
-            #     return
-            # videos = ae.decode(x)[0]
-            # videos = videos.transpose(0, 1)
-            # custom_to_video(videos.to(torch.float32), fps=24, output_file='tmp.mp4')
-            # import sys;sys.exit()
+            def preprocess_x_for_inpaint(x):
+                # NOTE vae style mask, deprecated
+                if args.use_vae_preprocessed_mask:
+                    x, masked_x, mask = x[:, :3], x[:, 3:6], x[:, 6:9]
+                    x, masked_x, mask = ae.encode(x), ae.encode(masked_x), ae.encode(mask)
+                else:
+                    x, masked_x, mask = x[:, :3], x[:, 3:6], x[:, 6:7]
+                    x, masked_x = ae.encode(x), ae.encode(masked_x)
+                    batch_size, channels, frame, height, width = mask.shape
+                    mask = rearrange(mask, 'b c t h w -> (b c t) 1 h w')
+                    mask = F.interpolate(mask, size=latent_size, mode='bilinear')
+                    mask = rearrange(mask, '(b c t) 1 h w -> b c t h w', t=frame, b=batch_size)
+                    mask_first_frame = mask[:, :, 0:1].repeat(1, 1, ae_stride_t, 1, 1).contiguous()
+                    mask = torch.cat([mask_first_frame, mask[:, :, 1:]], dim=2)
+                    mask = mask.view(batch_size, ae_stride_t, latent_size_t, latent_size[0], latent_size[1]).contiguous()
+
+                return x, masked_x, mask
+
+            # Map input images to latent space + normalize latents
+            x, masked_x, mask = preprocess_x_for_inpaint(x) # B 3*C T H W -> (B C T H W) * 3 
+            x = torch.cat([x, masked_x, mask], dim=1) # (B C T H W) * 3 -> B 3*C T H W
+
         current_step_frame = x.shape[2]
         current_step_sp_state = get_sequence_parallel_state()
         if args.sp_size != 1:  # enable sp
@@ -774,7 +685,7 @@ def main(args):
                 assert not torch.any(torch.isnan(x)), 'after vae'
                 x = x.to(weight_dtype)
                 model_kwargs = dict(encoder_hidden_states=cond, attention_mask=attn_mask,
-                                    encoder_attention_mask=cond_mask, use_image_num=args.use_image_num)
+                                    encoder_attention_mask=cond_mask, use_image_num=args.use_image_num,)
                 run(x, model_kwargs, prof_)
 
         set_sequence_parallel_state(current_step_sp_state)  # in case the next step use sp, which need broadcast(timesteps)
@@ -820,14 +731,14 @@ def main(args):
         train_all_epoch()
     accelerator.wait_for_everyone()
     accelerator.end_training()
-    if get_sequence_parallel_state():
+    if npu_config is not None and get_sequence_parallel_state():
         destroy_sequence_parallel_group()
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
-    # dataset & dataloader
+     # dataset & dataloader
     parser.add_argument("--dataset", type=str, required=True)
     parser.add_argument("--data", type=str, required='')
     parser.add_argument("--sample_rate", type=int, default=1)
@@ -863,7 +774,6 @@ if __name__ == "__main__":
     parser.add_argument("--ae_path", type=str, default="stabilityai/sd-vae-ft-mse")
     parser.add_argument("--text_encoder_name", type=str, default='DeepFloyd/t5-v1_1-xxl')
     parser.add_argument("--cache_dir", type=str, default='./cache_dir')
-    parser.add_argument("--pretrained", type=str, default=None)
     parser.add_argument('--enable_stable_fp32', action='store_true')
     parser.add_argument("--gradient_checkpointing", action="store_true", help="Whether or not to use gradient checkpointing to save memory at the expense of slower backward pass.")
 
@@ -876,8 +786,8 @@ if __name__ == "__main__":
     parser.add_argument("--prediction_type", type=str, default=None, help="The prediction_type that shall be used for training. Choose between 'epsilon' or 'v_prediction' or leave `None`. If left to `None` the default prediction type of the scheduler: `noise_scheduler.config.prediciton_type` is chosen.")
 
     # validation & logs
-    parser.add_argument("--num_sampling_steps", type=int, default=20)
-    parser.add_argument('--guidance_scale', type=float, default=4.5)
+    parser.add_argument("--num_sampling_steps", type=int, default=50)
+    parser.add_argument('--guidance_scale', type=float, default=2.5)
     parser.add_argument("--enable_tracker", action="store_true")
     parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
     parser.add_argument("--output_dir", type=str, default=None, help="The output directory where the model predictions and checkpoints will be written.")
@@ -952,6 +862,16 @@ if __name__ == "__main__":
     parser.add_argument("--local_rank", type=int, default=-1, help="For distributed training: local_rank")
     parser.add_argument("--sp_size", type=int, default=1, help="For sequence parallel")
     parser.add_argument("--train_sp_batch_size", type=int, default=1, help="Batch size for sequence parallel training")
+
+    # inpaint
+    parser.add_argument("--i2v_ratio", type=float, default=0.5) # for inpainting mode
+    parser.add_argument("--transition_ratio", type=float, default=0.4) # for inpainting mode
+    parser.add_argument("--v2v_ratio", type=float, default=0.1) # for inpainting mode
+    parser.add_argument("--clear_video_ratio", type=float, default=0.0)
+    parser.add_argument("--default_text_ratio", type=float, default=0.1)
+    parser.add_argument("--validation_dir", type=str, default=None, help="Path to the validation dataset.")
+    parser.add_argument("--pretrained_transformer_model_path", type=str, default=None)
+    parser.add_argument("--use_vae_preprocessed_mask", action="store_true")
 
     args = parser.parse_args()
     main(args)

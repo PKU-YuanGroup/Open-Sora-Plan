@@ -3,7 +3,7 @@ from peft import get_peft_model, PeftModel
 import os
 from copy import deepcopy
 import torch
-from diffusers.training_utils import EMAModel
+from opensora.utils.ema import EMAModel
 
 class EMAModel_LoRA(EMAModel):
     def __init__(self, lora_config, **kwargs):
