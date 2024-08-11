@@ -640,7 +640,7 @@ def main(args):
             cond = cond.reshape(B, N, L, -1)
 
             def preprocess_x_for_inpaint(x):
-                # NOTE vae style mask, deprecated
+                # NOTE vae-styled mask, deprecated
                 if args.use_vae_preprocessed_mask:
                     x, masked_x, mask = x[:, :3], x[:, 3:6], x[:, 6:9]
                     x, masked_x, mask = ae.encode(x), ae.encode(masked_x), ae.encode(mask)
@@ -869,7 +869,6 @@ if __name__ == "__main__":
     parser.add_argument("--v2v_ratio", type=float, default=0.1) # for inpainting mode
     parser.add_argument("--clear_video_ratio", type=float, default=0.0)
     parser.add_argument("--default_text_ratio", type=float, default=0.1)
-    parser.add_argument("--validation_dir", type=str, default=None, help="Path to the validation dataset.")
     parser.add_argument("--pretrained_transformer_model_path", type=str, default=None)
     parser.add_argument("--use_vae_preprocessed_mask", action="store_true")
 

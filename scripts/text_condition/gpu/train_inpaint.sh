@@ -1,8 +1,7 @@
-PROJECT="video_test"
-# PROJECT="inpaint_only_480p_f93_bs4x8x1_lr1e-5_snrgamma5_0_noiseoffset0_02_ema0_999"
-export WANDB_API_KEY="720d886d8c437c2142c88056a1eab8ef78d64a1f"
+PROJECT="your project name"
+export WANDB_API_KEY="your wanb key"
 export WANDB_MODE="online"
-export ENTITY="yunyangge"
+export ENTITY="your name"
 export PROJECT=$PROJECT
 export HF_DATASETS_OFFLINE=1 
 export TRANSFORMERS_OFFLINE=1
@@ -27,11 +26,11 @@ accelerate launch \
     opensora/train/train_inpaint.py \
     --model OpenSoraInpaint-ROPE-L/122 \
     --text_encoder_name google/mt5-xxl \
-    --cache_dir "storage/cache_dir" \
+    --cache_dir "../cache_dir" \
     --dataset inpaint \
     --data "scripts/train_data/merge_data.txt" \
     --ae CausalVAEModel_D4_4x8x8 \
-    --ae_path "/storage/dataset/test140k" \
+    --ae_path "/path/to/causalvideovae" \
     --sample_rate 1 \
     --num_frames 93 \
     --use_image_num 0 \
@@ -72,5 +71,5 @@ accelerate launch \
     --speed_factor 1.0 \
     --group_frame \
     --output_dir runs/$PROJECT \
-    --pretrained_transformer_model_path "/storage/gyy/hw/Open-Sora-Plan/runs/inpaint_only_480p_f93_bs4x8x1_lr1e-5_snrgamma5_0_noiseoffset0_02_ema0_999_old_script/checkpoint-25800/model_ema" \
+    --pretrained_transformer_model_path "/path/to/pretrained_model" \
     # --resume_from_checkpoint="latest" \
