@@ -15,7 +15,6 @@ from torchvision.utils import save_image
 from transformers import T5EncoderModel, MT5EncoderModel, UMT5EncoderModel, AutoTokenizer
 
 
-from opensora.adaptor.modules import replace_with_fp32_forwards
 from opensora.models.causalvideovae import ae_stride_config, ae_channel_config, ae_norm, ae_denorm, CausalVAEModelWrapper
 from opensora.models.diffusion.opensora.modeling_inpaint import OpenSoraInpaint
 from opensora.models.diffusion.udit.modeling_udit import UDiTT2V
@@ -27,6 +26,14 @@ from opensora.sample.pipeline_inpaint import OpenSoraInpaintPipeline
 
 import imageio
 
+# for validation
+import glob
+from PIL import Image
+from torchvision import transforms
+from torchvision.transforms import Lambda
+from opensora.dataset.transform import ToTensorVideo, CenterCropResizeVideo, TemporalRandomCrop, LongSideResizeVideo, SpatialStrideCropVideo
+import numpy as np
+from einops import rearrange
 
 def main(args):
     # torch.manual_seed(args.seed)
@@ -51,11 +58,49 @@ def main(args):
             vae.vae.tile_latent_min_size_t = 8
     vae.vae_scale_factor = ae_stride_config[args.ae]
 
+    norm_fun = Lambda(lambda x: 2. * x - 1.)
+
+    resize = [CenterCropResizeVideo((args.height, args.width)), ]
+    transform = transforms.Compose([
+        ToTensorVideo(),
+        *resize, 
+        # RandomHorizontalFlipVideo(p=0.5),  # in case their caption have position decription
+        norm_fun
+    ])
+
+    def preprocess_images(images):
+        print(images)
+        if len(images) == 1:
+            condition_images_indices = [0]
+        elif len(images) == 2:
+            condition_images_indices = [0, -1]
+        else:
+            print("Only support 1 or 2 condition images!")
+            raise NotImplementedError
+        
+        try:
+            condition_images = [Image.open(image).convert("RGB") for image in images]
+            condition_images = [torch.from_numpy(np.copy(np.array(image))) for image in condition_images]
+            condition_images = [rearrange(image, 'h w c -> c h w').unsqueeze(0) for image in condition_images]
+            condition_images = [transform(image).to(device=device, dtype=weight_dtype) for image in condition_images]
+        except Exception as e:
+            print('Error when loading images')
+            print(f'condition images are {images}')
+            raise e
+        return dict(condition_images=condition_images, condition_images_indices=condition_images_indices)
+
+
     transformer_model = OpenSoraInpaint.from_pretrained(args.model_path, cache_dir=args.cache_dir, 
                                                         low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
 
-    text_encoder = MT5EncoderModel.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir, low_cpu_mem_usage=True, torch_dtype=weight_dtype)
-    tokenizer = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
+    text_encoder = MT5EncoderModel.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", 
+                                                   cache_dir=args.cache_dir, low_cpu_mem_usage=True, 
+                                                   torch_dtype=weight_dtype).to(device)
+    tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", 
+                                              cache_dir=args.cache_dir)
+    
+    # text_encoder = MT5EncoderModel.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir, low_cpu_mem_usage=True, torch_dtype=weight_dtype)
+    # tokenizer = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
 
     # set eval mode
     transformer_model.eval()
@@ -104,7 +149,7 @@ def main(args):
                                 tokenizer=tokenizer,
                                 scheduler=scheduler,
                                 transformer=transformer_model)
-    pipeline.to(device)
+    pipeline.to(dtype=weight_dtype, device=device)
     if args.compile:
         # 5%  https://github.com/siliconflow/onediff/tree/main/src/onediff/infer_compiler/backends/nexfort
         options = '{"mode": "max-optimize:max-autotune:freezing:benchmark:low-precision",             \
@@ -129,6 +174,12 @@ def main(args):
         text_prompt = open(args.text_prompt[0], 'r').readlines()
         text_prompt = [i.strip() for i in text_prompt]
 
+    if not isinstance(args.condition_images_path, list):
+        args.condition_images_path = [args.condition_images_path]
+    if len(args.condition_images_path) == 1 and args.condition_images_path[0].endswith('txt'):
+        temp = open(args.condition_images_path[0], 'r').readlines()
+        condition_images = [i.strip().split(',') for i in temp]
+        
     positive_prompt = """
     (masterpiece), (best quality), (ultra-detailed), 
     {}. 
@@ -140,34 +191,41 @@ def main(args):
     """
 
     video_grids = []
-    for idx, prompt in enumerate(text_prompt):
-        videos = pipeline(positive_prompt.format(prompt),
-                          negative_prompt=negative_prompt, 
-                          num_frames=args.num_frames,
-                          height=args.height,
-                          width=args.width,
-                          num_inference_steps=args.num_sampling_steps,
-                          guidance_scale=args.guidance_scale,
-                          num_images_per_prompt=1,
-                          mask_feature=True,
-                          device=args.device, 
-                          max_sequence_length=args.max_sequence_length, 
-                          ).images
+    for idx, (prompt, images) in enumerate(zip(text_prompt, condition_images)):
+
+        pre_results = preprocess_images(images)
+        cond_imgs = pre_results['condition_images']
+        cond_imgs_indices = pre_results['condition_images_indices']
+
+        videos = pipeline(
+            condition_images=cond_imgs,
+            condition_images_indices=cond_imgs_indices,
+            prompt=positive_prompt.format(prompt),
+            negative_prompt=negative_prompt, 
+            num_frames=args.num_frames,
+            height=args.height,
+            width=args.width,
+            num_inference_steps=args.num_sampling_steps,
+            guidance_scale=args.guidance_scale,
+            num_images_per_prompt=1,
+            mask_feature=True,
+            device=args.device, 
+            max_sequence_length=args.max_sequence_length, 
+        ).images
         try:
             if args.num_frames == 1:
                 ext = 'jpg'
                 videos = videos[:, 0].permute(0, 3, 1, 2)  # b t h w c -> b c h w
                 save_image(videos / 255.0, os.path.join(args.save_img_path, f'{idx}.{ext}'), nrow=1, normalize=True, value_range=(0, 1))  # t c h w
-
             else:
                 ext = 'mp4'
                 imageio.mimwrite(
                     os.path.join(args.save_img_path, f'{idx}.{ext}'), videos[0], fps=args.fps, quality=6)  # highest quality is 10, lowest is 0
+            print(f'image or video is saved at {os.path.join(args.save_img_path, f'{idx}.{ext}')}')
         except:
             print('Error when saving {}'.format(prompt))
         video_grids.append(videos)
     video_grids = torch.cat(video_grids, dim=0)
-
 
     # torchvision.io.write_video(args.save_img_path + '_%04d' % args.run_time + '-.mp4', video_grids, fps=6)
     if args.num_frames == 1:
@@ -205,10 +263,7 @@ if __name__ == "__main__":
     parser.add_argument('--compile', action='store_true')
     parser.add_argument('--save_memory', action='store_true')
 
-    parser.add_argument('--sample_mode', type=str, choices=['i2v', 'transition', 'v2v'], default='i2v')
-    parser.add_argument('--condition_img', type=str, default=None, help='tpath of the condition image')
-    parser.add_argument('--condition_video', type=str, default=None, help='path of the condition video')
-    parser.add_argument('--v2v_overlapping_factor', type=float, default=0.2, help='overlapping factor for v2v mode')
+    parser.add_argument('--condition_images_path', type=str, help='the path of txt file containing the paths of condition images')
     args = parser.parse_args()
 
     main(args)
