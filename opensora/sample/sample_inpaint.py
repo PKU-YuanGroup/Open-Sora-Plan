@@ -221,7 +221,8 @@ def main(args):
                 ext = 'mp4'
                 imageio.mimwrite(
                     os.path.join(args.save_img_path, f'{idx}.{ext}'), videos[0], fps=args.fps, quality=6)  # highest quality is 10, lowest is 0
-            print(f'image or video is saved at {os.path.join(args.save_img_path, f'{idx}.{ext}')}')
+            save_path = os.path.join(args.save_img_path, f'{idx}.{ext}')
+            print(f'image or video is saved at {save_path}')
         except:
             print('Error when saving {}'.format(prompt))
         video_grids.append(videos)
