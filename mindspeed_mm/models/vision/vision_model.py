@@ -26,8 +26,19 @@ class VisionModel(nn.Module):
     """
     def __init__(self, config):
         super().__init__()
-        self.encoder = VISION_MODEL_MAPPINGS[config.vision_encoder.model_id](config.vision_encoder)
-        self.projector = VISION_MODEL_MAPPINGS[config.vision_projector.model_id](config.vision_projector)
+        self.encoder = VISION_MODEL_MAPPINGS[config.vision_encoder.model_id](
+            config.vision_encoder,
+            config.vision_transformer_layer_spec,
+            img_h=config.img_h,
+            img_w=config.img_w,
+            patch_dim=config.patch_dim,
+        )
+        self.projector = VISION_MODEL_MAPPINGS[config.vision_projector.model_id](
+            config.vision_projector,
+            config.vision_projection_layer_spec,
+            config.vision_projection_type,
+            config.vision_encoder.hidden_size,
+        )
         self._drop_vision_class_token = config.drop_vision_class_token
 
     def get_model(self):

@@ -52,15 +52,15 @@ class VLModel(nn.Module):
         if self.add_text_decoder:
             self.text_decoder = GPTModel(
                 config=config.text_decoder,
-                transformer_layer_spec=config.text_decoder.language_tansformer_layer_spec,
-                vocab_size=config.text_decoder.language_vocab_size,
-                max_sequence_length=config.text_decoder.language_max_sequence_length,
-                parallel_output=config.text_decoder.parallel_output,
-                position_embedding_type=config.text_decoder.language_position_embedding_type,
-                rotary_percent=config.text_decoder.language_rotary_percent,
+                transformer_layer_spec=config.language_tansformer_layer_spec,
+                vocab_size=config.language_vocab_size,
+                max_sequence_length=config.language_max_sequence_length,
+                parallel_output=config.parallel_output,
+                position_embedding_type=config.language_position_embedding_type,
+                rotary_percent=config.language_rotary_percent,
                 pre_process=self.pre_process,
                 post_process=self.post_process,
-                rotary_base=config.text_decoder.language_rotary_base
+                rotary_base=config.language_rotary_base
             )
             self.share_embeddings_and_output_weights = self.text_decoder.share_embeddings_and_output_weights
         if self.add_image_encoder:
@@ -140,7 +140,7 @@ class VLModel(nn.Module):
         """
 
         if self.add_image_encoder:
-            image_embeddings = self.add_image_encoder(images)
+            image_embeddings = self.image_encoder(images)
         else:
             image_embeddings = None
 
