@@ -11,4 +11,7 @@
 |  开源引入  | https://github.com/openai/improved-diffusion/blob/main/improved_diffusion/gaussian_diffusion.py | mindspeed_mm/models/diffusion/diffusers_utils.py | https://github.com/openai/improved-diffusion/blob/main/improved_diffusion/gaussian_diffusion.py       | 开源代码参考链接 |
 | 开源引入 | https://github.com/PKU-YuanGroup/Open-Sora-Plan/tree/v1.1.0/opensora/models/diffusion/diffusion | mindspeed_mm/models/diffusion/iddpm.py | https://github.com/PKU-YuanGroup/Open-Sora-Plan/tree/v1.1.0/opensora/models/diffusion/diffusion | 开源代码参考链接 |
 | 开源引入 | https://github.com/openai/improved-diffusion/blob/main/improved_diffusion/gaussian_diffusion.py | mindspeed_mm/models/diffusion/iddpm.py | https://github.com/openai/improved-diffusion/blob/main/improved_diffusion/gaussian_diffusion.py | 开源代码参考链接 |
-
+|	开发引入	|	/	|			./mindspeed_mm/models/common/embeddings/__init__.py		|https://github.com/PKU-YuanGroup/Open-Sora-Plan	|开源代码参考指引	|
+|	开发引入	| /  |	./mindspeed_mm/models/common/embeddings/__init__.py	|	https://github.com/facebookresearch/DiT/tree/main				|	开源代码参考指引	|
+|	开发引入	| /  |	.mindspeed_mm/models/common/embeddings/__init__.py	|	https://github.com/PixArt-alpha/PixArt-alpha				|	开源代码参考指引	|
+|	开发引入	| /  |	.mindspeed_mm/models/common/embeddings/__init__.py	|	https://github.com/hpcaitech/Open-Sora/				|	开源代码参考指引	|

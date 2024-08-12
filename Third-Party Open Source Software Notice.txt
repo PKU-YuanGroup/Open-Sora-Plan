@@ -304,3 +304,12 @@ For the full text of the license, please go to the above.
 
 Copyright Notice included in the software: 
 Copyright Copyright (c) 2021 OpenAI
+
+
+Software Notice
+Software Open-Sora-Plan
+License: MIT License
+For the full text of the license, please go to the above.
+
+Copyright Notice included in the software:
+Copyright (c) 2024 PKU-YUAN's Group (袁粒课题组-北大信工) and Rabbitpre AI
