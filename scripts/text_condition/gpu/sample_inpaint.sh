@@ -6,7 +6,7 @@ CUDA_VISIBLE_DEVICES=7 python -m opensora.sample.sample_inpaint \
     --cache_dir "../cache_dir" \
     --text_encoder_name google/mt5-xxl \
     --text_prompt examples/prompt_list_0.txt \
-    --condition_images_path examples/condition_images_path.txt \
+    --conditional_images_path examples/conditional_images_path.txt \
     --ae CausalVAEModel_D4_4x8x8 \
     --ae_path "/path/to/causalvideovae" \
     --save_img_path "./sample_video_93x480p_cfg7.5_step100" \

@@ -107,23 +107,23 @@ def run_model_and_save_images(pipeline, model_path):
     def preprocess_images(images):
         print(images)
         if len(images) == 1:
-            condition_images_indices = [0]
+            conditional_images_indices = [0]
         elif len(images) == 2:
-            condition_images_indices = [0, -1]
+            conditional_images_indices = [0, -1]
         else:
             print("Only support 1 or 2 condition images!")
             raise NotImplementedError
         
         try:
-            condition_images = [Image.open(image).convert("RGB") for image in images]
-            condition_images = [torch.from_numpy(np.copy(np.array(image))) for image in condition_images]
-            condition_images = [rearrange(image, 'h w c -> c h w').unsqueeze(0) for image in condition_images]
-            condition_images = [transform(image).to(device=device, dtype=weight_dtype) for image in condition_images]
+            conditional_images = [Image.open(image).convert("RGB") for image in images]
+            conditional_images = [torch.from_numpy(np.copy(np.array(image))) for image in conditional_images]
+            conditional_images = [rearrange(image, 'h w c -> c h w').unsqueeze(0) for image in conditional_images]
+            conditional_images = [transform(image).to(device=device, dtype=weight_dtype) for image in conditional_images]
         except Exception as e:
             print('Error when loading images')
             print(f'condition images are {images}')
             raise e
-        return dict(condition_images=condition_images, condition_images_indices=condition_images_indices)
+        return dict(conditional_images=conditional_images, conditional_images_indices=conditional_images_indices)
     
 
     checkpoint_name = f"{os.path.basename(model_path)}"
@@ -148,21 +148,21 @@ def run_model_and_save_images(pipeline, model_path):
         text_prompt = open(args.text_prompt[0], 'r').readlines()
         text_prompt = [i.strip() for i in text_prompt]
 
-    if not isinstance(args.condition_images_path, list):
-        args.condition_images_path = [args.condition_images_path]
-    if len(args.condition_images_path) == 1 and args.condition_images_path[0].endswith('txt'):
-        temp = open(args.condition_images_path[0], 'r').readlines()
-        condition_images = [i.strip().split(',') for i in temp]
+    if not isinstance(args.conditional_images_path, list):
+        args.conditional_images_path = [args.conditional_images_path]
+    if len(args.conditional_images_path) == 1 and args.conditional_images_path[0].endswith('txt'):
+        temp = open(args.conditional_images_path[0], 'r').readlines()
+        conditional_images = [i.strip().split(',') for i in temp]
     
     video_grids = []
-    for idx, (prompt, images) in enumerate(zip(text_prompt, condition_images)):
+    for idx, (prompt, images) in enumerate(zip(text_prompt, conditional_images)):
         pre_results = preprocess_images(images)
-        cond_imgs = pre_results['condition_images']
-        cond_imgs_indices = pre_results['condition_images_indices']
+        cond_imgs = pre_results['conditional_images']
+        cond_imgs_indices = pre_results['conditional_images_indices']
 
         videos = pipeline(
-            condition_images=cond_imgs,
-            condition_images_indices=cond_imgs_indices,
+            conditional_images=cond_imgs,
+            conditional_images_indices=cond_imgs_indices,
             prompt=positive_prompt.format(prompt),
             negative_prompt=negative_prompt, 
             num_frames=args.num_frames,
@@ -234,7 +234,7 @@ if __name__ == "__main__":
     parser.add_argument('--compile', action='store_true')
     parser.add_argument('--save_memory', action='store_true')
 
-    parser.add_argument('--condition_images_path', type=str, help='the path of txt file containing the paths of condition images')
+    parser.add_argument('--conditional_images_path', type=str, help='the path of txt file containing the paths of condition images')
     args = parser.parse_args()
     args = parser.parse_args()
 
