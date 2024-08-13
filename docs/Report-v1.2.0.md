@@ -180,6 +180,7 @@ In the 2+1D architecture, the semantic adapter is commonly present. Additionally
 	<img src="https://github.com/user-attachments/assets/09906df4-ab9f-443d-8d38-512e16075b0c" height=400 />
 </figure>
 </center>
+
 We conducted a simple comparison of the performance of using the Inpainting Model under the 2+1D structure (Open-Sora Plan v1.1, left in the figure) versus the 3D structure (Open-Sora Plan v1.2, right in the figure). With the same number of optimization steps, the probability of unstable visual performance in the 2+1D structure was significantly higher than in the 3D structure. Even at convergence, the 2+1D structure's visual stability was still inferior to that of the 3D structure, and it was even worse than the early training stages of the 3D structure.
 
 ## Future Work and Discussion
