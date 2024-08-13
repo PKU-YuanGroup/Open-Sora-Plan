@@ -360,7 +360,7 @@ In the current version, we have only open-sourced the 480p version of the Image-
 | ------- | ------------ | ----------- |
 | 93×480p | 427s/100step | 81s/100step |
 
-Before inference, you need to create two text files: one named `prompt.txt` and another named `condition_images_path.txt`. Each line of text in `prompt.txt` should correspond to the paths on each line in `condition_images_path.txt`. 
+Before inference, you need to create two text files: one named `prompt.txt` and another named `conditional_images_path.txt`. Each line of text in `prompt.txt` should correspond to the paths on each line in `conditional_images_path.txt`. 
 
 For example, if the content of `prompt.txt` is:
 
@@ -369,7 +369,7 @@ this is a prompt of i2v task.
 this is a prompt of transition task.
 ```
 
-Then the content of condition_images_path should be:
+Then the content of conditional_images_path should be:
 
 ```
 /path/to/image_0.png
