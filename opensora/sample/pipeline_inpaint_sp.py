@@ -834,10 +834,6 @@ class OpenSoraInpaintPipeline(DiffusionPipeline):
             mask = mask[:, :, latents_frames * rank: latents_frames * (rank + 1)]
             masked_video = masked_video[:, :, latents_frames * rank: latents_frames * (rank + 1)]
 
-        print(f"latents dtype: {latents.dtype}")
-        print(f"mask dtype: {mask.dtype}")
-        print(f"masked video dtype: {masked_video.dtype}")
-
         # 7. Denoising loop
         num_warmup_steps = max(len(timesteps) - num_inference_steps * self.scheduler.order, 0)
 
