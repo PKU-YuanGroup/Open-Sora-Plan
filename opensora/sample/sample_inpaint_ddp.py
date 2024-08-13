@@ -280,15 +280,9 @@ if __name__ == "__main__":
             vae.vae.tile_latent_min_size_t = 8
     vae.vae_scale_factor = ae_stride_config[args.ae]
 
-    text_encoder = MT5EncoderModel.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", 
-                                                   cache_dir=args.cache_dir, low_cpu_mem_usage=True, 
-                                                   torch_dtype=weight_dtype).to(device)
-    tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", 
-                                              cache_dir=args.cache_dir)
-    
-    # text_encoder = MT5EncoderModel.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir,
-    #                                               low_cpu_mem_usage=True, torch_dtype=weight_dtype).to(device)
-    # tokenizer = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
+    text_encoder = MT5EncoderModel.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir,
+                                                  low_cpu_mem_usage=True, torch_dtype=weight_dtype).to(device)
+    tokenizer = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
 
 
     # set eval mode
