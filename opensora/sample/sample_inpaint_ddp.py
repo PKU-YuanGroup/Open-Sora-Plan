@@ -21,21 +21,19 @@ from opensora.adaptor.modules import replace_with_fp32_forwards
 from opensora.models.causalvideovae import ae_stride_config, ae_channel_config, ae_norm, ae_denorm, CausalVAEModelWrapper
 from opensora.models.diffusion.udit.modeling_udit import UDiTT2V
 from opensora.models.diffusion.opensora.modeling_inpaint import OpenSoraInpaint
-
 from opensora.models.text_encoder import get_text_enc
 from opensora.utils.utils import save_video_grid
 
-from opensora.sample.pipeline_inpaint_sp import OpenSoraInpaintPipeline
+from opensora.sample.pipeline_inpaint import OpenSoraInpaintPipeline
 
 import imageio
+
 try:
     import torch_npu
     from opensora.npu_config import npu_config
-    from opensora.acceleration.parallel_states import initialize_sequence_parallel_state, hccl_info
 except:
     torch_npu = None
     npu_config = None
-    from opensora.utils.parallel_states import initialize_sequence_parallel_state, nccl_info
     pass
 import time
 
@@ -50,10 +48,10 @@ from einops import rearrange
 
 
 def load_t2v_checkpoint(model_path):
-    print('load_t2v_checkpoint, ', model_path)
-    transformer_model = OpenSoraInpaint.from_pretrained(model_path, cache_dir=args.cache_dir,
-                                                        low_cpu_mem_usage=False, device_map=None,)
 
+    transformer_model = OpenSoraInpaint.from_pretrained(model_path, cache_dir=args.cache_dir,
+                                                    low_cpu_mem_usage=False, device_map=None,
+                                                    torch_dtype=weight_dtype)
     # print(transformer_model.config)
 
     # set eval mode
@@ -63,7 +61,6 @@ def load_t2v_checkpoint(model_path):
                                 tokenizer=tokenizer,
                                 scheduler=scheduler,
                                 transformer=transformer_model).to(device)
-
 
     if args.compile:
         # 5%  https://github.com/siliconflow/onediff/tree/main/src/onediff/infer_compiler/backends/nexfort
@@ -93,7 +90,6 @@ def get_latest_path():
 
 
 def run_model_and_save_images(pipeline, model_path):
-
     norm_fun = Lambda(lambda x: 2. * x - 1.)
 
     resize = [CenterCropResizeVideo((args.height, args.width)), ]
@@ -154,8 +150,13 @@ def run_model_and_save_images(pipeline, model_path):
         temp = open(args.condition_images_path[0], 'r').readlines()
         condition_images = [i.strip().split(',') for i in temp]
     
+    assert len(text_prompt) % world_size == 0, "The sample num must be a multiple of the world size; otherwise, it may cause an all_gather error."
+
     video_grids = []
     for idx, (prompt, images) in enumerate(zip(text_prompt, condition_images)):
+        if idx % world_size != local_rank:
+            continue
+
         pre_results = preprocess_images(images)
         cond_imgs = pre_results['condition_images']
         cond_imgs_indices = pre_results['condition_images_indices']
@@ -175,38 +176,44 @@ def run_model_and_save_images(pipeline, model_path):
             device=args.device, 
             max_sequence_length=args.max_sequence_length, 
         ).images
-        
-        if nccl_info.rank <= 0:
-            try:
-                if args.num_frames == 1:
-                    ext = 'jpg'
-                    videos = videos[:, 0].permute(0, 3, 1, 2)  # b t h w c -> b c h w
-                    save_image(videos / 255.0, os.path.join(args.save_img_path, f'{idx}.{ext}'), nrow=1, normalize=True, value_range=(0, 1))  # t c h w
-                else:
-                    ext = 'mp4'
-                    imageio.mimwrite(
-                        os.path.join(args.save_img_path, f'{idx}.{ext}'), videos[0], fps=args.fps, quality=6)  # highest quality is 10, lowest is 0
-                    save_path = os.path.join(args.save_img_path, f'{idx}.{ext}')
-                    print(f'image or video is saved at {save_path}')
-            except:
-                print('Error when saving {}'.format(prompt))
-            video_grids.append(videos)
-    if nccl_info.rank <= 0:
-        video_grids = torch.cat(video_grids, dim=0)
 
-        def get_file_name():
-            return os.path.join(args.save_img_path,
-                                f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}_{checkpoint_name}.{ext}')
+        try:
+            if args.num_frames == 1:
+                ext = 'jpg'
+                videos = videos[:, 0].permute(0, 3, 1, 2)  # b t h w c -> b c h w
+                save_image(videos / 255.0, os.path.join(args.save_img_path, f'{idx}.{ext}'), nrow=1, normalize=True, value_range=(0, 1))  # t c h w
+            else:
+                ext = 'mp4'
+                imageio.mimwrite(
+                    os.path.join(args.save_img_path, f'{idx}.{ext}'), videos[0], fps=args.fps, quality=6)  # highest quality is 10, lowest is 0
+                save_path = os.path.join(args.save_img_path, f'{idx}.{ext}')
+                print(f'image or video is saved at {save_path}')
+        except:
+            print('Error when saving {}'.format(prompt))
+        video_grids.append(videos)
 
+    dist.barrier()
+    video_grids = torch.cat(video_grids, dim=0).cuda()
+    shape = list(video_grids.shape)
+    shape[0] *= world_size
+    gathered_tensor = torch.zeros(shape, dtype=video_grids.dtype, device=device)
+    dist.all_gather_into_tensor(gathered_tensor, video_grids.contiguous())
+    video_grids = gathered_tensor.cpu()
+
+    def get_file_name():
+        return os.path.join(args.save_img_path,
+                            f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}_{checkpoint_name}.{ext}')
+    
+    if local_rank == 0:
         if args.num_frames == 1:
             save_image(video_grids / 255.0, get_file_name(),
                     nrow=math.ceil(math.sqrt(len(video_grids))), normalize=True, value_range=(0, 1))
         else:
             video_grids = save_video_grid(video_grids)
-            imageio.mimwrite(get_file_name(), video_grids, fps=args.fps, quality=6)
+            imageio.mimwrite(get_file_name(), video_grids, fps=args.fps, quality=6, codec='libx264',
+                    output_params=['-threads', '20'])
 
-        print('save path {}'.format(args.save_img_path))
-
+    print('save path {}'.format(args.save_img_path))
 
 
 if __name__ == "__main__":
@@ -229,13 +236,14 @@ if __name__ == "__main__":
     parser.add_argument("--max_sequence_length", type=int, default=512)
     parser.add_argument("--text_prompt", nargs='+')
     parser.add_argument('--tile_overlap_factor', type=float, default=0.25)
+    parser.add_argument("--seed", type=int, default=42)
     parser.add_argument('--enable_tiling', action='store_true')
-    parser.add_argument('--model_type', type=str, default="dit", choices=['dit', 'udit', 'latte'])
+    parser.add_argument('--refine_caption', action='store_true')
     parser.add_argument('--compile', action='store_true')
+    parser.add_argument('--model_type', type=str, default="dit", choices=['dit', 'udit', 'latte'])
     parser.add_argument('--save_memory', action='store_true')
 
     parser.add_argument('--condition_images_path', type=str, help='the path of txt file containing the paths of condition images')
-    args = parser.parse_args()
     args = parser.parse_args()
 
     if torch_npu is not None:
@@ -250,8 +258,8 @@ if __name__ == "__main__":
     else:
         torch.cuda.set_device(local_rank)
     dist.init_process_group(backend='nccl', init_method='env://', world_size=world_size, rank=local_rank)
-    initialize_sequence_parallel_state(world_size)
-    # torch.manual_seed(args.seed)
+
+    torch.manual_seed(args.seed)
     weight_dtype = torch.bfloat16
     device = torch.cuda.current_device()
     # print(11111111111111111111, local_rank, device)
@@ -270,7 +278,6 @@ if __name__ == "__main__":
             vae.vae.tile_latent_min_size = 32
             vae.vae.tile_sample_min_size_t = 29
             vae.vae.tile_latent_min_size_t = 8
-
     vae.vae_scale_factor = ae_stride_config[args.ae]
 
     text_encoder = MT5EncoderModel.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", 
@@ -281,7 +288,8 @@ if __name__ == "__main__":
     
     # text_encoder = MT5EncoderModel.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir,
     #                                               low_cpu_mem_usage=True, torch_dtype=weight_dtype).to(device)
-    # tokenizer = T5Tokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
+    # tokenizer = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
+
 
     # set eval mode
     vae.eval()
@@ -322,11 +330,13 @@ if __name__ == "__main__":
 
     if latest_path is None:
         latest_path = ''
-    # full_path = f"{args.model_path}/{latest_path}/model_ema"
+
     full_path = f"{args.model_path}"
+    # full_path = f"{args.model_path}/{latest_path}/model_ema"
     # full_path = f"{args.model_path}/{latest_path}/model"
     pipeline = load_t2v_checkpoint(full_path)
     pipeline = pipeline.to(weight_dtype)
+
     print('load model')
     if npu_config is not None and npu_config.on_npu and npu_config.profiling:
         experimental_config = torch_npu.profiler._ExperimentalConfig(

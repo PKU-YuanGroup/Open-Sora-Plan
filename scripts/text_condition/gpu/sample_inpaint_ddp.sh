@@ -1,6 +1,6 @@
 
 torchrun --nnodes=1 --nproc_per_node 8  --master_port 29503 \
-    -m opensora.sample.sample_inpaint_sp \
+    -m opensora.sample.sample_inpaint_ddp \
     --model_path /path/to/checkpoint-xxx/model \
     --num_frames 93 \
     --height 480 \

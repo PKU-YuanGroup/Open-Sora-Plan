@@ -24,7 +24,7 @@ We open-source the Open-Sora-Plan to facilitate future development of Video Gene
   <td><video src="https://github.com/user-attachments/assets/1c84bc92-d585-46c9-ae7c-e5f79cefea88" autoplay></td>
 </tr>
 </table>
-  
+
 ## Detailed Technical Report
 
 ### CausalVideoVAE
@@ -160,7 +160,20 @@ Additionally, we fine-tuned 3.5k steps from the final 93×720p to get [93×480p]
 
 ### Training Image-to-Video Diffusion Model
 
-Coming soon...
+#### Model Structure
+
+<img src="https://s21.ax1x.com/2024/08/12/pApZZJf.png">
+
+To reuse the weights of the Text-to-Video model, our Image-to-Video model is inspired by the Stable Diffusion Inpaint Model and adopts a strategy based on frame-level inpainting. By incorporating three types of information—original noise, masked video, and mask—under different control frame conditions, our model can generate coherent videos while ensuring flexibility in its usage.
+
+Compared to the denoiser structure of the Text-to-Video model, the Inpaint model's denoiser has only changed the number of channels in the `conv in` layer. To ensure the model has a good prior knowledge, we introduce the masked video and mask information through zero initialization. We believe this is due to the 2+1D structure's lack of ability to establish long-range information dependencies, and relying solely on attention in the temporal dimension makes it difficult to capture information changes under frame control. In Text-to-Video tasks, this phenomenon is not as evident because all frames share the same text prompt embedding. However, in Image-to-Video tasks, simply concatenating images in the channel dimension does not ensure the model can accurately capture changes between frames. This is because the model cannot directly replicate image information from the channels to reduce the loss, and the 2+1D structure's interaction solely on the temporal axis fails to allow the model to discern which information from the control frames can be utilized, especially there are significant differences between frames. Therefore, without a shared image-semantic information, the control frame information might not be effectively conveyed to each frame.
+
+##### About Semantic Adapter
+
+In previous models based on the Unet 2+1D architecture, it is necessary to input the control frames into the CLIP model to obtain semantic embeddings. These semantic embeddings are then injected into the denoiser through cross-attention. The structure that extracts CLIP embeddings and injects them into the denoiser is commonly referred to as a semantic adapter.
+
+In the 2+1D architecture, the semantic adapter is commonly present. Additionally, papers like [DynamiCrafter](https://arxiv.org/abs/2310.12190) have pointed out that incorporating the semantic adapter helps maintain stability in the generated videos. We believe this is because the 2+1D structure lacks the ability to establish long-range information dependencies, and relying solely on attention in the temporal dimension makes it difficult to capture information changes under frame control. In the Text-to-Video task, this phenomenon is not as evident because all frames share the same text prompt embedding. However, in the Image-to-Video task, without shared semantic information, it may lead to the inability to effectively transfer control frame information to each individual frame.
+
 
 
 ## Future Work and Discussion
