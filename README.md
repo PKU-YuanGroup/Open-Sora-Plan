@@ -7,7 +7,7 @@ This project aims to create a simple and scalable repo, to reproduce [Sora](http
 本项目希望通过开源社区的力量复现Sora，由北大-兔展AIGC联合实验室共同发起，当前版本离目标差距仍然较大，仍需持续完善和快速迭代，欢迎Pull request！目前代码同时支持使用国产AI计算系统（华为昇腾）进行完整的训练和推理。基于昇腾训练出的模型，也可输出持平业界的视频质量。
 
 <h5 align="left">
-  
+
 [![slack badge](https://img.shields.io/badge/Discord-join-blueviolet?logo=discord&amp)](https://discord.gg/FkFm5M2J)
 [![WeChat badge](https://img.shields.io/badge/微信-加入-green?logo=wechat&amp)](https://github.com/PKU-YuanGroup/Open-Sora-Plan/issues/53#issuecomment-1987226516)
 [![Twitter](https://img.shields.io/badge/-Twitter@LinBin46984-black?logo=twitter&logoColor=1D9BF0)](https://x.com/LinBin46984/status/1795018003345510687) <br>
@@ -26,6 +26,7 @@ This project aims to create a simple and scalable repo, to reproduce [Sora](http
 
 
 # 📣 News
+* **[2024.08.13]** 🎉 We are launching Open-Sora Plan v1.2.0 **I2V** model, which based on Open-Sora Plan v1.2.0. The current version supports image-to-video generation and transition generation (the starting and ending frames conditions for video generation). Checking out the Image-to-Video section in this [report](docs/Report-v1.2.0.md).
 * **[2024.07.24]** 🔥🔥🔥 v1.2.0 is here! Utilizing a 3D full attention architecture instead of 2+1D. We released a true 3D video diffusion model trained on 4s 720p. Checking out our latest [report](docs/Report-v1.2.0.md).
 * **[2024.05.27]** 🎉 We are launching Open-Sora Plan v1.1.0, which significantly improves video quality and length, and is fully open source! Please check out our latest [report](docs/Report-v1.1.0.md). Thanks to [ShareGPT4Video's](https://sharegpt4video.github.io/) capability to annotate long videos.
 * **[2024.04.09]** 🤝 Excited to share our latest exploration on metamorphic time-lapse video generation: [MagicTime](https://github.com/PKU-YuanGroup/MagicTime), which learns real-world physics knowledge from time-lapse videos.
@@ -43,7 +44,7 @@ This project aims to create a simple and scalable repo, to reproduce [Sora](http
 </tr>
 </table>
 
-  
+
 # 😮 Highlights
 
 Open-Sora Plan shows excellent performance in video generation.
@@ -76,7 +77,7 @@ Coming soon...
 
 | Version | Architecture |  Diffusion Model | CausalVideoVAE | Data|
 |:---|:---|:---|:---|:---|
-| v1.2.0 | 3D | [93x720p](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0/tree/main/93x720p), [29x720p](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0/tree/main/29x720p)[1], [93x480p](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0/tree/main/93x480p)[1,2], [1x480p](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0/tree/main/1x480p) | [Anysize](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0/tree/main/vae)| [Annotations](https://huggingface.co/datasets/LanguageBind/Open-Sora-Plan-v1.2.0) |
+| v1.2.0 | 3D | [93x720p](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0/tree/main/93x720p), [29x720p](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0/tree/main/29x720p)[1], [93x480p](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0/tree/main/93x480p)[1,2], [1x480p](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0/tree/main/1x480p), [93x480p_i2v](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0/tree/main/93x480p_i2v) | [Anysize](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0/tree/main/vae)| [Annotations](https://huggingface.co/datasets/LanguageBind/Open-Sora-Plan-v1.2.0) |
 | v1.1.0 | 2+1D | [221x512x512](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.1.0/tree/main/221x512x512), [65x512x512](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.1.0/tree/main/65x512x512) |[Anysize](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.1.0/tree/main/vae) |[Data and Annotations](https://huggingface.co/datasets/LanguageBind/Open-Sora-Plan-v1.1.0)|
 | v1.0.0 | 2+1D | [65x512x512](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.0.0/tree/main/65x512x512), [65x256x256](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.0.0/tree/main/65x256x256), [17x256x256](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.0.0/tree/main/17x256x256) | [Anysize](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.0.0/tree/main/vae) | [Data and Annotations](https://huggingface.co/datasets/LanguageBind/Open-Sora-Plan-v1.0.0)|
 
@@ -85,6 +86,7 @@ Coming soon...
 > [2] We fine-tuned 3.5k steps from 93×720p to get 93×480p for community research use.
 
 > [!Warning]
+>
 > <div align="left">
 > <b>
 > 🚨 For version 1.2.0, we no longer support 2+1D models.
@@ -327,13 +329,74 @@ bash scripts/text_condition/gpu/sample_t2v_sp.sh
 ## 🖼️ Image-to-Video
 
 ### Data prepare
-Coming soon...
+Same as Text-to-Video.
 
 ### Training
-Coming soon...
+```
+bash scripts/text_condition/gpu/train_inpaint.sh
+```
+
+In addition to the parameters shared with the Text-to-Video mode, there are some unique parameters specific to the Image-to-Video mode that you need to be aware of.
+
+| Argparse          | Usage                                                        |
+| :---------------- | :----------------------------------------------------------- |
+| _Training size_   |                                                              |
+| `--use_vae_preprocessed_mask` | Whether to use VAE (Variational Autoencoder) to encode the mask in order to achieve frame-level mask alignment. |
+| _Data processing_ |                                                              |
+| `--i2v_ratio 0.5` | The proportion of training data allocated to executing the Image-to-Video task. |
+| `--transition_ratio 0.4 ` | The proportion of training data allocated to executing the transition task. |
+| ` --v2v_ratio 0.1 ` | The proportion of training data allocated to executing the video continuation task. |
+| `--default_text_ratio 0.5` | When training with CFG (Classifier-Free Guidance) enabled, a portion of the text is replaced with default text, while another portion is set to an empty string. |
+| _Load weights_ |  |
+| `--pretrained_transformer_model_path ` | This parameter functions the same as the `--pretrained` parameter. |
 
 ### Inference
-Coming soon...
+
+In the current version, we have only open-sourced the 480p version of the Image-to-Video (I2V) model. We recommend configuration `--guidance_scale 7.5 --num_sampling_steps 100 --sample_method PNDM` for sampling. Please note that due to the addition of frame-controllable fine-tuning, using the other samplers may not yield satisfactory results.
+
+**Inference on 93×480p**, we report speed on H100.
+
+| Size    | 1 GPU        | 8 GPUs (sp) |
+| ------- | ------------ | ----------- |
+| 93×480p | 427s/100step | 81s/100step |
+
+Before inference, you need to create two text files: one named `prompt.txt` and another named `conditional_images_path.txt`. Each line of text in `prompt.txt` should correspond to the paths on each line in `conditional_images_path.txt`. 
+
+For example, if the content of `prompt.txt` is:
+
+```
+this is a prompt of i2v task.
+this is a prompt of transition task.
+```
+
+Then the content of conditional_images_path should be:
+
+```
+/path/to/image_0.png
+/path/to/image_1_0.png,/path/to/image_1_1.png
+```
+
+This means we will execute a image-to-video task using `/path/to/image_0.png` and "this is a prompt of i2v task." For the transition task, we'll use `/path/to/image_1_0.png` and `/path/to/image_1_1.png` (note that these two paths are separated by a comma without any spaces) along with "this is a prompt of transition task."
+
+After creating the files, make sure to specify their paths in the `sample_inpaint.sh` script.
+
+#### 🖥️ 1 GPU 
+
+If you only have one GPU, it will perform inference on each sample sequentially, one at a time.
+```
+bash scripts/text_condition/gpu/sample_inpaint.sh
+```
+#### 🖥️🖥️ Multi-GPUs 
+If you want to batch infer a large number of samples, each GPU will infer one sample.
+```
+bash scripts/text_condition/gpu/sample_inpaint_ddp.sh
+```
+
+#### 🖥️🖥️ Multi-GPUs & Sequence Parallelism 
+If you want to quickly infer one sample, it will utilize all GPUs simultaneously to infer that sample.
+```
+bash scripts/text_condition/gpu/sample_inpaint_sp.sh
+```
 
 # 💡 How to Contribute
 We greatly appreciate your contributions to the Open-Sora Plan open-source community and helping us make it even better than it is now!

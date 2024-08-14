@@ -44,3 +44,6 @@ hw*
 taming*
 221hw*
 65x512x512
+runs/
+samples/
+*validation/
