@@ -19,8 +19,10 @@ class Tokenizer:
         }
     """
     def __init__(self, config):
+        config = config.to_dict()
         self.backend = config.pop("hub_backend")
         self.autotokenizer_name = config.pop("autotokenizer_name")
+        config["pretrained_model_name_or_path"] = config.pop("from_pretrained")
 
         # Only huggingface backend is supported, OpenMind backend will be supported soon.
         module = importlib.import_module("transformers")

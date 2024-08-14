@@ -3,6 +3,7 @@ import transformers
 
 from mindspeed_mm import Tokenizer
 from tests.ut.utils import judge_expression
+from tests.ut.utils import TestConfig
 
 
 T5_MODEL_PATH = "/home/ci_resource/models/t5"
@@ -21,12 +22,12 @@ class TestTokenizer:
         """
         test t5 tokenizer processor
         """
-        configs = {
+        config_dict = {
                 "hub_backend": "hf",
                 "autotokenizer_name": "AutoTokenizer",
-                "pretrained_model_name_or_path": T5_MODEL_PATH,
-                "local_files_only": False
+                "from_pretrained": T5_MODEL_PATH,
         }
+        configs = TestConfig(config_dict)
         tokenizer = Tokenizer(configs)
         t5_tokenizer = tokenizer.get_tokenizer()
         judge_expression(isinstance(t5_tokenizer, transformers.models.t5.tokenization_t5_fast.T5TokenizerFast))
@@ -39,12 +40,12 @@ class TestTokenizer:
         """
         test mt5 tokenizer processor
         """
-        configs = {
+        config_dict = {
                 "hub_backend": "hf",
                 "autotokenizer_name": "AutoTokenizer",
-                "pretrained_model_name_or_path": MT5_MODEL_PATH,
-                "local_files_only": False
+                "from_pretrained": MT5_MODEL_PATH,
         }
+        configs = TestConfig(config_dict)
         tokenizer = Tokenizer(configs)
         mt5_tokenizer = tokenizer.get_tokenizer()
         judge_expression(isinstance(mt5_tokenizer, transformers.models.t5.tokenization_t5_fast.T5TokenizerFast))
@@ -57,13 +58,13 @@ class TestTokenizer:
         """
         test clip tokenizer processor
         """
-        configs = {
+        config_dict = {
                 "hub_backend": "hf",
                 "autotokenizer_name": "AutoTokenizer",
-                "pretrained_model_name_or_path": CLIP_MODEL_PATH,
-                "local_files_only": False,
+                "from_pretrained": CLIP_MODEL_PATH,
                 "subfolder": "tokenizer"
         }
+        configs = TestConfig(config_dict)
         tokenizer = Tokenizer(configs)
         clip_tokenizer = tokenizer.get_tokenizer()
         judge_expression(isinstance(clip_tokenizer, transformers.models.clip.tokenization_clip_fast.CLIPTokenizerFast))
