@@ -48,6 +48,8 @@ check.py
 bucket.py
 whileinf.py
 validation_dir/
+runs/
+samples/
 inpaint*/
 bs32x8x1*
 *tmp*
@@ -56,6 +58,8 @@ check.py
 bucket.py
 whileinf.py
 bs4x8x16_*
+*.zip
+*validation/
 bs1x8x32*
 bs16x8x1*
 bs8x8x2*

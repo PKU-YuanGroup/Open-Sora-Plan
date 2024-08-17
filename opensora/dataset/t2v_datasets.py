@@ -363,7 +363,7 @@ class T2V_dataset(Dataset):
             sample_size.append(f"{len(i['sample_frame_index'])}x{sample_h}x{sample_w}")
 
         # import ipdb;ipdb.set_trace()
-        logger.info(f'no_cap: {cnt_no_cap}, too_long: {cnt_too_long}, too_short: {cnt_too_short}, '
+        print(f'no_cap: {cnt_no_cap}, too_long: {cnt_too_long}, too_short: {cnt_too_short}, '
                 f'no_resolution: {cnt_no_resolution}, resolution_mismatch: {cnt_resolution_mismatch}, '
                 f'Counter(sample_size): {Counter(sample_size)}, cnt_movie: {cnt_movie}, cnt_img: {cnt_img}, '
                 f'before filter: {len(cap_list)}, after filter: {len(new_cap_list)}')
@@ -416,7 +416,7 @@ class T2V_dataset(Dataset):
         for folder, anno in folder_anno:
             with open(anno, 'r') as f:
                 sub_list = json.load(f)
-            logger.info(f'Building {anno}...')
+            print(f'Building {anno}...')
             for i in range(len(sub_list)):
                 sub_list[i]['path'] = opj(folder, sub_list[i]['path'])
             if npu_config is not None:
