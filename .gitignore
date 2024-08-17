@@ -65,3 +65,6 @@ bs1x8x16*
 checklora.py
 dim4todim8.py
 *vae8_any*320x320*
+samples/
+runs/
+*validation/
