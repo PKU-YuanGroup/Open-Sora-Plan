@@ -67,7 +67,6 @@ accelerate launch \
     --default_text_ratio 0.5 \
     --use_rope \
     --ema_decay 0.999 \
-    --seed 42 \
     --speed_factor 1.0 \
     --group_frame \
     --output_dir runs/$PROJECT \
