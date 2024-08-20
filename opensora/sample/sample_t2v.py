@@ -20,6 +20,7 @@ from opensora.adaptor.modules import replace_with_fp32_forwards
 from opensora.models.causalvideovae import ae_stride_config, ae_channel_config, ae_norm, ae_denorm, CausalVAEModelWrapper
 
 from opensora.models.diffusion.opensora.modeling_opensora import OpenSoraT2V
+from opensora.models.diffusion.opensora2.modeling_opensora import OpenSoraT2V as SparseOpenSoraT2V
 from opensora.models.diffusion.udit.modeling_udit import UDiTT2V
 
 from opensora.models.text_encoder import get_text_enc
@@ -63,6 +64,9 @@ def main(args):
                                                         low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
     elif args.model_type == 'udit':
         transformer_model = UDiTT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, ignore_mismatched_sizes=True, 
+                                                        low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
+    elif args.model_type == 'sparsedit':
+        transformer_model = SparseOpenSoraT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, ignore_mismatched_sizes=True, 
                                                         low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
     else:
         transformer_model = LatteT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, low_cpu_mem_usage=False, 
@@ -180,6 +184,7 @@ def main(args):
                           width=args.width,
                           num_inference_steps=args.num_sampling_steps,
                           guidance_scale=args.guidance_scale,
+                          motion_score=args.motion_score, 
                           num_images_per_prompt=1,
                           mask_feature=True,
                           device=args.device, 
@@ -203,11 +208,11 @@ def main(args):
 
     # torchvision.io.write_video(args.save_img_path + '_%04d' % args.run_time + '-.mp4', video_grids, fps=6)
     if args.num_frames == 1:
-        save_image(video_grids / 255.0, os.path.join(args.save_img_path, f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}.{ext}'),
+        save_image(video_grids / 255.0, os.path.join(args.save_img_path, f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}{f"_{args.motion_score}" if args.motion_score is not None else ""}.{ext}'),
                    nrow=math.ceil(math.sqrt(len(video_grids))), normalize=True, value_range=(0, 1))
     else:
         video_grids = save_video_grid(video_grids)
-        imageio.mimwrite(os.path.join(args.save_img_path, f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}.{ext}'), video_grids, fps=args.fps, quality=6)
+        imageio.mimwrite(os.path.join(args.save_img_path, f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}{f"_{args.motion_score}" if args.motion_score is not None else ""}.{ext}'), video_grids, fps=args.fps, quality=6)
 
     print('save path {}'.format(args.save_img_path))
 
@@ -226,6 +231,7 @@ if __name__ == "__main__":
     parser.add_argument("--text_encoder_name", type=str, default='DeepFloyd/t5-v1_1-xxl')
     parser.add_argument("--save_img_path", type=str, default="./sample_videos/t2v")
     parser.add_argument("--guidance_scale", type=float, default=2.5)
+    parser.add_argument("--motion_score", type=float, default=None)
     parser.add_argument("--sample_method", type=str, default="PNDM")
     parser.add_argument("--max_sequence_length", type=int, default=300)
     parser.add_argument("--num_sampling_steps", type=int, default=50)
@@ -236,7 +242,7 @@ if __name__ == "__main__":
     parser.add_argument('--tile_overlap_factor', type=float, default=0.125)
     parser.add_argument('--enable_tiling', action='store_true')
     parser.add_argument('--compile', action='store_true')
-    parser.add_argument('--model_type', type=str, default="udit", choices=['dit', 'udit', 'latte'])
+    parser.add_argument('--model_type', type=str, default="udit", choices=['sparsedit', 'dit', 'udit', 'latte'])
     parser.add_argument('--save_memory', action='store_true')
     args = parser.parse_args()
 

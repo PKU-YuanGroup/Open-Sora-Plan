@@ -91,6 +91,7 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
         sparse1d: bool = False,
         sparse2d: bool = False,
         sparse_n: int = 2,
+        use_motion: bool = False,
     ):
         super().__init__()
 
@@ -106,6 +107,7 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
                 )
 
         # Set some common variables used across the board.
+        self.use_motion = use_motion
         self.sparse1d = sparse1d
         self.sparse2d = sparse2d
         self.sparse_n = sparse_n

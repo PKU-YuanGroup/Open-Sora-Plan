@@ -279,6 +279,7 @@ def main(args):
         sparse1d=args.sparse1d, 
         sparse2d=args.sparse2d, 
         sparse_n=args.sparse_n, 
+        use_motion=args.use_motion
     )
     model.gradient_checkpointing = args.gradient_checkpointing
 
@@ -614,6 +615,9 @@ def main(args):
         timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=model_input.device)
         if current_step_frame != 1 and get_sequence_parallel_state():  # image do not need sp
             broadcast(timesteps)
+            motion_score = model_kwargs.pop('motion_score', None)
+            if motion_score is not None:
+                raise NotImplementedError 
 
         # Add noise to the model input according to the noise magnitude at each timestep
         # (this is the forward diffusion process)
@@ -719,13 +723,14 @@ def main(args):
 
     def train_one_step(step_, data_item_, prof_=None):
         train_loss = 0.0
-        x, attn_mask, input_ids, cond_mask = data_item_
+        x, attn_mask, input_ids, cond_mask, motion_score = data_item_
         assert not torch.any(torch.isnan(x)), 'torch.any(torch.isnan(x))'
         x = x.to(accelerator.device, dtype=ae.vae.dtype)  # B C T+num_images H W, 16 + 4
 
         attn_mask = attn_mask.to(accelerator.device)  # B T+num_images H W
         input_ids = input_ids.to(accelerator.device)  # B 1+num_images L
         cond_mask = cond_mask.to(accelerator.device)  # B 1+num_images L
+        motion_score = motion_score.to(accelerator.device) if motion_score is not None else motion_score # B 1
         # if accelerator.process_index == 0:
         #     logger.info(f'rank: {accelerator.process_index}, x: {x.shape}, attn_mask: {attn_mask.shape}')
 
@@ -775,7 +780,7 @@ def main(args):
             with accelerator.accumulate(model):
                 assert not torch.any(torch.isnan(x)), 'after vae'
                 x = x.to(weight_dtype)
-                model_kwargs = dict(encoder_hidden_states=cond, attention_mask=attn_mask,
+                model_kwargs = dict(encoder_hidden_states=cond, attention_mask=attn_mask, motion_score=motion_score, 
                                     encoder_attention_mask=cond_mask, use_image_num=args.use_image_num)
                 run(x, model_kwargs, prof_)
 
@@ -875,6 +880,7 @@ if __name__ == "__main__":
     parser.add_argument('--tile_sample_min_size', type=int, default=512)
     parser.add_argument('--tile_sample_min_size_t', type=int, default=33)
     parser.add_argument('--adapt_vae', action='store_true')
+    parser.add_argument('--use_motion', action='store_true')
     parser.add_argument("--gradient_checkpointing", action="store_true", help="Whether or not to use gradient checkpointing to save memory at the expense of slower backward pass.")
 
     # diffusion setting

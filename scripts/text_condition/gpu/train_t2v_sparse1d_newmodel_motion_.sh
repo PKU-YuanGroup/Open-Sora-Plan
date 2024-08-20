@@ -20,17 +20,17 @@ export MKL_NUM_THREADS=1
 # export NCCL_ALGO=Tree
 
 accelerate launch \
-    --config_file scripts/accelerate_configs/multi_node_example.yaml \
+    --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
     opensora/train/train_t2v_diffusers.py \
-    --model OpenSoraT2V1-L/122 \
+    --model OpenSoraT2V2-L/122 \
     --text_encoder_name google/mt5-xxl \
     --cache_dir "../../cache_dir/" \
     --dataset t2v \
-    --data "scripts/train_data/image_data.txt" \
+    --data "scripts/train_data/merge_data_movie.txt" \
     --ae CausalVAEModel_D8_4x8x8 \
     --ae_path "/storage/dataset/new488dim8/last" \
     --sample_rate 1 \
-    --num_frames 1 \
+    --num_frames 93 \
     --max_height 320 \
     --max_width 320 \
     --interpolation_scale_t 1.0 \
@@ -38,7 +38,7 @@ accelerate launch \
     --interpolation_scale_w 1.0 \
     --attention_mode xformers \
     --gradient_checkpointing \
-    --train_batch_size=4 \
+    --train_batch_size=1 \
     --dataloader_num_workers 10 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
@@ -61,10 +61,11 @@ accelerate launch \
     --group_data \
     --skip_low_resolution \
     --speed_factor 1.0 \
-    --enable_tracker \
     --ema_decay 0.9999 \
     --drop_short_ratio 0.0 \
-    --pretrained "/storage/ongoing/new/7.19anyres/Open-Sora-Plan/bs16x8x8_vae8_anyx320x320_lr2e-5_snr5_noioff0.02_ema9999_sparse1d4_newdit_l_122_rope_mt5xxl_mj/checkpoint-57000/model_ema/diffusion_pytorch_model.safetensors" \
+    --pretrained "/storage/ongoing/new/7.19anyres/Open-Sora-Plan/bs32x8x8_vae8_anyx320x320_lr5e-5_snr5_noioff0.02_ema9999_sparse1d4_newdit_l_122_rope_mt5xxl_mj/checkpoint-220000/model_ema/diffusion_pytorch_model.safetensors" \
     --hw_stride 32 \
     --sparse1d --sparse_n 4 \
-    --output_dir="bs32x8x8_vae8_anyx320x320_lr5e-5_snr5_noioff0.02_ema9999_sparse1d4_newdit_l_122_rope_mt5xxl_mj" 
+    --use_motion \
+    --train_fps 16 \
+    --output_dir="bs32x8x1_anyx93x320x320_fps16_lr5e-5_snr5_noioff0.02_ema9999_sparse1d4_dit_l_mt5xxl_alldata100m" 

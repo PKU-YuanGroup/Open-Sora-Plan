@@ -9,6 +9,7 @@ except:
     npu_config = None
 import glob
 import json
+import pickle
 import os, io, csv, math, random
 import numpy as np
 import torchvision
@@ -17,6 +18,9 @@ from decord import VideoReader
 from os.path import join as opj
 from collections import Counter
 
+import jsonlines
+import pandas as pd
+import time
 import torch
 import torchvision.transforms as transforms
 from torch.utils.data.dataset import Dataset
@@ -27,7 +31,8 @@ from accelerate.logging import get_logger
 
 from opensora.utils.dataset_utils import DecordInit
 from opensora.utils.utils import text_preprocessing
-from opensora.dataset.transform import get_params, longsideresize
+from opensora.dataset.transform import get_params, longsideresize, add_masking_notice, motion_mapping_fun, calculate_statistics, \
+    add_webvid_watermark_notice, clean_vidal, add_high_aesthetic_notice_image, add_aesthetic_notice_video, add_high_aesthetic_notice_image_human
 
 logger = get_logger(__name__)
 
@@ -78,15 +83,16 @@ class DataSetProg(metaclass=SingletonMeta):
         self.cap_list = cap_list
         self.n_elements = n_elements
         self.elements = list(range(n_elements))
-        random.shuffle(self.elements)
+        
         print(f"n_elements: {len(self.elements)}", flush=True)
-
-        for i in range(self.num_workers):
-            self.n_used_elements[i] = 0
-            per_worker = int(math.ceil(len(self.elements) / float(self.num_workers)))
-            start = i * per_worker
-            end = min(start + per_worker, len(self.elements))
-            self.worker_elements[i] = self.elements[start: end]
+        if torch_npu is not None:
+            random.shuffle(self.elements)
+            for i in range(self.num_workers):
+                self.n_used_elements[i] = 0
+                per_worker = int(math.ceil(len(self.elements) / float(self.num_workers)))
+                start = i * per_worker
+                end = min(start + per_worker, len(self.elements))
+                self.worker_elements[i] = self.elements[start: end]
 
     def get_item(self, work_info):
         if work_info is None:
@@ -116,7 +122,10 @@ def filter_resolution(h, w, max_h_div_w_ratio=17/16, min_h_div_w_ratio=8 / 16):
         return True
     return False
         
-
+def read_parquet(path):
+    df = pd.read_parquet(path)
+    data = df.to_dict(orient='records')
+    return data
 
 class T2V_dataset(Dataset):
     def __init__(self, args, transform, temporal_sample, tokenizer):
@@ -137,6 +146,7 @@ class T2V_dataset(Dataset):
         self.hw_stride = args.hw_stride
         self.skip_low_resolution = args.skip_low_resolution
         self.force_resolution = args.force_resolution
+        self.use_motion = args.use_motion
         assert self.speed_factor >= 1
         self.v_decoder = DecordInit()
 
@@ -144,15 +154,39 @@ class T2V_dataset(Dataset):
         if not ('mt5' in args.text_encoder_name):
             self.support_Chinese = False
 
-        cap_list = self.get_cap_list()
+        s = time.time()
+
+        # self.cache_pkl = f"/storage/dataset/{os.path.basename(self.data).replace('.txt', '_cache.pkl')}"
+        # self.cache_json = f"/storage/dataset/{os.path.basename(self.data).replace('.txt', '_cache.json')}"
         
-        assert len(cap_list) > 0
-        cap_list, self.sample_size = self.define_frame_index(cap_list)
+        # if os.path.exists(self.cache_pkl):
+        #     print(f"Load cache from {self.cache_pkl}")
+        #     with open(self.cache_pkl, 'rb') as f:
+        #         load_data = pickle.load(f)
+        #     cap_list, self.sample_size = load_data['cap_list'], load_data['sample_size']
+        # if os.path.exists(self.cache_json):
+        #     print(f"Load cache from {self.cache_json}")
+        #     with open(self.cache_json, 'r') as f:
+        #         load_data = json.load(f)
+        #     cap_list, self.sample_size = load_data['cap_list'], load_data['sample_size']
+        # else:
+        # data_root, cap_list = self.get_cap_list()
+        # assert len(cap_list) > 0
+        cap_list, self.sample_size, _ = self.define_frame_index(self.data)
+        # save_data = dict(cap_list=cap_list, sample_size=self.sample_size)
+        # print(f"Save cache to {self.cache_pkl}")
+        # with open(self.cache_pkl, 'wb') as f:
+        #     pickle.dump(save_data, f)
+        # print(f"Save cache to {self.cache_json}")
+        # with open(self.cache_json, 'w') as f:
+        #     json.dump(save_data, f)
+        e = time.time()
+        print('time', e-s)
         self.lengths = self.sample_size
 
         n_elements = len(cap_list)
         dataset_prog.set_cap_list(args.dataloader_num_workers, cap_list, n_elements)
-        print(f"data length: {len(dataset_prog.cap_list)}", flush=True)
+        print(f"data length: {len(dataset_prog.cap_list)}")
 
     def set_checkpoint(self, n_used_elements):
         for i in range(len(dataset_prog.n_used_elements)):
@@ -193,7 +227,7 @@ class T2V_dataset(Dataset):
         frame_indice = dataset_prog.cap_list[idx]['sample_frame_index']
         sample_h = video_data['resolution']['sample_height']
         sample_w = video_data['resolution']['sample_width']
-        video = self.decord_read(video_path, predefine_num_frames=len(frame_indice))
+        video = self.decord_read(video_path, predefine_frame_indice=frame_indice)
         # import ipdb;ipdb.set_trace()
         video = self.transform(video)  # T C H W -> T C H W
         assert video.shape[2] == sample_h and video.shape[3] == sample_w
@@ -205,7 +239,14 @@ class T2V_dataset(Dataset):
         if not isinstance(text, list):
             text = [text]
         text = [random.choice(text)]
+        if '/VIDAL-10M/' in video_path:
+            text = [clean_vidal(text[0])]
+        if '/Webvid-10M/' in video_path:
+            text = [add_webvid_watermark_notice(text[0])]
+        if not (video_data.get('aesthetic', None) is None):
+            text = [add_aesthetic_notice_video(text[0], video_data['aesthetic'])]
 
+        text = [text[0].replace(' image ', ' video ').replace(' image,', ' video,')]
         text = text_preprocessing(text, support_Chinese=self.support_Chinese) if random.random() > self.cfg else ""
         text_tokens_and_mask = self.tokenizer(
             text,
@@ -218,7 +259,11 @@ class T2V_dataset(Dataset):
         )
         input_ids = text_tokens_and_mask['input_ids']
         cond_mask = text_tokens_and_mask['attention_mask']
-        return dict(pixel_values=video, input_ids=input_ids, cond_mask=cond_mask)
+        if self.use_motion:
+            motion_score = motion_mapping_fun(video_data['motion_score'])
+            return dict(pixel_values=video, input_ids=input_ids, cond_mask=cond_mask, motion_score=motion_score)
+        else:
+            return dict(pixel_values=video, input_ids=input_ids, cond_mask=cond_mask, motion_score=None)
 
     def get_image(self, idx):
         image_data = dataset_prog.cap_list[idx]  # [{'path': path, 'cap': cap}, ...]
@@ -238,6 +283,12 @@ class T2V_dataset(Dataset):
 
         caps = image_data['cap'] if isinstance(image_data['cap'], list) else [image_data['cap']]
         caps = [random.choice(caps)]
+        if '/sam/' in image_data['path']:
+            caps = [add_masking_notice(caps[0])]
+        if 'ideogram' in image_data['path']:
+            caps = [add_high_aesthetic_notice_image(caps[0])]
+        if 'human_images' in image_data['path']:
+            caps = [add_high_aesthetic_notice_image_human(caps[0])]
         text = text_preprocessing(caps, support_Chinese=self.support_Chinese)
         input_ids, cond_mask = [], []
         text = text if random.random() > self.cfg else ""
@@ -252,131 +303,193 @@ class T2V_dataset(Dataset):
         )
         input_ids = text_tokens_and_mask['input_ids']  # 1, l
         cond_mask = text_tokens_and_mask['attention_mask']  # 1, l
-        return dict(pixel_values=image, input_ids=input_ids, cond_mask=cond_mask)
+        if self.use_motion:
+            motion_score = motion_mapping_fun(image_data['motion_score'])
+            return dict(pixel_values=image, input_ids=input_ids, cond_mask=cond_mask, motion_score=motion_score)
+        else:
+            return dict(pixel_values=image, input_ids=input_ids, cond_mask=cond_mask, motion_score=None)
 
-    def define_frame_index(self, cap_list):
+    def define_frame_index(self, data):
         
         new_cap_list = []
         sample_size = []
+        motion_score = []
+        aesthetic_score = []
         cnt_too_long = 0
         cnt_too_short = 0
         cnt_no_cap = 0
         cnt_no_resolution = 0
+        cnt_no_motion = 0
+        cnt_no_aesthetic = 0
         cnt_resolution_mismatch = 0
         cnt_movie = 0
         cnt_img = 0
-        for i in tqdm(cap_list):
-            path = i['path']
-            cap = i.get('cap', None)
-            # ======no caption=====
-            if cap is None:
-                cnt_no_cap += 1
-                continue
+        cnt = 0
 
-            # ======resolution mismatch=====
-            if i.get('resolution', None) is None:
-                cnt_no_resolution += 1
-                continue
+        with open(data, 'r') as f:
+            folder_anno = [i.strip().split(',') for i in f.readlines() if len(i.strip()) > 0]
+        for sub_root, anno in tqdm(folder_anno):
+            logger.info(f'Building {anno}...')
+            if anno.endswith('.json'):
+                with open(anno, 'r') as f:
+                    sub_list = json.load(f)
+            elif anno.endswith('.pkl'):
+                with open(anno, 'rb') as f:
+                    sub_list = pickle.load(f)
+            elif anno.endswith('.parquet'):
+                sub_list = read_parquet(anno)
             else:
-                if i['resolution'].get('height', None) is None or i['resolution'].get('width', None) is None:
+                raise NotImplementedError
+            # with jsonlines.open(anno) as sub_list:
+            for i in tqdm(sub_list):
+                cnt += 1
+                path = os.path.join(sub_root, i['path'])
+                i['path'] = path
+                cap = i.get('cap', None)
+
+                if i.get('aesthetic', None) is None:
+                    cnt_no_aesthetic += 1
+                else:
+                    aesthetic_score.append(i['aesthetic'])
+
+                # ======no caption=====
+                if cap is None:
+                    cnt_no_cap += 1
+                    continue
+                # ======no motion=====
+                if self.use_motion:
+                    if '.mp4' in path and i.get('motion_average', None) is None and i.get('motion', None) is None:
+                        cnt_no_motion += 1
+                        continue
+
+                # ======resolution mismatch=====
+                if i.get('resolution', None) is None:
                     cnt_no_resolution += 1
                     continue
                 else:
-                    height, width = i['resolution']['height'], i['resolution']['width']
-                    if not self.force_resolution:
-                        if height <= 0 or width <= 0:
-                            cnt_no_resolution += 1
-                            continue
-                        tr_h, tr_w = longsideresize(height, width, (self.max_height, self.max_width), self.skip_low_resolution)
-                        _, _, sample_h, sample_w = get_params(tr_h, tr_w, self.hw_stride)
-                        if sample_h <= 0 or sample_w <= 0:
-                            cnt_resolution_mismatch += 1
-                            continue
-                        i['resolution'].update(dict(sample_height=sample_h, sample_width=sample_w))
+                    if i['resolution'].get('height', None) is None or i['resolution'].get('width', None) is None:
+                        cnt_no_resolution += 1
+                        continue
                     else:
-                        aspect = self.max_height / self.max_width
-                        hw_aspect_thr = 1.8
-                        is_pick = filter_resolution(height, width, max_h_div_w_ratio=hw_aspect_thr*aspect, 
-                                                    min_h_div_w_ratio=1/hw_aspect_thr*aspect)
-                        if not is_pick:
-                            cnt_resolution_mismatch += 1
-                            continue
-                        sample_h, sample_w = self.max_height, self.max_width
-                        i['resolution'].update(dict(sample_height=sample_h, sample_width=sample_w))
+                        height, width = i['resolution']['height'], i['resolution']['width']
+                        if not self.force_resolution:
+                            if height <= 0 or width <= 0:
+                                cnt_no_resolution += 1
+                                continue
+                            tr_h, tr_w = longsideresize(height, width, (self.max_height, self.max_width), self.skip_low_resolution)
+                            _, _, sample_h, sample_w = get_params(tr_h, tr_w, self.hw_stride)
+                            if sample_h <= 0 or sample_w <= 0:
+                                cnt_resolution_mismatch += 1
+                                continue
+                            i['resolution'].update(dict(sample_height=sample_h, sample_width=sample_w))
+                        else:
+                            aspect = self.max_height / self.max_width
+                            hw_aspect_thr = 1.85
+                            is_pick = filter_resolution(height, width, max_h_div_w_ratio=hw_aspect_thr*aspect, 
+                                                        min_h_div_w_ratio=1/hw_aspect_thr*aspect)
+                            if not is_pick:
+                                cnt_resolution_mismatch += 1
+                                continue
+                            sample_h, sample_w = self.max_height, self.max_width
+                            i['resolution'].update(dict(sample_height=sample_h, sample_width=sample_w))
 
 
-            if path.endswith('.mp4'):
-                # ======no fps and duration=====
-                duration = i.get('duration', None)
-                fps = i.get('fps', None)
-                if fps is None or duration is None:
-                    continue
+                if path.endswith('.mp4'):
+                    # ======no fps and duration=====
+                    duration = i.get('duration', None)
+                    fps = i.get('fps', None)
+                    if fps is None or duration is None:
+                        continue
 
-                i['num_frames'] = int(fps * duration)
-                # max 5.0 and min 1.0 are just thresholds to filter some videos which have suitable duration. 
-                if i['num_frames'] > 5.0 * (self.num_frames * fps / self.train_fps * self.speed_factor):  # too long video is not suitable for this training stage (self.num_frames)
-                    cnt_too_long += 1
-                    continue
-                # if i['num_frames'] < 1.0/1 * (self.num_frames * fps / self.train_fps * self.speed_factor):  # too short video is not suitable for this training stage
-                #     cnt_too_short += 1
-                #     continue 
+                    i['num_frames'] = int(fps * duration)
+                    # max 5.0 and min 1.0 are just thresholds to filter some videos which have suitable duration. 
+                    if i['num_frames'] > 6.0 * (self.num_frames * fps / self.train_fps * self.speed_factor):  # too long video is not suitable for this training stage (self.num_frames)
+                        cnt_too_long += 1
+                        continue
+                    # if i['num_frames'] < 1.0/1 * (self.num_frames * fps / self.train_fps * self.speed_factor):  # too short video is not suitable for this training stage
+                    #     cnt_too_short += 1
+                    #     continue 
 
-                # resample in case high fps, such as 50/60/90/144 -> train_fps(e.g, 24)
-                frame_interval = fps / self.train_fps
-                start_frame_idx = 8 if '/storage/dataset/movie' in i['path'] else 0  # special video
-                frame_indices = np.arange(start_frame_idx, i['num_frames'], frame_interval).astype(int)
-                frame_indices = frame_indices[frame_indices < i['num_frames']]
+                    # resample in case high fps, such as 50/60/90/144 -> train_fps(e.g, 24)
+                    frame_interval = fps / self.train_fps
+                    start_frame_idx = 10 if '/storage/dataset/movie' in i['path'] else 0  # special video
+                    frame_indices = np.arange(start_frame_idx, i['num_frames'], frame_interval).astype(int)
+                    frame_indices = frame_indices[frame_indices < i['num_frames']]
 
-                # comment out it to enable dynamic frames training
-                if len(frame_indices) < self.num_frames and random.random() < self.drop_short_ratio:
-                    cnt_too_short += 1
-                    continue
+                    # comment out it to enable dynamic frames training
+                    if len(frame_indices) < self.num_frames and random.random() < self.drop_short_ratio:
+                        cnt_too_short += 1
+                        continue
 
-                #  too long video will be temporal-crop randomly
-                if len(frame_indices) > self.num_frames:
-                    begin_index, end_index = self.temporal_sample(len(frame_indices))
-                    frame_indices = frame_indices[begin_index: end_index]
-                    # frame_indices = frame_indices[:self.num_frames]  # head crop
-                # to find a suitable end_frame_idx, to ensure we do not need pad video
-                end_frame_idx = find_closest_y(len(frame_indices), vae_stride_t=4, model_ds_t=4)
-                if end_frame_idx == -1:  # too short that can not be encoded exactly by videovae
-                    cnt_too_short += 1
-                    continue
-                frame_indices = frame_indices[:end_frame_idx]
+                    #  too long video will be temporal-crop randomly
+                    if len(frame_indices) > self.num_frames:
+                        begin_index, end_index = self.temporal_sample(len(frame_indices))
+                        frame_indices = frame_indices[begin_index: end_index]
+                        # frame_indices = frame_indices[:self.num_frames]  # head crop
+                    # to find a suitable end_frame_idx, to ensure we do not need pad video
+                    end_frame_idx = find_closest_y(len(frame_indices), vae_stride_t=4, model_ds_t=4)
+                    if end_frame_idx == -1:  # too short that can not be encoded exactly by videovae
+                        cnt_too_short += 1
+                        continue
+                    frame_indices = frame_indices[:end_frame_idx]
 
-                if '/storage/dataset/movie' in i['path']:
-                    cnt_movie += 1
-                    
-                i['sample_frame_index'] = frame_indices.tolist()
-                new_cap_list.append(i)
-                i['sample_num_frames'] = len(i['sample_frame_index'])  # will use in dataloader(group sampler)
+                    if '/storage/dataset/movie' in i['path']:
+                        cnt_movie += 1
+                        
+                    i['sample_frame_index'] = frame_indices.tolist()
+                    i['motion_score'] = i.get('motion_average', None) or i.get('motion')
 
-            elif path.endswith('.jpg'):  # image
-                cnt_img += 1
-                i['sample_frame_index'] = [0]
-                new_cap_list.append(i)
-                i['sample_num_frames'] = len(i['sample_frame_index'])  # will use in dataloader(group sampler)
-            
-            else:
-                raise NameError(f"Unknown file extention {path.split('.')[-1]}, only support .mp4 for video and .jpg for image")
+                    new_cap_list.append(i)
+                    # i['sample_num_frames'] = len(i['sample_frame_index'])  # will use in dataloader(group sampler)
 
-            sample_size.append(f"{len(i['sample_frame_index'])}x{sample_h}x{sample_w}")
 
-        # import ipdb;ipdb.set_trace()
+                elif path.endswith('.jpg'):  # image
+                    cnt_img += 1
+                    i['sample_frame_index'] = [0]
+                    i['motion_score'] = 1.0
+                    new_cap_list.append(i)
+                    # i['sample_num_frames'] = len(i['sample_frame_index'])  # will use in dataloader(group sampler)
+                
+                else:
+                    raise NameError(f"Unknown file extention {path.split('.')[-1]}, only support .mp4 for video and .jpg for image")
+
+                sample_size.append(f"{len(i['sample_frame_index'])}x{sample_h}x{sample_w}")
+                if self.use_motion:
+                    motion_score.append(i['motion_score'])
+
         logger.info(f'no_cap: {cnt_no_cap}, too_long: {cnt_too_long}, too_short: {cnt_too_short}, '
                 f'no_resolution: {cnt_no_resolution}, resolution_mismatch: {cnt_resolution_mismatch}, '
                 f'Counter(sample_size): {Counter(sample_size)}, cnt_movie: {cnt_movie}, cnt_img: {cnt_img}, '
-                f'before filter: {len(cap_list)}, after filter: {len(new_cap_list)}')
-        return new_cap_list, sample_size
+                f'before filter: {cnt}, after filter: {len(new_cap_list)}')
+        if self.use_motion:
+            stats_motion = calculate_statistics(motion_score)
+            logger.info(f"before filter: {cnt}, after filter: {len(new_cap_list)} | "
+                        f"motion_score: {len(motion_score)}, cnt_no_motion: {cnt_no_motion} | "
+                        f"{len([i for i in motion_score if i>=0.95])} > 0.95, 0.7 > {len([i for i in motion_score if i<=0.7])} "
+                        f"Mean: {stats_motion['mean']}, Var: {stats_motion['variance']}, Std: {stats_motion['std_dev']}, "
+                        f"Min: {stats_motion['min']}, Max: {stats_motion['max']}")
+        
+        if len(aesthetic_score) > 0:
+            stats_aesthetic = calculate_statistics(aesthetic_score)
+            logger.info(f"before filter: {cnt}, after filter: {len(new_cap_list)} | "
+                        f"aesthetic_score: {len(aesthetic_score)}, cnt_no_aesthetic: {cnt_no_aesthetic} | "
+                        f"{len([i for i in aesthetic_score if i>=5.75])} > 5.75, 4.5 > {len([i for i in aesthetic_score if i<=4.5])} "
+                        f"Mean: {stats_aesthetic['mean']}, Var: {stats_aesthetic['variance']}, Std: {stats_aesthetic['std_dev']}, "
+                        f"Min: {stats_aesthetic['min']}, Max: {stats_aesthetic['max']}")
+            
+        # import ipdb;ipdb.set_trace()
+
+        return new_cap_list, sample_size, motion_score
     
-    def decord_read(self, path, predefine_num_frames):
+    def decord_read(self, path, predefine_frame_indice):
+        predefine_num_frames = len(predefine_frame_indice)
         decord_vr = self.v_decoder(path)
         total_frames = len(decord_vr)
-        fps = decord_vr.get_avg_fps() if decord_vr.get_avg_fps() > 0 else 30.0
+        fps = decord_vr.get_avg_fps() if decord_vr.get_avg_fps() > 0 else 24.0
         
         # resample in case high fps, such as 50/60/90/144 -> train_fps(e.g, 24)
         frame_interval = 1.0 if abs(fps - self.train_fps) < 0.1 else fps / self.train_fps
-        start_frame_idx = 8 if '/storage/dataset/movie' in path else 0  # special video
+        start_frame_idx = 10 if '/storage/dataset/movie' in path else 0  # special video
         frame_indices = np.arange(start_frame_idx, total_frames, frame_interval).astype(int)
         frame_indices = frame_indices[frame_indices < total_frames]
         
@@ -401,7 +514,7 @@ class T2V_dataset(Dataset):
             raise IndexError(f'video ({path}) has {total_frames} frames, but need to sample {len(frame_indices)} frames ({frame_indices})')
         frame_indices = frame_indices[:end_frame_idx]
         if predefine_num_frames != len(frame_indices):
-            raise ValueError(f'predefine_num_frames ({predefine_num_frames}) is not equal with frame_indices ({len(frame_indices)})')
+            raise ValueError(f'video ({path}) predefine_num_frames ({predefine_num_frames}) ({predefine_frame_indice}) is not equal with frame_indices ({len(frame_indices)}) ({frame_indices})')
         if len(frame_indices) < self.num_frames and self.drop_short_ratio >= 1:
             raise IndexError(f'video ({path}) has {total_frames} frames, but need to sample {len(frame_indices)} frames ({frame_indices})')
         video_data = decord_vr.get_batch(frame_indices).asnumpy()
@@ -410,22 +523,32 @@ class T2V_dataset(Dataset):
         return video_data
 
     def read_jsons(self, data, postfix=".jpg"):
+        data_roots = []
         cap_lists = []
         with open(data, 'r') as f:
             folder_anno = [i.strip().split(',') for i in f.readlines() if len(i.strip()) > 0]
-        for folder, anno in folder_anno:
-            with open(anno, 'r') as f:
-                sub_list = json.load(f)
+        for folder, anno in tqdm(folder_anno):
             logger.info(f'Building {anno}...')
-            for i in range(len(sub_list)):
-                sub_list[i]['path'] = opj(folder, sub_list[i]['path'])
-            if npu_config is not None:
-                if "civitai" in anno or "ideogram" in anno or "human" in anno:
-                    sub_list = sub_list[npu_config.get_node_id()::npu_config.get_node_size()]
-                else:
-                    sub_list = filter_json_by_existed_files(folder, sub_list, postfix=postfix)
-            cap_lists += sub_list
-        return cap_lists
+            if anno.endswith('.json'):
+                with open(anno, 'r') as f:
+                    sub_list = json.load(f)
+            elif anno.endswith('.pkl'):
+                with open(anno, 'rb') as f:
+                    sub_list = pickle.load(f)
+            elif anno.endswith('.parquet'):
+                sub_list = read_parquet(anno)
+            else:
+                raise NotImplementedError
+            # for i in tqdm(range(len(sub_list))):
+            #     sub_list[i]['path'] = opj(folder, sub_list[i]['path'])
+            # if npu_config is not None:
+            #     if "civitai" in anno or "ideogram" in anno or "human" in anno:
+            #         sub_list = sub_list[npu_config.get_node_id()::npu_config.get_node_size()]
+            #     else:
+            #         sub_list = filter_json_by_existed_files(folder, sub_list, postfix=postfix)
+            data_roots.append(folder)
+            cap_lists.append(sub_list)
+        return data_roots, cap_lists
 
     # def get_img_cap_list(self):
     #     use_image_num = self.use_image_num if self.use_image_num != 0 else 1
@@ -441,8 +564,9 @@ class T2V_dataset(Dataset):
 
     def get_cap_list(self):
         if npu_config is None:
-            cap_lists = self.read_jsons(self.data, postfix=".mp4")
+            data_roots, cap_lists = self.read_jsons(self.data, postfix=".mp4")
         else:
+            raise NotImplementedError('need return data_roots')
             cap_lists = npu_config.try_load_pickle("cap_lists5",
                                                        lambda: self.read_jsons(self.data, postfix=".mp4"))
             # npu_config.print_msg(f"length of cap_lists is {len(cap_lists)}")
@@ -454,4 +578,4 @@ class T2V_dataset(Dataset):
             cap_lists = cap_lists_final
             npu_config.print_msg(f"length of cap_lists is {len(cap_lists)}")
 
-        return cap_lists
+        return data_roots, cap_lists

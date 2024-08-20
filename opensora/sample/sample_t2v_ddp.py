@@ -21,6 +21,7 @@ from opensora.models.causalvideovae import ae_stride_config, ae_channel_config, 
 
 from opensora.models.diffusion.udit.modeling_udit import UDiTT2V
 from opensora.models.diffusion.opensora.modeling_opensora import OpenSoraT2V
+from opensora.models.diffusion.opensora2.modeling_opensora import OpenSoraT2V as SparseOpenSoraT2V
 # from opensora.models.diffusion.latte.modeling_latte import LatteT2V
 # from opensora.models.captioner.refiner import model_gen
 
@@ -47,6 +48,10 @@ def load_t2v_checkpoint(model_path):
         transformer_model = UDiTT2V.from_pretrained(model_path, cache_dir=args.cache_dir,
                                                         low_cpu_mem_usage=False, device_map=None,
                                                         torch_dtype=weight_dtype)
+    elif args.model_type == 'sparsedit':
+        transformer_model = SparseOpenSoraT2V.from_pretrained(model_path, cache_dir=args.cache_dir,
+                                                        low_cpu_mem_usage=False, device_map=None,
+                                                        torch_dtype=weight_dtype)
     elif args.model_type == 'dit':
         transformer_model = OpenSoraT2V.from_pretrained(model_path, cache_dir=args.cache_dir,
                                                         low_cpu_mem_usage=False, device_map=None,
@@ -58,11 +63,13 @@ def load_t2v_checkpoint(model_path):
 
     # set eval mode
     transformer_model.eval()
-    pipeline = OpenSoraPipeline(vae=vae,
-                                text_encoder=text_encoder,
-                                tokenizer=tokenizer,
-                                scheduler=scheduler,
-                                transformer=transformer_model).to(device)
+    pipeline = OpenSoraPipeline(
+        vae=vae,
+        text_encoder=text_encoder,
+        tokenizer=tokenizer,
+        scheduler=scheduler,
+        transformer=transformer_model
+    ).to(device)
 
     if args.compile:
         # 5%  https://github.com/siliconflow/onediff/tree/main/src/onediff/infer_compiler/backends/nexfort
@@ -102,14 +109,14 @@ def run_model_and_save_images(pipeline, model_path):
     checkpoint_name = f"{os.path.basename(model_path)}"
 
     positive_prompt = """
-    (masterpiece), (best quality), (ultra-detailed), (unwatermarked), 
+    masterpiece, high quality, ultra-detailed, 
     {}. 
     emotional, harmonious, vignette, 4k epic detailed, shot on kodak, 35mm photo, 
     sharp focus, high budget, cinemascope, moody, epic, gorgeous
     """
     
     negative_prompt = """
-    nsfw, lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, 
+    jump-cut, nsfw, lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, 
     low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry.
     """
     
@@ -137,6 +144,7 @@ def run_model_and_save_images(pipeline, model_path):
                           num_frames=args.num_frames,
                           height=args.height,
                           width=args.width,
+                          motion_score=args.motion_score, 
                           num_inference_steps=args.num_sampling_steps,
                           guidance_scale=args.guidance_scale,
                           num_images_per_prompt=1,
@@ -149,17 +157,16 @@ def run_model_and_save_images(pipeline, model_path):
             if args.num_frames == 1:
                 videos = videos[:, 0].permute(0, 3, 1, 2)  # b t h w c -> b c h w
                 save_image(videos / 255.0, os.path.join(args.save_img_path,
-                                                        f'{model_path}/{args.sample_method}_{index}_{checkpoint_name}_gs{args.guidance_scale}_s{args.num_sampling_steps}.{ext}'),
+                                                        f'{model_path}', f'{args.sample_method}_{index}_{checkpoint_name}_gs{args.guidance_scale}_s{args.num_sampling_steps}_m{args.motion_score}.{ext}'),
                            nrow=1, normalize=True, value_range=(0, 1))  # t c h w
 
             else:
                 imageio.mimwrite(
                     os.path.join(
                         args.save_img_path,
-                        f'{model_path}/{args.sample_method}_{index}_{checkpoint_name}__gs{args.guidance_scale}_s{args.num_sampling_steps}.{ext}'
+                        f'{model_path}', f'{args.sample_method}_{index}_{checkpoint_name}_gs{args.guidance_scale}_s{args.num_sampling_steps}_m{args.motion_score}.{ext}'
                     ), videos[0],
-                    fps=args.fps, quality=6, codec='libx264',
-                    output_params=['-threads', '20'])  # highest quality is 10, lowest is 0
+                    fps=args.fps, quality=6)  # highest quality is 10, lowest is 0
         except:
             print('Error when saving {}'.format(prompt))
         video_grids.append(videos)
@@ -177,7 +184,7 @@ def run_model_and_save_images(pipeline, model_path):
     # video_grids = output.cpu()
     def get_file_name():
         return os.path.join(args.save_img_path,
-                            f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}_{checkpoint_name}.{ext}')
+                            f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}_m{args.motion_score}_{checkpoint_name}.{ext}')
     
     if local_rank == 0:
         if args.num_frames == 1:
@@ -185,8 +192,7 @@ def run_model_and_save_images(pipeline, model_path):
                     nrow=math.ceil(math.sqrt(len(video_grids))), normalize=True, value_range=(0, 1))
         else:
             video_grids = save_video_grid(video_grids)
-            imageio.mimwrite(get_file_name(), video_grids, fps=args.fps, quality=6, codec='libx264',
-                    output_params=['-threads', '20'])
+            imageio.mimwrite(get_file_name(), video_grids, fps=args.fps, quality=6)
 
     print('save path {}'.format(args.save_img_path))
 
@@ -215,8 +221,9 @@ if __name__ == "__main__":
     parser.add_argument('--enable_tiling', action='store_true')
     parser.add_argument('--refine_caption', action='store_true')
     parser.add_argument('--compile', action='store_true')
-    parser.add_argument('--model_type', type=str, default="dit", choices=['dit', 'udit', 'latte'])
+    parser.add_argument('--model_type', type=str, default="dit", choices=['sparsedit', 'dit', 'udit', 'latte'])
     parser.add_argument('--save_memory', action='store_true')
+    parser.add_argument('--motion_score', type=float, default=None)
     args = parser.parse_args()
 
     if torch_npu is not None:
@@ -308,48 +315,52 @@ if __name__ == "__main__":
 
     latest_path = None
     save_img_path = args.save_img_path
-    while True:
-        cur_path = get_latest_path()
-        # print(cur_path, latest_path)
-        if cur_path == latest_path:
-            time.sleep(5)
-            continue
+    # while True:
+    #     cur_path = get_latest_path()
+    #     # print(cur_path, latest_path)
+    #     if cur_path == latest_path:
+    #         time.sleep(5)
+    #         continue
 
-        time.sleep(1)
-        latest_path = cur_path
-        os.makedirs(os.path.join(args.save_img_path, latest_path), exist_ok=True)
-        if npu_config is not None:
-            npu_config.print_msg(f"The latest_path is {latest_path}")
-        else:
-            print(f"The latest_path is {latest_path}")
-        full_path = f"{args.model_path}/{latest_path}/model_ema"
-        # full_path = f"{args.model_path}/{latest_path}/model"
-        try:
-            pipeline = load_t2v_checkpoint(full_path)
-        except:
-            time.sleep(100)
-            pipeline = load_t2v_checkpoint(full_path)
-        # print('load model')
-        if npu_config is not None and npu_config.on_npu and npu_config.profiling:
-            experimental_config = torch_npu.profiler._ExperimentalConfig(
-                profiler_level=torch_npu.profiler.ProfilerLevel.Level1,
-                aic_metrics=torch_npu.profiler.AiCMetrics.PipeUtilization
-            )
-            profile_output_path = "/home/image_data/npu_profiling_t2v"
-            os.makedirs(profile_output_path, exist_ok=True)
+    #     time.sleep(1)
+    #     latest_path = cur_path
+    #     os.makedirs(os.path.join(args.save_img_path, latest_path), exist_ok=True)
+    #     if npu_config is not None:
+    #         npu_config.print_msg(f"The latest_path is {latest_path}")
+    #     else:
+    #         print(f"The latest_path is {latest_path}")
+    if latest_path is None:
+        latest_path = ''
 
-            with torch_npu.profiler.profile(
-                    activities=[torch_npu.profiler.ProfilerActivity.NPU, torch_npu.profiler.ProfilerActivity.CPU],
-                    with_stack=True,
-                    record_shapes=True,
-                    profile_memory=True,
-                    experimental_config=experimental_config,
-                    schedule=torch_npu.profiler.schedule(wait=10000, warmup=0, active=1, repeat=1,
-                                                         skip_first=0),
-                    on_trace_ready=torch_npu.profiler.tensorboard_trace_handler(f"{profile_output_path}/")
-            ) as prof:
-                run_model_and_save_images(pipeline, latest_path)
-                prof.step()
-        else:
-            # print('gpu')
+    full_path = f"{args.model_path}"
+    # full_path = f"{args.model_path}/{latest_path}/model_ema"
+    # full_path = f"{args.model_path}/{latest_path}/model"
+    try:
+        pipeline = load_t2v_checkpoint(full_path)
+    except:
+        time.sleep(100)
+        pipeline = load_t2v_checkpoint(full_path)
+    # print('load model')
+    if npu_config is not None and npu_config.on_npu and npu_config.profiling:
+        experimental_config = torch_npu.profiler._ExperimentalConfig(
+            profiler_level=torch_npu.profiler.ProfilerLevel.Level1,
+            aic_metrics=torch_npu.profiler.AiCMetrics.PipeUtilization
+        )
+        profile_output_path = "/home/image_data/npu_profiling_t2v"
+        os.makedirs(profile_output_path, exist_ok=True)
+
+        with torch_npu.profiler.profile(
+                activities=[torch_npu.profiler.ProfilerActivity.NPU, torch_npu.profiler.ProfilerActivity.CPU],
+                with_stack=True,
+                record_shapes=True,
+                profile_memory=True,
+                experimental_config=experimental_config,
+                schedule=torch_npu.profiler.schedule(wait=10000, warmup=0, active=1, repeat=1,
+                                                        skip_first=0),
+                on_trace_ready=torch_npu.profiler.tensorboard_trace_handler(f"{profile_output_path}/")
+        ) as prof:
             run_model_and_save_images(pipeline, latest_path)
+            prof.step()
+    else:
+        # print('gpu')
+        run_model_and_save_images(pipeline, latest_path)
