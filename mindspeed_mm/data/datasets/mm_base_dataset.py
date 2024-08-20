@@ -1,7 +1,3 @@
-# coding=utf-8
-# Copyright (c) 2024 Huawei Technologies Co., Ltd.
-
-
 import os
 
 import numpy as np

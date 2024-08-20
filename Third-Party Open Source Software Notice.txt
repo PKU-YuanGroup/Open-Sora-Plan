@@ -313,3 +313,11 @@ For the full text of the license, please go to the above.
 
 Copyright Notice included in the software:
 Copyright (c) 2024 PKU-YUAN's Group (袁粒课题组-北大信工) and Rabbitpre AI
+
+Software Notice
+Software Latte
+License: Apache License 2.0
+For the full text of the license, please go to the above.
+
+Copyright Notice included in the software:
+Copyright 2024 Vchitect/Latte.

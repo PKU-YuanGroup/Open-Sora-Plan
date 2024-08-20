@@ -1,25 +1,30 @@
-# Copyright (c) 2023 DeepFloyd; StabilityAI
+# Modified from huggingface diffusers repos
+# This source code is licensed under the notice found in the root directory of this source tree.
+# --------------------------------------------------------
+# References:
+# TextProcesser: https://github.com/huggingface/diffusers/blob/main/src/diffusers/pipelines/deepfloyd_if/pipeline_if.py
+
 
 import html
+import random
 import re
 import string
 import urllib.parse as ul
 
-import decord
+try:
+    import decord
+except ImportError:
+    print("Failed to import decord module.")
+import ftfy
 import numpy as np
 import pandas as pd
 import torch
 import torchvision
-from diffusers.utils import is_bs4_available, is_ftfy_available
+from bs4 import BeautifulSoup
 from torchvision.datasets.folder import IMG_EXTENSIONS, pil_loader
 
 from mindspeed_mm.data.data_utils.data_transform import TemporalRandomCrop
 from mindspeed_mm.data.data_utils.transform_pipeline import get_transforms
-
-if is_bs4_available():
-    from bs4 import BeautifulSoup
-if is_ftfy_available():
-    import ftfy
 
 VID_EXTENSIONS = (".mp4", ".avi", ".mov", ".mkv")
 
@@ -48,7 +53,7 @@ class GetDataFromPath:
 
 
 class DecordInit:
-    """Using Decord to initialize the video_reader."""
+    """Using Decord (https://github.com/dmlc/decord) to initialize the video_reader."""
 
     def __init__(self, num_threads=1):
         self.num_threads = num_threads
@@ -175,19 +180,27 @@ class ImageProcesser:
 class TextProcesser:
     """Used for text data preprocessing"""
 
-    def __init__(self, model_max_length, tokenizer, padding_type="max_length"):
+    bad_punct_regex = re.compile(r"[" + re.escape(string.punctuation) + "]{1,}")  # noqa
+
+    def __init__(
+        self,
+        model_max_length=120,
+        tokenizer=None,
+        use_clean_caption=True,
+        padding_type="max_length",
+    ):
         self.model_max_length = model_max_length
         self.padding = padding_type
         self.tokenizer = tokenizer
-        # raw processing: r'[' + '#®•©™&@·º½¾¿¡§~' + '\)' + '\(' + '\]' + '\[' + '\}' + '\{' + '\|' + '\\' + '\/' + '\*' + r']{1,}')
-        self.bad_punct_regex = re.compile(
-            r"[" + re.escape(string.punctuation) + "]{1,}"
-        )  # noqa
+        self.use_clean_caption = use_clean_caption
 
-    def __call__(self, text, vid_img_fusion_by_splicing):
-        text_info = self.text_preprocessing(text[0])
+    def __call__(self, texts):
+        texts_info = [
+            TextProcesser.text_preprocessing(text, self.use_clean_caption)
+            for text in texts
+        ]
         text_tokens_and_mask = self.tokenizer(
-            text_info,
+            texts_info,
             max_length=self.model_max_length,
             padding=self.padding,
             truncation=True,
@@ -195,21 +208,27 @@ class TextProcesser:
             add_special_tokens=True,
             return_tensors="pt",
         )
-        input_ids = text_tokens_and_mask["input_ids"].squeeze(0)
-        cond_mask = text_tokens_and_mask["attention_mask"].squeeze(0)
-        return input_ids, cond_mask
+        prompt_ids = text_tokens_and_mask["input_ids"]
+        prompt_mask = text_tokens_and_mask["attention_mask"]
+        return prompt_ids, prompt_mask
 
-    def text_preprocessing(self, text):
-        text = self.clean_caption(text)
-        text = self.clean_caption(text)
+    @staticmethod
+    def text_preprocessing(text, use_clean_caption=True):
+        if use_clean_caption:
+            text = TextProcesser.clean_caption(text)
+            text = TextProcesser.clean_caption(text)
+        else:
+            text = text.lower().strip()
         return text
 
-    def basic_clean(self, text):
+    @staticmethod
+    def basic_clean(text):
         text = ftfy.fix_text(text)
         text = html.unescape(html.unescape(text))
         return text.strip()
 
-    def clean_caption(self, caption):
+    @staticmethod
+    def clean_caption(caption):
         caption = str(caption)
         caption = ul.unquote_plus(caption)
         caption = caption.strip().lower()
@@ -291,7 +310,7 @@ class TextProcesser:
         caption = re.sub(r"[\.]{2,}", r" ", caption)  # """AUSVERKAUFT"""
 
         caption = re.sub(
-            self.bad_punct_regex, r" ", caption
+            TextProcesser.bad_punct_regex, r" ", caption
         )  # ***AUSVERKAUFT***, #AUSVERKAUFT
         caption = re.sub(r"\s+\.\s+", r" ", caption)  # " . "
 
@@ -300,7 +319,7 @@ class TextProcesser:
         if len(re.findall(regex2, caption)) > 3:
             caption = re.sub(regex2, " ", caption)
 
-        caption = self.basic_clean(caption)
+        caption = TextProcesser.basic_clean(caption)
 
         caption = re.sub(r"\b[a-zA-Z]{1,3}\d{3,15}\b", "", caption)  # jc6640
         caption = re.sub(r"\b[a-zA-Z]+\d+[a-zA-Z]+\b", "", caption)  # jc6640vc
@@ -334,12 +353,24 @@ class TextProcesser:
         return caption.strip()
 
 
+def get_seed_worker(seed):
+    """Deterministic dataloader"""
+
+    def seed_worker(worker_id):
+        worker_seed = seed
+        np.random.seed(worker_seed)
+        torch.manual_seed(worker_seed)
+        random.seed(worker_seed)
+
+    return seed_worker
+
+
 # TODO
 def get_batch_on_this_tp_rank(data_iterator):
     """
     :param data_iterator:
     :return:
     """
-    # Note: not support now
+
     batch = data_iterator
     return batch
