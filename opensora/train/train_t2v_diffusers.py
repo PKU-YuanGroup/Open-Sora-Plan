@@ -200,7 +200,7 @@ def main(args):
 
     # If passed along, set the training seed now.
     if args.seed is not None:
-        set_seed(args.seed)
+        set_seed(args.seed, device_specific=True)
 
     # Handle the repository creation
     if accelerator.is_main_process:
@@ -435,23 +435,67 @@ def main(args):
             safeguard_warmup=args.prodigy_safeguard_warmup,
         )
     logger.info(f"optimizer: {optimizer}")
-    
+
+    global_step = 0
+    # first_epoch = 0
+    # Potentially load in the weights and states from a previous save
+    if args.resume_from_checkpoint:
+        if args.resume_from_checkpoint != "latest":
+            path = os.path.basename(args.resume_from_checkpoint)
+        else:
+            # Get the most recent checkpoint
+            dirs = os.listdir(args.output_dir)
+            dirs = [d for d in dirs if d.startswith("checkpoint")]
+            dirs = sorted(dirs, key=lambda x: int(x.split("-")[1]))
+            path = dirs[-1] if len(dirs) > 0 else None
+
+        if path is None:
+            accelerator.print(
+                f"Checkpoint '{args.resume_from_checkpoint}' does not exist. Starting a new training run."
+            )
+            args.resume_from_checkpoint = None
+            initial_global_step = 0
+        else:
+            accelerator.print(f"Resuming from checkpoint {path}")
+            accelerator.load_state(os.path.join(args.output_dir, path))
+            global_step = int(path.split("-")[1])
+
+            initial_global_step = global_step
+            # first_epoch = global_step // num_update_steps_per_epoch
+
+            if npu_config is not None:
+                train_dataset.n_used_elements = global_step * args.train_batch_size
+
+    else:
+        initial_global_step = 0
+
     # Setup data:
+    total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
+    total_batch_size = total_batch_size // args.sp_size * args.train_sp_batch_size
+
+    if args.trained_data_global_step is not None:
+        initial_global_step_for_sampler = args.trained_data_global_step
+    else:
+        initial_global_step_for_sampler = initial_global_step
+    # print('initial_global_step, initial_global_step_for_sampler, total_batch_size', 
+    #       initial_global_step, initial_global_step_for_sampler, total_batch_size)
     train_dataset = getdataset(args)
     sampler = LengthGroupedSampler(
                 args.train_batch_size,
                 world_size=accelerator.num_processes,
+                initial_global_step=initial_global_step_for_sampler, 
+                total_batch_size=total_batch_size, 
                 lengths=train_dataset.lengths, 
                 group_data=args.group_data, 
-            ) if args.group_data and args.train_batch_size != 1 else None
+            )
     train_dataloader = DataLoader(
         train_dataset,
-        shuffle=sampler is None,
+        shuffle=False,
         # pin_memory=True,
         collate_fn=Collate(args),
         batch_size=args.train_batch_size,
         num_workers=args.dataloader_num_workers,
-        sampler=sampler if args.group_data and args.train_batch_size != 1 else None, 
+        sampler=sampler, 
         drop_last=True, 
         # prefetch_factor=4
     )
@@ -500,8 +544,6 @@ def main(args):
         accelerator.init_trackers(os.path.basename(args.output_dir), config=vars(args))
 
     # Train!
-    total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
-    total_batch_size = total_batch_size // args.sp_size * args.train_sp_batch_size
     logger.info("***** Running training *****")
     logger.info(f"  Model = {model}")
     logger.info(f"  Num examples = {len(train_dataset)}")
@@ -510,40 +552,9 @@ def main(args):
     logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
     logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
     logger.info(f"  Total optimization steps = {args.max_train_steps}")
+    logger.info(f"  Total optimization steps (num_update_steps_per_epoch) = {num_update_steps_per_epoch}")
     logger.info(f"  Total training parameters = {sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e9} B")
-    global_step = 0
-    first_epoch = 0
 
-    # Potentially load in the weights and states from a previous save
-    if args.resume_from_checkpoint:
-        if args.resume_from_checkpoint != "latest":
-            path = os.path.basename(args.resume_from_checkpoint)
-        else:
-            # Get the most recent checkpoint
-            dirs = os.listdir(args.output_dir)
-            dirs = [d for d in dirs if d.startswith("checkpoint")]
-            dirs = sorted(dirs, key=lambda x: int(x.split("-")[1]))
-            path = dirs[-1] if len(dirs) > 0 else None
-
-        if path is None:
-            accelerator.print(
-                f"Checkpoint '{args.resume_from_checkpoint}' does not exist. Starting a new training run."
-            )
-            args.resume_from_checkpoint = None
-            initial_global_step = 0
-        else:
-            accelerator.print(f"Resuming from checkpoint {path}")
-            accelerator.load_state(os.path.join(args.output_dir, path))
-            global_step = int(path.split("-")[1])
-
-            initial_global_step = global_step
-            first_epoch = global_step // num_update_steps_per_epoch
-
-            if npu_config is not None:
-                train_dataset.n_used_elements = global_step * args.train_batch_size
-
-    else:
-        initial_global_step = 0
 
     progress_bar = tqdm(
         range(0, args.max_train_steps),
@@ -613,6 +624,7 @@ def main(args):
         current_step_frame = model_input.shape[2]
         # Sample a random timestep for each image without bias.
         timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=model_input.device)
+        # print('accelerator.process_index, timesteps', accelerator.process_index, timesteps)
         if current_step_frame != 1 and get_sequence_parallel_state():  # image do not need sp
             broadcast(timesteps)
             motion_score = model_kwargs.pop('motion_score', None)
@@ -791,18 +803,18 @@ def main(args):
 
         return False
 
-    def train_all_epoch(prof_=None):
-        for epoch in range(first_epoch, args.num_train_epochs):
-            progress_info.train_loss = 0.0
-            if progress_info.global_step >= args.max_train_steps:
-                return True
+    def train_one_epoch(prof_=None):
+        # for epoch in range(first_epoch, args.num_train_epochs):
+        progress_info.train_loss = 0.0
+        if progress_info.global_step >= args.max_train_steps:
+            return True
 
-            for step, data_item in enumerate(train_dataloader):
-                if train_one_step(step, data_item, prof_):
-                    break
+        for step, data_item in enumerate(train_dataloader):
+            if train_one_step(step, data_item, prof_):
+                break
 
-                if step >= 2 and torch_npu is not None and npu_config is not None:
-                    npu_config.free_mm()
+            if step >= 2 and torch_npu is not None and npu_config is not None:
+                npu_config.free_mm()
 
     if npu_config is not None and npu_config.on_npu and npu_config.profiling:
         experimental_config = torch_npu.profiler._ExperimentalConfig(
@@ -822,9 +834,9 @@ def main(args):
                                                      skip_first=0),
                 on_trace_ready=torch_npu.profiler.tensorboard_trace_handler(f"{profile_output_path}/")
         ) as prof:
-            train_all_epoch(prof)
+            train_one_epoch(prof)
     else:
-        train_all_epoch()
+        train_one_epoch()
     accelerator.wait_for_everyone()
     accelerator.end_training()
     if get_sequence_parallel_state():
@@ -854,6 +866,7 @@ if __name__ == "__main__":
     parser.add_argument("--hw_stride", type=int, default=32)
     parser.add_argument("--skip_low_resolution", action="store_true")
     parser.add_argument("--force_resolution", action="store_true")
+    parser.add_argument("--trained_data_global_step", type=int, default=None)
 
     # text encoder & vae & diffusion model
     parser.add_argument("--model", type=str, choices=list(Diffusion_models.keys()), default="Latte-XL/122")

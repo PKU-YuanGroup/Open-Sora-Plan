@@ -58,7 +58,6 @@ accelerate launch \
     --noise_offset 0.02 \
     --use_rope \
     --resume_from_checkpoint="latest" \
-    --group_data \
     --skip_low_resolution \
     --speed_factor 1.0 \
     --ema_decay 0.9999 \
@@ -68,4 +67,6 @@ accelerate launch \
     --sparse1d --sparse_n 4 \
     --use_motion \
     --train_fps 16 \
+    --seed 1234 \
+    --trained_data_global_step 0 \
     --output_dir="bs32x8x1_anyx93x320x320_fps16_lr1e-5_snr5_noioff0.02_ema9999_sparse1d4_dit_l_mt5xxl_alldata100m"  > training_log_new.txt

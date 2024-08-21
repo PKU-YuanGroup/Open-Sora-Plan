@@ -200,6 +200,7 @@ class T2V_dataset(Dataset):
             worker_info = get_worker_info()
             idx = dataset_prog.get_item(worker_info)
         try:
+            print('idx:', idx)
             data = self.get_data(idx)
             return data
         except Exception as e:
