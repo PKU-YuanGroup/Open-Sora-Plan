@@ -40,6 +40,7 @@ from megatron.training.utils import (
     check_adlr_autoresume_termination,
     print_rank_0,
 )
+from mindspeed_mm.configs.config import merge_mm_args
 
 _TRAIN_START_TIME = time.time()
 
@@ -89,6 +90,7 @@ def pretrain(
     )
 
     args = get_args()
+    merge_mm_args(args)
     timers = get_timers()
 
     if args.log_progress:
