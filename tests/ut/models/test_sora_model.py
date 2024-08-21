@@ -6,18 +6,7 @@ from torch import nn
 
 import mindspeed_mm
 from mindspeed_mm.models.sora_model import SoRAModel
-from tests.ut.utils import judge_expression
-
-
-def dict_to_obj(data: Dict[str, Any]) -> Any:
-    """convert a dictionary to an object recursively"""
-    if isinstance(data, dict):
-        data_dict = {k: dict_to_obj(v) for k, v in data.items()}
-        return SimpleNamespace(**data_dict)
-    if isinstance(data, list):
-        data_list = [dict_to_obj(item) for item in data]
-        return data_list
-    return data
+from tests.ut.utils import judge_expression, TestConfig
 
 
 class AEDummyObject:
@@ -112,9 +101,9 @@ class TestSoRAModel:
         mindspeed_mm.models.sora_model.PredictModel = PredictModel
         mindspeed_mm.models.sora_model.DiffusionModel = DiffusionModel
 
-        config = dict_to_obj(config)
+        config = TestConfig(config)
         sora = SoRAModel(config)
-        judge_expression(isinstance(sora.ae, AEDummyObject))
-        judge_expression(isinstance(sora.text_encoder, TextEncoderDummyObject))
+        judge_expression(isinstance(sora.ae.get_model(), AEDummyObject))
+        judge_expression(isinstance(sora.text_encoder.get_model(), TextEncoderDummyObject))
         judge_expression(isinstance(sora.predictor, PredictModelDummyObject))
         judge_expression(isinstance(sora.diffusion, DiffusionModelDummyObject))

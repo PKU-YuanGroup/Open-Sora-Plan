@@ -20,7 +20,6 @@ from mindspeed_mm.models.predictor import PredictModel
 from mindspeed_mm.models.diffusion import DiffusionModel
 from mindspeed_mm.models.ae import AEModel
 from mindspeed_mm.models.text_encoder import TextEncoder
-from mindspeed_mm.utils.utils import get_device, get_dtype
 
 
 class SoRAModel(nn.Module):
@@ -41,41 +40,45 @@ class SoRAModel(nn.Module):
     """
     def __init__(self, config):
         super().__init__()
-        self.device = get_device(config.device)
-        self.dtype = get_dtype(config.dtype)
         self.load_video_features = config.load_video_features
         self.load_text_features = config.load_text_features
         if not self.load_video_features:
-            self.ae = AEModel(config.ae).get_model()
+            self.ae = AEModel(config.ae)
+            self.ae.requires_grad_(False)
         if not self.load_text_features:
-            self.text_encoder = TextEncoder(config.text_encoder).get_model()
+            self.text_encoder = TextEncoder(config.text_encoder)
+            self.text_encoder.requires_grad_(False)
 
         self.predictor = PredictModel(config.predictor).get_model()
         self.diffusion = DiffusionModel(config.diffusion).get_model()
 
-    def forward(self, videos, texts, cond_mask, pad_mask, **kwargs):
+    def forward(self, video, prompt_ids, video_mask, prompt_mask, **kwargs):
         """
-        videos: raw video tensors, or ae encoded latent
-        texts: tokenized input_ids, or encoded hidden states
-        cond_mask: mask for texts
-        atten_mask: mask for dynamic videos
+        video: raw video tensors, or ae encoded latent
+        prompt_ids: tokenized input_ids, or encoded hidden states
+        video_mask: mask for video/image
+        prompt_mask: mask for prompt(text)
         """
         with torch.no_grad():
             # Visual Encode
             if self.load_video_features:
-                latents = videos.to(self.device, self.dtype)
+                latents = video
             else:
-                latents = self.ae.encode(videos)
+                latents = self.ae.encode(video)
             # Text Encode
             if self.load_text_features:
-                cond = texts.to(self.device, self.dtype)
+                prompt = prompt_ids
             else:
-                cond = self.text_encoder.encode(texts)
-        model_args = dict(cond=cond.to(self.device, self.dtype),
-                          cond_mask=cond_mask.to(self.device, self.dtype),
-                          pad_mask=pad_mask.to(self.device, self.dtype))
-        kwargs.update(model_args)
+                B, N, L = prompt_ids.shape
+                prompt_ids = prompt_ids.reshape(-1, L)
+                prompt_mask = prompt_mask.reshape(-1, L)
+                prompt = self.text_encoder.encode(prompt_ids, prompt_mask.reshape(-1, L))
+                prompt = prompt.reshape(B, N, L, -1)
 
-        # compute diffusion loss
-        loss_dict = self.diffusion.training_losses(self.predictor, latents, **kwargs)
+        model_output = self.predictor(latents, prompt, video_mask, prompt_mask, **kwargs)
+        return model_output, latents
+
+    def compute_loss(self, model_output, latents):
+        """compute diffusion loss"""
+        loss_dict = self.diffusion.training_losses(model_output, latents)
         return loss_dict

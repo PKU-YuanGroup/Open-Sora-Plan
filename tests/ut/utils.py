@@ -12,7 +12,7 @@ class TestConfig(object):
     def __init__(self, entries):
         for k, v in entries.items():
             if isinstance(v, dict):
-                self.__dict__[k] = Config(v)
+                self.__dict__[k] = TestConfig(v)
             else:
                 self.__dict__[k] = v
 
@@ -20,7 +20,7 @@ class TestConfig(object):
         ret = {}
         for k, v in self.__dict__.items():
             if isinstance(v, self.__class__):
-                ret[k] = self.to_dict(v)
+                ret[k] = v.to_dict()
             else:
                 ret[k] = v
         return ret

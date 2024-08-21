@@ -23,7 +23,8 @@ class IDDPM(DDPM):
     """
     def __init__(
         self,
-        num_sampling_steps: int = None,
+        num_inference_steps: int = 100,
+        num_train_steps: int = 1000,
         timestep_respacing: Union[str, List] = None,
         noise_schedule: str = "linear",
         use_kl: bool = False,
@@ -31,11 +32,12 @@ class IDDPM(DDPM):
         predict_xstart :bool = False,
         learn_sigma: bool = True,
         rescale_learned_sigmas: bool = False,
-        diffusion_steps: int = 1000,
-        device: str = "npu"
+        device: str = "npu",
+        **kwargs
     ):
         super().__init__(
-            num_sampling_steps=num_sampling_steps,
+            num_inference_steps=num_inference_steps,
+            num_train_steps=num_train_steps,
             timestep_respacing=timestep_respacing,
             noise_schedule=noise_schedule,
             use_kl=use_kl,
@@ -43,8 +45,8 @@ class IDDPM(DDPM):
             predict_xstart=predict_xstart,
             learn_sigma=learn_sigma,
             rescale_learned_sigmas=rescale_learned_sigmas,
-            diffusion_steps=diffusion_steps,
-            device=device
+            device=device,
+            **kwargs
         )
 
     def ddim_sample(
@@ -75,13 +77,14 @@ class IDDPM(DDPM):
                  - 'pred_xstart': a prediction of x_0.
         """
 
+        model_output = model(x, t, **model_kwargs)
+
         out = self.p_mean_variance(
-            model,
+            model_output,
             x,
             t,
             clip_denoised=clip_denoised,
             denoised_fn=denoised_fn,
-            model_kwargs=model_kwargs,
         )
         if cond_fn is not None:
             out = self.condition_score(cond_fn, out, x, t, model_kwargs=model_kwargs)
@@ -151,7 +154,7 @@ class IDDPM(DDPM):
         self,
         model: callable,
         shape: Union[Tuple, List],
-        latents: Tensor = None,
+        noised_latents: Tensor = None,
         clip_denoised: bool = True,
         denoised_fn: Callable = None,
         cond_fn: Callable = None,
@@ -168,7 +171,7 @@ class IDDPM(DDPM):
         for sample in self.ddim_sample_loop_progressive(
             model,
             shape,
-            latents=latents,
+            noised_latents=noised_latents,
             clip_denoised=clip_denoised,
             denoised_fn=denoised_fn,
             cond_fn=cond_fn,

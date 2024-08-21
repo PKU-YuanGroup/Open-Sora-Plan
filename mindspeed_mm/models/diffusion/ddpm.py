@@ -39,7 +39,8 @@ class DDPM:
     """
     def __init__(
         self,
-        num_sampling_steps: int = None,
+        num_inference_steps: int = None,
+        num_train_steps: int = 1000,
         timestep_respacing: Union[str, List] = None,
         noise_schedule: str = "linear",
         use_kl: bool = False,
@@ -47,11 +48,11 @@ class DDPM:
         predict_xstart: bool = False,
         learn_sigma: bool = True,
         rescale_learned_sigmas: bool = False,
-        diffusion_steps: int = 1000,
-        device: str = "npu"
+        device: str = "npu",
+        **kwargs
     ):
         self.device = get_device(device)
-        self.betas = get_beta_schedule(noise_schedule, diffusion_steps).to(self.device)
+        self.betas = get_beta_schedule(noise_schedule, num_train_steps).to(self.device)
         # init loss_type
         if use_kl:
             self.loss_type = LossType.RESCALED_KL
@@ -71,12 +72,12 @@ class DDPM:
         else:
             self.model_var_type = ModelVarType.FIXED_SMALL
         # space timesteps
-        if num_sampling_steps is not None and timestep_respacing is not None:
-            timestep_respacing = str(num_sampling_steps)
+        if num_inference_steps is not None and timestep_respacing is not None:
+            timestep_respacing = str(num_inference_steps)
         elif timestep_respacing is None or timestep_respacing == "":
-            timestep_respacing = [diffusion_steps]
-        use_timesteps = set(space_timesteps(diffusion_steps, timestep_respacing))
-        
+            timestep_respacing = [num_train_steps]
+        use_timesteps = set(space_timesteps(num_train_steps, timestep_respacing))
+
         # init new_betas 
         alphas = 1.0 - self.betas
         alphas_cumprod = torch.cumprod(alphas, axis=0)
@@ -160,16 +161,15 @@ class DDPM:
 
     def p_mean_variance(
         self,
-        model: PredictModel,
+        model_output: Tensor,
         x: Tensor,
         t: Tensor,
         clip_denoised: bool = True,
         denoised_fn: Callable = None,
-        model_kwargs: Dict = None
     ) -> Dict:
         """
-        Apply the model to get p(x_{t-1} | x_t), as well as a prediction of the initial x, x_0.
-        :param model: the model, which takes a signal and a batch of timesteps as input.
+        Apply the model_output to predict the initial x, x_0.
+        :param model_output: output of the PredictModel.
         :param x: the [N x C x ...] tensor at time t.
         :param t: a 1-D Tensor of timesteps.
         :param clip_denoised: if True, clip the denoised signal into [-1, 1].
@@ -183,13 +183,10 @@ class DDPM:
                  - 'log_variance': the log of 'variance'.
                  - 'pred_xstart': the prediction for x_0.
         """
-        if model_kwargs is None:
-            model_kwargs = {}
 
         B, C = x.shape[:2]
         if t.shape != (B,):
             raise AssertionError("the shape of t is wrong")
-        model_output = model(x, t, **model_kwargs)
         if isinstance(model_output, tuple):
             model_output, extra = model_output
         else:
@@ -346,13 +343,13 @@ class DDPM:
             batch_size = x.shape[0]
             model_kwargs["x_mask"] = mask_t_upper.reshape(batch_size, -1).to(torch.bool)
 
+        model_output = model(x, t, **model_kwargs)
         out = self.p_mean_variance(
-            model,
+            model_output,
             x,
             t,
             clip_denoised=clip_denoised,
             denoised_fn=denoised_fn,
-            model_kwargs=model_kwargs,
         )
         noise = torch.randn_like(x)
         # no noise when t == 0
@@ -457,12 +454,11 @@ class DDPM:
 
     def _vb_terms_bpd(
         self,
-        model: PredictModel,
+        model_output: Tensor,
         x_start: Tensor,
         x_t: Tensor,
         t: Tensor,
         clip_denoised: bool = True,
-        model_kwargs: dict = None,
         mask: Tensor = None
     ) -> Dict:
         """
@@ -474,7 +470,7 @@ class DDPM:
                  - 'pred_xstart': the x_0 predictions.
         """
         true_mean, _, true_log_variance_clipped = self.q_posterior_mean_variance(x_start=x_start, x_t=x_t, t=t)
-        out = self.p_mean_variance(model, x_t, t, clip_denoised=clip_denoised, model_kwargs=model_kwargs)
+        out = self.p_mean_variance(model_output, x_t, t, clip_denoised=clip_denoised)
         kl = normal_kl(true_mean, true_log_variance_clipped, out["mean"], out["log_variance"])
         kl = mean_flat(kl, mask=mask) / np.log(2.0)
 
@@ -489,13 +485,13 @@ class DDPM:
 
     def training_losses(
         self,
-        model: PredictModel,
+        model_output: Tensor,
         x_start: Tensor,
-        model_kwargs: Dict = None,
         noise: Tensor = None,
         mask: Tensor = None,
         weights: Tensor = None,
-        t: Tensor = None
+        t: Tensor = None,
+        **kwargs
     ) -> Tensor:
         """
         Compute training losses for a single timestep.
@@ -511,8 +507,6 @@ class DDPM:
             noise = torch.randn_like(x_start, device=x_start.device)
         if t is None:
             t = torch.randint(0, self.num_timesteps, (x_start.shape[0],), device=x_start.device)
-        if model_kwargs is None:
-            model_kwargs = {}
 
         x_t = self.q_sample(x_start, t, noise=noise)
         if mask is not None:
@@ -526,18 +520,15 @@ class DDPM:
             if mask is not None:
                 raise AssertionError("mask not supported for KL loss")
             terms["loss"] = self._vb_terms_bpd(
-                model=model,
+                model_output=model_output,
                 x_start=x_start,
                 x_t=x_t,
                 t=t,
-                clip_denoised=False,
-                model_kwargs=model_kwargs,
+                clip_denoised=False
             )["output"]
             if self.loss_type == LossType.RESCALED_KL:
                 terms["loss"] *= self.num_timesteps
         elif self.loss_type == LossType.MSE or self.loss_type == LossType.RESCALED_MSE:
-            model_output = model(x_t, t, **model_kwargs)
-
             if self.model_var_type in [
                 ModelVarType.LEARNED,
                 ModelVarType.LEARNED_RANGE,
@@ -549,7 +540,7 @@ class DDPM:
                 # Learn the variance using the variational bound, but don't let it affect our mean prediction.
                 frozen_out = torch.cat([model_output.detach(), model_var_values], dim=1)
                 terms["vb"] = self._vb_terms_bpd(
-                    model=lambda *args, r=frozen_out: r,
+                    model_output=frozen_out,
                     x_start=x_start,
                     x_t=x_t,
                     t=t,

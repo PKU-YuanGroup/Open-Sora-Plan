@@ -1,4 +1,5 @@
 # coding=utf-8
+# Copyright 2022 The HuggingFace Team. All rights reserved.
 # Copyright (c) 2024 Huawei Technologies Co., Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -37,6 +38,8 @@ def get_device(device="npu"):
     only support npu and cpu device, default npu.
     device format: cpu, npu, or npu:0
     """
+    if isinstance(device, torch.device):
+        return device
     device = device.lower().strip()
     if device == "cpu":
         return torch.device(device)
@@ -61,6 +64,8 @@ def get_device(device="npu"):
 
 def get_dtype(dtype):
     """return torch type according to the string"""
+    if isinstance(dtype, torch.dtype):
+        return dtype
     dtype_mapping = {
         "int32": torch.int32,
         "float64": torch.float64,
