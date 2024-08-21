@@ -284,7 +284,7 @@ def split_to_even_chunks(indices, lengths, num_chunks, batch_size):
         pad_chunks.append(chunk)
     return pad_chunks
 
-def get_length_grouped_indices(lengths, batch_size, world_size, initial_global_step, generator=None, group_data=False, seed=42):
+def get_length_grouped_indices(lengths, batch_size, world_size, gradient_accumulation_size, initial_global_step, generator=None, group_data=False, seed=42):
     # We need to use torch for the random part as a distributed sampler will set the random seed for torch.
     if generator is None:
         generator = torch.Generator().manual_seed(seed)  # every rank will generate a fixed order but random index
@@ -322,10 +322,16 @@ def get_length_grouped_indices(lengths, batch_size, world_size, initial_global_s
     # print('shuffled_megabatches', len(shuffled_megabatches))
     if group_data:
         shuffled_megabatches = last_group_data_fun(shuffled_megabatches, lengths)
+    
+    initial_global_step = initial_global_step * gradient_accumulation_size
     print('shuffled_megabatches', len(shuffled_megabatches))
     print('have been trained idx:', len(shuffled_megabatches[:initial_global_step]))
+    # print('shuffled_megabatches[:10]', shuffled_megabatches[:10])
+    # print('have been trained idx:', shuffled_megabatches[:initial_global_step])
     shuffled_megabatches = shuffled_megabatches[initial_global_step:]
     print('after shuffled_megabatches', len(shuffled_megabatches))
+    # print('after shuffled_megabatches[:10]', shuffled_megabatches[:10])
+
     # print('\nshuffled_megabatches', shuffled_megabatches)
     # import ipdb;ipdb.set_trace()
     # print('\nshuffled_megabatches len', [[i, lengths[i]] for megabatch in shuffled_megabatches for batch in megabatch for i in batch])
@@ -343,8 +349,8 @@ class LengthGroupedSampler(Sampler):
         self,
         batch_size: int,
         world_size: int,
+        gradient_accumulation_size: int, 
         initial_global_step: int, 
-        total_batch_size: int, 
         lengths: Optional[List[int]] = None, 
         group_data=False, 
         generator=None,
@@ -355,16 +361,16 @@ class LengthGroupedSampler(Sampler):
         self.batch_size = batch_size
         self.world_size = world_size
         self.initial_global_step = initial_global_step
-        self.total_batch_size = total_batch_size
+        self.gradient_accumulation_size = gradient_accumulation_size
         self.lengths = lengths
         self.group_data = group_data
         self.generator = generator
 
     def __len__(self):
-        return len(self.lengths) - self.initial_global_step * self.total_batch_size
+        return len(self.lengths) - self.initial_global_step * self.batch_size * self.world_size * self.gradient_accumulation_size
 
     def __iter__(self):
         indices = get_length_grouped_indices(self.lengths, self.batch_size, self.world_size, 
-                                             self.initial_global_step, 
+                                             self.gradient_accumulation_size, self.initial_global_step, 
                                              group_data=self.group_data, generator=self.generator)
         return iter(indices)

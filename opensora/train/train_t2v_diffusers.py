@@ -482,9 +482,9 @@ def main(args):
     train_dataset = getdataset(args)
     sampler = LengthGroupedSampler(
                 args.train_batch_size,
-                world_size=accelerator.num_processes,
+                world_size=accelerator.num_processes, 
+                gradient_accumulation_size=args.gradient_accumulation_steps, 
                 initial_global_step=initial_global_step_for_sampler, 
-                total_batch_size=total_batch_size, 
                 lengths=train_dataset.lengths, 
                 group_data=args.group_data, 
             )
