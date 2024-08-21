@@ -17,7 +17,7 @@ from transformers import T5EncoderModel, T5Tokenizer, AutoTokenizer, MT5EncoderM
 
 import os, sys
 
-from opensora.models.causalvideovae import ae_stride_config, ae_channel_config, ae_norm, ae_denorm, CausalVAEModelWrapper
+from opensora.models.causalvideovae import ae_stride_config, ae_wrapper
 
 from opensora.models.diffusion.udit.modeling_udit import UDiTT2V
 from opensora.models.diffusion.opensora.modeling_opensora import OpenSoraT2V
@@ -242,9 +242,8 @@ if __name__ == "__main__":
     torch.manual_seed(args.seed)
     weight_dtype = torch.bfloat16
     device = torch.cuda.current_device()
-    # print(11111111111111111111, local_rank, device)
-    # vae = getae_wrapper(args.ae)(args.model_path, subfolder="vae", cache_dir=args.cache_dir)
-    vae = CausalVAEModelWrapper(args.ae_path)
+    vae = ae_wrapper[args.ae](args.ae_path)
+    print(args.ae)
     vae.vae = vae.vae.to(device=device, dtype=weight_dtype)
     if args.enable_tiling:
         vae.vae.enable_tiling()
