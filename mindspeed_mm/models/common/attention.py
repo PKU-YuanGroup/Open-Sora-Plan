@@ -9,6 +9,8 @@ from communications import (
     split_forward_gather_backward,
 )
 from megatron.core import mpu
+from mindspeed_mm.utils.utils import video_to_image
+from .conv import CausalConv3d
 
 
 class Attention(nn.Module):
@@ -317,3 +319,104 @@ class SeqParallelMultiHeadCrossAttention(MultiHeadCrossAttention):
         x = self.proj(x)
         x = self.proj_drop(x)
         return x
+
+
+class Conv2dAttnBlock(nn.Module):
+    def __init__(
+        self, 
+        in_channels,
+        out_channels,
+        num_groups=32,
+        eps=1e-6,
+        kernel_size=1,
+        stride=1,
+        padding=0,
+        affine=True
+    ):
+        super().__init__()
+        self.norm = nn.GroupNorm(num_groups=num_groups, num_channels=in_channels, eps=eps, affine=affine)
+        self.q = torch.nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding)
+        self.k = torch.nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding)
+        self.v = torch.nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding)
+        self.proj_out = torch.nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding)
+
+    @video_to_image
+    def forward(self, x):
+        y = x
+        y = self.norm(y)
+        q = self.q(y)
+        k = self.k(y)
+        v = self.v(y)
+
+        # compute attention
+        b, c, h, w = q.shape
+        q = q.reshape(b, c, h * w)
+        q = q.permute(0, 2, 1)  # [b, hw, c]
+        k = k.reshape(b, c, h * w)  # [b, c, hw]
+        z = torch.bmm(q, k)  # [b, hw, hw]
+        z = z * (int(c) ** (-0.5))
+        z = torch.nn.functional.softmax(z, dim=2)
+
+        # attend to values
+        v = v.reshape(b, c, h * w)
+        z = z.permute(0, 2, 1)  # [b, hw, hw] (first hw of k, second of q)
+        y = torch.bmm(v, z)  # [b, c, hw] (hw of q)
+        y = y.reshape(b, c, h, w)
+
+        y = self.proj_out(y)
+
+        return x + y
+
+
+class CausalConv3dAttnBlock(nn.Module):
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        kernel_size,
+        stride,
+        num_groups=32,
+        eps=1e-6,
+        affine=True
+        ):
+        super().__init__()
+        self.norm = nn.GroupNorm(num_groups=num_groups, num_channels=in_channels, eps=eps, affine=affine)
+        self.q = CausalConv3d(in_channels, out_channels, kernel_size=kernel_size, stride=stride)
+        self.k = CausalConv3d(in_channels, out_channels, kernel_size=kernel_size, stride=stride)
+        self.v = CausalConv3d(in_channels, out_channels, kernel_size=kernel_size, stride=stride)
+        self.proj_out = CausalConv3d(in_channels, out_channels, kernel_size=kernel_size, stride=stride)
+
+    def forward(self, x):
+        y = x
+        y = self.norm(y)
+        q = self.q(y)
+        k = self.k(y)
+        v = self.v(y)
+
+        # compute attention
+        # q: (b c t h w) -> (b t c h w) -> (b*t c h*w) -> (b*t h*w c)
+        b, c, t, h, w = q.shape
+        q = torch_npu.npu_confusion_transpose(q, (0, 2, 1, 3, 4), (b * t, c, h * w), True)
+        q = q.permute(0, 2, 1)
+
+        # k: (b c t h w) -> (b t c h w) -> (b*t c h*w)
+        k = torch_npu.npu_confusion_transpose(k, (0, 2, 1, 3, 4), (b * t, c, h * w), True)
+
+        # w: (b*t hw hw)
+        z = torch.bmm(q, k)
+        z = z * (int(c) ** (-0.5))
+        z = torch.nn.functional.softmax(z, dim=2)
+
+        # attend to values
+        # v: (b c t h w) -> (b t c h w) -> (bt c hw)
+        # z: (bt hw hw) -> (bt hw hw)
+        v = torch_npu.npu_confusion_transpose(v, (0, 2, 1, 3, 4), (b * t, c, h * w))
+        z = z.permute(0, 2, 1)  # [b, hw, hw] (first hw of k, second of q)
+        y = torch.bmm(v, z)  # [b, c, hw] (hw of q)
+
+        # y: (b*t c hw) -> (b t c h w) -> (b c t h w)
+        y = torch.npu_confusion_transpose(y, (0, 2, 1, 3, 4), (b, t, c, h, w), False)
+
+        y = self.proj_out(y)
+
+        return x + y
