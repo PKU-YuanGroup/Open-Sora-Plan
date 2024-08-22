@@ -1,3 +1,4 @@
+
 try:
     import torch_npu
     from opensora.npu_config import npu_config
@@ -7,27 +8,16 @@ except:
 from ..modeling_videobase import VideoBaseAE
 from ..modules import Normalize
 from ..modules.ops import nonlinearity
-from typing import List, Tuple
+from typing import Tuple
 import torch.nn as nn
-
 from ..utils.module_utils import resolve_str_to_obj, Module
 from ..utils.distrib_utils import DiagonalGaussianDistribution
-from ..utils.scheduler_utils import cosine_scheduler
-from ...utils.utils import custom_to_video
-
+from ..registry import ModelRegistry
 import torch
 from diffusers.configuration_utils import register_to_config
 from copy import deepcopy
 import os
-import glob
 
-import numpy as np
-from ...eval.cal_psnr import calculate_psnr
-from decord import VideoReader, cpu
-from pytorchvideo.transforms import ShortSideScale
-from torchvision.io import read_video
-from torchvision.transforms import Lambda, Compose
-from torchvision.transforms._transforms_video import CenterCropVideo
 
 class Encoder(nn.Module):
     def __init__(
@@ -57,6 +47,7 @@ class Encoder(nn.Module):
         resolution: int = 256,
         num_res_blocks: int = 2,
         double_z: bool = True,
+        norm_type: str = "groupnorm",
     ) -> None:
         super().__init__()
         assert len(resnet_blocks) == len(hidden_size_mult), print(
@@ -66,7 +57,7 @@ class Encoder(nn.Module):
         self.num_resolutions = len(hidden_size_mult)
         self.resolution = resolution
         self.num_res_blocks = num_res_blocks
-        
+
         # ---- In ----
         self.conv_in = resolve_str_to_obj(conv_in)(
             3, hidden_size, kernel_size=3, stride=1, padding=1
@@ -88,6 +79,7 @@ class Encoder(nn.Module):
                         in_channels=block_in,
                         out_channels=block_out,
                         dropout=dropout,
+                        norm_type=norm_type
                     )
                 )
                 block_in = block_out
@@ -113,15 +105,17 @@ class Encoder(nn.Module):
             in_channels=block_in,
             out_channels=block_in,
             dropout=dropout,
+            norm_type=norm_type
         )
         self.mid.attn_1 = resolve_str_to_obj(attention)(block_in)
         self.mid.block_2 = resolve_str_to_obj(mid_resnet)(
             in_channels=block_in,
             out_channels=block_in,
             dropout=dropout,
+            norm_type=norm_type
         )
         # ---- Out ----
-        self.norm_out = Normalize(block_in)
+        self.norm_out = Normalize(block_in, norm_type=norm_type)
         self.conv_out = resolve_str_to_obj(conv_out)(
             block_in,
             2 * z_channels if double_z else z_channels,
@@ -145,8 +139,10 @@ class Encoder(nn.Module):
         h = self.mid.block_1(h)
         h = self.mid.attn_1(h)
         h = self.mid.block_2(h)
-
-        h = self.norm_out(h)
+        if npu_config is None:
+            h = self.norm_out(h)
+        else:
+            h = npu_config.run_group_norm(self.norm_out, h)
         h = nonlinearity(h)
         h = self.conv_out(h)
         return h
@@ -179,6 +175,7 @@ class Decoder(nn.Module):
         dropout: float = 0.0,
         resolution: int = 256,
         num_res_blocks: int = 2,
+        norm_type: str = "groupnorm",
     ):
         super().__init__()
         # ---- Config ----
@@ -199,12 +196,14 @@ class Decoder(nn.Module):
             in_channels=block_in,
             out_channels=block_in,
             dropout=dropout,
+            norm_type=norm_type
         )
-        self.mid.attn_1 = resolve_str_to_obj(attention)(block_in)
+        self.mid.attn_1 = resolve_str_to_obj(attention)(block_in, norm_type=norm_type)
         self.mid.block_2 = resolve_str_to_obj(mid_resnet)(
             in_channels=block_in,
             out_channels=block_in,
             dropout=dropout,
+            norm_type=norm_type
         )
 
         # ---- Upsample ----
@@ -219,11 +218,12 @@ class Decoder(nn.Module):
                         in_channels=block_in,
                         out_channels=block_out,
                         dropout=dropout,
+                        norm_type=norm_type
                     )
                 )
                 block_in = block_out
                 if curr_res in attn_resolutions:
-                    attn.append(resolve_str_to_obj(attention)(block_in))
+                    attn.append(resolve_str_to_obj(attention)(block_in, norm_type=norm_type))
             up = nn.Module()
             up.block = block
             up.attn = attn
@@ -239,7 +239,7 @@ class Decoder(nn.Module):
             self.up.insert(0, up)
 
         # ---- Out ----
-        self.norm_out = Normalize(block_in)
+        self.norm_out = Normalize(block_in, norm_type=norm_type)
         self.conv_out = resolve_str_to_obj(conv_out)(
             block_in, 3, kernel_size=3, padding=1
         )
@@ -259,21 +259,17 @@ class Decoder(nn.Module):
                 h = self.up[i_level].upsample(h)
             if hasattr(self.up[i_level], "time_upsample"):
                 h = self.up[i_level].time_upsample(h)
+
         if npu_config is None:
             h = self.norm_out(h)
         else:
             h = npu_config.run_group_norm(self.norm_out, h)
         h = nonlinearity(h)
-        if npu_config is None:
-            h = self.conv_out(h)
-        else:
-            h_dtype = h.dtype
-            h = npu_config.run_conv3d(self.conv_out, h, h_dtype)
+        h = self.conv_out(h)
         return h
 
-
+@ModelRegistry.register("CausalVAE")
 class CausalVAEModel(VideoBaseAE):
-
     @register_to_config
     def __init__(
         self,
@@ -324,24 +320,29 @@ class CausalVAEModel(VideoBaseAE):
             "SpatialUpsample2x",
             "SpatialUpsample2x",
         ),
-        decoder_temporal_upsample: Tuple[Module] = ("", "", "TimeUpsample2x", "TimeUpsample2x"),
+        decoder_temporal_upsample: Tuple[Module] = (
+            "",
+            "",
+            "TimeUpsample2x",
+            "TimeUpsample2x",
+        ),
         decoder_mid_resnet: Module = "ResnetBlock3D",
-        use_quant_layer: bool = True
+        use_quant_layer: bool = True,
+        norm_type: str = "groupnorm",
     ) -> None:
         super().__init__()
-        
-        
-        self.tile_sample_min_size = 512000
-        self.tile_sample_min_size_t = 93000
 
-        self.tile_sample_min_size_dec = 512
-        self.tile_sample_min_size_t_dec = 33
-        self.tile_latent_min_size = int(self.tile_sample_min_size_dec / (2 ** (len(hidden_size_mult) - 1)))
-        self.tile_latent_min_size_t = int((self.tile_sample_min_size_t_dec-1) / 4) + 1
-
-        self.tile_overlap_factor = 0.125
+        self.tile_sample_min_size = 256
+        self.tile_sample_min_size_t = 65
+        self.tile_latent_min_size = int(
+            self.tile_sample_min_size / (2 ** (len(hidden_size_mult) - 1))
+        )
+        t_down_ratio = [i for i in encoder_temporal_downsample if len(i) > 0]
+        self.tile_latent_min_size_t = (
+            int((self.tile_sample_min_size_t - 1) / (2 ** len(t_down_ratio))) + 1
+        )
+        self.tile_overlap_factor = 0.25
         self.use_tiling = False
-        
         self.use_quant_layer = use_quant_layer
 
         self.encoder = Encoder(
@@ -360,6 +361,7 @@ class CausalVAEModel(VideoBaseAE):
             resolution=resolution,
             num_res_blocks=num_res_blocks,
             double_z=double_z,
+            norm_type=norm_type
         )
 
         self.decoder = Decoder(
@@ -377,6 +379,7 @@ class CausalVAEModel(VideoBaseAE):
             dropout=dropout,
             resolution=resolution,
             num_res_blocks=num_res_blocks,
+            norm_type=norm_type
         )
         if self.use_quant_layer:
             quant_conv_cls = resolve_str_to_obj(q_conv)
@@ -387,14 +390,13 @@ class CausalVAEModel(VideoBaseAE):
         if self.use_quant_layer:
             return [self.quant_conv, self.encoder]
         return [self.encoder]
-            
+
     def get_decoder(self):
         if self.use_quant_layer:
             return [self.post_quant_conv, self.decoder]
         return [self.decoder]
-    
+
     def encode(self, x):
-        # import ipdb;ipdb.set_trace()
         if self.use_tiling and (
             x.shape[-1] > self.tile_sample_min_size
             or x.shape[-2] > self.tile_sample_min_size
@@ -404,12 +406,10 @@ class CausalVAEModel(VideoBaseAE):
         h = self.encoder(x)
         if self.use_quant_layer:
             h = self.quant_conv(h)
-        # torch.save(h, 'notileencfea.pt')
         posterior = DiagonalGaussianDistribution(h)
         return posterior
 
     def decode(self, z):
-        # import ipdb;ipdb.set_trace()
         if self.use_tiling and (
             z.shape[-1] > self.tile_latent_min_size
             or z.shape[-2] > self.tile_latent_min_size
@@ -429,10 +429,10 @@ class CausalVAEModel(VideoBaseAE):
             z = posterior.mode()
         dec = self.decode(z)
         return dec, posterior
-    
+
     def on_train_start(self):
-        self.ema = deepcopy(self) if self.save_ema==True else None
-    
+        self.ema = deepcopy(self) if self.save_ema == True else None
+
     def get_last_layer(self):
         if hasattr(self.decoder.conv_out, "conv"):
             return self.decoder.conv_out.conv.weight
@@ -461,21 +461,22 @@ class CausalVAEModel(VideoBaseAE):
 
     def tiled_encode(self, x):
         t = x.shape[2]
-        t_chunk_idx = [i for i in range(0, t, self.tile_sample_min_size_t-1)]
-        # print('tiled_encode', t_chunk_idx)
+        t_chunk_idx = [i for i in range(0, t, self.tile_sample_min_size_t - 1)]
         if len(t_chunk_idx) == 1 and t_chunk_idx[0] == 0:
             t_chunk_start_end = [[0, t]]
         else:
-            t_chunk_start_end = [[t_chunk_idx[i], t_chunk_idx[i+1]+1] for i in range(len(t_chunk_idx)-1)]
+            t_chunk_start_end = [
+                [t_chunk_idx[i], t_chunk_idx[i + 1] + 1]
+                for i in range(len(t_chunk_idx) - 1)
+            ]
             if t_chunk_start_end[-1][-1] > t:
                 t_chunk_start_end[-1][-1] = t
             elif t_chunk_start_end[-1][-1] < t:
                 last_start_end = [t_chunk_idx[-1], t]
                 t_chunk_start_end.append(last_start_end)
         moments = []
-        # print('tiled_encode t_chunk_start_end', t_chunk_start_end)
         for idx, (start, end) in enumerate(t_chunk_start_end):
-            chunk_x = x[:, :, start: end]
+            chunk_x = x[:, :, start:end]
             if idx != 0:
                 moment = self.tiled_encode2d(chunk_x, return_moments=True)[:, :, 1:]
             else:
@@ -484,24 +485,25 @@ class CausalVAEModel(VideoBaseAE):
         moments = torch.cat(moments, dim=2)
         posterior = DiagonalGaussianDistribution(moments)
         return posterior
-    
+
     def tiled_decode(self, x):
         t = x.shape[2]
-        t_chunk_idx = [i for i in range(0, t, self.tile_latent_min_size_t-1)]
-        # print('tiled_decode', t_chunk_idx)
+        t_chunk_idx = [i for i in range(0, t, self.tile_latent_min_size_t - 1)]
         if len(t_chunk_idx) == 1 and t_chunk_idx[0] == 0:
             t_chunk_start_end = [[0, t]]
         else:
-            t_chunk_start_end = [[t_chunk_idx[i], t_chunk_idx[i+1]+1] for i in range(len(t_chunk_idx)-1)]
+            t_chunk_start_end = [
+                [t_chunk_idx[i], t_chunk_idx[i + 1] + 1]
+                for i in range(len(t_chunk_idx) - 1)
+            ]
             if t_chunk_start_end[-1][-1] > t:
                 t_chunk_start_end[-1][-1] = t
             elif t_chunk_start_end[-1][-1] < t:
                 last_start_end = [t_chunk_idx[-1], t]
                 t_chunk_start_end.append(last_start_end)
         dec_ = []
-        # print('tiled_decode t_chunk_start_end', t_chunk_start_end)
         for idx, (start, end) in enumerate(t_chunk_start_end):
-            chunk_x = x[:, :, start: end]
+            chunk_x = x[:, :, start:end]
             if idx != 0:
                 dec = self.tiled_decode2d(chunk_x)[:, :, 1:]
             else:
@@ -520,7 +522,6 @@ class CausalVAEModel(VideoBaseAE):
         for i in range(0, x.shape[3], overlap_size):
             row = []
             for j in range(0, x.shape[4], overlap_size):
-                # print(i, j)
                 tile = x[
                     :,
                     :,
@@ -560,7 +561,6 @@ class CausalVAEModel(VideoBaseAE):
 
         # Split z into overlapping 64x64 tiles and decode them separately.
         # The tiles have an overlap to avoid seams between tiles.
-        # print('tiled_decode2d', list(range(0, z.shape[3], overlap_size)), list(range(0, z.shape[4], overlap_size)))
         rows = []
         for i in range(0, z.shape[3], overlap_size):
             row = []
@@ -602,8 +602,12 @@ class CausalVAEModel(VideoBaseAE):
     def init_from_ckpt(self, path, ignore_keys=list()):
         sd = torch.load(path, map_location="cpu")
         print("init from " + path)
-        
-        if "ema_state_dict" in sd and len(sd['ema_state_dict']) > 0 and os.environ.get("NOT_USE_EMA_MODEL", 0) == 0:
+
+        if (
+            "ema_state_dict" in sd
+            and len(sd["ema_state_dict"]) > 0
+            and os.environ.get("NOT_USE_EMA_MODEL", 0) == 0
+        ):
             print("Load from ema model!")
             sd = sd["ema_state_dict"]
             sd = {key.replace("module.", ""): value for key, value in sd.items()}
@@ -613,21 +617,13 @@ class CausalVAEModel(VideoBaseAE):
                 sd = sd["state_dict"]["gen_model"]
             else:
                 sd = sd["state_dict"]
-                
+
         keys = list(sd.keys())
-        
+
         for k in keys:
             for ik in ignore_keys:
                 if k.startswith(ik):
                     print("Deleting key {} from state_dict.".format(k))
                     del sd[k]
-        
-        miss, unexpected = self.load_state_dict(sd, strict=False)
-        assert len(miss) == 0, f"miss key: {miss}"
-        if len(unexpected) > 0:
-            for i in unexpected:
-                assert 'loss' in i, "unexpected key: {i}"
 
-
-
-
+        missing_keys, unexpected_keys = self.load_state_dict(sd, strict=True)

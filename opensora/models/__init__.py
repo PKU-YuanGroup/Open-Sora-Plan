@@ -1,1 +1,1 @@
-from .causalvideovae.model import CausalVAEModelWrapper
+from .causalvideovae import CausalVAEModelWrapper, WFVAEModelWrapper
