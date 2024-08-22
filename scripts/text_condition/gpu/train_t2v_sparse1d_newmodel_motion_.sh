@@ -68,5 +68,4 @@ accelerate launch \
     --use_motion \
     --train_fps 16 \
     --seed 1234 \
-    --trained_data_global_step 2 \
     --output_dir="debug"

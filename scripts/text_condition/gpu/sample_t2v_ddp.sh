@@ -2,21 +2,21 @@
 # CUDA_VISIBLE_DEVICES=7 python opensora/sample/sample_t2v.py \
 CUDA_VISIBLE_DEVICES=0 torchrun --nnodes=1 --nproc_per_node 1  --master_port 29504 \
     -m opensora.sample.sample_t2v_ddp \
-    --model_path /storage/ongoing/new/7.19anyres/Open-Sora-Plan/bs32x8x1_anyx93x320x320_fps16_lr1e-5_snr5_noioff0.02_ema9999_sparse1d4_dit_l_mt5xxl_alldata100m/checkpoint-250000/model_ema \
+    --model_path /storage/ongoing/new/7.19anyres/Open-Sora-Plan/bs32x8x1_anyx93x320x320_fps16_lr1e-5_snr5_noioff0.02_ema9999_sparse1d4_dit_l_mt5xxl_alldata100m/checkpoint-343000/model_ema \
     --version 65x512x512 \
     --num_frames 93 \
     --height 160 \
     --width 320 \
     --cache_dir "../cache_dir" \
     --text_encoder_name google/mt5-xxl \
-    --text_prompt /storage/lcm/osp-fork/examples/prompt_list_0.txt \
-    --ae WFVAEModel_D8_4x8x8 \
-    --ae_path "/storage/lcm/Causal-Video-VAE/results/WFVAE_DISTILL" \
-    --save_img_path "./wf_output" \
+    --text_prompt /storage/ongoing/new/7.19anyres/Open-Sora-Plan/examples/sora.txt \
+    --ae CausalVAEModel_D8_4x8x8 \
+    --ae_path "/storage/dataset/new488dim8/last" \
+    --save_img_path "./sample_video_dit_vae8_newmodel_anyx93x160x320_sora_m0.05_latest343k_cfg10.0" \
     --fps 18 \
-    --guidance_scale 7.5 \
+    --guidance_scale 10.0 \
     --num_sampling_steps 100 \
     --max_sequence_length 512 \
     --sample_method EulerAncestralDiscrete \
     --model_type "sparsedit" \
-    --motion_score 0.95
+    --motion_score 0.05

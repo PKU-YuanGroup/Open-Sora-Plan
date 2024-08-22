@@ -792,6 +792,7 @@ def main(args):
             with accelerator.accumulate(model):
                 assert not torch.any(torch.isnan(x)), 'after vae'
                 x = x.to(weight_dtype)
+                # print(f'rank: {accelerator.process_index}, x: {x.shape}')
                 model_kwargs = dict(encoder_hidden_states=cond, attention_mask=attn_mask, motion_score=motion_score, 
                                     encoder_attention_mask=cond_mask, use_image_num=args.use_image_num)
                 run(x, model_kwargs, prof_)
