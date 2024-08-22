@@ -12,7 +12,6 @@ import torch
 from torch import Tensor
 from tqdm.auto import tqdm
 
-from mindspeed_mm.models.predictor import PredictModel
 from .diffusion_utils import extract_into_tensor
 from .ddpm import DDPM
 
@@ -21,6 +20,7 @@ class IDDPM(DDPM):
     """
     Improved DDPM for diffusion model.
     """
+
     def __init__(
         self,
         num_inference_steps: int = 100,
@@ -29,11 +29,11 @@ class IDDPM(DDPM):
         noise_schedule: str = "linear",
         use_kl: bool = False,
         sigma_small: bool = False,
-        predict_xstart :bool = False,
+        predict_xstart: bool = False,
         learn_sigma: bool = True,
         rescale_learned_sigmas: bool = False,
         device: str = "npu",
-        **kwargs
+        **kwargs,
     ):
         super().__init__(
             num_inference_steps=num_inference_steps,
@@ -46,12 +46,12 @@ class IDDPM(DDPM):
             learn_sigma=learn_sigma,
             rescale_learned_sigmas=rescale_learned_sigmas,
             device=device,
-            **kwargs
+            **kwargs,
         )
 
     def ddim_sample(
         self,
-        model: PredictModel,
+        model,
         x: Tensor,
         t: Tensor,
         clip_denoised: bool = True,
@@ -94,17 +94,25 @@ class IDDPM(DDPM):
         pred_xstart = out["pred_xstart"]
         eps = (
             extract_into_tensor(self.sqrt_recip_alphas_cumprod, t, x.shape) * x
-            - pred_xstart) / extract_into_tensor(self.sqrt_recipm1_alphas_cumprod, t, x.shape
-        )
-
+            - pred_xstart
+        ) / extract_into_tensor(self.sqrt_recipm1_alphas_cumprod, t, x.shape)
 
         alpha_bar = extract_into_tensor(self.alphas_cumprod, t, x.shape)
         alpha_bar_prev = extract_into_tensor(self.alphas_cumprod_prev, t, x.shape)
-        sigma = eta * torch.sqrt((1 - alpha_bar_prev) / (1 - alpha_bar)) * torch.sqrt(1 - alpha_bar / alpha_bar_prev)
+        sigma = (
+            eta
+            * torch.sqrt((1 - alpha_bar_prev) / (1 - alpha_bar))
+            * torch.sqrt(1 - alpha_bar / alpha_bar_prev)
+        )
         # Equation 12.
         noise = torch.randn_like(x)
-        mean_pred = out["pred_xstart"] * torch.sqrt(alpha_bar_prev) + torch.sqrt(1 - alpha_bar_prev - sigma**2) * eps
-        nonzero_mask = (t != 0).float().view(-1, *([1] * (len(x.shape) - 1)))  # no noise when t == 0
+        mean_pred = (
+            out["pred_xstart"] * torch.sqrt(alpha_bar_prev)
+            + torch.sqrt(1 - alpha_bar_prev - sigma**2) * eps
+        )
+        nonzero_mask = (
+            (t != 0).float().view(-1, *([1] * (len(x.shape) - 1)))
+        )  # no noise when t == 0
         sample = mean_pred + nonzero_mask * sigma * noise
         return {"sample": sample, "pred_xstart": out["pred_xstart"]}
 
@@ -129,7 +137,7 @@ class IDDPM(DDPM):
             raise AssertionError("param shape must be tuple or list")
         if latents is None:
             latents = torch.randn(*shape, device=self.device)
-        
+
         indices = list(range(self.num_timesteps))[::-1]
         if progress:
             indices = tqdm(indices)
@@ -161,7 +169,7 @@ class IDDPM(DDPM):
         model_kwargs: Dict = None,
         progress: bool = False,
         eta: float = 0.0,
-        **kwargs
+        **kwargs,
     ):
         """
         Generate samples from the model using DDIM.

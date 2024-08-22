@@ -18,12 +18,18 @@ import torch
 from torch import Tensor
 
 
-from diffusers.schedulers import (DDIMScheduler, DDPMScheduler, PNDMScheduler,
-                                  EulerDiscreteScheduler, DPMSolverMultistepScheduler,
-                                  HeunDiscreteScheduler, EulerAncestralDiscreteScheduler,
-                                  DEISMultistepScheduler, KDPM2AncestralDiscreteScheduler)
+from diffusers.schedulers import (
+    DDIMScheduler,
+    DDPMScheduler,
+    PNDMScheduler,
+    EulerDiscreteScheduler,
+    DPMSolverMultistepScheduler,
+    HeunDiscreteScheduler,
+    EulerAncestralDiscreteScheduler,
+    DEISMultistepScheduler,
+    KDPM2AncestralDiscreteScheduler,
+)
 
-from mindspeed_mm.models.predictor import PredictModel
 from mindspeed_mm.utils.utils import get_device
 
 
@@ -36,7 +42,7 @@ DIFFUSERS_SCHEDULE_MAPPINGS = {
     "HeunDiscrete": HeunDiscreteScheduler,
     "EulerAncestralDiscrete": EulerAncestralDiscreteScheduler,
     "DEISMultistep": DEISMultistepScheduler,
-    "KDPM2AncestralDiscrete": KDPM2AncestralDiscreteScheduler
+    "KDPM2AncestralDiscrete": KDPM2AncestralDiscreteScheduler,
 }
 
 
@@ -55,6 +61,7 @@ class DiffusersScheduler:
             ...
         }
     """
+
     def __init__(self, config):
         # here `guidance_scale` is defined analog to the guidance weight `w` of equation (2)
         # of the Imagen paper: https://arxiv.org/pdf/2205.11487.pdf . `guidance_scale = 1`
@@ -72,15 +79,16 @@ class DiffusersScheduler:
         # Prepare timesteps
         self.diffusion.set_timesteps(self.num_inference_steps, device=self.device)
         self.timesteps = self.diffusion.timesteps
-        self.num_warmup_steps = max(len(self.timesteps) - self.num_inference_steps * self.diffusion.order, 0)
-
+        self.num_warmup_steps = max(
+            len(self.timesteps) - self.num_inference_steps * self.diffusion.order, 0
+        )
 
     def training_losses(self):
         raise NotImplementedError()
 
     def sample(
         self,
-        model: PredictModel,
+        model,
         shape: Union[List, Tuple],
         latents: Tensor,
         model_kwargs: dict = None,
@@ -116,10 +124,16 @@ class DiffusersScheduler:
             model_kwargs.update(added_cond_kwargs)
 
         # for loop denoising to get latents
-        with self.diffusion.progress_bar(total=self.num_inference_steps) as progress_bar:
+        with self.diffusion.progress_bar(
+            total=self.num_inference_steps
+        ) as progress_bar:
             for i in indices:
                 timestep = torch.tensor([i] * shape[0], device=self.device)
-                latents = torch.cat([latents] * 2) if self.do_classifier_free_guidance else latents
+                latents = (
+                    torch.cat([latents] * 2)
+                    if self.do_classifier_free_guidance
+                    else latents
+                )
                 latents = self.diffusion.scale_model_input(latents, timestep)
 
                 model_kwargs["video"] = latents
@@ -131,17 +145,28 @@ class DiffusersScheduler:
                 # perform guidance
                 if self.do_classifier_free_guidance:
                     noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-                    noise_pred = noise_pred_uncond + self.guidance_scale * (noise_pred_text - noise_pred_uncond)
+                    noise_pred = noise_pred_uncond + self.guidance_scale * (
+                        noise_pred_text - noise_pred_uncond
+                    )
 
                 # learned sigma
                 if model.out_channels // 2 == model.in_channels:
                     noise_pred = noise_pred.chunk(2, dim=1)[0]
 
                 # compute previous image: x_t -> x_t-1
-                latents = self.diffusion.step(noise_pred, timestep, latents, **extra_step_kwargs, return_dict=False)[0]
+                latents = self.diffusion.step(
+                    noise_pred,
+                    timestep,
+                    latents,
+                    **extra_step_kwargs,
+                    return_dict=False,
+                )[0]
 
                 # call the callback, if provided
-                if i == len(self.timesteps) - 1 or ((i + 1) > self.num_warmup_steps and (i + 1) % self.diffusion.order == 0):
+                if i == len(self.timesteps) - 1 or (
+                    (i + 1) > self.num_warmup_steps
+                    and (i + 1) % self.diffusion.order == 0
+                ):
                     progress_bar.update()
                     if callback is not None and i % callback_steps == 0:
                         step_idx = i // getattr(self.diffusion, "order", 1)

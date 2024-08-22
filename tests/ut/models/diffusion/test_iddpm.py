@@ -28,7 +28,7 @@ class TestIDDPM:
             "beta_start": 0.0001,
             "beta_end": 0.02,
             "guidance_scale": 4.5,
-            "device": "npu"
+            "device": "npu",
         }
         diffusion = DiffusersScheduler(config).diffusion
         judge_expression(isinstance(diffusion, PNDMScheduler))
@@ -38,4 +38,3 @@ class TestIDDPM:
 
     def test_training_losses(self):
         pass
-

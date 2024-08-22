@@ -5,6 +5,7 @@ from einops import rearrange
 from timm.models.layers import DropPath
 from timm.models.vision_transformer import Mlp
 from megatron.core import mpu
+from megatron.training import get_args
 from mindspeed_mm.models.common.module import MultiModalModule
 from mindspeed_mm.models.common.checkpoint import auto_grad_checkpoint
 from mindspeed_mm.models.common.communications import (
@@ -126,7 +127,7 @@ class STDiTBlock(nn.Module):
         return x
 
 
-class STDiT(nn.Module):
+class STDiT(MultiModalModule):
     def __init__(
         self,
         input_size=(1, 32, 32),
@@ -148,8 +149,9 @@ class STDiT(nn.Module):
         freeze=None,
         enable_flashattn=False,
         enable_sequence_parallelism=False,
+        **kwargs,
     ):
-        super().__init__()
+        super().__init__(config=None)
         self.pred_sigma = pred_sigma
         self.in_channels = in_channels
         self.out_channels = in_channels * 2 if pred_sigma else in_channels
@@ -172,38 +174,48 @@ class STDiT(nn.Module):
         self.register_buffer("pos_embed", self.get_spatial_pos_embed())
         self.register_buffer("pos_embed_temporal", self.get_temporal_pos_embed())
 
-        self.x_embedder = PatchEmbed3D(patch_size, in_channels, hidden_size)
-        self.t_embedder = TimestepEmbedder(hidden_size)
-        self.t_block = nn.Sequential(
-            nn.SiLU(), nn.Linear(hidden_size, 6 * hidden_size, bias=True)
-        )
-        self.y_embedder = CaptionEmbedder(
-            in_channels=caption_channels,
-            hidden_size=hidden_size,
-            uncond_prob=class_dropout_prob,
-            act_layer=lambda: nn.GELU(approximate="tanh"),
-            token_num=model_max_length,
-        )
+        self.input_tensor = None
+        if mpu.is_pipeline_first_stage():
+            self.x_embedder = PatchEmbed3D(patch_size, in_channels, hidden_size)
+            self.t_embedder = TimestepEmbedder(hidden_size)
+            self.t_block = nn.Sequential(
+                nn.SiLU(), nn.Linear(hidden_size, 6 * hidden_size, bias=True)
+            )
+            self.y_embedder = CaptionEmbedder(
+                in_channels=caption_channels,
+                hidden_size=hidden_size,
+                uncond_prob=class_dropout_prob,
+                act_layer=lambda: nn.GELU(approximate="tanh"),
+                token_num=model_max_length,
+            )
+        else:
+            self.x_embedder = None
+            self.t_embedder = None
+            self.t_block = None
+            self.y_embedder = None
 
         drop_path = [x.item() for x in torch.linspace(0, drop_path, depth)]
+        self.num_layers = self._get_num_layers(depth)
+
+        args = get_args()
+        if args.virtual_pipeline_model_parallel_size is not None:
+            raise NotImplementedError("VPP is not supported now")
+        else:
+            offset = mpu.get_pipeline_model_parallel_group() * self.num_layers
+
         self.blocks = nn.ModuleList(
             [
-                STDiTBlock(
-                    self.hidden_size,
-                    self.num_heads,
-                    mlp_ratio=self.mlp_ratio,
-                    drop_path=drop_path[i],
-                    enable_flashattn=self.enable_flashattn,
-                    enable_sequence_parallelism=enable_sequence_parallelism,
-                    d_t=self.num_temporal,
-                    d_s=self.num_spatial,
-                )
-                for i in range(self.depth)
+                self.build_layer(drop_path, i + offset, enable_sequence_parallelism)
+                for i in range(self.num_layers)
             ]
         )
-        self.final_layer = T2IFinalLayer(
-            hidden_size, np.prod(self.patch_size), self.out_channels
-        )
+
+        if mpu.is_pipeline_last_stage():
+            self.final_layer = T2IFinalLayer(
+                hidden_size, np.prod(self.patch_size), self.out_channels
+            )
+        else:
+            self.final_layer = None
 
         # init model
         self.initialize_weights()
@@ -223,54 +235,69 @@ class STDiT(nn.Module):
         else:
             self.sp_rank = None
 
-    def forward(self, x, timestep, y, mask=None):
+    def build_layer(self, drop_path, layer_number, enable_sequence_parallelism):
+        return STDiTBlock(
+            self.hidden_size,
+            self.num_heads,
+            mlp_ratio=self.mlp_ratio,
+            drop_path=drop_path[layer_number],
+            enable_flashattn=self.enable_flashattn,
+            enable_sequence_parallelism=enable_sequence_parallelism,
+            d_t=self.num_temporal,
+            d_s=self.num_spatial,
+        )
+
+    def forward(self, video, timestep, prompt, promp_mask=None, **kwargs):
         """
         Forward pass of STDiT.
         Args:
-            x (torch.Tensor): latent representation of video; of shape [B, C, T, H, W]
+            video (torch.Tensor): latent representation of video; of shape [B, C, T, H, W]
             timestep (torch.Tensor): diffusion time steps; of shape [B]
-            y (torch.Tensor): representation of prompts; of shape [B, 1, N_token, C]
-            mask (torch.Tensor): mask for selecting prompt tokens; of shape [B, N_token]
+            prompt (torch.Tensor): representation of prompts; of shape [B, 1, N_token, C]
+            promp_mask (torch.Tensor): mask for selecting prompt tokens; of shape [B, N_token]
 
         Returns:
             x (torch.Tensor): output latent representation; of shape [B, C, T, H, W]
         """
+        if mpu.is_pipeline_first_stage():
+            x = video.to(self.dtype)
+            timestep = timestep.to(self.dtype)
+            y = prompt.to(self.dtype)
+            mask = promp_mask
 
-        x = x.to(self.dtype)
-        timestep = timestep.to(self.dtype)
-        y = y.to(self.dtype)
-
-        # embedding
-        x = self.x_embedder(x)  # [B, N, C]
-        x = rearrange(
-            x, "B (T S) C -> B T S C", T=self.num_temporal, S=self.num_spatial
-        )
-        x = x + self.pos_embed
-        x = rearrange(x, "B T S C -> B (T S) C")
-
-        # shard over the sequence dim if sp is enabled
-        if self.enable_sequence_parallelism:
-            x = split_forward_gather_backward(
-                x, mpu.get_context_parallel_group(), dim=1, grad_scale="down"
+            # embedding
+            x = self.x_embedder(x)  # [B, N, C]
+            x = rearrange(
+                x, "B (T S) C -> B T S C", T=self.num_temporal, S=self.num_spatial
             )
+            x = x + self.pos_embed
+            x = rearrange(x, "B T S C -> B (T S) C")
 
-        t = self.t_embedder(timestep, dtype=x.dtype)  # [B, C]
-        t0 = self.t_block(t)  # [B, C]
-        y = self.y_embedder(y, self.training)  # [B, 1, N_token, C]
+            # shard over the sequence dim if sp is enabled
+            if self.enable_sequence_parallelism:
+                x = split_forward_gather_backward(
+                    x, mpu.get_context_parallel_group(), dim=1, grad_scale="down"
+                )
 
-        if mask is not None:
-            if mask.shape[0] != y.shape[0]:
-                mask = mask.repeat(y.shape[0] // mask.shape[0], 1)
-            mask = mask.squeeze(1).squeeze(1)
-            y = (
-                y.squeeze(1)
-                .masked_select(mask.unsqueeze(-1) != 0)
-                .view(1, -1, x.shape[-1])
-            )
-            y_lens = mask.sum(dim=1).tolist()
+            t = self.t_embedder(timestep, dtype=x.dtype)  # [B, C]
+            t0 = self.t_block(t)  # [B, C]
+            y = self.y_embedder(y, self.training)  # [B, 1, N_token, C]
+
+            if mask is not None:
+                if mask.shape[0] != y.shape[0]:
+                    mask = mask.repeat(y.shape[0] // mask.shape[0], 1)
+                mask = mask.squeeze(1).squeeze(1)
+                y = (
+                    y.squeeze(1)
+                    .masked_select(mask.unsqueeze(-1) != 0)
+                    .view(1, -1, x.shape[-1])
+                )
+                y_lens = mask.sum(dim=1).tolist()
+            else:
+                y_lens = [y.shape[2]] * y.shape[0]
+                y = y.squeeze(1).view(1, -1, x.shape[-1])
         else:
-            y_lens = [y.shape[2]] * y.shape[0]
-            y = y.squeeze(1).view(1, -1, x.shape[-1])
+            x, y, t0, y_lens, tpe = self.input_tensor
 
         # blocks
         for i, block in enumerate(self.blocks):
@@ -287,19 +314,28 @@ class STDiT(nn.Module):
                 tpe = None
             x = auto_grad_checkpoint(block, x, y, t0, y_lens, tpe)
 
-        if self.enable_sequence_parallelism:
-            x = gather_forward_split_backward(
-                x, mpu.get_context_parallel_group(), dim=1, grad_scale="up"
-            )
-        # x.shape: [B, N, C]
+        if mpu.is_pipeline_last_stage():
+            if self.enable_sequence_parallelism:
+                x = gather_forward_split_backward(
+                    x, mpu.get_context_parallel_group(), dim=1, grad_scale="up"
+                )
+                # x.shape: [B, N, C]
 
-        # final process
-        x = self.final_layer(x, t)  # [B, N, C=T_p * H_p * W_p * C_out]
-        x = self.unpatchify(x)  # [B, C_out, T, H, W]
+            # final process
+            x = self.final_layer(x, t)  # [B, N, C=T_p * H_p * W_p * C_out]
+            x = self.unpatchify(x)  # [B, C_out, T, H, W]
 
-        # cast to float32 for better accuracy
-        x = x.to(torch.float32)
-        return x
+            # cast to float32 for better accuracy
+            x = x.to(torch.float32)
+            return x
+        else:
+            # for next stage in pipeline parallel
+            # x: output latent representation
+            # y: representation of prompts
+            # t0: representation of timestep
+            # y_lens: lengths of prompts
+            # tpe: position embedding of temporal dimension
+            return x, y, t0, y_lens, tpe
 
     def unpatchify(self, x):
         """

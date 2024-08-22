@@ -1,11 +1,12 @@
 from torch import nn
 
-from .dits import DiT, Latte
+from .dits import DiT, Latte, STDiT
 
 
 PREDICTOR_MODEL_MAPPINGS = {
     "dit": DiT,
     "latte": Latte,
+    "stdit": STDiT,
 }
 
 
@@ -17,6 +18,7 @@ class PredictModel(nn.Module):
     Args:
         config[dict]: for Instantiating an atomic methods
     """
+
     def __init__(self, config):
         super().__init__()
         model_cls = PREDICTOR_MODEL_MAPPINGS[config.model_id]

@@ -13,7 +13,6 @@ from tqdm.auto import tqdm
 import torch
 from torch import Tensor
 
-from mindspeed_mm.models.predictor import PredictModel
 from mindspeed_mm.utils.utils import get_device
 from .diffusion_utils import (
     mean_flat,
@@ -297,7 +296,7 @@ class DDPM:
 
     def p_sample(
         self,
-        model: PredictModel,
+        model,
         x: Tensor,
         t: Tensor,
         clip_denoised: bool = True,
@@ -366,7 +365,7 @@ class DDPM:
 
     def p_sample_loop_progressive(
         self,
-        model: PredictModel,
+        model,
         shape: Union[Tuple, List],
         noised_latents: Tensor = None,
         clip_denoised: bool = True,
@@ -421,7 +420,7 @@ class DDPM:
 
     def sample(
         self,
-        model: PredictModel,
+        model,
         shape: Union[Tuple, List],
         noised_latents: Tensor = None,
         clip_denoised: bool = True,
