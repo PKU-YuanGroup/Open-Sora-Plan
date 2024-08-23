@@ -80,9 +80,9 @@ if torch.cuda.is_available():
     # text_encoder = MT5EncoderModel.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir, 
     #                                                low_cpu_mem_usage=True, torch_dtype=weight_dtype)
     # tokenizer = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
-    text_encoder = MT5EncoderModel.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir, 
+    text_encoder = MT5EncoderModel.from_pretrained("google/mt5-xxl", cache_dir=args.cache_dir, 
                                                    low_cpu_mem_usage=True, torch_dtype=weight_dtype)
-    tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir)
+    tokenizer = AutoTokenizer.from_pretrained("google/mt5-xxl", cache_dir=args.cache_dir)
     transformer = OpenSoraT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, low_cpu_mem_usage=False, 
                                               device_map=None, torch_dtype=weight_dtype)
     scheduler = EulerAncestralDiscreteScheduler()
