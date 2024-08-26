@@ -557,6 +557,7 @@ class OpenSoraPipeline(DiffusionPipeline):
         num_inference_steps: int = 20,
         timesteps: List[int] = None,
         guidance_scale: float = 4.5,
+        motion_score: float = None, 
         num_images_per_prompt: Optional[int] = 1,
         num_frames: Optional[int] = None,
         height: Optional[int] = None,
@@ -770,6 +771,7 @@ class OpenSoraPipeline(DiffusionPipeline):
                     encoder_attention_mask=prompt_attention_mask,
                     timestep=current_timestep,
                     added_cond_kwargs=added_cond_kwargs,
+                    motion_score=motion_score, 
                     return_dict=False,
                 )[0]
 

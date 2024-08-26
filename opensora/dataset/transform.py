@@ -2,6 +2,11 @@ import torch
 import random
 import numbers
 from torchvision.transforms import RandomCrop, RandomResizedCrop
+import statistics
+import numpy as np
+import ftfy
+import regex as re
+import html
 
 
 def _is_tensor_video_clip(clip):
@@ -347,9 +352,7 @@ class CenterCropResizeVideo:
             torch.tensor: scale resized / center cropped video clip.
                 size is (T, C, crop_size, crop_size)
         """
-        # clip_center_crop = center_crop_using_short_edge(clip)
         clip_center_crop = center_crop_th_tw(clip, self.size[0], self.size[1], top_crop=self.top_crop)
-        # import ipdb;ipdb.set_trace()
         clip_center_crop_resize = resize(clip_center_crop, target_size=self.size,
                                          interpolation_mode=self.interpolation_mode)
         return clip_center_crop_resize
@@ -582,6 +585,195 @@ class DynamicSampleDuration(object):
         if self.extra_1:
             truncate_t = truncate_t + 1
         return 0, truncate_t
+
+keywords = [
+        ' man ', ' woman ', ' person ', ' people ', 'human',
+        ' individual ', ' child ', ' kid ', ' girl ', ' boy ',
+    ]
+keywords += [i[:-1] + 's ' for i in keywords]
+
+masking_notices = [
+    "Note: The faces in this image are blurred.",
+    "This image contains faces that have been pixelated.",
+    "Notice: Faces in this image are masked.",
+    "Please be aware that the faces in this image are obscured.",
+    "The faces in this image are hidden.",
+    "This is an image with blurred faces.",
+    "The faces in this image have been processed.",
+    "Attention: Faces in this image are not visible.",
+    "The faces in this image are partially blurred.",
+    "This image has masked faces.",
+    "Notice: The faces in this picture have been altered.",
+    "This is a picture with obscured faces.",
+    "The faces in this image are pixelated.",
+    "Please note, the faces in this image have been blurred.",
+    "The faces in this photo are hidden.",
+    "The faces in this picture have been masked.",
+    "Note: The faces in this picture are altered.",
+    "This is an image where faces are not clear.",
+    "Faces in this image have been obscured.",
+    "This picture contains masked faces.",
+    "The faces in this image are processed.",
+    "The faces in this picture are not visible.",
+    "Please be aware, the faces in this photo are pixelated.",
+    "The faces in this picture have been blurred.", 
+]
+
+webvid_watermark_notices = [
+    "This video has a faint Shutterstock watermark in the center.", 
+    "There is a slight Shutterstock watermark in the middle of this video.", 
+    "The video contains a subtle Shutterstock watermark in the center.", 
+    "This video features a light Shutterstock watermark at its center.", 
+    "A faint Shutterstock watermark is present in the middle of this video.", 
+    "There is a mild Shutterstock watermark at the center of this video.", 
+    "This video has a slight Shutterstock watermark in the middle.", 
+    "You can see a faint Shutterstock watermark in the center of this video.", 
+    "A subtle Shutterstock watermark appears in the middle of this video.", 
+    "This video includes a light Shutterstock watermark at its center.", 
+]
+
+
+high_aesthetic_score_notices_video = [
+    "This video has a high aesthetic quality.", 
+    "The beauty of this video is exceptional.", 
+    "This video scores high in aesthetic value.", 
+    "With its harmonious colors and balanced composition.", 
+    "This video ranks highly for aesthetic quality", 
+    "The artistic quality of this video is excellent.", 
+    "This video is rated high for beauty.", 
+    "The aesthetic quality of this video is impressive.", 
+    "This video has a top aesthetic score.", 
+    "The visual appeal of this video is outstanding.", 
+]
+
+low_aesthetic_score_notices_video = [
+    "This video has a low aesthetic quality.", 
+    "The beauty of this video is minimal.", 
+    "This video scores low in aesthetic appeal.", 
+    "The aesthetic quality of this video is below average.", 
+    "This video ranks low for beauty.", 
+    "The artistic quality of this video is lacking.", 
+    "This video has a low score for aesthetic value.", 
+    "The visual appeal of this video is low.", 
+    "This video is rated low for beauty.", 
+    "The aesthetic quality of this video is poor.", 
+]
+
+
+high_aesthetic_score_notices_image = [
+    "This image has a high aesthetic quality.", 
+    "The beauty of this image is exceptional", 
+    "This photo scores high in aesthetic value.", 
+    "With its harmonious colors and balanced composition.", 
+    "This image ranks highly for aesthetic quality.", 
+    "The artistic quality of this photo is excellent.", 
+    "This image is rated high for beauty.", 
+    "The aesthetic quality of this image is impressive.", 
+    "This photo has a top aesthetic score.", 
+    "The visual appeal of this image is outstanding.", 
+]
+
+high_aesthetic_score_notices_image_human = [
+    "High-quality image with visible human features and high aesthetic score.", 
+    "Clear depiction of an individual in a high-quality image with top aesthetics.", 
+    "High-resolution photo showcasing visible human details and high beauty rating.", 
+    "Detailed, high-quality image with well-defined human subject and strong aesthetic appeal.", 
+    "Sharp, high-quality portrait with clear human features and high aesthetic value.", 
+    "High-quality image featuring a well-defined human presence and exceptional aesthetics.", 
+    "Visible human details in a high-resolution photo with a high aesthetic score.", 
+    "Clear, high-quality image with prominent human subject and superior aesthetic rating.", 
+    "High-quality photo capturing a visible human with excellent aesthetics.", 
+    "Detailed, high-quality image of a human with high visual appeal and aesthetic value.", 
+]
+
+
+def add_masking_notice(caption):
+    if any(keyword in caption for keyword in keywords):
+        notice = random.choice(masking_notices)
+        return random.choice([caption + ' ' + notice, notice + ' ' + caption])
+    return caption
+
+def add_webvid_watermark_notice(caption):
+    notice = random.choice(webvid_watermark_notices)
+    return random.choice([caption + ' ' + notice, notice + ' ' + caption])
+
+def add_aesthetic_notice_video(caption, aesthetic_score):
+    assert add_aesthetic_notice_video is not None
+    if aesthetic_score <= 4.5:
+        notice = random.choice(low_aesthetic_score_notices_video)
+        return random.choice([caption + ' ' + notice, notice + ' ' + caption])
+    if aesthetic_score >= 5.75:
+        notice = random.choice(high_aesthetic_score_notices_video)
+        return random.choice([caption + ' ' + notice, notice + ' ' + caption])
+    return caption
+
+def add_high_aesthetic_notice_image(caption):
+    notice = random.choice(high_aesthetic_score_notices_image)
+    return random.choice([caption + ' ' + notice, notice + ' ' + caption])
+
+def add_high_aesthetic_notice_image_human(caption):
+    notice = random.choice(high_aesthetic_score_notices_image_human)
+    return random.choice([caption + ' ' + notice, notice + ' ' + caption])
+
+def basic_clean(text):
+    text = ftfy.fix_text(text)
+    text = html.unescape(html.unescape(text))
+    return text.strip()
+
+
+def whitespace_clean(text):
+    text = re.sub(r"\s+", " ", text)
+    text = text.strip()
+    return text
+
+
+def clean_youtube(text, is_tags=False):
+    text = text.lower() + ' '
+    text = re.sub(
+        r'#video|video|#shorts|shorts| shorts|#short| short|#youtubeshorts|youtubeshorts|#youtube| youtube|#shortsyoutube|#ytshorts|ytshorts|#ytshort|#shortvideo|shortvideo|#shortsfeed|#tiktok|tiktok|#tiktokchallenge|#myfirstshorts|#myfirstshort|#viral|viralvideo|viral|#viralshorts|#virlshort|#ytviralshorts|#instagram',
+        ' ', text)
+    text = re.sub(r' s |short|youtube|virlshort|#', ' ', text)
+    pattern = r'[^a-zA-Z0-9\s\.,;:?!\'\"|]'
+    if is_tags:
+        pattern = r'[^a-zA-Z0-9\s]'
+    text = re.sub(pattern, '', text)
+    text = whitespace_clean(basic_clean(text))
+    return text
+
+def clean_vidal(text):
+    title_hashtags = text.split('#')
+    title, hashtags = title_hashtags[0], '#' + '#'.join(title_hashtags[1:])
+    title = clean_youtube(title)
+    hashtags = clean_youtube(hashtags, is_tags=True)
+    text = title + ', ' + hashtags
+    if text == '' or text.isspace():
+        raise ValueError('text is empty')
+    return text
+
+
+
+def motion_mapping_fun(motion_score, n=3):
+    assert motion_score is not None
+    return abs(motion_score) ** n
+
+
+def calculate_statistics(data):
+    if len(data) == 0:
+        return None
+    data = np.array(data)
+    mean = np.mean(data)
+    variance = np.var(data)
+    std_dev = np.std(data)
+    minimum = np.min(data)
+    maximum = np.max(data)
+
+    return {
+        'mean': mean,
+        'variance': variance,
+        'std_dev': std_dev,
+        'min': minimum,
+        'max': maximum
+    }
 
 if __name__ == '__main__':
     from torchvision import transforms

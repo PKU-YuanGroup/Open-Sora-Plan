@@ -81,16 +81,16 @@ if __name__ == "__main__":
     from tqdm import tqdm
     args = type('args', (), 
     {
-        'ae': 'CausalVAEModel_4x8x8', 
+        'ae': 'CausalVAEModel_D8_4x8x8', 
         'dataset': 't2v', 
         'attention_mode': 'xformers', 
         'use_rope': True, 
         'model_max_length': 300, 
         'max_height': 320,
-        'max_width': 240,
+        'max_width': 320,
         'hw_stride': 32, 
         'skip_low_resolution': True, 
-        'num_frames': 330,
+        'num_frames': 93,
         'use_image_num': 0, 
         'compress_kv_factor': 1, 
         'interpolation_scale_t': 1,
@@ -98,13 +98,15 @@ if __name__ == "__main__":
         'interpolation_scale_w': 1,
         'cache_dir': '../cache_dir', 
         'data': 'scripts/train_data/merge_data.txt', 
-        'train_fps': 24, 
+        'train_fps': 16, 
         'drop_short_ratio': 0.0, 
         'use_img_from_vid': False, 
         'speed_factor': 1.0, 
         'cfg': 0.1, 
         'text_encoder_name': 'google/mt5-xxl', 
         'dataloader_num_workers': 10,
+        'use_motion': True, 
+        'force_resolution': False, 
 
     }
     )

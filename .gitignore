@@ -5,7 +5,6 @@ __pycache__
 *.pth
 UCF-101/
 results/
-vae
 build/
 opensora.egg-info/
 wandb/
@@ -72,3 +71,8 @@ dim4todim8.py
 samples/
 runs/
 *validation/
+training_log*txt
+filter_motion*
+json2*.py
+motionfun*
+res_dist*

@@ -91,6 +91,7 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
         sparse1d: bool = False,
         sparse2d: bool = False,
         sparse_n: int = 2,
+        use_motion: bool = False,
     ):
         super().__init__()
 
@@ -106,6 +107,7 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
                 )
 
         # Set some common variables used across the board.
+        self.use_motion = use_motion
         self.sparse1d = sparse1d
         self.sparse2d = sparse2d
         self.sparse_n = sparse_n
@@ -688,51 +690,53 @@ if __name__ == '__main__':
     latent_size = (args.max_height // ae_stride_h, args.max_width // ae_stride_w)
     num_frames = (args.num_frames - 1) // ae_stride_t + 1
 
-    device = torch.device('cuda:0')
-    model = OpenSoraT2V_L_122(in_channels=c, 
-                              out_channels=c, 
-                              sample_size=latent_size, 
-                              sample_size_t=num_frames, 
-                              activation_fn="gelu-approximate",
-                            attention_bias=True,
-                            attention_type="default",
-                            double_self_attention=False,
-                            norm_elementwise_affine=False,
-                            norm_eps=1e-06,
-                            norm_num_groups=32,
-                            num_vector_embeds=None,
-                            only_cross_attention=False,
-                            upcast_attention=False,
-                            use_linear_projection=False,
-                            use_additional_conditions=False, 
-                            downsampler=None,
-                            interpolation_scale_t=args.interpolation_scale_t, 
-                            interpolation_scale_h=args.interpolation_scale_h, 
-                            interpolation_scale_w=args.interpolation_scale_w, 
-                            use_rope=args.use_rope, 
-                            sparse1d=args.sparse1d, 
-                            sparse2d=args.sparse2d, 
-                            sparse_n=args.sparse_n
-                            ).to(device)
+    # device = torch.device('cuda:0')
+    # model = OpenSoraT2V_L_122(in_channels=c, 
+    #                           out_channels=c, 
+    #                           sample_size=latent_size, 
+    #                           sample_size_t=num_frames, 
+    #                           activation_fn="gelu-approximate",
+    #                         attention_bias=True,
+    #                         attention_type="default",
+    #                         double_self_attention=False,
+    #                         norm_elementwise_affine=False,
+    #                         norm_eps=1e-06,
+    #                         norm_num_groups=32,
+    #                         num_vector_embeds=None,
+    #                         only_cross_attention=False,
+    #                         upcast_attention=False,
+    #                         use_linear_projection=False,
+    #                         use_additional_conditions=False, 
+    #                         downsampler=None,
+    #                         interpolation_scale_t=args.interpolation_scale_t, 
+    #                         interpolation_scale_h=args.interpolation_scale_h, 
+    #                         interpolation_scale_w=args.interpolation_scale_w, 
+    #                         use_rope=args.use_rope, 
+    #                         sparse1d=args.sparse1d, 
+    #                         sparse2d=args.sparse2d, 
+    #                         sparse_n=args.sparse_n
+    #                         ).to(device)
     
-    try:
-        path = "/storage/dataset/Open-Sora-Plan-v1.2.0/29x720p/diffusion_pytorch_model.safetensors"
-        ckpt = torch.load(path, map_location="cpu")
-        msg = model.load_state_dict(ckpt, strict=True)
-        print(msg)
-    except Exception as e:
-        print(e)
-    print(model)
-    print(f'{sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e9} B')
-    # import sys;sys.exit()
-    x = torch.randn(b, c,  1+(args.num_frames-1)//ae_stride_t+args.use_image_num, args.max_height//ae_stride_h, args.max_width//ae_stride_w).to(device)
-    cond = torch.randn(b, 1+args.use_image_num, args.model_max_length, cond_c).to(device)
-    attn_mask = torch.randint(0, 2, (b, 1+(args.num_frames-1)//ae_stride_t+args.use_image_num, args.max_height//ae_stride_h, args.max_width//ae_stride_w)).to(device)  # B L or B 1+num_images L
-    cond_mask = torch.randint(0, 2, (b, 1+args.use_image_num, args.model_max_length)).to(device)  # B L or B 1+num_images L
-    timestep = torch.randint(0, 1000, (b,), device=device)
-    model_kwargs = dict(hidden_states=x, encoder_hidden_states=cond, attention_mask=attn_mask, 
-                        encoder_attention_mask=cond_mask, use_image_num=args.use_image_num, timestep=timestep)
-    with torch.no_grad():
-        output = model(**model_kwargs)
-    print(output[0].shape)
-
+    # try:
+    #     path = "/storage/dataset/Open-Sora-Plan-v1.2.0/29x720p/diffusion_pytorch_model.safetensors"
+    #     ckpt = torch.load(path, map_location="cpu")
+    #     msg = model.load_state_dict(ckpt, strict=True)
+    #     print(msg)
+    # except Exception as e:
+    #     print(e)
+    # print(model)
+    # print(f'{sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e9} B')
+    # # import sys;sys.exit()
+    # x = torch.randn(b, c,  1+(args.num_frames-1)//ae_stride_t+args.use_image_num, args.max_height//ae_stride_h, args.max_width//ae_stride_w).to(device)
+    # cond = torch.randn(b, 1+args.use_image_num, args.model_max_length, cond_c).to(device)
+    # attn_mask = torch.randint(0, 2, (b, 1+(args.num_frames-1)//ae_stride_t+args.use_image_num, args.max_height//ae_stride_h, args.max_width//ae_stride_w)).to(device)  # B L or B 1+num_images L
+    # cond_mask = torch.randint(0, 2, (b, 1+args.use_image_num, args.model_max_length)).to(device)  # B L or B 1+num_images L
+    # timestep = torch.randint(0, 1000, (b,), device=device)
+    # model_kwargs = dict(hidden_states=x, encoder_hidden_states=cond, attention_mask=attn_mask, 
+    #                     encoder_attention_mask=cond_mask, use_image_num=args.use_image_num, timestep=timestep)
+    # with torch.no_grad():
+    #     output = model(**model_kwargs)
+    # print(output[0].shape)
+    
+    from diffusers.training_utils import EMAModel
+    load_model = EMAModel.from_pretrained("/storage/ongoing/new/7.19anyres/Open-Sora-Plan/bs32x8x8_vae8_anyx320x320_lr5e-5_snr5_noioff0.02_ema9999_sparse1d4_newdit_l_122_rope_mt5xxl_mj/checkpoint-219000/model_ema", OpenSoraT2V)

@@ -11,7 +11,7 @@ from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.models.modeling_utils import ModelMixin
 from diffusers.models.normalization import AdaLayerNormSingle
 from diffusers.models.embeddings import PixArtAlphaTextProjection
-from opensora.models.diffusion.opensora2.modules import OverlapPatchEmbed3D, OverlapPatchEmbed2D, PatchEmbed2D, BasicTransformerBlock
+from opensora.models.diffusion.opensora2.modules import MotionAdaLayerNormSingle, PatchEmbed2D, BasicTransformerBlock
 from opensora.utils.utils import to_2tuple
 try:
     import torch_npu
@@ -91,6 +91,7 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
         sparse1d: bool = False,
         sparse2d: bool = False,
         sparse_n: int = 2,
+        use_motion: bool = False,
     ):
         super().__init__()
 
@@ -106,6 +107,7 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
                 )
 
         # Set some common variables used across the board.
+        self.use_motion = use_motion
         self.sparse1d = sparse1d
         self.sparse2d = sparse2d
         self.sparse_n = sparse_n
@@ -169,59 +171,18 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
             self.config.interpolation_scale_h if self.config.interpolation_scale_h is not None else self.config.sample_size[0] / 30, 
             self.config.interpolation_scale_w if self.config.interpolation_scale_w is not None else self.config.sample_size[1] / 40, 
         )
-        # if self.config.sample_size_t > 1:
-        #     self.pos_embed = PatchEmbed3D(
-        #         num_frames=self.config.sample_size_t,
-        #         height=self.config.sample_size[0],
-        #         width=self.config.sample_size[1],
-        #         patch_size_t=self.config.patch_size_t,
-        #         patch_size=self.config.patch_size,
-        #         in_channels=self.in_channels,
-        #         embed_dim=self.inner_dim,
-        #         interpolation_scale=interpolation_scale, 
-        #         interpolation_scale_t=interpolation_scale_t,
-        #     )
-        # else:
-        if self.config.downsampler is not None and len(self.config.downsampler) == 9:
-            self.pos_embed = OverlapPatchEmbed3D(
-                num_frames=self.config.sample_size_t,
-                height=self.config.sample_size[0],
-                width=self.config.sample_size[1],
-                patch_size_t=self.config.patch_size_t,
-                patch_size=self.config.patch_size,
-                in_channels=self.in_channels,
-                embed_dim=self.inner_dim,
-                interpolation_scale=interpolation_scale, 
-                interpolation_scale_t=interpolation_scale_t,
-                use_abs_pos=not self.config.use_rope, 
-            )
-        elif self.config.downsampler is not None and len(self.config.downsampler) == 7:
-            self.pos_embed = OverlapPatchEmbed2D(
-                num_frames=self.config.sample_size_t,
-                height=self.config.sample_size[0],
-                width=self.config.sample_size[1],
-                patch_size_t=self.config.patch_size_t,
-                patch_size=self.config.patch_size,
-                in_channels=self.in_channels,
-                embed_dim=self.inner_dim,
-                interpolation_scale=interpolation_scale, 
-                interpolation_scale_t=interpolation_scale_t,
-                use_abs_pos=not self.config.use_rope, 
-            )
-        
-        else:
-            self.pos_embed = PatchEmbed2D(
-                num_frames=self.config.sample_size_t,
-                height=self.config.sample_size[0],
-                width=self.config.sample_size[1],
-                patch_size_t=self.config.patch_size_t,
-                patch_size=self.config.patch_size,
-                in_channels=self.in_channels,
-                embed_dim=self.inner_dim,
-                interpolation_scale=interpolation_scale, 
-                interpolation_scale_t=interpolation_scale_t,
-                use_abs_pos=not self.config.use_rope, 
-            )
+        self.pos_embed = PatchEmbed2D(
+            num_frames=self.config.sample_size_t,
+            height=self.config.sample_size[0],
+            width=self.config.sample_size[1],
+            patch_size_t=self.config.patch_size_t,
+            patch_size=self.config.patch_size,
+            in_channels=self.in_channels,
+            embed_dim=self.inner_dim,
+            interpolation_scale=interpolation_scale, 
+            interpolation_scale_t=interpolation_scale_t,
+            use_abs_pos=not self.config.use_rope, 
+        )
         interpolation_scale_thw = (interpolation_scale_t, *interpolation_scale)
         self.transformer_blocks = nn.ModuleList(
             [
@@ -245,10 +206,10 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
                     downsampler=self.config.downsampler, 
                     use_rope=self.config.use_rope, 
                     interpolation_scale_thw=interpolation_scale_thw, 
-                    sparse1d=self.sparse1d if i > 0 and i < 31 and (i-1)%3 != 0 else False, 
-                    sparse2d=self.sparse2d if i > 0 and i < 31 and (i-1)%3 != 0 else False, 
+                    sparse1d=self.sparse1d if i > 1 and i < 30 else False, 
+                    sparse2d=self.sparse2d if i > 1 and i < 30 else False, 
                     sparse_n=self.sparse_n, 
-                    sparse_group=(i-1) % 3 == 2, 
+                    sparse_group=i % 2 == 1, 
                 )
                 for i in range(self.config.num_layers)
             ]
@@ -281,6 +242,9 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
             self.caption_projection = PixArtAlphaTextProjection(
                 in_features=self.caption_channels, hidden_size=self.inner_dim
             )
+        self.motion_projection = None
+        if self.use_motion:
+            self.motion_projection = MotionAdaLayerNormSingle(self.inner_dim)
 
     def _set_gradient_checkpointing(self, module, value=False):
         if hasattr(module, "gradient_checkpointing"):
@@ -297,6 +261,7 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
         attention_mask: Optional[torch.Tensor] = None,
         encoder_attention_mask: Optional[torch.Tensor] = None,
         use_image_num: Optional[int] = 0,
+        motion_score: Optional[torch.FloatTensor] = None,
         return_dict: bool = True,
     ):
         """
@@ -338,7 +303,7 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
             `tuple` where the first element is the sample tensor.
         """
         batch_size, c, frame, h, w = hidden_states.shape
-        # print('hidden_states.shape', hidden_states.shape)
+        assert use_image_num == 0
         frame = frame - use_image_num  # 21-4=17
         if cross_attention_kwargs is not None:
             if cross_attention_kwargs.get("scale", None) is not None:
@@ -353,7 +318,6 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
         # this helps to broadcast it as a bias over attention scores, which will be in one of the following shapes:
         #   [batch,  heads, query_tokens, key_tokens] (e.g. torch sdp attn)
         #   [batch * heads, query_tokens, key_tokens] (e.g. xformers or classic attn)
-        attention_mask_vid, attention_mask_img = None, None
         if attention_mask is not None and attention_mask.ndim == 4:
             # assume that mask is expressed as:
             #   (1 = keep,      0 = discard)
@@ -364,59 +328,29 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
             attention_mask = attention_mask.to(self.dtype)
             if get_sequence_parallel_state():
                 if npu_config is not None:
-                    attention_mask_vid = attention_mask[:, :frame * hccl_info.world_size]  # b, frame, h, w
-                    attention_mask_img = attention_mask[:, frame * hccl_info.world_size:]  # b, use_image_num, h, w
+                    attention_mask = attention_mask[:, :frame * hccl_info.world_size]  # b, frame, h, w
                 else:
-                    # print('before attention_mask.shape', attention_mask.shape)
-                    attention_mask_vid = attention_mask[:, :frame * nccl_info.world_size]  # b, frame, h, w
-                    attention_mask_img = attention_mask[:, frame * nccl_info.world_size:]  # b, use_image_num, h, w
-                    # print('after attention_mask.shape', attention_mask_vid.shape)
+                    attention_mask = attention_mask[:, :frame * nccl_info.world_size]  # b, frame, h, w
             else:
-                attention_mask_vid = attention_mask[:, :frame]  # b, frame, h, w
-                attention_mask_img = attention_mask[:, frame:]  # b, use_image_num, h, w
+                attention_mask = attention_mask[:, :frame]  # b, frame, h, w
 
-            if attention_mask_vid.numel() > 0:
-                attention_mask_vid_first_frame = attention_mask_vid[:, :1].repeat(1, self.patch_size_t-1, 1, 1)
-                attention_mask_vid = torch.cat([attention_mask_vid_first_frame, attention_mask_vid], dim=1)
-                attention_mask_vid = attention_mask_vid.unsqueeze(1)  # b 1 t h w
-                attention_mask_vid = F.max_pool3d(attention_mask_vid, kernel_size=(self.patch_size_t, self.patch_size, self.patch_size), 
-                                                  stride=(self.patch_size_t, self.patch_size, self.patch_size))
-                attention_mask_vid = rearrange(attention_mask_vid, 'b 1 t h w -> (b 1) 1 (t h w)') 
-            if attention_mask_img.numel() > 0:
-                attention_mask_img = F.max_pool2d(attention_mask_img, kernel_size=(self.patch_size, self.patch_size), stride=(self.patch_size, self.patch_size))
-                attention_mask_img = rearrange(attention_mask_img, 'b i h w -> (b i) 1 (h w)') 
+            attention_mask = attention_mask.unsqueeze(1)  # b 1 t h w
+            attention_mask = F.max_pool3d(attention_mask, kernel_size=(self.patch_size_t, self.patch_size, self.patch_size), 
+                                                stride=(self.patch_size_t, self.patch_size, self.patch_size))
+            attention_mask = rearrange(attention_mask, 'b 1 t h w -> (b 1) 1 (t h w)') 
+            attention_mask = (1 - attention_mask.bool().to(self.dtype)) * -10000.0
 
-            attention_mask_vid = (1 - attention_mask_vid.bool().to(self.dtype)) * -10000.0 if attention_mask_vid.numel() > 0 else None
-            attention_mask_img = (1 - attention_mask_img.bool().to(self.dtype)) * -10000.0 if attention_mask_img.numel() > 0 else None
 
-            if frame == 1 and use_image_num == 0 and not get_sequence_parallel_state():
-                attention_mask_img = attention_mask_vid
-                attention_mask_vid = None
         # convert encoder_attention_mask to a bias the same way we do for attention_mask
         # import ipdb;ipdb.set_trace()
         if encoder_attention_mask is not None and encoder_attention_mask.ndim == 3:  
-            # b, 1+use_image_num, l -> a video with images
             # b, 1, l -> only images
             encoder_attention_mask = (1 - encoder_attention_mask.to(self.dtype)) * -10000.0
-            in_t = encoder_attention_mask.shape[1]
-            encoder_attention_mask_vid = encoder_attention_mask[:, :in_t-use_image_num]  # b, 1, l
-            encoder_attention_mask_vid = rearrange(encoder_attention_mask_vid, 'b 1 l -> (b 1) 1 l') if encoder_attention_mask_vid.numel() > 0 else None
 
-            encoder_attention_mask_img = encoder_attention_mask[:, in_t-use_image_num:]  # b, use_image_num, l
-            encoder_attention_mask_img = rearrange(encoder_attention_mask_img, 'b i l -> (b i) 1 l') if encoder_attention_mask_img.numel() > 0 else None
 
-            if frame == 1 and use_image_num == 0 and not get_sequence_parallel_state():
-                encoder_attention_mask_img = encoder_attention_mask_vid
-                encoder_attention_mask_vid = None
-
-        if npu_config is not None and attention_mask_vid is not None:
-            attention_mask_vid = npu_config.get_attention_mask(attention_mask_vid, attention_mask_vid.shape[-1])
-            encoder_attention_mask_vid = npu_config.get_attention_mask(encoder_attention_mask_vid,
-                                                                       attention_mask_vid.shape[-2])
-        if npu_config is not None and attention_mask_img is not None:
-            attention_mask_img = npu_config.get_attention_mask(attention_mask_img, attention_mask_img.shape[-1])
-            encoder_attention_mask_img = npu_config.get_attention_mask(encoder_attention_mask_img,
-                                                                       attention_mask_img.shape[-2])
+        if npu_config is not None and attention_mask is not None:
+            attention_mask = npu_config.get_attention_mask(attention_mask, attention_mask.shape[-1])
+            encoder_attention_mask = npu_config.get_attention_mask(encoder_attention_mask, attention_mask.shape[-2])
 
 
         # 1. Input
@@ -425,22 +359,16 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
         height, width = hidden_states.shape[-2] // self.patch_size, hidden_states.shape[-1] // self.patch_size
 
         added_cond_kwargs = {"resolution": None, "aspect_ratio": None}
-        hidden_states_vid, hidden_states_img, encoder_hidden_states_vid, encoder_hidden_states_img, \
-        timestep_vid, timestep_img, embedded_timestep_vid, embedded_timestep_img = self._operate_on_patched_inputs(
-            hidden_states, encoder_hidden_states, timestep, added_cond_kwargs, batch_size, frame, use_image_num
+        hidden_states, encoder_hidden_states, timestep, embedded_timestep = self._operate_on_patched_inputs(
+            hidden_states, encoder_hidden_states, timestep, added_cond_kwargs, motion_score, batch_size, frame, use_image_num
         )
         # 2. Blocks
         # import ipdb;ipdb.set_trace()
         if get_sequence_parallel_state():
-            if hidden_states_vid is not None:
-                # print(333333333333333)
-                hidden_states_vid = rearrange(hidden_states_vid, 'b s h -> s b h', b=batch_size).contiguous()
-                encoder_hidden_states_vid = rearrange(encoder_hidden_states_vid, 'b s h -> s b h',
-                                                      b=batch_size).contiguous()
-                timestep_vid = timestep_vid.view(batch_size, 6, -1).transpose(0, 1).contiguous()
-                # print('timestep_vid', timestep_vid.shape)
+            hidden_states = rearrange(hidden_states, 'b s h -> s b h', b=batch_size).contiguous()
+            encoder_hidden_states = rearrange(encoder_hidden_states, 'b s h -> s b h', b=batch_size).contiguous()
+            timestep = timestep.view(batch_size, 6, -1).transpose(0, 1).contiguous()
 
-        
         for block in self.transformer_blocks:
             if self.training and self.gradient_checkpointing:
 
@@ -454,101 +382,48 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
                     return custom_forward
 
                 ckpt_kwargs: Dict[str, Any] = {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
-                # import ipdb;ipdb.set_trace()
-                if hidden_states_vid is not None:
-                    hidden_states_vid = torch.utils.checkpoint.checkpoint(
-                        create_custom_forward(block),
-                        hidden_states_vid,
-                        attention_mask_vid,
-                        encoder_hidden_states_vid,
-                        encoder_attention_mask_vid,
-                        timestep_vid,
-                        cross_attention_kwargs,
-                        class_labels,
-                        frame, 
-                        height, 
-                        width, 
-                        **ckpt_kwargs,
-                    )
-                # import ipdb;ipdb.set_trace()
-                if hidden_states_img is not None:
-                    hidden_states_img = torch.utils.checkpoint.checkpoint(
-                        create_custom_forward(block),
-                        hidden_states_img,
-                        attention_mask_img,
-                        encoder_hidden_states_img,
-                        encoder_attention_mask_img,
-                        timestep_img,
-                        cross_attention_kwargs,
-                        class_labels,
-                        1, 
-                        height, 
-                        width, 
-                        **ckpt_kwargs,
-                    )
+                
+                hidden_states = torch.utils.checkpoint.checkpoint(
+                    create_custom_forward(block),
+                    hidden_states,
+                    attention_mask,
+                    encoder_hidden_states,
+                    encoder_attention_mask,
+                    timestep,
+                    cross_attention_kwargs,
+                    class_labels,
+                    frame, 
+                    height, 
+                    width, 
+                    **ckpt_kwargs,
+                )
             else:
-                if hidden_states_vid is not None:
-                    hidden_states_vid = block(
-                        hidden_states_vid,
-                        attention_mask=attention_mask_vid,
-                        encoder_hidden_states=encoder_hidden_states_vid,
-                        encoder_attention_mask=encoder_attention_mask_vid,
-                        timestep=timestep_vid,
-                        cross_attention_kwargs=cross_attention_kwargs,
-                        class_labels=class_labels,
-                        frame=frame, 
-                        height=height, 
-                        width=width, 
-                    )
-                if hidden_states_img is not None:
-                    hidden_states_img = block(
-                        hidden_states_img,
-                        attention_mask=attention_mask_img,
-                        encoder_hidden_states=encoder_hidden_states_img,
-                        encoder_attention_mask=encoder_attention_mask_img,
-                        timestep=timestep_img,
-                        cross_attention_kwargs=cross_attention_kwargs,
-                        class_labels=class_labels,
-                        frame=1, 
-                        height=height, 
-                        width=width, 
-                    )
+                hidden_states = block(
+                    hidden_states,
+                    attention_mask=attention_mask,
+                    encoder_hidden_states=encoder_hidden_states,
+                    encoder_attention_mask=encoder_attention_mask,
+                    timestep=timestep,
+                    cross_attention_kwargs=cross_attention_kwargs,
+                    class_labels=class_labels,
+                    frame=frame, 
+                    height=height, 
+                    width=width, 
+                )
 
         if get_sequence_parallel_state():
-            if hidden_states_vid is not None:
-                hidden_states_vid = rearrange(hidden_states_vid, 's b h -> b s h', b=batch_size).contiguous()
+            hidden_states = rearrange(hidden_states, 's b h -> b s h', b=batch_size).contiguous()
 
         # 3. Output
-        output_vid, output_img = None, None 
-        if hidden_states_vid is not None:
-            output_vid = self._get_output_for_patched_inputs(
-                hidden_states=hidden_states_vid,
-                timestep=timestep_vid,
-                class_labels=class_labels,
-                embedded_timestep=embedded_timestep_vid,
-                num_frames=frame, 
-                height=height,
-                width=width,
-            )  # b c t h w
-        if hidden_states_img is not None:
-            output_img = self._get_output_for_patched_inputs(
-                hidden_states=hidden_states_img,
-                timestep=timestep_img,
-                class_labels=class_labels,
-                embedded_timestep=embedded_timestep_img,
-                num_frames=1, 
-                height=height,
-                width=width,
-            )  # b c 1 h w
-            if use_image_num != 0:
-                output_img = rearrange(output_img, '(b i) c 1 h w -> b c i h w', i=use_image_num)
-
-        if output_vid is not None and output_img is not None:
-            output = torch.cat([output_vid, output_img], dim=2)
-        elif output_vid is not None:
-            output = output_vid
-        elif output_img is not None:
-            output = output_img
+        output = self._get_output_for_patched_inputs(
+            hidden_states=hidden_states,
+            timestep=timestep,
+            class_labels=class_labels,
+            embedded_timestep=embedded_timestep,
+            num_frames=frame, 
+            height=height,
+            width=width,
+        )  # b c t h w
 
         if not return_dict:
             return (output,)
@@ -556,13 +431,9 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
         return Transformer2DModelOutput(sample=output)
 
 
-    def _operate_on_patched_inputs(self, hidden_states, encoder_hidden_states, timestep, added_cond_kwargs, batch_size, frame, use_image_num):
-        # batch_size = hidden_states.shape[0]
-        hidden_states_vid, hidden_states_img = self.pos_embed(hidden_states.to(self.dtype), frame)
-        timestep_vid, timestep_img = None, None
-        embedded_timestep_vid, embedded_timestep_img = None, None
-        encoder_hidden_states_vid, encoder_hidden_states_img = None, None
-
+    def _operate_on_patched_inputs(self, hidden_states, encoder_hidden_states, timestep, added_cond_kwargs, motion_score, batch_size, frame, use_image_num):
+        
+        hidden_states = self.pos_embed(hidden_states.to(self.dtype), frame)
         if self.adaln_single is not None:
             if self.use_additional_conditions and added_cond_kwargs is None:
                 raise ValueError(
@@ -571,27 +442,18 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
             timestep, embedded_timestep = self.adaln_single(
                 timestep, added_cond_kwargs, batch_size=batch_size, hidden_dtype=self.dtype
             )  # b 6d, b d
-            if hidden_states_vid is None:
-                timestep_img = timestep
-                embedded_timestep_img = embedded_timestep
-            else:
-                timestep_vid = timestep
-                embedded_timestep_vid = embedded_timestep
-                if hidden_states_img is not None:
-                    timestep_img = repeat(timestep, 'b d -> (b i) d', i=use_image_num).contiguous()
-                    embedded_timestep_img = repeat(embedded_timestep, 'b d -> (b i) d', i=use_image_num).contiguous()
-
+        if self.motion_projection is not None:
+            assert motion_score is not None
+            motion_embed = self.motion_projection(motion_score, batch_size=batch_size, hidden_dtype=self.dtype)  # b 6d
+            # print('use self.motion_projection, motion_embed:', torch.sum(motion_embed))
+            timestep = timestep + motion_embed
+            
         if self.caption_projection is not None:
             encoder_hidden_states = self.caption_projection(encoder_hidden_states)  # b, 1+use_image_num, l, d or b, 1, l, d
-            if hidden_states_vid is None:
-                encoder_hidden_states_img = rearrange(encoder_hidden_states, 'b 1 l d -> (b 1) l d')
-            else:
-                encoder_hidden_states_vid = rearrange(encoder_hidden_states[:, :1], 'b 1 l d -> (b 1) l d')
-                if hidden_states_img is not None:
-                    encoder_hidden_states_img = rearrange(encoder_hidden_states[:, 1:], 'b i l d -> (b i) l d')
+            assert encoder_hidden_states.shape[1] == 1
+            encoder_hidden_states = rearrange(encoder_hidden_states, 'b 1 l d -> (b 1) l d')
 
-
-        return hidden_states_vid, hidden_states_img, encoder_hidden_states_vid, encoder_hidden_states_img, timestep_vid, timestep_img, embedded_timestep_vid, embedded_timestep_img
+        return hidden_states, encoder_hidden_states, timestep, embedded_timestep
 
     
     
@@ -624,9 +486,6 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
         output = hidden_states.reshape(
             shape=(-1, self.out_channels, num_frames * self.patch_size_t, height * self.patch_size, width * self.patch_size)
         )
-        # import ipdb;ipdb.set_trace()
-        # if output.shape[2] % 2 == 0:
-        #     output = output[:, :, 1:]
         return output
 
 def OpenSoraT2V_S_122(**kwargs):

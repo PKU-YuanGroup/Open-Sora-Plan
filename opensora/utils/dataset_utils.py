@@ -74,19 +74,26 @@ class Collate:
         batch_tubes = [i['pixel_values'] for i in batch]  # b [c t h w]
         input_ids = [i['input_ids'] for i in batch]  # b [1 l]
         cond_mask = [i['cond_mask'] for i in batch]  # b [1 l]
-        return batch_tubes, input_ids, cond_mask
+        motion_score = [i['motion_score'] for i in batch]  # List[float]
+        assert all([i is None for i in motion_score]) or all([i is not None for i in motion_score])
+        if all([i is None for i in motion_score]):
+            motion_score = None
+        return batch_tubes, input_ids, cond_mask, motion_score
 
     def __call__(self, batch):
-        batch_tubes, input_ids, cond_mask = self.package(batch)
+        batch_tubes, input_ids, cond_mask, motion_score = self.package(batch)
 
         ds_stride = self.ae_stride * self.patch_size
         t_ds_stride = self.ae_stride_t * self.patch_size_t
         
-        pad_batch_tubes, attention_mask, input_ids, cond_mask = self.process(batch_tubes, input_ids, cond_mask, t_ds_stride, ds_stride, self.max_thw, self.ae_stride_thw)
+        pad_batch_tubes, attention_mask, input_ids, cond_mask, motion_score = self.process(batch_tubes, input_ids, 
+                                                                                           cond_mask, motion_score, 
+                                                                                           t_ds_stride, ds_stride, 
+                                                                                           self.max_thw, self.ae_stride_thw)
         assert not torch.any(torch.isnan(pad_batch_tubes)), 'after pad_batch_tubes'
-        return pad_batch_tubes, attention_mask, input_ids, cond_mask
+        return pad_batch_tubes, attention_mask, input_ids, cond_mask, motion_score
 
-    def process(self, batch_tubes, input_ids, cond_mask, t_ds_stride, ds_stride, max_thw, ae_stride_thw):
+    def process(self, batch_tubes, input_ids, cond_mask, motion_score, t_ds_stride, ds_stride, max_thw, ae_stride_thw):
         # pad to max multiple of ds_stride
         batch_input_size = [i.shape for i in batch_tubes]  # [(c t h w), (c t h w)]
         assert len(batch_input_size) == self.batch_size
@@ -108,6 +115,8 @@ class Collate:
                 batch_input_size = [i.shape for i in batch_tubes]  # [(c t h w), (c t h w)]
                 input_ids = [input_ids[i] for i in pick_idx]  # b [1, l]
                 cond_mask = [cond_mask[i] for i in pick_idx]  # b [1, l]
+                if motion_score is not None:
+                    motion_score = [motion_score[i] for i in pick_idx]  # b [1, l]
 
             for i in range(1, self.batch_size):
                 assert batch_input_size[0] == batch_input_size[i]
@@ -158,8 +167,9 @@ class Collate:
 
         input_ids = torch.stack(input_ids)  # b 1 l
         cond_mask = torch.stack(cond_mask)  # b 1 l
+        motion_score = torch.tensor(motion_score) if motion_score is not None else motion_score # b
 
-        return pad_batch_tubes, attention_mask, input_ids, cond_mask
+        return pad_batch_tubes, attention_mask, input_ids, cond_mask, motion_score
 
 class Inpaint_Collate(Collate):
     def __init__(self, args):
@@ -270,7 +280,7 @@ def split_to_even_chunks(indices, lengths, num_chunks, batch_size):
         pad_chunks.append(chunk)
     return pad_chunks
 
-def get_length_grouped_indices(lengths, batch_size, world_size, generator=None, group_data=False, seed=42):
+def get_length_grouped_indices(lengths, batch_size, world_size, gradient_accumulation_size, initial_global_step, generator=None, group_data=False, seed=42):
     # We need to use torch for the random part as a distributed sampler will set the random seed for torch.
     if generator is None:
         generator = torch.Generator().manual_seed(seed)  # every rank will generate a fixed order but random index
@@ -303,10 +313,21 @@ def get_length_grouped_indices(lengths, batch_size, world_size, generator=None, 
     # return [i for megabatch in megabatches for batch in megabatch for i in batch]
 
     indices_mega = torch.randperm(len(megabatches), generator=generator).tolist()
+
     shuffled_megabatches = [megabatches[i] for i in indices_mega]
     # print('shuffled_megabatches', len(shuffled_megabatches))
     if group_data:
         shuffled_megabatches = last_group_data_fun(shuffled_megabatches, lengths)
+    
+    initial_global_step = initial_global_step * gradient_accumulation_size
+    print('shuffled_megabatches', len(shuffled_megabatches))
+    print('have been trained idx:', len(shuffled_megabatches[:initial_global_step]))
+    # print('shuffled_megabatches[:10]', shuffled_megabatches[:10])
+    # print('have been trained idx:', shuffled_megabatches[:initial_global_step])
+    shuffled_megabatches = shuffled_megabatches[initial_global_step:]
+    print('after shuffled_megabatches', len(shuffled_megabatches))
+    # print('after shuffled_megabatches[:10]', shuffled_megabatches[:10])
+
     # print('\nshuffled_megabatches', shuffled_megabatches)
     # import ipdb;ipdb.set_trace()
     # print('\nshuffled_megabatches len', [[i, lengths[i]] for megabatch in shuffled_megabatches for batch in megabatch for i in batch])
@@ -324,6 +345,8 @@ class LengthGroupedSampler(Sampler):
         self,
         batch_size: int,
         world_size: int,
+        gradient_accumulation_size: int, 
+        initial_global_step: int, 
         lengths: Optional[List[int]] = None, 
         group_data=False, 
         generator=None,
@@ -333,14 +356,17 @@ class LengthGroupedSampler(Sampler):
 
         self.batch_size = batch_size
         self.world_size = world_size
+        self.initial_global_step = initial_global_step
+        self.gradient_accumulation_size = gradient_accumulation_size
         self.lengths = lengths
         self.group_data = group_data
         self.generator = generator
 
     def __len__(self):
-        return len(self.lengths)
+        return len(self.lengths) - self.initial_global_step * self.batch_size * self.world_size * self.gradient_accumulation_size
 
     def __iter__(self):
         indices = get_length_grouped_indices(self.lengths, self.batch_size, self.world_size, 
+                                             self.gradient_accumulation_size, self.initial_global_step, 
                                              group_data=self.group_data, generator=self.generator)
         return iter(indices)
