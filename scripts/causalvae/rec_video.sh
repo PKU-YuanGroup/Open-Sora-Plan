@@ -1,11 +1,11 @@
 CUDA_VISIBLE_DEVICES=1 python examples/rec_video.py \
-    --ae_path "/storage/dataset/new488dim8" \
-    --video_path /storage/dataset/134445.mp4\
+    --ae WFVAEModel_D8_4x8x8 \
+    --ae_path "/storage/lcm/Causal-Video-VAE/results/WFVAE_DISTILL_FORMAL" \
+    --video_path /storage/dataset/mixkit-train-passing-the-rails-4462_resize1080p.mp4 \
     --rec_path rec.mp4 \
     --device cuda \
     --sample_rate 1 \
     --num_frames 65 \
     --height 720 \
-    --width 720 \
-    --ae CausalVAEModel_D8_4x8x8 \
+    --width 1280 \
     --fps 30

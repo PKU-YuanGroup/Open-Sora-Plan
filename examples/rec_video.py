@@ -13,7 +13,7 @@ from torch.nn import functional as F
 from pytorchvideo.transforms import ShortSideScale
 from torchvision.transforms import Lambda, Compose
 import sys
-from opensora.models.causalvideovae import ae_stride_config, ae_channel_config, ae_norm, ae_denorm, CausalVAEModelWrapper
+from opensora.models.causalvideovae import ae_wrapper
 from opensora.dataset.transform import ToTensorVideo, CenterCropResizeVideo
 
 
@@ -84,7 +84,8 @@ def main(args: argparse.Namespace):
     device = args.device
     kwarg = {}
     # vae = getae_wrapper(args.ae)(args.model_path, subfolder="vae", cache_dir='cache_dir', **kwarg).to(device)
-    vae = CausalVAEModelWrapper(args.ae_path, **kwarg).to(device)
+    # vae = CausalVAEModelWrapper(args.ae_path, **kwarg).to(device)
+    vae = ae_wrapper[args.ae](args.ae_path, **kwarg).eval().to(device)
     if args.enable_tiling:
         vae.vae.enable_tiling()
         vae.vae.tile_overlap_factor = args.tile_overlap_factor
@@ -106,6 +107,7 @@ def main(args: argparse.Namespace):
                            args.width)
         print(x_vae.shape)
         x_vae = x_vae.to(device, dtype=torch.float16)  # b c t h w
+        # for i in range(10000):
         latents = vae.encode(x_vae)
         print(latents.shape)
         latents = latents.to(torch.float16)

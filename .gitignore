@@ -69,3 +69,5 @@ filter_motion*
 json2*.py
 motionfun*
 res_dist*
+filter_json_aes_m*
+stage2*.json
