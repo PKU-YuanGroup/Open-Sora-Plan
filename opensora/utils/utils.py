@@ -345,7 +345,6 @@ bad_punct_regex = re.compile(r'['+'#®•©™&@·º½¾¿¡§~'+'\)'+'\('+'\]'+
 def text_preprocessing(text, support_Chinese=True):
     # The exact text cleaning as was in the training stage:
     text = clean_caption(text, support_Chinese=support_Chinese)
-    text = clean_caption(text, support_Chinese=support_Chinese)
     return text
 
 def basic_clean(text):
