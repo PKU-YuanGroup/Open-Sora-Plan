@@ -348,9 +348,9 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
             encoder_attention_mask = (1 - encoder_attention_mask.to(self.dtype)) * -10000.0
 
 
-        if npu_config is not None and attention_mask is not None:
-            attention_mask = npu_config.get_attention_mask(attention_mask, attention_mask.shape[-1])
-            encoder_attention_mask = npu_config.get_attention_mask(encoder_attention_mask, attention_mask.shape[-2])
+        # if npu_config is not None and attention_mask is not None:
+        #     attention_mask = npu_config.get_attention_mask(attention_mask, attention_mask.shape[-1])
+        #     encoder_attention_mask = npu_config.get_attention_mask(encoder_attention_mask, attention_mask.shape[-2])
 
 
         # 1. Input
