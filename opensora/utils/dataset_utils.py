@@ -171,34 +171,6 @@ class Collate:
 
         return pad_batch_tubes, attention_mask, input_ids, cond_mask, motion_score
 
-class Inpaint_Collate(Collate):
-    def __init__(self, args):
-        super().__init__(args)
-
-
-    def package_clip_data(self, batch):
-
-        try:
-            clip_data = torch.stack([i['clip_data'] for i in batch]) # [b num_img c h w]
-        except:
-            clip_data = None
-            
-        try:
-            clip_mask = torch.stack([i['clip_mask'] for i in batch]) # [b num_img 1 h w]
-        except:
-            clip_mask = None
-    
-        return clip_data, clip_mask
-
-    def __call__(self, batch):
-        clip_data, clip_mask = self.package_clip_data(batch)
-
-        pad_batch_tubes, attention_mask, input_ids, cond_mask = super().__call__(batch)
-
-        return pad_batch_tubes, attention_mask, input_ids, cond_mask, clip_data, clip_mask
-        
-
-
 
 def group_data_fun(lengths, generator=None):
     counter = Counter(lengths)

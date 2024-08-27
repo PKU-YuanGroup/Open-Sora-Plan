@@ -9,68 +9,32 @@ from torchvision.transforms import Lambda
 from opensora.dataset.t2v_datasets import T2V_dataset
 from opensora.models.causalvideovae import ae_norm, ae_denorm
 from opensora.dataset.transform import ToTensorVideo, TemporalRandomCrop, RandomHorizontalFlipVideo, CenterCropResizeVideo, LongSideResizeVideo, SpatialStrideCropVideo, NormalizeVideo, ToTensorAfterResize
-from opensora.dataset.inpaint_datasets import get_inpaint_dataset
-from opensora.models.diffusion.opensora.modeling_inpaint import ModelType, STR_TO_TYPE, TYPE_TO_STR
 
+from opensora.dataset.inpaint_datasets import Inpaint_dataset
 
 
 def getdataset(args):
     temporal_sample = TemporalRandomCrop(args.num_frames)  # 16 x
     norm_fun = ae_norm[args.ae]
+    if args.force_resolution:
+        resize = [CenterCropResizeVideo((args.max_height, args.max_width)), ]
+    else:
+        resize = [
+            LongSideResizeVideo((args.max_height, args.max_width), skip_low_resolution=True), 
+            SpatialStrideCropVideo(stride=args.hw_stride), 
+        ]
+    transform = transforms.Compose([
+        ToTensorVideo(),
+        *resize, 
+        norm_fun
+    ])
+    tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir)
+    # tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/models--DeepFloyd--t5-v1_1-xxl/snapshots/c9c625d2ec93667ec579ede125fd3811d1f81d37", cache_dir=args.cache_dir)
+    # tokenizer = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
     if args.dataset == 't2v':
-        if args.force_resolution:
-            resize = [CenterCropResizeVideo((args.max_height, args.max_width)), ]
-        else:
-            resize = [
-                LongSideResizeVideo((args.max_height, args.max_width), skip_low_resolution=True), 
-                SpatialStrideCropVideo(stride=args.hw_stride), 
-            ]
-        transform = transforms.Compose([
-            ToTensorVideo(),
-            *resize, 
-            norm_fun
-        ])
-        tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir)
-        # tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/models--DeepFloyd--t5-v1_1-xxl/snapshots/c9c625d2ec93667ec579ede125fd3811d1f81d37", cache_dir=args.cache_dir)
-        # tokenizer = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
         return T2V_dataset(args, transform=transform, temporal_sample=temporal_sample, tokenizer=tokenizer)
-    elif args.dataset == 'inpaint' or args.dataset == 'i2v' or args.dataset == 'vip':
-        if args.force_resolution:
-            resize = [CenterCropResizeVideo((args.max_height, args.max_width)), ]
-        else:
-            resize = [
-                LongSideResizeVideo((args.max_height, args.max_width), skip_low_resolution=True), 
-                SpatialStrideCropVideo(stride=args.hw_stride), 
-            ]
-        transform = transforms.Compose([
-            ToTensorAfterResize(),
-            # RandomHorizontalFlipVideo(p=0.5),  # in case their caption have position decription
-            norm_fun
-        ])
-
-        if STR_TO_TYPE[args.model_type] != ModelType.INPAINT_ONLY:
-            if args.max_width / args.max_height == 4 / 3:
-                image_processor_center_crop = transforms.CenterCrop((518, 686))
-            elif args.max_width / args.max_height == 16 / 9:
-                image_processor_center_crop = transforms.CenterCrop((518, 910))
-            else:
-                image_processor_center_crop = transforms.CenterCrop((518, 518))
-
-            # dino image processor
-            image_processor = transforms.Compose([
-                transforms.Resize(518, interpolation=transforms.InterpolationMode.BICUBIC, antialias=True, max_size=None),
-                image_processor_center_crop, #
-                ToTensorAfterResize(),
-                transforms.Normalize((0.4850, 0.4560, 0.4060), (0.2290, 0.2240, 0.2250)),
-            ])
-        else:
-            image_processor = None
-        # tokenizer = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
-        tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir)
-
-        dataset = get_inpaint_dataset(args.model_type)
-
-        return dataset(args, transform=transform, resize_transform=resize, temporal_sample=temporal_sample, tokenizer=tokenizer, image_processor=image_processor)
+    elif args.dataset == 'inpaint' or args.dataset == 'i2v':
+        return Inpaint_dataset(args, transform=transform, temporal_sample=temporal_sample, tokenizer=tokenizer)
     raise NotImplementedError(args.dataset)
 
 

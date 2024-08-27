@@ -8,44 +8,18 @@
 A minimal training script for DiT using PyTorch DDP.
 """
 import argparse
-
 import logging
 import math
-
 import os
-
 import shutil
 from pathlib import Path
-
 from typing import Optional
 import gc
 import numpy as np
 from einops import rearrange
 from tqdm import tqdm
-import itertools
-
-from opensora.models.ae.videobase.modules import attention
-
-import time
-from dataclasses import field, dataclass
-from torch.utils.data import DataLoader
-from copy import deepcopy
-import accelerate
-import torch
-import torch.nn as nn
-from torch.nn import functional as F
-import transformers
-from accelerate import Accelerator
-from accelerate.logging import get_logger
-from accelerate.utils import DistributedType, ProjectConfiguration, set_seed
-from huggingface_hub import create_repo
-from packaging import version
-from tqdm.auto import tqdm
-
-from math import sqrt
 
 from opensora.adaptor.modules import replace_with_fp32_forwards
-from opensora.train.train_videogpt import train
 
 try:
     import torch_npu
@@ -60,58 +34,39 @@ except:
         destroy_sequence_parallel_group, get_sequence_parallel_state, set_sequence_parallel_state
     from opensora.utils.communications import prepare_parallel_data, broadcast
     pass
+import time
+from dataclasses import field, dataclass
+from torch.utils.data import DataLoader
+from copy import deepcopy
+import accelerate
+import torch
+from torch.nn import functional as F
+import transformers
+from accelerate import Accelerator
+from accelerate.logging import get_logger
+from accelerate.utils import DistributedType, ProjectConfiguration, set_seed
+from packaging import version
+from tqdm.auto import tqdm
+
 import diffusers
 from diffusers import DDPMScheduler, PNDMScheduler, DPMSolverMultistepScheduler
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import compute_snr
 from diffusers.utils import check_min_version, is_wandb_available
-from diffusers.models.modeling_utils import ModelMixin
-from diffusers.configuration_utils import ConfigMixin, register_to_config
 
-from opensora.dataset import getdataset, ae_denorm
-from opensora.models.ae import getae, getae_wrapper
-
-from opensora.utils.ema import EMAModel
+from opensora.models.causalvideovae import ae_stride_config, ae_channel_config
+from opensora.models.causalvideovae import ae_norm, ae_denorm
 from opensora.models.text_encoder import get_text_enc, get_text_warpper
-from opensora.utils.dataset_utils import Inpaint_Collate as Collate, LengthGroupedSampler
-from opensora.models.ae import ae_stride_config, ae_channel_config
+from opensora.dataset import getdataset
+from opensora.models import CausalVAEModelWrapper
 from opensora.models.diffusion import Diffusion_models, Diffusion_models_class
-from opensora.sample.pipeline_opensora import OpenSoraPipeline
-
-
-# for validation
-from PIL import Image
-from torchvision import transforms
-from torchvision.transforms import Lambda
-from transformers import CLIPVisionModelWithProjection, AutoModel, AutoImageProcessor, CLIPImageProcessor
-from opensora.dataset.transform import ToTensorVideo, CenterCropResizeVideo, TemporalRandomCrop, LongSideResizeVideo, SpatialStrideCropVideo
-from opensora.sample.pipeline_opensora import OpenSoraPipeline
-
-from opensora.models.diffusion.opensora.modeling_inpaint import STR_TO_TYPE, TYPE_TO_STR, ModelType
-
-import timm
-
-import glob
-from torchvision.utils import save_image
-import imageio
-import safetensors
-from typing import Union
+from opensora.utils.dataset_utils import Collate, LengthGroupedSampler
+from opensora.utils.ema import EMAModel
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 check_min_version("0.24.0")
 logger = get_logger(__name__)
 
-# we use timm styled model
-def get_clip_features(clip_data, image_encoder):
-    batch_size = clip_data.shape[0]
-    clip_data = rearrange(clip_data, 'b t c h w -> (b t) c h w') # B T+image_num C H W -> B * (T+image_num) C H W
-    # NOTE using last layer of DINO as clip feature
-    clip_features = image_encoder.forward_features(clip_data)
-    clip_features = clip_features[:, 5:] # drop cls token and reg tokens
-    clip_features_height = 518 // 14 # 37, dino height
-    clip_features = rearrange(clip_features, '(b t) (h w) c -> b c t h w', b=batch_size, h=clip_features_height) # B T+image_num H W D  
-    
-    return clip_features
 
 
 class ProgressInfo:
@@ -165,7 +120,7 @@ def main(args):
 
     # If passed along, set the training seed now.
     if args.seed is not None:
-        set_seed(args.seed)
+        set_seed(args.seed, device_specific=True)
 
     # Handle the repository creation
     if accelerator.is_main_process:
@@ -180,12 +135,9 @@ def main(args):
     elif accelerator.mixed_precision == "bf16":
         weight_dtype = torch.bfloat16
 
-    # Get the type of inpaint model
-    model_type = STR_TO_TYPE[args.model_type]
-
     # Create model:
     kwargs = {}
-    ae = getae_wrapper(args.ae)(args.ae_path, cache_dir=args.cache_dir, **kwargs).eval()
+    ae = CausalVAEModelWrapper(args.ae_path, cache_dir=args.cache_dir, **kwargs).eval()
     if args.enable_tiling:
         ae.vae.enable_tiling()
         ae.vae.tile_overlap_factor = args.tile_overlap_factor
@@ -217,20 +169,7 @@ def main(args):
     else:
         latent_size_t = args.num_frames // ae_stride_t
 
-    if model_type != ModelType.INPAINT_ONLY:
-        init_from_original_attn_processor = False if (args.pretrained_vip_adapter_path is not None or args.resume_from_checkpoint is not None) else True
-        model_kwargs ={
-            'image_encoder_out_channels': 1536,
-            'vip_num_attention_heads': args.vip_num_attention_heads,
-            'vip_attention_head_dim': 72,
-            'vip_num_attention_layers': [1, 3],
-            'vip_gradient_checkpointing': False,
-            'vae_scale_factor_t': ae_stride_t,
-            'vip_init_from_original_attn_processor': init_from_original_attn_processor,
-            'num_frames': args.num_frames,
-        }
-    else:
-        model_kwargs = {'vae_scale_factor_t': ae_stride_t}
+    model_kwargs = {'vae_scale_factor_t': ae_stride_t}
 
     model = Diffusion_models[args.model](
         in_channels=ae_channel_config[args.ae],
@@ -260,49 +199,34 @@ def main(args):
         use_rope=args.use_rope,
         # model_max_length=args.model_max_length,
         use_stable_fp32=args.enable_stable_fp32,
-        model_type=TYPE_TO_STR[model_type], 
+        sparse1d=args.sparse1d, 
+        sparse2d=args.sparse2d, 
+        sparse_n=args.sparse_n, 
+        use_motion=args.use_motion,
         **model_kwargs,
     )
     model.gradient_checkpointing = args.gradient_checkpointing
 
     pretrained_transformer_model_path = args.pretrained_transformer_model_path
-    pretrained_vip_adapter_path = args.pretrained_vip_adapter_path
-    pretrained_model_path = dict(transformer_model=pretrained_transformer_model_path, vip=pretrained_vip_adapter_path)
+    pretrained_model_path = dict(transformer_model=pretrained_transformer_model_path)
     if pretrained_transformer_model_path is not None:
         model.custom_load_state_dict(pretrained_model_path)
-
-    noise_scheduler = DDPMScheduler()
 
     # Freeze main models
     ae.vae.requires_grad_(False)
     text_enc.requires_grad_(False)
-
-    if model_type == ModelType.VIP_ONLY:
-        model.requires_grad_(False)
-        model.vip.custom_requires_grad(True)
-    elif model_type == ModelType.VIP_INPAINT and not args.train_vip:
-        model.requires_grad_(True)
-        model.vip.custom_requires_grad(False)
-
+    # Set model as trainable.
     model.train()
 
+    ae.vae.tile_sample_min_size = args.tile_sample_min_size
+    ae.vae.tile_sample_min_size_t = args.tile_sample_min_size_t
+
+    noise_scheduler = DDPMScheduler()
     # Move unet, vae and text_encoder to device and cast to weight_dtype
     # The VAE is in float32 to avoid NaN losses.
     ae.vae.to(accelerator.device, dtype=torch.float32)
     # ae.vae.to(accelerator.device, dtype=weight_dtype)
     text_enc.to(accelerator.device, dtype=weight_dtype)
-
-    if model_type != ModelType.INPAINT_ONLY:
-        # load image encoder
-        if 'dino' in args.image_encoder_name:
-            logger.info(f"load {args.image_encoder_name} as image encoder...")
-            image_encoder = timm.create_model(args.image_encoder_name, dynamic_img_size=True, checkpoint_path=args.image_encoder_path)
-            image_encoder.requires_grad_(False)
-            image_encoder.to(accelerator.device, dtype=weight_dtype)
-        else:
-            raise NotImplementedError
-    else:
-        image_encoder = None
 
     # Create EMA for the unet.
     if args.use_ema:
@@ -419,27 +343,69 @@ def main(args):
         )
     logger.info(f"optimizer: {optimizer}")
     
+    global_step = 0
+    # first_epoch = 0
+    # Potentially load in the weights and states from a previous save
+    if args.resume_from_checkpoint:
+        if args.resume_from_checkpoint != "latest":
+            path = os.path.basename(args.resume_from_checkpoint)
+        else:
+            # Get the most recent checkpoint
+            dirs = os.listdir(args.output_dir)
+            dirs = [d for d in dirs if d.startswith("checkpoint")]
+            dirs = sorted(dirs, key=lambda x: int(x.split("-")[1]))
+            path = dirs[-1] if len(dirs) > 0 else None
+
+        if path is None:
+            accelerator.print(
+                f"Checkpoint '{args.resume_from_checkpoint}' does not exist. Starting a new training run."
+            )
+            args.resume_from_checkpoint = None
+            initial_global_step = 0
+        else:
+            accelerator.print(f"Resuming from checkpoint {path}")
+            accelerator.load_state(os.path.join(args.output_dir, path))
+            global_step = int(path.split("-")[1])
+
+            initial_global_step = global_step
+            # first_epoch = global_step // num_update_steps_per_epoch
+
+            if npu_config is not None:
+                train_dataset.n_used_elements = global_step * args.train_batch_size
+
+    else:
+        initial_global_step = 0
+
     # Setup data:
+    total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
+    total_batch_size = total_batch_size // args.sp_size * args.train_sp_batch_size
+
+    if args.trained_data_global_step is not None:
+        initial_global_step_for_sampler = args.trained_data_global_step
+    else:
+        initial_global_step_for_sampler = initial_global_step
+
     train_dataset = getdataset(args)
-    logger.info(f"train_dataset: {train_dataset.__class__.__name__}")
     sampler = LengthGroupedSampler(
                 args.train_batch_size,
-                world_size=accelerator.num_processes,
+                world_size=accelerator.num_processes, 
+                gradient_accumulation_size=args.gradient_accumulation_steps, 
+                initial_global_step=initial_global_step_for_sampler, 
                 lengths=train_dataset.lengths, 
-                group_frame=args.group_frame, 
-                group_resolution=args.group_resolution, 
-            ) if args.group_frame or args.group_resolution else None
+                group_data=args.group_data, 
+            )
     train_dataloader = DataLoader(
         train_dataset,
-        shuffle=sampler is None,
+        shuffle=False,
         # pin_memory=True,
         collate_fn=Collate(args),
         batch_size=args.train_batch_size,
         num_workers=args.dataloader_num_workers,
-        sampler=sampler if args.group_frame or args.group_resolution else None, 
+        sampler=sampler, 
         drop_last=True, 
         # prefetch_factor=4
     )
+    logger.info(f'after train_dataloader')
 
     # Scheduler and math around the number of training steps.
     overrode_max_train_steps = False
@@ -456,9 +422,18 @@ def main(args):
     )
 
     # Prepare everything with our `accelerator`.
+    # model.requires_grad_(False)
+    # model.pos_embed.requires_grad_(True)
+    if args.adapt_vae:
+        model.requires_grad_(False)
+        for name, param in model.named_parameters():
+            if 'pos_embed' in name or 'proj_out' in name:
+                param.requires_grad = True
+    logger.info(f'before accelerator.prepare')
     model, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
         model, optimizer, train_dataloader, lr_scheduler
     )
+    logger.info(f'after accelerator.prepare')
     if args.use_ema:
         ema_model.to(accelerator.device)
 
@@ -484,8 +459,6 @@ def main(args):
         accelerator.init_trackers(project_name=project_name, config=vars(args), init_kwargs=init_kwargs)
 
     # Train!
-    total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
-    total_batch_size = total_batch_size // args.sp_size * args.train_sp_batch_size
     logger.info("***** Running training *****")
     logger.info(f"  Model = {model}")
     logger.info(f"  Num examples = {len(train_dataset)}")
@@ -494,40 +467,8 @@ def main(args):
     logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
     logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
     logger.info(f"  Total optimization steps = {args.max_train_steps}")
+    logger.info(f"  Total optimization steps (num_update_steps_per_epoch) = {num_update_steps_per_epoch}")
     logger.info(f"  Total trainable parameters = {sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e9} B")
-    global_step = 0
-    first_epoch = 0
-
-    # Potentially load in the weights and states from a previous save
-    if args.resume_from_checkpoint:
-        if args.resume_from_checkpoint != "latest":
-            path = os.path.basename(args.resume_from_checkpoint)
-        else:
-            # Get the most recent checkpoint
-            dirs = os.listdir(args.output_dir)
-            dirs = [d for d in dirs if d.startswith("checkpoint")]
-            dirs = sorted(dirs, key=lambda x: int(x.split("-")[1]))
-            path = dirs[-1] if len(dirs) > 0 else None
-
-        if path is None:
-            accelerator.print(
-                f"Checkpoint '{args.resume_from_checkpoint}' does not exist. Starting a new training run."
-            )
-            args.resume_from_checkpoint = None
-            initial_global_step = 0
-        else:
-            accelerator.print(f"Resuming from checkpoint {path}")
-            accelerator.load_state(os.path.join(args.output_dir, path))
-            global_step = int(path.split("-")[1])
-
-            initial_global_step = global_step
-            first_epoch = global_step // num_update_steps_per_epoch
-
-            if npu_config is not None:
-                train_dataset.n_used_elements = global_step * args.train_batch_size
-
-    else:
-        initial_global_step = 0
 
     progress_bar = tqdm(
         range(0, args.max_train_steps),
@@ -584,19 +525,14 @@ def main(args):
         progress_bar.set_postfix(**logs)
 
     def run(model_input, model_kwargs, prof):
-
-        mask = model_kwargs.get('attention_mask', None)
-        clip_mask = model_kwargs.pop('clip_mask', None) 
-
         global start_time
         start_time = time.time()
 
-        if model_type != ModelType.VIP_ONLY:
-            try:
-                in_channels = ae_channel_config[args.ae]
-                model_input, masked_x, video_mask = model_input[:, 0:in_channels], model_input[:, in_channels:2 * in_channels], model_input[:, 2 * in_channels:]
-            except:
-                raise ValueError("masked_x and video_mask is None!")
+        try:
+            in_channels = ae_channel_config[args.ae]
+            model_input, masked_input, video_mask = model_input[:, 0:in_channels], model_input[:, in_channels:2 * in_channels], model_input[:, 2 * in_channels:]
+        except:
+            raise ValueError("masked_x and video_mask is None!")
 
         noise = torch.randn_like(model_input)
         if args.noise_offset:
@@ -608,27 +544,23 @@ def main(args):
         current_step_frame = model_input.shape[2]
         # Sample a random timestep for each image without bias.
         timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=model_input.device)
+        # print('accelerator.process_index, timesteps', accelerator.process_index, timesteps)
         if current_step_frame != 1 and get_sequence_parallel_state():  # image do not need sp
             broadcast(timesteps)
+            motion_score = model_kwargs.pop('motion_score', None)
+            if motion_score is not None:
+                raise NotImplementedError 
 
         # Add noise to the model input according to the noise magnitude at each timestep
         # (this is the forward diffusion process)
 
         noisy_model_input = noise_scheduler.add_noise(model_input, noise, timesteps)
 
-        if model_type != ModelType.VIP_ONLY:
-            model_pred = model(
-                torch.cat([noisy_model_input, masked_x, video_mask], dim=1),
-                timesteps,
-                **model_kwargs,
-            )[0]
-        else:
-            model_pred = model(
-                noisy_model_input,
-                timesteps,
-                **model_kwargs,
-            )[0]
-
+        model_pred = model(
+            torch.cat([noisy_model_input, masked_input, video_mask], dim=1),
+            timesteps,
+            **model_kwargs,
+        )[0]
 
         # Get the target for loss depending on the prediction type
         if args.prediction_type is not None:
@@ -647,43 +579,21 @@ def main(args):
         else:
             raise ValueError(f"Unknown prediction type {noise_scheduler.config.prediction_type}")
 
-
-        # if torch.all(mask.bool()):
-        #     mask = None
-
-        # if get_sequence_parallel_state():
-        #     assert mask is None
-
-        b, c, t, h, w = model_pred.shape
-
+        mask = model_kwargs.get('attention_mask', None)
+        if torch.all(mask.bool()):
+            mask = None
+        if get_sequence_parallel_state():
+            assert mask is None
+        b, c, _, _, _ = model_pred.shape
         if mask is not None:
             mask = mask.unsqueeze(1).repeat(1, c, 1, 1, 1).float()  # b t h w -> b c t h w
             mask = mask.reshape(b, -1)
-
-        if model_type != ModelType.INPAINT_ONLY and args.use_clip_mask:
-            clip_loss_lambda = args.clip_loss_lambda 
-
-            assert clip_mask is not None, "clip_mask is None!"
-
-            if torch.all(clip_mask == 0):
-                clip_mask = None
-
-            if clip_mask is not None:
-                assert clip_mask.shape[2] == t, f"clip_mask.shape[2] ({clip_mask.shape[2]}) != t ({t})"
-                clip_mask = clip_mask.repeat(1, c, 1, h, w)
-                clip_mask = clip_mask.reshape(b, -1)
-
         if args.snr_gamma is None:
             # model_pred: b c t h w, attention_mask: b t h w
             loss = F.mse_loss(model_pred.float(), target.float(), reduction="none")
             loss = loss.reshape(b, -1)
-
-            if mask is not None and clip_mask is not None:
-                clip_loss = (loss * mask * clip_mask).sum() / (mask * clip_mask).sum()  
-                un_clip_loss = (loss * mask).sum() / mask.sum()
-                loss = clip_loss_lambda * clip_loss + (1 - clip_loss_lambda) * un_clip_loss
-            elif mask is not None:
-                loss = (loss * mask).sum() / mask.sum() # mean loss on unpad patches
+            if mask is not None:
+                loss = (loss * mask).sum() / mask.sum()  # mean loss on unpad patches
             else:
                 loss = loss.mean()
         else:
@@ -701,13 +611,8 @@ def main(args):
             loss = F.mse_loss(model_pred.float(), target.float(), reduction="none")
             loss = loss.reshape(b, -1)
             mse_loss_weights = mse_loss_weights.reshape(b, 1)
-
-            if mask is not None and clip_mask is not None:
-                clip_loss = (loss * mask * clip_mask * mse_loss_weights).sum() / (mask * clip_mask).sum() 
-                un_clip_loss = (loss * mask * mse_loss_weights).sum() / mask.sum()
-                loss = clip_loss_lambda * clip_loss + (1 - clip_loss_lambda) * un_clip_loss
-            elif mask is not None:
-                loss = (loss * mask * mse_loss_weights).sum() / mask.sum() # mean loss on unpad patches
+            if mask is not None:
+                loss = (loss * mask * mse_loss_weights).sum() / mask.sum()  # mean loss on unpad patches
             else:
                 loss = (loss * mse_loss_weights).mean()
 
@@ -735,28 +640,14 @@ def main(args):
 
     def train_one_step(step_, data_item_, prof_=None):
         train_loss = 0.0
-        x, attn_mask, input_ids, cond_mask, clip_data, clip_mask = data_item_
-        # assert torch.all(attn_mask.bool()), 'must all visible'
-        # Sample noise that we'll add to the latents
-        # import ipdb;ipdb.set_trace()
-        if args.group_frame or args.group_resolution:
-            if not args.group_frame:
-                each_latent_frame = torch.any(attn_mask.flatten(-2), dim=-1).int().sum(-1).tolist()
-                # logger.info(f'rank: {accelerator.process_index}, step {step_}, special batch has attention_mask '
-                #             f'each_latent_frame: {each_latent_frame}')
-                logger.info(f'rank: {accelerator.process_index}, step {step_}, special batch has attention_mask '
-                            f'each_latent_frame: {each_latent_frame}')
+        x, attn_mask, input_ids, cond_mask, motion_score = data_item_
         assert not torch.any(torch.isnan(x)), 'torch.any(torch.isnan(x))'
-        x = x.to(accelerator.device, dtype=ae.vae.dtype)  # B 3*C T H W, 16
-        if model_type != ModelType.INPAINT_ONLY:
-            clip_data = clip_data.to(accelerator.device, dtype=weight_dtype)  # B T C H W
-            if args.use_clip_mask: 
-                clip_mask = clip_mask.to(accelerator.device)
+        x = x.to(accelerator.device, dtype=ae.vae.dtype)  # B C T+num_images H W, 16 + 4
 
-        attn_mask = attn_mask.to(accelerator.device)  # B T H W
-        input_ids = input_ids.to(accelerator.device)  # B 1 L
-        cond_mask = cond_mask.to(accelerator.device)  # B 1 L
-
+        attn_mask = attn_mask.to(accelerator.device)  # B T+num_images H W
+        input_ids = input_ids.to(accelerator.device)  # B 1+num_images L
+        cond_mask = cond_mask.to(accelerator.device)  # B 1+num_images L
+        motion_score = motion_score.to(accelerator.device) if motion_score is not None else motion_score # B 1
         # if accelerator.process_index == 0:
         #     logger.info(f'rank: {accelerator.process_index}, x: {x.shape}, attn_mask: {attn_mask.shape}')
 
@@ -772,45 +663,26 @@ def main(args):
             cond = text_enc(input_ids_, cond_mask_)  # B 1 L D
             cond = cond.reshape(B, N, L, -1)
 
-            def preprocess_clip_mask(clip_mask):
-                clip_mask = 1 - clip_mask # 1 means visible, 0 means invisible
-                clip_mask = F.pad(clip_mask, (0, 0, 0, 0, 0, 0, ae_stride_t - 1, 0), value=0)
-                c, h, w = clip_mask.shape[2:]
-                assert c * h * w == 1, 'clip_mask should be 1 1 1'
-                clip_mask = rearrange(clip_mask, 'b t c h w -> b (c h w) t') # B T 1 1 1 -> B (1 1 1) T
-                clip_mask = F.max_pool1d(clip_mask, kernel_size=ae_stride_t, stride=ae_stride_t)
-                logger.warning(f'clip_mask: {clip_mask}')
-                clip_mask = rearrange(clip_mask, 'b (c h w) t -> b c t h w', c=1, h=1, w=1)
-                return clip_mask
-            
+
             def preprocess_x_for_inpaint(x):
-                # NOTE vae style mask, deprecated
-                if args.use_vae_preprocessed_mask:
-                    x, masked_x, mask = x[:, :3], x[:, 3:6], x[:, 6:9]
-                    x, masked_x, mask = ae.encode(x), ae.encode(masked_x), ae.encode(mask)
-                else:
-                    x, masked_x, mask = x[:, :3], x[:, 3:6], x[:, 6:7]
-                    x, masked_x = ae.encode(x), ae.encode(masked_x)
-                    batch_size, channels, frame, height, width = mask.shape
-                    mask = rearrange(mask, 'b c t h w -> (b c t) 1 h w')
-                    mask = F.interpolate(mask, size=latent_size, mode='bilinear')
-                    mask = rearrange(mask, '(b c t) 1 h w -> b c t h w', t=frame, b=batch_size)
-                    mask_first_frame = mask[:, :, 0:1].repeat(1, 1, ae_stride_t, 1, 1).contiguous()
-                    mask = torch.cat([mask_first_frame, mask[:, :, 1:]], dim=2)
-                    mask = mask.view(batch_size, ae_stride_t, latent_size_t, latent_size[0], latent_size[1]).contiguous()
+
+                x, masked_x, mask = x[:, :3], x[:, 3:6], x[:, 6:7]
+                x, masked_x = ae.encode(x), ae.encode(masked_x)
+                batch_size, channels, frame, height, width = mask.shape
+                mask = rearrange(mask, 'b c t h w -> (b c t) 1 h w')
+                mask = F.interpolate(mask, size=latent_size, mode='bilinear')
+                mask = rearrange(mask, '(b c t) 1 h w -> b c t h w', t=frame, b=batch_size)
+                mask_first_frame = mask[:, :, 0:1].repeat(1, 1, ae_stride_t, 1, 1).contiguous()
+                mask = torch.cat([mask_first_frame, mask[:, :, 1:]], dim=2)
+                mask = mask.view(batch_size, latent_size_t, ae_stride_t, latent_size[0], latent_size[1])
+                mask = mask.transpose(1, 2).contiguous()
 
                 return x, masked_x, mask
                 
-            clip_features = get_clip_features(clip_data, image_encoder) if model_type != ModelType.INPAINT_ONLY else None
-            clip_mask = preprocess_clip_mask(clip_mask) if model_type != ModelType.INPAINT_ONLY and args.use_clip_mask else None
-
-            if model_type != ModelType.VIP_ONLY:
-                # Map input images to latent space + normalize latents
-                x, masked_x, mask = preprocess_x_for_inpaint(x) # B 3*C T H W -> (B C T H W) * 3 
-                x = torch.cat([x, masked_x, mask], dim=1) # (B C T H W) * 3 -> B 3*C T H W
-            else:
-                x = ae.encode(x)
-
+            
+            # Map input images to latent space + normalize latents
+            x, masked_x, mask = preprocess_x_for_inpaint(x) 
+            x = torch.cat([x, masked_x, mask], dim=1) 
 
         current_step_frame = x.shape[2]
         current_step_sp_state = get_sequence_parallel_state()
@@ -829,16 +701,14 @@ def main(args):
                     model_kwargs = dict(encoder_hidden_states=cond[st_idx: ed_idx],
                                         attention_mask=attn_mask[st_idx: ed_idx],
                                         encoder_attention_mask=cond_mask[st_idx: ed_idx], use_image_num=use_image_num)
-                    model_kwargs.update(clip_features=clip_features, clip_mask=clip_mask)
                     run(x[st_idx: ed_idx], model_kwargs, prof_)
 
         else:
             with accelerator.accumulate(model):
                 assert not torch.any(torch.isnan(x)), 'after vae'
                 x = x.to(weight_dtype)
-                model_kwargs = dict(encoder_hidden_states=cond, attention_mask=attn_mask,
+                model_kwargs = dict(encoder_hidden_states=cond, attention_mask=attn_mask, motion_score=motion_score, 
                                     encoder_attention_mask=cond_mask, use_image_num=args.use_image_num,)
-                model_kwargs.update(clip_features=clip_features, clip_mask=clip_mask)
                 run(x, model_kwargs, prof_)
 
         set_sequence_parallel_state(current_step_sp_state)  # in case the next step use sp, which need broadcast(timesteps)
@@ -848,18 +718,18 @@ def main(args):
 
         return False
 
-    def train_all_epoch(prof_=None):
-        for epoch in range(first_epoch, args.num_train_epochs):
-            progress_info.train_loss = 0.0
-            if progress_info.global_step >= args.max_train_steps:
-                return True
+    def train_one_epoch(prof_=None):
+        # for epoch in range(first_epoch, args.num_train_epochs):
+        progress_info.train_loss = 0.0
+        if progress_info.global_step >= args.max_train_steps:
+            return True
 
-            for step, data_item in enumerate(train_dataloader):
-                if train_one_step(step, data_item, prof_):
-                    break
+        for step, data_item in enumerate(train_dataloader):
+            if train_one_step(step, data_item, prof_):
+                break
 
-                if step >= 2 and torch_npu is not None and npu_config is not None:
-                    npu_config.free_mm()
+            if step >= 2 and torch_npu is not None and npu_config is not None:
+                npu_config.free_mm()
 
     if npu_config is not None and npu_config.on_npu and npu_config.profiling:
         experimental_config = torch_npu.profiler._ExperimentalConfig(
@@ -879,9 +749,9 @@ def main(args):
                                                      skip_first=0),
                 on_trace_ready=torch_npu.profiler.tensorboard_trace_handler(f"{profile_output_path}/")
         ) as prof:
-            train_all_epoch(prof)
+            train_one_epoch(prof)
     else:
-        train_all_epoch()
+        train_one_epoch()
     accelerator.wait_for_everyone()
     accelerator.end_training()
     if npu_config is not None and get_sequence_parallel_state():
@@ -891,7 +761,7 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
-     # dataset & dataloader
+    # dataset & dataloader
     parser.add_argument("--dataset", type=str, required=True)
     parser.add_argument("--data", type=str, required='')
     parser.add_argument("--sample_rate", type=int, default=1)
@@ -907,8 +777,11 @@ if __name__ == "__main__":
     parser.add_argument('--cfg', type=float, default=0.1)
     parser.add_argument("--dataloader_num_workers", type=int, default=10, help="Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process.")
     parser.add_argument("--train_batch_size", type=int, default=16, help="Batch size (per device) for the training dataloader.")
-    parser.add_argument("--group_frame", action="store_true")
-    parser.add_argument("--group_resolution", action="store_true")
+    parser.add_argument("--group_data", action="store_true")
+    parser.add_argument("--hw_stride", type=int, default=32)
+    parser.add_argument("--skip_low_resolution", action="store_true")
+    parser.add_argument("--force_resolution", action="store_true")
+    parser.add_argument("--trained_data_global_step", type=int, default=None)
 
     # text encoder & vae & diffusion model
     parser.add_argument("--model", type=str, choices=list(Diffusion_models.keys()), default="Latte-XL/122")
@@ -927,7 +800,15 @@ if __name__ == "__main__":
     parser.add_argument("--ae_path", type=str, default="stabilityai/sd-vae-ft-mse")
     parser.add_argument("--text_encoder_name", type=str, default='DeepFloyd/t5-v1_1-xxl')
     parser.add_argument("--cache_dir", type=str, default='./cache_dir')
+    parser.add_argument("--pretrained", type=str, default=None)
     parser.add_argument('--enable_stable_fp32', action='store_true')
+    parser.add_argument('--sparse1d', action='store_true')
+    parser.add_argument('--sparse2d', action='store_true')
+    parser.add_argument('--sparse_n', type=int, default=2)
+    parser.add_argument('--tile_sample_min_size', type=int, default=512)
+    parser.add_argument('--tile_sample_min_size_t', type=int, default=33)
+    parser.add_argument('--adapt_vae', action='store_true')
+    parser.add_argument('--use_motion', action='store_true')
     parser.add_argument("--gradient_checkpointing", action="store_true", help="Whether or not to use gradient checkpointing to save memory at the expense of slower backward pass.")
 
     # diffusion setting
@@ -1016,24 +897,15 @@ if __name__ == "__main__":
     parser.add_argument("--sp_size", type=int, default=1, help="For sequence parallel")
     parser.add_argument("--train_sp_batch_size", type=int, default=1, help="Batch size for sequence parallel training")
 
-    parser.add_argument("--model_type", type=str, default='inpaint_only', choices=['inpaint_only', 'vip_only', 'vip_inpaint'])
-    parser.add_argument("--train_vip", action="store_true")
     # inpaint
-    parser.add_argument("--i2v_ratio", type=float, default=0.5) # for inpainting mode
+    parser.add_argument("--t2v_ratio", type=float, default=0.1) # for inpainting mode
+    parser.add_argument("--i2v_ratio", type=float, default=0.4) # for inpainting mode
     parser.add_argument("--transition_ratio", type=float, default=0.4) # for inpainting mode
     parser.add_argument("--v2v_ratio", type=float, default=0.1) # for inpainting mode
-    parser.add_argument("--clear_video_ratio", type=float, default=0.0)
-    parser.add_argument("--default_text_ratio", type=float, default=0.1)
-    parser.add_argument("--validation_dir", type=str, default=None, help="Path to the validation dataset.")
-    parser.add_argument("--image_encoder_name", type=str, default='laion/CLIP-ViT-H-14-laion2B-s32B-b79K')
-    parser.add_argument("--image_encoder_path", type=str, default=None)
-    parser.add_argument("--use_clip_mask", action="store_true")
-    parser.add_argument("--clip_loss_lambda", type=float, default=0.9)
+    parser.add_argument("--clear_video_ratio", type=float, default=0.0) # for inpainting mode
+    parser.add_argument("--min_mask_ratio", type=float, default=0.1) # for inpainting mode
+    parser.add_argument("--default_text_ratio", type=float, default=0.5) # for inpainting mode
     parser.add_argument("--pretrained_transformer_model_path", type=str, default=None)
-    parser.add_argument("--pretrained_vip_adapter_path", type=str, default=None)
-    parser.add_argument("--vip_num_attention_heads", type=int, default=8)
-    parser.add_argument("--use_vae_preprocessed_mask", action="store_true")
-
 
     args = parser.parse_args()
     main(args)
