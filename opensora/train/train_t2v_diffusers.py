@@ -17,6 +17,8 @@ from typing import Optional
 import gc
 import numpy as np
 from einops import rearrange
+import torch.utils
+import torch.utils.data
 from tqdm import tqdm
 
 from opensora.adaptor.modules import replace_with_fp32_forwards
@@ -63,12 +65,13 @@ from opensora.models import CausalVAEModelWrapper
 from opensora.models.diffusion import Diffusion_models, Diffusion_models_class
 from opensora.utils.dataset_utils import Collate, LengthGroupedSampler
 from opensora.sample.pipeline_opensora import OpenSoraPipeline
-
+from opensora.models.causalvideovae import ae_stride_config, ae_wrapper
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 check_min_version("0.24.0")
 logger = get_logger(__name__)
-
+from torch.utils.data import _utils
+_utils.MP_STATUS_CHECK_INTERVAL = 1800.0  # dataloader timeout (default is 5.0s), we increase it to 1800s.
 
 @torch.inference_mode()
 def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weight_dtype, global_step, ema=False):
@@ -217,7 +220,7 @@ def main(args):
 
     # Create model:
     kwargs = {}
-    ae = CausalVAEModelWrapper(args.ae_path, cache_dir=args.cache_dir, **kwargs).eval()
+    ae = ae_wrapper[args.ae](args.ae_path, cache_dir=args.cache_dir, **kwargs).eval()
     if args.enable_tiling:
         ae.vae.enable_tiling()
         ae.vae.tile_overlap_factor = args.tile_overlap_factor
@@ -736,6 +739,7 @@ def main(args):
     def train_one_step(step_, data_item_, prof_=None):
         train_loss = 0.0
         x, attn_mask, input_ids, cond_mask, motion_score = data_item_
+        # print(f'step: {step_}, rank: {accelerator.process_index}, x: {x.shape}')
         assert not torch.any(torch.isnan(x)), 'torch.any(torch.isnan(x))'
         x = x.to(accelerator.device, dtype=ae.vae.dtype)  # B C T+num_images H W, 16 + 4
 

@@ -40,8 +40,9 @@ except:
     npu_config = None
     pass
 import time
-
-
+import pandas as pd
+global epoch 
+epoch = 0
 
 def load_t2v_checkpoint(model_path):
     if args.model_type == 'udit':
@@ -109,12 +110,14 @@ def get_latest_path():
 
 def run_model_and_save_images(pipeline, model_path):
     video_grids = []
-    if not isinstance(args.text_prompt, list):
-        args.text_prompt = [args.text_prompt]
-    if len(args.text_prompt) == 1 and args.text_prompt[0].endswith('txt'):
-        text_prompt = open(args.text_prompt[0], 'r').readlines()
-        args.text_prompt = [i.strip() for i in text_prompt]
-
+    # if not isinstance(args.text_prompt, list):
+    #     args.text_prompt = [args.text_prompt]
+    # if len(args.text_prompt) == 1 and args.text_prompt[0].endswith('txt'):
+    #     text_prompt = open(args.text_prompt[0], 'r').readlines()
+    #     args.text_prompt = [i.strip() for i in text_prompt]
+    print(args.text_prompt[0])
+    df = pd.read_csv(args.text_prompt[0])
+    print("=============================================")
     checkpoint_name = f"{os.path.basename(model_path)}"
 
     positive_prompt = """
@@ -129,8 +132,7 @@ def run_model_and_save_images(pipeline, model_path):
     low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry.
     """
     
-
-    for index, prompt in enumerate(args.text_prompt):
+    for index, row in df.iterrows():
         if index % world_size != local_rank:
             continue
         if args.refine_caption:
@@ -144,6 +146,7 @@ def run_model_and_save_images(pipeline, model_path):
             print(f'Processing the origin prompt({prompt})\n  '
                   f'refine_prompt ({refine_prompt})\n  input_prompt ({input_prompt})\n  device ({device})')
         else:
+            prompt = row['refine']
             input_prompt = positive_prompt.format(prompt)
             print(f'Processing the origin prompt({prompt})\n  '
                   f'input_prompt ({input_prompt})\n device ({device})')
@@ -166,7 +169,7 @@ def run_model_and_save_images(pipeline, model_path):
             if args.num_frames == 1:
                 videos = videos[:, 0].permute(0, 3, 1, 2)  # b t h w c -> b c h w
                 save_image(videos / 255.0, os.path.join(args.save_img_path,
-                                                        f'{model_path}', f'{args.sample_method}_{index}_{checkpoint_name}_gs{args.guidance_scale}_s{args.num_sampling_steps}_m{args.motion_score}.{ext}'),
+                                                        f"{model_path}", f"{row['org']}-{epoch}.{ext}"),
                            nrow=1, normalize=True, value_range=(0, 1))  # t c h w
                 print('save done...')
 
@@ -174,7 +177,7 @@ def run_model_and_save_images(pipeline, model_path):
                 imageio.mimwrite(
                     os.path.join(
                         args.save_img_path,
-                        f'{model_path}', f'{args.sample_method}_{index}_{checkpoint_name}_gs{args.guidance_scale}_s{args.num_sampling_steps}_m{args.motion_score}.{ext}'
+                        f"{model_path}", f"{row['org']}-{epoch}.{ext}"
                     ), videos[0],
                     fps=args.fps, quality=6)  # highest quality is 10, lowest is 0
                 print('save done...')
@@ -228,7 +231,7 @@ if __name__ == "__main__":
     parser.add_argument("--max_sequence_length", type=int, default=512)
     parser.add_argument("--text_prompt", nargs='+')
     parser.add_argument('--tile_overlap_factor', type=float, default=0.25)
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--seed", nargs='+', default=42, help="List of seed values")
     parser.add_argument('--enable_tiling', action='store_true')
     parser.add_argument('--refine_caption', action='store_true')
     parser.add_argument('--compile', action='store_true')
@@ -250,7 +253,7 @@ if __name__ == "__main__":
         torch.cuda.set_device(local_rank)
     dist.init_process_group(backend='nccl', init_method='env://', world_size=world_size, rank=local_rank)
 
-    torch.manual_seed(args.seed)
+    # torch.manual_seed(args.seed)
     weight_dtype = torch.bfloat16
     device = torch.cuda.current_device()
     vae = ae_wrapper[args.ae](args.ae_path)
@@ -276,7 +279,7 @@ if __name__ == "__main__":
     tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", 
                                               cache_dir=args.cache_dir)
     # text_encoder = T5EncoderModel.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/models--DeepFloyd--t5-v1_1-xxl/snapshots/c9c625d2ec93667ec579ede125fd3811d1f81d37", cache_dir=args.cache_dir, low_cpu_mem_usage=True, torch_dtype=weight_dtype)
-    # tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/models--DeepFloyd--t5-v1_1-xxl/snapshots/c9c625d2ec93667ec579ede125fd3811d1f81d37", cache_dir=args.cache_dir)
+    # tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/models--DeepFloyd--t5-v1_1-xxl/snapshots/c9c625d2ec93667ec579ede125fd3811d1f81d3cache_dir=args.cache_dir)
     
     # text_encoder = T5EncoderModel.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir,
     #                                               low_cpu_mem_usage=True, torch_dtype=weight_dtype).to(device)
@@ -325,52 +328,23 @@ if __name__ == "__main__":
 
     latest_path = None
     save_img_path = args.save_img_path
-    # while True:
-    #     cur_path = get_latest_path()
-    #     # print(cur_path, latest_path)
-    #     if cur_path == latest_path:
-    #         time.sleep(5)
-    #         continue
 
-    #     time.sleep(1)
-    #     latest_path = cur_path
-    #     os.makedirs(os.path.join(args.save_img_path, latest_path), exist_ok=True)
-    #     if npu_config is not None:
-    #         npu_config.print_msg(f"The latest_path is {latest_path}")
-    #     else:
-    #         print(f"The latest_path is {latest_path}")
     if latest_path is None:
         latest_path = ''
 
     full_path = f"{args.model_path}"
-    # full_path = f"{args.model_path}/{latest_path}/model_ema"
-    # full_path = f"{args.model_path}/{latest_path}/model"
+
     try:
         pipeline = load_t2v_checkpoint(full_path)
     except:
         time.sleep(100)
         pipeline = load_t2v_checkpoint(full_path)
     # print('load model')
-    if npu_config is not None and npu_config.on_npu and npu_config.profiling:
-        experimental_config = torch_npu.profiler._ExperimentalConfig(
-            profiler_level=torch_npu.profiler.ProfilerLevel.Level1,
-            aic_metrics=torch_npu.profiler.AiCMetrics.PipeUtilization
-        )
-        profile_output_path = "/home/image_data/npu_profiling_t2v"
-        os.makedirs(profile_output_path, exist_ok=True)
-
-        with torch_npu.profiler.profile(
-                activities=[torch_npu.profiler.ProfilerActivity.NPU, torch_npu.profiler.ProfilerActivity.CPU],
-                with_stack=True,
-                record_shapes=True,
-                profile_memory=True,
-                experimental_config=experimental_config,
-                schedule=torch_npu.profiler.schedule(wait=10000, warmup=0, active=1, repeat=1,
-                                                        skip_first=0),
-                on_trace_ready=torch_npu.profiler.tensorboard_trace_handler(f"{profile_output_path}/")
-        ) as prof:
-            run_model_and_save_images(pipeline, latest_path)
-            prof.step()
-    else:
+    print(args.seed)
+    for i in args.seed:
+        print("seed")
+        print(i)
+        torch.manual_seed(int(i))
         # print('gpu')
         run_model_and_save_images(pipeline, latest_path)
+        epoch += 1

@@ -28,8 +28,8 @@ accelerate launch \
     --cache_dir "../../cache_dir/" \
     --dataset t2v \
     --data "scripts/train_data/merge_data.txt" \
-    --ae CausalVAEModel_D8_4x8x8 \
-    --ae_path "/storage/dataset/new488dim8/last" \
+    --ae WFVAEModel_D8_4x8x8 \
+    --ae_path "/storage/lcm/Causal-Video-VAE/results/WFVAE_DISTILL_FORMAL" \
     --sample_rate 1 \
     --num_frames 93 \
     --max_height 320 \
@@ -40,7 +40,7 @@ accelerate launch \
     --attention_mode xformers \
     --gradient_checkpointing \
     --train_batch_size=1 \
-    --dataloader_num_workers 10 \
+    --dataloader_num_workers 4 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
     --learning_rate=1e-5 \
@@ -69,5 +69,6 @@ accelerate launch \
     --use_motion \
     --train_fps 16 \
     --seed 1234 \
-    --trained_data_global_step 4000 \
+    --trained_data_global_step 29000 \
+    --group_data \
     --output_dir="bs32x8x1_anyx93x320x320_fps16_lr1e-5_snr5_noioff0.02_ema9999_sparse1d4_dit_l_mt5xxl_alldata100m"  > training_log_new.txt
