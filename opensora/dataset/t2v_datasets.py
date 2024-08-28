@@ -18,7 +18,6 @@ from decord import VideoReader
 from os.path import join as opj
 from collections import Counter
 
-import jsonlines
 import pandas as pd
 import time
 import torch

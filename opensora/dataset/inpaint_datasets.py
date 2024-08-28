@@ -44,7 +44,7 @@ def save_video(video, name='video.mp4'):
         name, video, fps=24, quality=6)  # highest quality is 10, lowest is 0
 
 class Meta_dataset(T2V_dataset):
-    def __init__(self, args, transform, temporal_sample, tokenizer):
+    def __init__(self, args, transform, temporal_sample, tokenizer, mask_processor):
         super().__init__(args, transform, temporal_sample, tokenizer)
 
         if self.num_frames != 1:
@@ -56,15 +56,17 @@ class Meta_dataset(T2V_dataset):
             self.clear_video_ratio = args.clear_video_ratio
             assert self.t2v_ratio + self.i2v_ratio + self.transition_ratio + self.v2v_ratio + self.clear_video_ratio < 1, 'The sum of t2v_ratio, i2v_ratio, transition_ratio, v2v_ratio and clear video ratio should be less than 1.'
         
-        self.min_mask_ratio = 0.0 if args.min_mask_ratio is None else args.min_mask_ratio
-        assert self.min_mask_ratio >= 0 and self.min_mask_ratio <= 1, 'min_mask_ratio should be in the range of [0, 1].'
+        self.min_clear_ratio = 0.0 if args.min_clear_ratio is None else args.min_clear_ratio
+        assert self.min_clear_ratio >= 0 and self.min_clear_ratio <= 1, 'min_clear_ratio should be in the range of [0, 1].'
 
+        self.mask_processor = mask_processor
         self.init_mask_func()
 
         self.default_text_ratio = args.default_text_ratio
         self.default_text = f"The {'video' if self.num_frames != 1 else 'image'} showcases a scene with coherent and clear visuals."
 
     def init_mask_func(self):
+        # mask: ones_like (t 1 h w)
         def t2v(mask):
             mask[:] = 1
             return mask
@@ -79,7 +81,7 @@ class Meta_dataset(T2V_dataset):
             return mask
         
         def v2v(mask):
-            end_idx = random.randint(int(self.min_mask_ratio * mask.shape[0]), mask.shape[0])
+            end_idx = random.randint(int(mask.shape[0] * self.min_clear_ratio), mask.shape[0])
             mask[:end_idx] = 0
             return mask
         
@@ -88,8 +90,8 @@ class Meta_dataset(T2V_dataset):
             return mask
         
         def random_mask(mask):
-            idx_to_select = random.randint(int(self.min_mask_ratio * mask.shape[0]), mask.shape[0])
-            selected_indices = random.sample(range(mask.shape[0]), idx_to_select)
+            num_to_select = random.randint(int(mask.shape[0] * self.min_clear_ratio), mask.shape[0])
+            selected_indices = random.sample(range(mask.shape[0]), num_to_select)
             mask[selected_indices] = 0
             return mask
         
@@ -128,8 +130,8 @@ class Meta_dataset(T2V_dataset):
     
 class Inpaint_dataset(Meta_dataset):
 
-    def __init__(self, args, transform, temporal_sample, tokenizer):
-        super().__init__(args, transform, temporal_sample, tokenizer)
+    def __init__(self, args, transform, temporal_sample, tokenizer, mask_processor):
+        super().__init__(args, transform, temporal_sample, tokenizer, mask_processor)
 
         self.mask_func_weights_video = {
             't2v': self.t2v_ratio, 
@@ -160,6 +162,7 @@ class Inpaint_dataset(Meta_dataset):
 
         video = self.transform(video)  # T C H W -> T C H W
         masked_video = self.transform(masked_video)  # T C H W -> T C H W
+        mask = self.mask_processor(mask)  # T 1 H W -> T 1 H W
         assert video.shape[2] == sample_h and video.shape[3] == sample_w
 
         video = torch.cat([video, masked_video, mask], dim=1)  # T 2C+1 H W
@@ -214,6 +217,7 @@ class Inpaint_dataset(Meta_dataset):
         # import ipdb;ipdb.set_trace()
         image = self.transform(image) #  [1 C H W] -> num_img [1 C H W]
         masked_image = self.transform(masked_image) #  [1 C H W] -> num_img [1 C H W]
+        mask = self.mask_processor(mask) #  [1 1 H W] -> num_img [1 1 H W]
         assert image.shape[2] == sample_h, image.shape[3] == sample_w
 
         image = torch.cat([image, masked_image, mask], dim=1)  #  [1 2C+1 H W]
@@ -250,3 +254,72 @@ class Inpaint_dataset(Meta_dataset):
         else:
             return dict(pixel_values=image, input_ids=input_ids, cond_mask=cond_mask, motion_score=None)
     
+
+if __name__ == "__main__":
+    class Args:
+        t2v_ratio = 0.0
+        i2v_ratio = 0.0
+        transition_ratio = 0.0
+        v2v_ratio = 0.00
+        clear_video_ratio = 0.99
+        min_clear_ratio = 0.0
+        default_text_ratio = 0.1
+        use_motion = False
+        support_Chinese = False
+        model_max_length = 512
+        cfg = 0.1
+        num_frames = 93
+        force_resolution = False
+        max_height = 320
+        max_width = 320
+        hw_stride = 32
+        data = "/storage/gyy/hw/Open-Sora-Plan/scripts/train_data/merge_data_debug.txt"
+        train_fps = 16
+        use_image_num = 0
+        use_img_from_vid = False
+        speed_factor = 1.0
+        drop_short_ratio = 0.0
+        cfg = 0.1
+        dataloader_num_workers = 4
+        use_motion = True
+        skip_low_resolution = True
+        text_encoder_name = 'google/mt5-xxl'
+
+
+    from transformers import AutoTokenizer
+
+    from opensora.dataset.transform import ToTensorVideo, TemporalRandomCrop, RandomHorizontalFlipVideo, CenterCropResizeVideo, LongSideResizeVideo, SpatialStrideCropVideo, NormalizeVideo, ToTensorAfterResize
+    from torchvision.transforms import Lambda
+
+    args = Args()
+    
+    temporal_sample = TemporalRandomCrop(args.num_frames)  # 16 x
+    norm_fun = Lambda(lambda x: 2. * x - 1.)
+    if args.force_resolution:
+        resize = [CenterCropResizeVideo((args.max_height, args.max_width)), ]
+    else:
+        resize = [
+            LongSideResizeVideo((args.max_height, args.max_width), skip_low_resolution=True), 
+            SpatialStrideCropVideo(stride=args.hw_stride), 
+        ]
+    transform = transforms.Compose([
+        ToTensorVideo(),
+        *resize, 
+        norm_fun
+    ])
+    tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl")
+
+    mask_processor = transforms.Compose([*resize])
+
+    dataset = Inpaint_dataset(args, transform=transform, temporal_sample=temporal_sample, tokenizer=tokenizer, mask_processor=mask_processor)
+
+    data = next(iter(dataset))
+
+    # print(data['pixel_values'].shape)
+    # print(data['input_ids'].shape)
+    # print(data['cond_mask'].shape)
+    # print(data['motion_score'])
+
+    # print(data['pixel_values'])
+    # print(data['input_ids'])
+    # print(data['cond_mask'])

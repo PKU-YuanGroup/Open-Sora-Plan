@@ -17,6 +17,8 @@ from typing import Optional
 import gc
 import numpy as np
 from einops import rearrange
+import torch.utils
+import torch.utils.data
 from tqdm import tqdm
 
 from opensora.adaptor.modules import replace_with_fp32_forwards
@@ -51,16 +53,17 @@ from tqdm.auto import tqdm
 import diffusers
 from diffusers import DDPMScheduler, PNDMScheduler, DPMSolverMultistepScheduler
 from diffusers.optimization import get_scheduler
-from diffusers.training_utils import compute_snr
+from diffusers.training_utils import EMAModel, compute_snr
 from diffusers.utils import check_min_version, is_wandb_available
 
 from opensora.models.causalvideovae import ae_stride_config, ae_channel_config
 from opensora.models.causalvideovae import ae_norm, ae_denorm
 from opensora.models.text_encoder import get_text_enc, get_text_warpper
 from opensora.dataset import getdataset
-from opensora.models import CausalVAEModelWrapper
 from opensora.models.diffusion import Diffusion_models, Diffusion_models_class
 from opensora.utils.dataset_utils import Collate, LengthGroupedSampler
+from opensora.sample.pipeline_opensora import OpenSoraPipeline
+from opensora.models.causalvideovae import ae_stride_config, ae_wrapper
 from opensora.utils.ema import EMAModel
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
@@ -137,7 +140,7 @@ def main(args):
 
     # Create model:
     kwargs = {}
-    ae = CausalVAEModelWrapper(args.ae_path, cache_dir=args.cache_dir, **kwargs).eval()
+    ae = ae_wrapper[args.ae](args.ae_path, cache_dir=args.cache_dir, **kwargs).eval()
     if args.enable_tiling:
         ae.vae.enable_tiling()
         ae.vae.tile_overlap_factor = args.tile_overlap_factor
@@ -668,13 +671,14 @@ def main(args):
 
                 x, masked_x, mask = x[:, :3], x[:, 3:6], x[:, 6:7]
                 x, masked_x = ae.encode(x), ae.encode(masked_x)
-                batch_size, channels, frame, height, width = mask.shape
+                batch_size, channels, frame = mask.shape[:3]
+                new_frame, new_height, new_width = x.shape[2:]
                 mask = rearrange(mask, 'b c t h w -> (b c t) 1 h w')
-                mask = F.interpolate(mask, size=latent_size, mode='bilinear')
+                mask = F.interpolate(mask, size=(new_height, new_width), mode='bilinear')
                 mask = rearrange(mask, '(b c t) 1 h w -> b c t h w', t=frame, b=batch_size)
                 mask_first_frame = mask[:, :, 0:1].repeat(1, 1, ae_stride_t, 1, 1).contiguous()
                 mask = torch.cat([mask_first_frame, mask[:, :, 1:]], dim=2)
-                mask = mask.view(batch_size, latent_size_t, ae_stride_t, latent_size[0], latent_size[1])
+                mask = mask.view(batch_size, new_frame, ae_stride_t, new_height, new_width)
                 mask = mask.transpose(1, 2).contiguous()
 
                 return x, masked_x, mask
@@ -903,7 +907,7 @@ if __name__ == "__main__":
     parser.add_argument("--transition_ratio", type=float, default=0.4) # for inpainting mode
     parser.add_argument("--v2v_ratio", type=float, default=0.1) # for inpainting mode
     parser.add_argument("--clear_video_ratio", type=float, default=0.0) # for inpainting mode
-    parser.add_argument("--min_mask_ratio", type=float, default=0.1) # for inpainting mode
+    parser.add_argument("--min_clear_ratio", type=float, default=0.1) # for inpainting mode
     parser.add_argument("--default_text_ratio", type=float, default=0.5) # for inpainting mode
     parser.add_argument("--pretrained_transformer_model_path", type=str, default=None)
 

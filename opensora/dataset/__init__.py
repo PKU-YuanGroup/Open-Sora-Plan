@@ -34,7 +34,8 @@ def getdataset(args):
     if args.dataset == 't2v':
         return T2V_dataset(args, transform=transform, temporal_sample=temporal_sample, tokenizer=tokenizer)
     elif args.dataset == 'inpaint' or args.dataset == 'i2v':
-        return Inpaint_dataset(args, transform=transform, temporal_sample=temporal_sample, tokenizer=tokenizer)
+        mask_processor = transforms.Compose([*resize])
+        return Inpaint_dataset(args, transform=transform, temporal_sample=temporal_sample, tokenizer=tokenizer, mask_processor=mask_processor)
     raise NotImplementedError(args.dataset)
 
 

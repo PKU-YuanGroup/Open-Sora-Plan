@@ -112,8 +112,6 @@ class OpenSoraInpaint(OpenSoraT2V):
             use_motion=use_motion,
         )
 
-        super().__init__()
-
         self.vae_scale_factor_t = vae_scale_factor_t
         # init masked_pixel_values and mask conv_in
         self._init_patched_inputs_for_inpainting()
@@ -147,7 +145,7 @@ class OpenSoraInpaint(OpenSoraT2V):
                     width=self.config.sample_size[1],
                     patch_size_t=self.config.patch_size_t,
                     patch_size=self.config.patch_size,
-                    in_channels=self.in_channels,
+                    in_channels=self.vae_scale_factor_t, # adapt for mask
                     embed_dim=self.inner_dim,
                     interpolation_scale=interpolation_scale, 
                     interpolation_scale_t=interpolation_scale_t,
@@ -231,9 +229,9 @@ class OpenSoraInpaint(OpenSoraT2V):
                 pretrained_checkpoint = pretrained_checkpoint['model']
         checkpoint = reconstitute_checkpoint(pretrained_checkpoint, model_state_dict)
 
-        if not 'pos_embed_masked_video.0.weight' in checkpoint:
-            checkpoint['pos_embed_masked_video.0.proj.weight'] = checkpoint['pos_embed.proj.weight']
-            checkpoint['pos_embed_masked_video.0.proj.bias'] = checkpoint['pos_embed.proj.bias']
+        if not 'pos_embed_masked_hidden_states.0.weight' in checkpoint:
+            checkpoint['pos_embed_masked_hidden_states.0.proj.weight'] = checkpoint['pos_embed.proj.weight']
+            checkpoint['pos_embed_masked_hidden_states.0.proj.bias'] = checkpoint['pos_embed.proj.bias']
 
         missing_keys, unexpected_keys = self.load_state_dict(checkpoint, strict=False)
         print(f'missing_keys {len(missing_keys)} {missing_keys}, unexpected_keys {len(unexpected_keys)}')
