@@ -28,3 +28,4 @@
 |	开发引入	| https://gitee.com/ascend/ModelZoo-PyTorch/raw/master/PyTorch/built-in/diffusion/diffusers0.25.0/examples/text_to_image/collect_dataset.py   |	./collect_dataset.py	|	https://github.com/huggingface/diffusers				|	开源代码参考指引	|
 |	开发引入	| https://gitee.com/ascend/ModelZoo-PyTorch/raw/master/PyTorch/built-in/diffusion/diffusers0.25.0/examples/text_to_image/pretrain_model.py  |	./pretrain_model.py	|	https://github.com/huggingface/diffusers				|	开源代码参考指引	|
 |	开发引入	| https://raw.githubusercontent.com/huggingface/diffusers/main/examples/dreambooth/train_dreambooth_sd3.py  |	./train_dreambooth_sd3.py	|	https://github.com/huggingface/diffusers				|	开源代码参考指引	|
+|	开发引入	| https://github.com/PKU-YuanGroup/Open-Sora-Plan/blob/main/opensora/sample/pipeline_opensora.py  |	mindspeed_mm/tasks/inference/pipeline/opensoraplan_pipeline.py	|	https://arxiv.org/abs/2010.02502				|	开源代码参考指引	|
