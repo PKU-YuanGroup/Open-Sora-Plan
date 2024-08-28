@@ -323,5 +323,11 @@ class Spatial2xTime2x3DUpsample(Block):
             x = F.interpolate(x, scale_factor=(1, 2, 2), mode="trilinear")
             x = torch.concat([x, x_], dim=2)
         else:
+            # if npu_config is not None and npu_config.on_npu:
+            #     x_dtype = x.dtype
+            #     x = x.to(npu_config.replaced_type)
+            #     x = F.interpolate(x, scale_factor=(1, 2, 2), mode='trilinear')
+            #     x = x.to(x_dtype)
+            # else:
             x = F.interpolate(x, scale_factor=(1, 2, 2), mode="trilinear")
         return self.conv(x)

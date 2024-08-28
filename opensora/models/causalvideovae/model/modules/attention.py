@@ -3,7 +3,14 @@ from .normalize import Normalize
 from .conv import CausalConv3d
 import torch
 from .block import Block
-from xformers import ops as xops
+
+try:
+    import torch_npu
+    from opensora.npu_config import npu_config, set_run_dtype
+except:
+    torch_npu = None
+    npu_config = None
+    from xformers import ops as xops
 
 class AttnBlock3D(Block):
     """Compatible with old versions, there are issues, use with caution."""
@@ -69,10 +76,24 @@ class AttnBlock3DFix(nn.Module):
         k = k.permute(0, 2, 3, 4, 1).reshape(b * t, h * w, c).contiguous()
         v = v.permute(0, 2, 3, 4, 1).reshape(b * t, h * w, c).contiguous()
         
-        attn_output = xops.memory_efficient_attention(
-            q, k, v,
-            scale=c ** -0.5
-        )
+        if torch_npu is None:
+            attn_output = xops.memory_efficient_attention(
+                q, k, v,
+                scale=c ** -0.5
+            )
+        else:
+            print('npu_config.enable_FA, q.dtype == torch.float32', npu_config.enable_FA, q.dtype == torch.float32)
+            if npu_config.enable_FA and q.dtype == torch.float32:
+                dtype = torch.bfloat16
+            else:
+                dtype = None
+            with set_run_dtype(q, dtype):
+                query, key, value = npu_config.set_current_run_dtype([q, k, v])
+                hidden_states = npu_config.run_attention(query, key, value, atten_mask=None, input_layout="BSH",
+                                                            head_dim=c, head_num=1)
+
+                attn_output = npu_config.restore_dtype(hidden_states)
+
         attn_output = attn_output.reshape(b, t, h, w, c).permute(0, 4, 1, 2, 3)
         h_ = self.proj_out(attn_output)
 

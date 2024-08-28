@@ -18,12 +18,12 @@ from transformers import T5EncoderModel, MT5EncoderModel, T5Tokenizer, AutoToken
 import os, sys
 
 from opensora.adaptor.modules import replace_with_fp32_forwards
-from opensora.models.ae import ae_stride_config, getae, getae_wrapper
-from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModelWrapper
+from opensora.models.causalvideovae import ae_stride_config, ae_wrapper
 from opensora.models.diffusion.udit.modeling_udit import UDiTT2V
 from opensora.models.diffusion.opensora.modeling_opensora import OpenSoraT2V
-from opensora.models.diffusion.latte.modeling_latte import LatteT2V
-from opensora.models.diffusion.udit_ultra.modeling_udit_ultra import UDiTUltraT2V
+from opensora.models.diffusion.opensora2.modeling_opensora import OpenSoraT2V as SparseOpenSoraT2V
+# from opensora.models.diffusion.latte.modeling_latte import LatteT2V
+# from opensora.models.diffusion.udit_ultra.modeling_udit_ultra import UDiTUltraT2V
 
 from opensora.models.text_encoder import get_text_enc
 from opensora.utils.utils import save_video_grid
@@ -41,21 +41,21 @@ from opensora.npu_config import npu_config
 
 
 def load_t2v_checkpoint(model_path):
-    if args.model_3d:
-        # transformer_model = UDiTT2V.from_pretrained(model_path, cache_dir=args.cache_dir,
-        #                                                 low_cpu_mem_usage=False, device_map=None,
-        #                                                 torch_dtype=weight_dtype)
+    if args.model_type == 'udit':
+        transformer_model = UDiTT2V.from_pretrained(model_path, cache_dir=args.cache_dir,
+                                                        low_cpu_mem_usage=False, device_map=None,
+                                                        torch_dtype=weight_dtype)
+    elif args.model_type == 'sparsedit':
+        transformer_model = SparseOpenSoraT2V.from_pretrained(model_path, cache_dir=args.cache_dir,
+                                                        low_cpu_mem_usage=False, device_map=None,
+                                                        torch_dtype=weight_dtype)
+    elif args.model_type == 'dit':
         transformer_model = OpenSoraT2V.from_pretrained(model_path, cache_dir=args.cache_dir,
                                                         low_cpu_mem_usage=False, device_map=None,
                                                         torch_dtype=weight_dtype)
-    elif args.udit:
-        transformer_model = UDiTUltraT2V.from_pretrained(model_path, cache_dir=args.cache_dir,
-                                                         low_cpu_mem_usage=False, device_map=None,
-                                                         torch_dtype=weight_dtype)
     else:
         transformer_model = LatteT2V.from_pretrained(model_path, cache_dir=args.cache_dir, low_cpu_mem_usage=False,
                                                      device_map=None, torch_dtype=weight_dtype)
-    print(transformer_model.config)
 
     # set eval mode
     transformer_model.eval()
@@ -99,6 +99,7 @@ def run_model_and_save_images(pipeline, model_path):
                           num_frames=args.num_frames,
                           height=args.height,
                           width=args.width,
+                          motion_score=args.motion_score, 
                           num_inference_steps=args.num_sampling_steps,
                           guidance_scale=args.guidance_scale,
                           num_images_per_prompt=1,
@@ -172,8 +173,8 @@ if __name__ == "__main__":
     parser.add_argument("--text_prompt", nargs='+')
     parser.add_argument('--tile_overlap_factor', type=float, default=0.25)
     parser.add_argument('--enable_tiling', action='store_true')
-    parser.add_argument('--model_3d', action='store_true')
-    parser.add_argument('--udit', action='store_true')
+    parser.add_argument('--model_type', type=str, default="dit", choices=['sparsedit', 'dit', 'udit', 'latte'])
+    parser.add_argument('--motion_score', type=float, default=None)
     args = parser.parse_args()
 
     npu_config.print_msg(args)
@@ -188,15 +189,25 @@ if __name__ == "__main__":
     dist.init_process_group(backend='hccl', init_method='env://', world_size=8, rank=local_rank)
 
     # torch.manual_seed(args.seed)
-    weight_dtype = torch.float32
+    weight_dtype = torch.float16
     device = torch.cuda.current_device()
 
     # vae = getae_wrapper(args.ae)(args.model_path, subfolder="vae", cache_dir=args.cache_dir)
-    vae = getae_wrapper(args.ae)(args.ae_path)
+    vae = ae_wrapper[args.ae](args.ae_path)
+    print(args.ae)
     vae.vae = vae.vae.to(device=device, dtype=weight_dtype)
     if args.enable_tiling:
         vae.vae.enable_tiling()
         vae.vae.tile_overlap_factor = args.tile_overlap_factor
+        vae.vae.tile_sample_min_size = 512
+        vae.vae.tile_latent_min_size = 64
+        vae.vae.tile_sample_min_size_t = 29
+        vae.vae.tile_latent_min_size_t = 8
+        if args.save_memory:
+            vae.vae.tile_sample_min_size = 256
+            vae.vae.tile_latent_min_size = 32
+            vae.vae.tile_sample_min_size_t = 29
+            vae.vae.tile_latent_min_size_t = 8
     vae.vae_scale_factor = ae_stride_config[args.ae]
 
     text_encoder = MT5EncoderModel.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir,
@@ -240,43 +251,46 @@ if __name__ == "__main__":
     latest_path = None
     save_img_path = args.save_img_path
     first_in = False
-    while True:
-        cur_path = get_latest_path()
-        if cur_path == latest_path:
-            time.sleep(60)
-            continue
+    # while True:
+    #     cur_path = get_latest_path()
+    #     if cur_path == latest_path:
+    #         time.sleep(60)
+    #         continue
 
-        if not first_in:
-            first_in = True
-        else:
-            time.sleep(1200)
+    #     if not first_in:
+    #         first_in = True
+    #     else:
+    #         time.sleep(1200)
 
-        latest_path = cur_path
+    # latest_path = cur_path
+    if latest_path is None:
+        latest_path = ''
 
-        npu_config.print_msg(f"The latest_path is {latest_path}")
-        full_path = f"{args.model_path}/{latest_path}/model_ema"
-        # full_path = "/home/opensora/captions/240p_model_ema"
-        pipeline = load_t2v_checkpoint(full_path)
+    npu_config.print_msg(f"The latest_path is {latest_path}")
+    full_path = f"{args.model_path}"
+    # full_path = f"{args.model_path}/{latest_path}/model_ema"
+    # full_path = "/home/opensora/captions/240p_model_ema"
+    pipeline = load_t2v_checkpoint(full_path)
 
-        if npu_config.on_npu and npu_config.profiling:
-            experimental_config = torch_npu.profiler._ExperimentalConfig(
-                profiler_level=torch_npu.profiler.ProfilerLevel.Level1,
-                aic_metrics=torch_npu.profiler.AiCMetrics.PipeUtilization
-            )
-            profile_output_path = "/home/image_data/npu_profiling_t2v"
-            os.makedirs(profile_output_path, exist_ok=True)
+    if npu_config.on_npu and npu_config.profiling:
+        experimental_config = torch_npu.profiler._ExperimentalConfig(
+            profiler_level=torch_npu.profiler.ProfilerLevel.Level1,
+            aic_metrics=torch_npu.profiler.AiCMetrics.PipeUtilization
+        )
+        profile_output_path = "/home/image_data/npu_profiling_t2v"
+        os.makedirs(profile_output_path, exist_ok=True)
 
-            with torch_npu.profiler.profile(
-                    activities=[torch_npu.profiler.ProfilerActivity.NPU, torch_npu.profiler.ProfilerActivity.CPU],
-                    with_stack=True,
-                    record_shapes=True,
-                    profile_memory=True,
-                    experimental_config=experimental_config,
-                    schedule=torch_npu.profiler.schedule(wait=10000, warmup=0, active=1, repeat=1,
-                                                         skip_first=0),
-                    on_trace_ready=torch_npu.profiler.tensorboard_trace_handler(f"{profile_output_path}/")
-            ) as prof:
-                run_model_and_save_images(pipeline, latest_path)
-                prof.step()
-        else:
+        with torch_npu.profiler.profile(
+                activities=[torch_npu.profiler.ProfilerActivity.NPU, torch_npu.profiler.ProfilerActivity.CPU],
+                with_stack=True,
+                record_shapes=True,
+                profile_memory=True,
+                experimental_config=experimental_config,
+                schedule=torch_npu.profiler.schedule(wait=10000, warmup=0, active=1, repeat=1,
+                                                        skip_first=0),
+                on_trace_ready=torch_npu.profiler.tensorboard_trace_handler(f"{profile_output_path}/")
+        ) as prof:
             run_model_and_save_images(pipeline, latest_path)
+            prof.step()
+    else:
+        run_model_and_save_images(pipeline, latest_path)
