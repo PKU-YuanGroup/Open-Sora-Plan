@@ -228,7 +228,7 @@ SDXL 在 **昇腾芯片** 和 **参考芯片** 上的性能对比：
    2. 无网络情况下，用户需自行获取pokemon-blip-captions数据集，并在以下启动shell脚本中将`dataset_name`参数设置为本地数据集的绝对路径。
 
    ```shell
-   examples/SDXL/sdxl_text2img_lora_deepspeed.sh
+   examples/SDXL/finetune_sdxl_lora_deepspeed_fp16.sh
    ```
 
    pokemon-blip-captions数据集格式如下:
@@ -248,7 +248,7 @@ SDXL 在 **昇腾芯片** 和 **参考芯片** 上的性能对比：
    2. 无网络情况下，用户需自行获取fill50k数据集，并在以下启动shell脚本中将`dataset_name`参数设置为本地数据集的绝对路径，以及需要修改里面fill50k.py文件。
 
    ```shell
-   examples/SDXL/sdxl_text2img_controlnet_deepspeed.sh
+   examples/SDXL/finetune_sdxl_controlnet_deepspeed_fp16.sh
    ```
    > **注意：** 
    >需要修改数据集下面的fill50k.py文件中的57到59行，修改示例如下:
@@ -287,7 +287,7 @@ SDXL 在 **昇腾芯片** 和 **参考芯片** 上的性能对比：
 
 3. 获取对应的预训练模型后，在以下shell启动脚本中将`model_name`参数设置为本地预训练模型绝对路径，将`vae_name`参数设置为本地`vae`模型绝对路径。
    ```shell
-   examples/SDXL/sdxl_text2img_finetune_deepspeed.sh
+   examples/SDXL/finetune_sdxl_deepspeed_fp16.sh
    ```
 #### 开始训练
 1. 进入微调脚本目录
@@ -299,9 +299,9 @@ SDXL 在 **昇腾芯片** 和 **参考芯片** 上的性能对比：
 2. 运行训练的脚本。
 - 单机八卡微调
   ```shell
-  bash sdxl_text2img_controlnet_deepspeed.sh      #8卡deepspeed训练 sdxl_controlnet fp16
-  bash sdxl_text2img_lora_deepspeed.sh            #8卡deepspeed训练 sdxl_lora fp16
-  bash sdxl_text2img_finetune_deepspeed.sh        #8卡deepspeed训练 sdxl_finetune fp16
+  bash finetune_sdxl_controlnet_deepspeed_fp16.sh      #8卡deepspeed训练 sdxl_controlnet fp16
+  bash finetune_sdxl_lora_deepspeed_fp16.sh            #8卡deepspeed训练 sdxl_lora fp16
+  bash finetune_sdxl_deepspeed_fp16.sh        #8卡deepspeed训练 sdxl_finetune fp16
   ```
 
  ```
