@@ -1,2 +1,0 @@
-class DiT:
-    pass
