@@ -6,19 +6,17 @@
 
 - [SD3](#StableDiffusionXL)
   - [模型介绍](#模型介绍)
-  - [预训练](#预训练) 
+  - [微调](#微调)
     - [环境搭建](#环境搭建)
     - [性能](#性能)
-      - [吞吐](#吞吐)
-  - [推理](#推理) 
+  - [推理](#推理)
     - [环境搭建](#环境搭建)
     - [推理](#推理)
     - [性能](#性能)
 - [引用](#引用)
   - [公网地址说明](#公网地址说明)
 
-
-# Diffusers 0.30.0 for Pytorch
+# Stable Diffusion 3
 
 ## 模型介绍
 
@@ -31,7 +29,7 @@
   commit_id=eda36c4c286d281f216dfeb79e64adad3f85d37a
   ```
 
-## 预训练
+## 微调
 
 ### 环境搭建
 
@@ -75,28 +73,21 @@
 
     ```shell
     git clone https://github.com/huggingface/diffusers.git -b v0.30.0
-    code_path=examples/dreambooth/
+    git reset --hard eda36c4c286d281f216dfeb79e64adad3f85d37a
     ```
 
-    or 
-
-    ```shell
-    git clone https://gitee.com/ascend/ModelZoo-PyTorch.git
-    code_path=PyTorch/built-in/diffusion/
+    ```
+    code_path=examples/text_to_image/
     ```
 
-    or 
-
-    ```python
-    # 安装本地diffusers代码仓
-    pip install diffusers==0.30.0                                               
-    ```
-    
     3.2【安装其余依赖库】
 
     ```shell
-    pip install -r requirements.txt
+    cd diffusers
+    pip install e .
     pip install -r examples/dreambooth/requirements_sd3.txt # 安装对应依赖
+    pip install -r MindSpeed-MM/examples/diffusers/sdxl/requirements_sdxl_extra.txt #安装sdxl对应依赖
+    cd ..
     ```
 
 4. 预训练
@@ -108,7 +99,9 @@
     ```shell
     dataset_name="laion5b" # 数据集 路径
     ```
-    只包含图片的训练数据集，如非deepspeed脚本使用训练数据集dog(下载地址：https://huggingface.co/datasets/diffusers/dog-example)，在shell启动脚本中将`input_dir`参数设置为本地数据集绝对路径，
+
+    只包含图片的训练数据集，如非deepspeed脚本使用训练数据集dog(下载地址：<https://huggingface.co/datasets/diffusers/dog-example)，在shell启动脚本中将`input_dir`参数设置为本地数据集绝对路径，>
+
     ```shell
     input_dir="dog" # 数据集路径
     ```
@@ -127,36 +120,37 @@
     max_train_steps=2000
     mixed_precision="bf16" # 混精
     resolution=1024
-    config_file="${scripts_path}/pretrain_${mixed_precision}_accelerate_config.yaml"
+    config_file="${scripts_path}/${mixed_precision}_accelerate_config.yaml"
     ```
 
-    4.3 【source CANN环境】
+    模型根目录修改：找到目录`diffusers/examples/text_to_image/`
 
     ```shell
-    CANN_INSTALL_PATH_CONF='etc/Ascend/ascend_cann_install.info'
-
-    if [ -f $CANN_INSTALL_PATH_CONF ]; then 
-        CANN_INSTALL_PATH=$(cat $CANN_INSTALL_PATH_CONF | grep Install_Path | cat -d "=" -f 2)
-    else
-      CANN_INSTALL_PATH="/usr/local/Ascend"
-    fi
-
-    if [ -d ${CANN_INSTALL_PATH}/ascend-toolkit/latest ]; 
-    then 
-    source ${CANN_INSTALL_PATH}/ascend-toolkit/set_env.sh
-    else 
-    source ${CANN_INSTALL_PATH}/nnae/set_env.sh
-    fi
+    # 修改 scripts_path
+     scripts_path="./diffusers/examples/text_to_image/"
     ```
 
-    4.4 【启动 SD3 预训练脚本】
+    数据集选择：如果选择默认[原仓数据集](https://huggingface.co/datasets/diffusers/dog-example),需修改两处`dataset_name`为`input_dir`：
+
+    ```shell
+    input_dir="dog"
+
+    # accelerator 修改 --dataset_name=#dataset_name
+    --instance_data_dir=$input_dir
+    ```
+
+    4.3 【启动 SD3 预训练脚本】
 
     本任务主要提供**混精fp16**和**混精bf16**两种**8卡**训练脚本，默认使用**deepspeed**分布式训练。
 
     ```shell
+    cd /MindSpeed-MM/examples/diffusers
+    ```
+
+    ```shell
     train_sd3_deepspeed_**16.sh
     ```
-   
+
 ### 性能
 
 #### 吞吐
@@ -169,7 +163,6 @@ SD3 在 **昇腾芯片** 和 **参考芯片** 上的性能对比：
 | 参考 | SD3_train_bf16  | * | .               | .                 | .            | .            |
 | NPUs | SD3_train_fp16 | * | .               | .                 | .            | .           |
 | 参考 | SD3_train_fp16 | * | .               | .                 | .           | .           |
-
 
 ## 推理
 
@@ -218,20 +211,20 @@ SD3 在 **昇腾芯片** 和 **参考芯片** 上的性能对比：
     code_path=examples/dreambooth/
     ```
 
-    or 
+    or
 
     ```shell
     git clone https://gitee.com/ascend/ModelZoo-PyTorch.git
     code_path=PyTorch/built-in/diffusion/
     ```
 
-    or 
+    or
 
     ```python
     # 安装本地diffusers代码仓
     pip install diffusers==0.30.0                                               
     ```
-    
+
     3.2【安装其余依赖库】
 
     ```shell
@@ -248,7 +241,9 @@ SD3 在 **昇腾芯片** 和 **参考芯片** 上的性能对比：
     ```shell
     dataset_name="laion5b" # 数据集 路径
     ```
-    只包含图片的训练数据集，如非deepspeed脚本使用训练数据集dog(下载地址：https://huggingface.co/datasets/diffusers/dog-example)，在shell启动脚本中将`input_dir`参数设置为本地数据集绝对路径，
+
+    只包含图片的训练数据集，如非deepspeed脚本使用训练数据集dog(下载地址：<https://huggingface.co/datasets/diffusers/dog-example)，在shell启动脚本中将`input_dir`参数设置为本地数据集绝对路径，>
+
     ```shell
     input_dir="dog" # 数据集路径
     ```
@@ -277,12 +272,14 @@ SD3 在 **昇腾芯片** 和 **参考芯片** 上的性能对比：
     ```shell
     train_sd3_deepspeed_**16.sh
     ```
+
     4.4 【启动 SD3 推理脚本】
-	1、进入推理脚本目录
+ 1、进入推理脚本目录
 
    ```shell
     cd examples/SD3
    ```
+
     2、运行推理的脚本
 
     推理前加载环境变量
@@ -290,7 +287,8 @@ SD3 在 **昇腾芯片** 和 **参考芯片** 上的性能对比：
     ```shell
      source /usr/local/Ascend/ascend-toolkit/set_env.sh
     ```
-    调用推理脚本，图生图推理脚本需先准备图片到当前路径下（下载地址：    https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/cat.png")
+
+    调用推理脚本，图生图推理脚本需先准备图片到当前路径下（下载地址：    <https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/cat.png>")
 
    ```shell
    python infer_sd3_img2img_fp16.py   # 单卡推理，文生图
@@ -310,13 +308,10 @@ SD3 在 **昇腾芯片** 和 **参考芯片** 上的性能对比：
 | 竞品A | 8p | DreamBooth | 1.51 | 1 | fp16 | 2.1 | ✘ |
 | Atlas 200T A2 Box16 |8p | DreamBooth | 1.34  | 1 | fp16 | 2.1 | ✘ |
 
-
 ## 使用基线数据集进行评估
-
 
 ## 引用
 
 ### 公网地址说明
 
 代码涉及公网地址参考 public_address_statement.md
-

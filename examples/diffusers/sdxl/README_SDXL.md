@@ -6,23 +6,21 @@
 
 - [SDXL](#StableDiffusionXL)
   - [模型介绍](#模型介绍)
-  - [预训练](#预训练) 
+  - [预训练](#预训练)
     - [环境搭建](#环境搭建)
     - [性能](#性能)
-      - [吞吐](#吞吐)
-  - [微调](#微调) 
+  - [微调](#微调)
     - [环境搭建](#环境搭建)
     - [微调](#微调)
     - [性能](#性能)
-  - [推理](#推理) 
+  - [推理](#推理)
     - [环境搭建](#环境搭建)
     - [推理](#推理)
     - [性能](#性能)
 - [引用](#引用)
   - [公网地址说明](#公网地址说明)
 
-
-# Diffusers 0.30.0 for Pytorch
+# Stable Diffusion XL
 
 ## 模型介绍
 
@@ -73,37 +71,29 @@
 
 3. 模型搭建
 
-    3.1 【下载 SDXL [GitHub参考实现](https://github.com/huggingface/diffusers) 或 [适配昇腾AI处理器的实现](https://gitee.com/ascend/ModelZoo-PyTorch.git) 或 在模型根目录下执行以下命令，安装模型对应PyTorch版本需要的依赖】
+    3.1 【下载 SDXL [GitHub参考实现](https://github.com/huggingface/diffusers)】
 
     ```shell
     git clone https://github.com/huggingface/diffusers.git -b v0.30.0
+    git reset --hard eda36c4c286d281f216dfeb79e64adad3f85d37a
+    ```
+
+    ```
     code_path=examples/text_to_image/
     ```
 
-    or 
+    3.2【安装 `{任务pretrain/train}_sdxl_deepspeed_{混精fp16/bf16}.sh` 需要[适配昇腾AI处理器的实现](https://gitee.com/ascend/ModelZoo-PyTorch.git)】
 
-    ```shell
-    git clone https://gitee.com/ascend/ModelZoo-PyTorch.git
-    code_path=PyTorch/built-in/diffusion/
-    ```
+    转移 `collect_dataset.py` 与 `pretrain_model.py` 与 `train_text_to_image_sdxl_pretrain.py` 到 `examples/text_to_image/` 路径
 
-    or 
-
-    ```python
-    # 安装本地diffusers代码仓
-    pip install diffusers==0.30.0                                               
-    ```
-
-    3.2【安装 `{任务pretrain/train}_sdxl0.30.0_deepspeed_{混精fp16/bf16}.sh` 适配文件： 只有[GitHub参考实现](https://github.com/huggingface/diffusers)需要】
-
-    下载并安装 [collect_dataset.py](https://gitee.com/ascend/ModelZoo-PyTorch/blob/master/PyTorch/built-in/diffusion/diffusers0.25.0/examples/text_to_image/collect_dataset.py) 与 [pretrain_model.py](https://gitee.com/ascend/ModelZoo-PyTorch/blob/master/PyTorch/built-in/diffusion/diffusers0.25.0/examples/text_to_image/pretrain_model.py) 到 `examples/text_to_image/` 路径
-    
     3.3【安装其余依赖库】
 
     ```shell
-    pip install -r requirements.txt
-    pip install -r examples/text_to_image/requirements_sdxl.txt # 安装对应依赖
-    pip install -r requirements_sdxl_extra.txt #安装对应依赖
+    cd diffusers
+    pip install e .
+    pip install -r examples/text_to_image/requirements_sdxl.txt # 安装diffusers原仓对应依赖
+    pip install -r MindSpeed-MM/examples/diffusers/sdxl/requirements_sdxl_extra.txt #安装sdxl对应依赖
+    cd ..
     ```
 
 4. 训练与预训练
@@ -111,7 +101,7 @@
     4.1 【准备预训练数据集】
 
     用户需自行获取并解压LAION_5B数据集（目前数据集暂已下架，可选其他数据集），并在以下启动shell脚本中将`dataset_name`参数设置为本地数据集的绝对路径
-    
+
     ```shell
     dataset_name="laion5b" # 数据集 路径
     ```
@@ -134,26 +124,14 @@
     config_file="${scripts_path}/pretrain_${mixed_precision}_accelerate_config.yaml"
     ```
 
-    4.3 【source CANN环境】
+    模型根目录修改：找到目录`diffusers/examples/text_to_image/`
 
     ```shell
-    CANN_INSTALL_PATH_CONF='etc/Ascend/ascend_cann_install.info'
-
-    if [ -f $CANN_INSTALL_PATH_CONF ]; then 
-        CANN_INSTALL_PATH=$(cat $CANN_INSTALL_PATH_CONF | grep Install_Path | cat -d "=" -f 2)
-    else
-      CANN_INSTALL_PATH="/usr/local/Ascend"
-    fi
-
-    if [ -d ${CANN_INSTALL_PATH}/ascend-toolkit/latest ]; 
-    then 
-    source ${CANN_INSTALL_PATH}/ascend-toolkit/set_env.sh
-    else 
-    source ${CANN_INSTALL_PATH}/nnae/set_env.sh
-    fi
+    # 修改 scripts_path
+     scripts_path="./diffusers/examples/text_to_image/"
     ```
 
-    4.4 【启动 SDXL 预训练脚本】
+    4.3 【启动 SDXL 预训练脚本】
 
     本任务主要提供**混精fp16**和**混精bf16**两种**8卡**训练脚本，默认使用**deepspeed**分布式训练。
 
@@ -161,10 +139,14 @@
     **train**模型主要来承担第一阶段的文生图的训练功能
 
     ```shell
-    pretrain_sdxl_deepspeed_**16.sh
-    train_sdxl_deepspeed_**16.sh
+    cd /MindSpeed-MM/examples/diffusers
     ```
-   
+
+    ```shell
+    sdxl/pretrain_sdxl_deepspeed_**16.sh
+    sdxl/train_sdxl_deepspeed_**16.sh
+    ```
+
 ## 性能
 
 ### 吞吐
@@ -182,10 +164,12 @@ SDXL 在 **昇腾芯片** 和 **参考芯片** 上的性能对比：
 | NPUs | SDXL_train_fp16 | * | .               | .                 | .            | .           |
 | 参考 | SDXL_train_fp16 | * | .               | .                 | .           | .           |
 
-
 ## 微调
+
 ### 环境搭建
+
 1、软件与驱动安装
+
 ```
     # python3.10
     conda create -n SDXL python=3.10
@@ -201,6 +185,7 @@ SDXL 在 **昇腾芯片** 和 **参考芯片** 上的性能对比：
 ```
 
 2、克隆仓库到本地服务器
+
 ```
     git clone https://gitee.com/ascend/MindSpeed-MM.git
     git clone https://github.com/huggingface/diffusers.git
@@ -208,6 +193,7 @@ SDXL 在 **昇腾芯片** 和 **参考芯片** 上的性能对比：
 ```
 
 3、安装加速库和torch依赖包
+
 ```
     # 安装加速库
     cd diffusers
@@ -222,8 +208,11 @@ SDXL 在 **昇腾芯片** 和 **参考芯片** 上的性能对比：
 ```
 
 ### 微调
+
 #### 准备数据集
+
 ##### LORA微调
+
    1. 联网情况下，数据集会自动下载。
    2. 无网络情况下，用户需自行获取pokemon-blip-captions数据集，并在以下启动shell脚本中将`dataset_name`参数设置为本地数据集的绝对路径。
 
@@ -232,6 +221,7 @@ SDXL 在 **昇腾芯片** 和 **参考芯片** 上的性能对比：
    ```
 
    pokemon-blip-captions数据集格式如下:
+
    ```
    pokemon-blip-captions
    ├── dataset_infos.json
@@ -240,8 +230,10 @@ SDXL 在 **昇腾芯片** 和 **参考芯片** 上的性能对比：
         ├── dataset_infos.json
         └── train-001.parquet
    ```
-   > **说明：** 
+
+   > **说明：**
    >该数据集的训练过程脚本只作为一种参考示例。
+   >
 ##### Controlnet微调
 
    1. 联网情况下，数据集会自动下载。
@@ -250,14 +242,18 @@ SDXL 在 **昇腾芯片** 和 **参考芯片** 上的性能对比：
    ```shell
    examples/SDXL/finetune_sdxl_controlnet_deepspeed_fp16.sh
    ```
-   > **注意：** 
+
+   > **注意：**
    >需要修改数据集下面的fill50k.py文件中的57到59行，修改示例如下:
+>
    > ```python
    > metadata_path = "数据集路径/fill50k/train.jsonl"
    > images_dir = "数据集路径/fill50k"
    > conditioning_images_dir = "数据集路径/fill50k"
    >```
+>
    fill50k数据集格式如下:
+
    ```
    fill50k
    ├── images
@@ -266,14 +262,14 @@ SDXL 在 **昇腾芯片** 和 **参考芯片** 上的性能对比：
    └── fill50k.py
    ```
 
-
-   > **说明：** 
+   > **说明：**
    >该数据集的训练过程脚本只作为一种参考示例。
 
-##### 全参微调 
+##### 全参微调
 
-   > **说明：** 
+   > **说明：**
    >数据集同Lora微调，请参考Lora章节。
+   >
 #### 获取预训练模型
 
 1. 联网情况下，预训练模型会自动下载。
@@ -286,10 +282,13 @@ SDXL 在 **昇腾芯片** 和 **参考芯片** 上的性能对比：
    ```
 
 3. 获取对应的预训练模型后，在以下shell启动脚本中将`model_name`参数设置为本地预训练模型绝对路径，将`vae_name`参数设置为本地`vae`模型绝对路径。
+
    ```shell
    examples/SDXL/finetune_sdxl_deepspeed_fp16.sh
    ```
+
 #### 开始训练
+
 1. 进入微调脚本目录
 
     ```
@@ -297,7 +296,9 @@ SDXL 在 **昇腾芯片** 和 **参考芯片** 上的性能对比：
    ```
 
 2. 运行训练的脚本。
+
 - 单机八卡微调
+
   ```shell
   bash finetune_sdxl_controlnet_deepspeed_fp16.sh      #8卡deepspeed训练 sdxl_controlnet fp16
   bash finetune_sdxl_lora_deepspeed_fp16.sh            #8卡deepspeed训练 sdxl_lora fp16
@@ -324,15 +325,18 @@ SDXL 在 **昇腾芯片** 和 **参考芯片** 上的性能对比：
     ```
    cd diffusers/examples/SDXL
    ```
+
 2、运行推理的脚本。
 
 - 单机单卡推理
 - 推理前加载环境变量
+
   ```shell
   source /usr/local/Ascend/ascend-toolkit/set_env.sh
   ```
 
 - 调用推理脚本
+
   ```shell
   python sdxl_text2img_lora_infer.py        # 混精fp16 文生图lora微调任务推理
   python sdxl_text2img_controlnet_infer.py  # 混精fp16 文生图controlnet微调任务推理
@@ -341,6 +345,7 @@ SDXL 在 **昇腾芯片** 和 **参考芯片** 上的性能对比：
   ```
 
 ### 性能
+
 | 芯片 | 卡数 |     任务     |  E2E（it/s）  |  AMP_Type | Torch_Version | deepspeed |
 |:---:|:---:|:----------:|:-----:|:---:|:---:|:---:|
 | GPU | 8p |    文生图lora    | 2.65 |  fp16 | 2.1 | ✔ |
@@ -352,10 +357,8 @@ SDXL 在 **昇腾芯片** 和 **参考芯片** 上的性能对比：
 | GPU | 8p |  图生图  | 3.02 | fp16 | 2.1 | ✔ |
 | Atlas A2 |8p |  图生图  | 3.56 | fp16 | 2.1 | ✔ |
 
-
 ## 引用
 
 ### 公网地址说明
 
 [代码涉及公网地址](/MindSpeed-MM/docs/public_address_statement.md)参考 docs/public_address_statement.md
-

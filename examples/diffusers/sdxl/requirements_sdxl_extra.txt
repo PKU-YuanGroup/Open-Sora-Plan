@@ -1,2 +1,5 @@
-opencv-python-headless
+opencv-python
 scipy
+torchvision==0.16.0
+toml
+voluptuous

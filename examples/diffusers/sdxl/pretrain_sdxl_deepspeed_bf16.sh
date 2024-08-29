@@ -32,19 +32,6 @@ for para in $*; do
   fi
 done
 
-if [ -d "./sdxl_pretrain"];then
-    eoch "using local scripts"
-else
-    eoch "downloading scripts"
-    mkdir -p ${scripts_path}
-    wget -P ${scripts_path} https://gitee.com/ascend/ModelZoo-PyTorch/raw/master/PyTorch/built-in/diffusion/diffusers0.25.0/test/pretrain_${mixed_precision}_accelerate_config.yaml
-    wget -P ${scripts_path} https://gitee.com/ascend/ModelZoo-PyTorch/raw/master/PyTorch/built-in/diffusion/diffusers0.25.0/test/deepspeed_fp16.json
-    wget -P ${scripts_path} https://gitee.com/ascend/ModelZoo-PyTorch/raw/master/PyTorch/built-in/diffusion/diffusers0.25.0/examples/text_to_image/train_text_to_image_sdxl_pretrain.py 
-    wget -P ${scripts_path} https://gitee.com/ascend/ModelZoo-PyTorch/raw/master/PyTorch/built-in/diffusion/diffusers0.25.0/examples/text_to_image/collect_dataset.py 
-    wget -P ${scripts_path} https://gitee.com/ascend/ModelZoo-PyTorch/raw/master/PyTorch/built-in/diffusion/diffusers0.25.0/examples/text_to_image/pretrain_model.py
-    wait
-fi
-
 # cd到与test文件夹同层级目录下执行脚本，提高兼容性；test_path_dir为包含test文件夹的路径
 cur_path=$(pwd)
 cur_path_last_dirname=${cur_path##*/}
@@ -81,7 +68,6 @@ accelerate launch --config_file ${config_file} \
   --max_grad_norm=1 \
   --enable_bucket \
   --enable_npu_flash_attention \
-  --half_vae \
   --mixed_precision=$mixed_precision \
   --checkpointing_steps=500 \
   --output_dir=${output_path} > ${output_path}train_${mixed_precision}_pretrain.log 2>&1 &

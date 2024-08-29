@@ -321,3 +321,11 @@ For the full text of the license, please go to the above.
 
 Copyright Notice included in the software:
 Copyright 2024 Vchitect/Latte.
+
+Software Notice
+Software kohya_ss
+License: Apache License 2.0
+For the full text of the license, please go to the above.
+
+Copyright Notice included in the software:
+Copyright 2024 kohya_ss/sd-scripts

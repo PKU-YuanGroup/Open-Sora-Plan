@@ -35,13 +35,11 @@ for para in $*; do
 done
 
 if [ -d "./sdxl_train"];then
-    eoch "using local scripts"
+    echo "using local scripts"
 else
-    eoch "downloading scripts"
+    echo "downloading scripts"
     mkdir -p ${scripts_path}
-    wget -P ${scripts_path} https://gitee.com/ascend/ModelZoo-PyTorch/raw/master/PyTorch/built-in/diffusion/diffusers0.25.0/test/pretrain_${mixed_precision}_accelerate_config.yaml
-    wget -P ${scripts_path} https://gitee.com/ascend/ModelZoo-PyTorch/raw/master/PyTorch/built-in/diffusion/diffusers0.25.0/test/deepspeed_fp16.json
-    wget -P ${scripts_path} https://raw.githubusercontent.com/huggingface/diffusers/main/examples/test_to_image/train_text_to_image_sdxl.py
+    wget -P ${scripts_path} https://raw.githubusercontent.com/huggingface/diffusers/main/examples/test_to_image/train_text_to_image_sdxl.py --no-check-certificate
     wait
 fi
 
@@ -80,8 +78,6 @@ accelerate launch --config_file ${config_file} \
   --learning_rate=1e-05 --lr_scheduler="constant_with_warmup" --lr_warmup_steps=0 \
   --max_grad_norm=1 \
   --enable_npu_flash_attention \
-  --enable_bucket \
-  --half_vae \
   --mixed_precision=$mixed_precision \
   --checkpointing_steps=500 \
   --output_dir=${output_path} > ${output_path}train_${mixed_precision}_train.log 2>&1 &

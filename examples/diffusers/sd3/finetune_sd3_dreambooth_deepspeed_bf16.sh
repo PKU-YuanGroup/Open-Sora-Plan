@@ -1,30 +1,28 @@
 
 # 网络名称,同目录名称,需要模型审视修改
-Network="sdxl"
+Network="StableDiffusion3Dreambooth"
 
-scripts_path="./sdxl_train"
+scripts_path="./sd3"
 
 # 预训练模型
-model_name="stabilityai/stable-diffusion-xl-base-1.0"
-vae_name="madebyollin/sdxl-vae-fp16-fix"
+model_name="stabilityai/stable-diffusion-3-medium-diffusers"
 dataset_name="laion5b"
+# input_dir="dog"
 batch_size=4
 max_train_steps=2000
 mixed_precision="bf16"
 resolution=1024
-config_file="${scripts_path}/pretrain_${mixed_precision}_accelerate_config.yaml"
+config_file="${scripts_path}/${mixed_precision}_accelerate_config.yaml"
 
 for para in $*; do
   if [[ $para == --model_name* ]]; then
     model_name=$(echo ${para#*=})
-  elif [[ $para == --vae_name* ]]; then
-    vae_name=$(echo ${para#*=})
   elif [[ $para == --batch_size* ]]; then
     batch_size=$(echo ${para#*=})
   elif [[ $para == --max_train_steps* ]]; then
     max_train_steps=$(echo ${para#*=})
   elif [[ $para == --mixed_precision* ]]; then
-    mixed_precision=$(echo ${para#*=})
+    mixed_precision=$(echo ${para#*=})0
   elif [[ $para == --resolution* ]]; then
     resolution=$(echo ${para#*=})
   elif [[ $para == --dataset_name* ]]; then
@@ -39,7 +37,7 @@ if [ -d "./sdxl_train"];then
 else
     echo "downloading scripts"
     mkdir -p ${scripts_path}
-    wget -P ${scripts_path} https://raw.githubusercontent.com/huggingface/diffusers/main/examples/test_to_image/train_text_to_image_sdxl.py --no-check-certificate
+    wget -P ${scripts_path} https://raw.githubusercontent.com/huggingface/diffusers/main/examples/dreambooth/train_dreambooth_sd3.py --no-check-certificate
     wait
 fi
 
@@ -66,10 +64,10 @@ start_time=$(date +%s)
 echo "start_time: ${start_time}"
 
 accelerate launch --config_file ${config_file} \
-  ${scripts_path}/train_text_to_image_sdxl.py \
+  ${scripts_path}/train_dreambooth_sd3.py \
   --pretrained_model_name_or_path=$model_name \
-  --pretrained_vae_model_name_or_path=$vae_name \
   --dataset_name=$dataset_name --caption_column="text" \
+  --instance_prompt="A photo of sks dog" \
   --train_batch_size=$batch_size \
   --resolution=$resolution --random_flip \
   --gradient_accumulation_steps=1 \
@@ -77,10 +75,11 @@ accelerate launch --config_file ${config_file} \
   --max_train_steps=$max_train_steps \
   --learning_rate=1e-05 --lr_scheduler="constant_with_warmup" --lr_warmup_steps=0 \
   --max_grad_norm=1 \
-  --enable_npu_flash_attention \
+  --validation_prompt="A photo of sks dog in a bucket" \
+  --validation_epochs=25 \
   --mixed_precision=$mixed_precision \
   --checkpointing_steps=500 \
-  --output_dir=${output_path} > ${output_path}train_${mixed_precision}_train.log 2>&1 &
+  --output_dir=${output_path} > ${output_path}train_${mixed_precision}.log 2>&1 &
 wait
 
 #训练结束时间，不需要修改
@@ -91,7 +90,7 @@ e2e_time=$(($end_time - $start_time))
 echo "------------------ Final result ------------------"
 
 #输出性能FPS，需要模型审视修改
-FPS=$(grep "FPS: " ${output_path}/train_${mixed_precision}_train.log | awk '{print $NF}' | sed -n '100,199p' | awk '{a+=$1}END{print a/NR}')
+FPS=$(grep "FPS: " ${output_path}/train_${mixed_precision}_.log | awk '{print $NF}' | sed -n '100,199p' | awk '{a+=$1}END{print a/NR}')
 
 #获取性能数据，不需要修改
 # - 吞吐量
@@ -101,7 +100,7 @@ ActualFPS=$(awk 'BEGIN{printf "%.2f\n", '${FPS}'}')
 echo "Final Performance images/sec : $ActualFPS"
 
 # - loss值，不需要修改
-ActualLoss=$(grep -o "step_loss=[0-9.]*" ${output_path}/train_${mixed_precision}_train.log | awk 'END {print $NF}')
+ActualLoss=$(grep -o "step_loss=[0-9.]*" ${output_path}/train_${mixed_precision}.log | awk 'END {print $NF}')
 
 # - 打印，不需要修改
 echo "Final Train Loss : ${ActualLoss}"
