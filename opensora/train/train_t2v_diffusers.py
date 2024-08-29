@@ -150,8 +150,9 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
 
 
 class ProgressInfo:
-    def __init__(self, global_step, train_loss=0.0):
+    def __init__(self, global_step, local_step, train_loss=0.0):
         self.global_step = global_step
+        self.local_step = local_step    # used for dataloader resume
         self.train_loss = train_loss
 
 
@@ -501,6 +502,7 @@ def main(args):
     logger.info(f"  Total optimization steps = {args.max_train_steps}")
     logger.info(f"  Total training parameters = {sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e9} B")
     global_step = 0
+    local_step = 0
     first_epoch = 0
 
     # Potentially load in the weights and states from a previous save
@@ -508,9 +510,9 @@ def main(args):
         if args.resume_from_checkpoint != "latest":
             path = os.path.basename(args.resume_from_checkpoint)
         else:
-            # Get the most recent checkpoint
+            # Get the most recent checkpoint, dir format: checkpoint-{global_step}-{local_step}
             dirs = os.listdir(args.output_dir)
-            dirs = [d for d in dirs if d.startswith("checkpoint")]
+            dirs = [d for d in dirs if d.startswith("checkpoint") and len(d.split("-")) == 3]
             dirs = sorted(dirs, key=lambda x: int(x.split("-")[1]))
             path = dirs[-1] if len(dirs) > 0 else None
 
@@ -524,6 +526,7 @@ def main(args):
             accelerator.print(f"Resuming from checkpoint {path}")
             accelerator.load_state(os.path.join(args.output_dir, path))
             global_step = int(path.split("-")[1])
+            local_step = int(path.split("-")[2])
 
             initial_global_step = global_step
             first_epoch = global_step // num_update_steps_per_epoch
@@ -541,7 +544,7 @@ def main(args):
         # Only show the progress bar once on each machine.
         disable=not accelerator.is_local_main_process,
     )
-    progress_info = ProgressInfo(global_step, train_loss=0.0)
+    progress_info = ProgressInfo(global_step, local_step, train_loss=0.0)
 
     def sync_gradients_info(loss):
         # Checks if the accelerator has performed an optimization step behind the scenes
@@ -581,7 +584,7 @@ def main(args):
                             removing_checkpoint = os.path.join(args.output_dir, removing_checkpoint)
                             shutil.rmtree(removing_checkpoint)
 
-                save_path = os.path.join(args.output_dir, f"checkpoint-{progress_info.global_step}")
+                save_path = os.path.join(args.output_dir, f"checkpoint-{progress_info.global_step}-{progress_info.local_step}")
                 accelerator.save_state(save_path)
                 logger.info(f"Saved state to {save_path}")
 
@@ -784,13 +787,30 @@ def main(args):
 
         return False
 
-    def train_all_epoch(prof_=None):
+    def train_all_epoch(first_epoch, prof_=None):
+        # resume last epoch by skipping `local_step` batches
+        # https://huggingface.co/docs/accelerate/usage_guides/checkpoint
+        if progress_info.local_step != 0:
+            # https://github.com/huggingface/accelerate/issues/2823
+            train_dataloader.set_epoch(first_epoch)
+
+            logger.info(f"resume dataloader, global_step: {progress_info.global_step}, skip_first_batches: {progress_info.local_step}")
+            skipped_dataloader = accelerator.skip_first_batches(train_dataloader, progress_info.local_step)
+            for step, data_item in enumerate(skipped_dataloader):
+                if train_one_step(step, data_item, prof_):
+                    break
+
+            first_epoch += 1
+
+        # continue remaining epoch
         for epoch in range(first_epoch, args.num_train_epochs):
+            progress_info.local_step = 0
             progress_info.train_loss = 0.0
             if progress_info.global_step >= args.max_train_steps:
                 return True
 
             for step, data_item in enumerate(train_dataloader):
+                progress_info.local_step += 1
                 if train_one_step(step, data_item, prof_):
                     break
 
@@ -815,9 +835,9 @@ def main(args):
                                                      skip_first=0),
                 on_trace_ready=torch_npu.profiler.tensorboard_trace_handler(f"{profile_output_path}/")
         ) as prof:
-            train_all_epoch(prof)
+            train_all_epoch(first_epoch, prof)
     else:
-        train_all_epoch()
+        train_all_epoch(first_epoch)
     accelerator.wait_for_everyone()
     accelerator.end_training()
     if get_sequence_parallel_state():
