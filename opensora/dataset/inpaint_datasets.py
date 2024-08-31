@@ -63,11 +63,10 @@ class Meta_dataset(T2V_dataset):
         self.init_mask_func()
 
         self.default_text_ratio = args.default_text_ratio
-        self.default_text = f"The {'video' if self.num_frames != 1 else 'image'} showcases a scene with coherent and clear visuals."
 
     def init_mask_func(self):
         # mask: ones_like (t 1 h w)
-        def t2v(mask):
+        def t2iv(mask):
             mask[:] = 1
             return mask
         
@@ -96,7 +95,7 @@ class Meta_dataset(T2V_dataset):
             return mask
         
         self.mask_functions = {
-            't2v': t2v,
+            't2iv': t2iv,
             'i2v': i2v,
             'transition': transition,
             'v2v': v2v,
@@ -118,12 +117,18 @@ class Meta_dataset(T2V_dataset):
         # save_video(masked_pixel_values.permute(0, 2, 3, 1).cpu().numpy(), 'masked_video.mp4')
         return dict(mask=mask, masked_pixel_values=masked_pixel_values)
 
-    def drop(self, text):
+    def drop(self, text, is_video=True):
         rand_num = random.random()
         rand_num_text = random.random()
 
         if rand_num < self.cfg:
-            text = self.default_text if rand_num_text < self.default_text_ratio else ''
+            if rand_num_text < self.default_text_ratio:
+                if not is_video:
+                    text = "The image showcases a scene with coherent and clear visuals." 
+                else:
+                    text = "The video showcases a scene with coherent and clear visuals." 
+            else:
+                text = ''
 
         return dict(text=text)
 
@@ -134,7 +139,7 @@ class Inpaint_dataset(Meta_dataset):
         super().__init__(args, transform, temporal_sample, tokenizer, mask_processor)
 
         self.mask_func_weights_video = {
-            't2v': self.t2v_ratio, 
+            't2iv': self.t2v_ratio, 
             'i2v': self.i2v_ratio, 
             'transition': self.transition_ratio, 
             'v2v': self.v2v_ratio, 
@@ -143,19 +148,21 @@ class Inpaint_dataset(Meta_dataset):
         }
 
         self.mask_func_weights_image = {
-            't2v': 0.9, 
+            't2iv': 0.9, 
             'clear': 0.1
         }
 
     def get_video(self, idx):
+        logger.info(f'Now we use inpaint dataset {idx}')
         video_data = dataset_prog.cap_list[idx]
         video_path = video_data['path']
         assert os.path.exists(video_path), f"file {video_path} do not exist!"
         frame_indice = dataset_prog.cap_list[idx]['sample_frame_index']
         sample_h = video_data['resolution']['sample_height']
         sample_w = video_data['resolution']['sample_width']
-        video = self.decord_read(video_path, predefine_frame_indice=frame_indice)
+        # video = self.decord_read(video_path, predefine_frame_indice=frame_indice)
         # import ipdb;ipdb.set_trace()
+        video = (torch.randn([len(frame_indice), 3, sample_h, sample_w]) * 255.0).to(torch.uint8)
 
         inpaint_cond_data = self.get_mask_masked_pixel_values(video, self.mask_func_weights_video)
         mask, masked_video = inpaint_cond_data['mask'], inpaint_cond_data['masked_pixel_values']
@@ -182,7 +189,7 @@ class Inpaint_dataset(Meta_dataset):
 
         text = [text[0].replace(' image ', ' video ').replace(' image,', ' video,')]
         text = text_preprocessing(text, support_Chinese=self.support_Chinese) 
-        text = self.drop(text)['text']
+        text = self.drop(text, is_video=True)['text']
 
         text_tokens_and_mask = self.tokenizer(
             text,
@@ -207,17 +214,19 @@ class Inpaint_dataset(Meta_dataset):
         sample_w = image_data['resolution']['sample_width']
 
         # import ipdb;ipdb.set_trace()
-        image = Image.open(image_data['path']).convert('RGB')  # [h, w, c]
-        image = torch.from_numpy(np.array(image))  # [h, w, c]
-        image = rearrange(image, 'h w c -> c h w').unsqueeze(0)  #  [1 c h w]
+        # image = Image.open(image_data['path']).convert('RGB')  # [h, w, c]
+        # image = torch.from_numpy(np.array(image))  # [h, w, c]
+        # image = rearrange(image, 'h w c -> c h w').unsqueeze(0)  #  [1 c h w]
+
+        image = (torch.randn([1, 3, sample_h, sample_w]) * 255.0).to(torch.uint8)
 
         inpaint_cond_data = self.get_mask_masked_pixel_values(image, self.mask_func_weights_image)
         mask, masked_image = inpaint_cond_data['mask'], inpaint_cond_data['masked_pixel_values']
 
         # import ipdb;ipdb.set_trace()
-        image = self.transform(image) #  [1 C H W] -> num_img [1 C H W]
-        masked_image = self.transform(masked_image) #  [1 C H W] -> num_img [1 C H W]
-        mask = self.mask_processor(mask) #  [1 1 H W] -> num_img [1 1 H W]
+        image = self.transform(image) #  [1 C H W] -> [1 C H W]
+        masked_image = self.transform(masked_image) #  [1 C H W] -> [1 C H W]
+        mask = self.mask_processor(mask) #  [1 1 H W] -> [1 1 H W]
         assert image.shape[2] == sample_h, image.shape[3] == sample_w
 
         image = torch.cat([image, masked_image, mask], dim=1)  #  [1 2C+1 H W]
@@ -235,7 +244,7 @@ class Inpaint_dataset(Meta_dataset):
             caps = [add_high_aesthetic_notice_image_human(caps[0])]
         text = text_preprocessing(caps, support_Chinese=self.support_Chinese)
         input_ids, cond_mask = [], []
-        text = self.drop(text)['text']
+        text = self.drop(text, is_video=False)['text']
 
         text_tokens_and_mask = self.tokenizer(
             text,

@@ -121,7 +121,12 @@ class Encoder(VideoBaseAE):
         l2_coeffs = haar_wavelet_transform_2d_new(l2_coeffs)
         l2_coeffs = rearrange(l2_coeffs, "(b t) c h w -> b c t h w", t=t)
         l2 = self.connect_l2(l2_coeffs)
-        l3_coeffs = haar_wavelet_transform_3d(l2_coeffs[:, :3])
+        if torch_npu is not None:
+            dtype = l2_coeffs.dtype
+            l3_coeffs = haar_wavelet_transform_3d(l2_coeffs[:, :3].to(torch.float16))
+            l3_coeffs = l3_coeffs.to(dtype)
+        else:
+            l3_coeffs = haar_wavelet_transform_3d(l2_coeffs[:, :3])
         l3 = self.connect_l3(l3_coeffs)
         h = self.down1(coeffs)
         h = torch.concat([h, l2], dim=1)
@@ -258,7 +263,12 @@ class Decoder(VideoBaseAE):
         h = self.mid(h)
 
         l3_coeffs = self.connect_l3(h[:, -self.energy_flow_hidden_size :])
-        l3 = inverse_haar_wavelet_transform_3d(l3_coeffs)
+        if torch_npu is not None:
+            dtype = l3_coeffs.dtype
+            l3 = inverse_haar_wavelet_transform_3d(l3_coeffs.to(torch.float16))
+            l3 = l3.to(dtype)
+        else:
+            l3 = inverse_haar_wavelet_transform_3d(l3_coeffs)
 
         h = self.up2(h[:, : -self.energy_flow_hidden_size])
 
@@ -335,7 +345,13 @@ class WFVAEModel(VideoBaseAE):
         return [self.decoder]
 
     def encode(self, x):
-        coeffs = haar_wavelet_transform_3d(x)
+        if torch_npu is not None:
+            dtype = x.dtype
+            x = x.to(torch.float16)
+            coeffs = haar_wavelet_transform_3d(x)
+            coeffs = coeffs.to(dtype)
+        else:
+            coeffs = haar_wavelet_transform_3d(x)
         h = self.encoder(coeffs)
         if self.use_quant_layer:
             h = self.quant_conv(h)
@@ -350,7 +366,13 @@ class WFVAEModel(VideoBaseAE):
             z = self.post_quant_conv(z)
         dec = self.decoder(z)
         if self._is_wavelet_output(dec):
-            dec = inverse_haar_wavelet_transform_3d(dec)
+            if torch_npu is not None:
+                dtype = dec.dtype
+                dec = dec.to(torch.float16)
+                dec = inverse_haar_wavelet_transform_3d(dec)
+                dec = dec.to(dtype)
+            else:
+                dec = inverse_haar_wavelet_transform_3d(dec)
         return dec
 
     def forward(self, input, sample_posterior=True):

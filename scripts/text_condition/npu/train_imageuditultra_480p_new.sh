@@ -1,5 +1,3 @@
-export PROJECT=$PROJECT_NAME
-WEIGHT_PATH="/home/opensora/pre_weights/"
 env
 export WANDB_MODE='offline'
 export HCCL_OP_BASE_FFTS_MODE_ENABLE=TRUE

@@ -1,34 +1,19 @@
-WEIGHT_PATH="/home/opensora/pre_weights/"
-
-export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$(pwd)"
-export MASTER_PORT=12359
-
-if [ -z "$SAMPLE_SAVE_PATH" ]; then
-  export SAMPLE_SAVE_PATH="/home/image_data/sample_videos"
-fi
-
-if [ -z "$SAMPLE_HEIGHT" ]; then
-  echo "You should set both envs of SAMPLE_HEIGHT and SAMPLE_WIDTH"
-  return
-fi
-
-torchrun --nproc_per_node=8 opensora/sample/sample_inpaint_on_npu.py \
-    --model_path /home/image_data/checkpoints/${PROJECT_NAME} \
-    --num_frames ${NUM_FRAME} \
-    --height $SAMPLE_HEIGHT \
-    --width $SAMPLE_WIDTH \
+export TASK_QUEUE_ENABLE=0
+torchrun --nnodes=1 --nproc_per_node=2 --master_port 29502 \
+    -m opensora.sample.sample_inpaint_ddp_on_npu  \
+    --model_path /home/image_data/gyy/Open-Sora-Plan/test_sparse_inpaint/checkpoint-10000/model \
+    --num_frames 93 \
+    --height 320 \
+    --width 160 \
     --cache_dir "../cache_dir" \
-    --text_encoder_name ${WEIGHT_PATH}/google/mt5-xxl \
-    --text_prompt "/home/image_data/checkpoints/i2v_validation_dir/prompt.txt" \
-    --ae CausalVAEModel_4x8x8 \
-    --ae_path "${WEIGHT_PATH}/test140k/" \
-    --save_img_path "${SAMPLE_SAVE_PATH}/${PROJECT_NAME}" \
-    --fps 24 \
-    --max_sequence_length 512 \
-    --guidance_scale 5.0 \
+    --text_encoder_name /home/image_data/mt5-xxl \
+    --text_prompt /home/image_data/test_prompt.txt \
+    --conditional_images_path /home/image_data/test_cond_imgs_path.txt \
+    --ae WFVAEModel_D8_4x8x8 \
+    --ae_path "/home/image_data/lb/Open-Sora-Plan/WFVAE_DISTILL_FORMAL" \
+    --save_img_path "./test_video_new" \
+    --fps 18 \
+    --guidance_scale 7.5 \
     --num_sampling_steps 50 \
     --sample_method PNDM \
-    --enable_tiling \
-    --tile_overlap_factor 0.125 \
-    --model_3d \
-    --validation_dir "/home/image_data/checkpoints/i2v_validation_dir"
+    --motion_score 0.9 \
