@@ -124,6 +124,10 @@ def run_model_and_save_images(pipeline, model_path):
     sharp focus, high budget, cinemascope, moody, epic, gorgeous
     """
     
+    positive_prompt = """
+    high quality, high aesthetic, {}
+    """
+
     negative_prompt = """
     nsfw, lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, 
     low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry.
@@ -156,21 +160,21 @@ def run_model_and_save_images(pipeline, model_path):
                           motion_score=args.motion_score, 
                           num_inference_steps=args.num_sampling_steps,
                           guidance_scale=args.guidance_scale,
-                          num_images_per_prompt=1,
+                          num_samples_per_prompt=args.num_samples_per_prompt,
                           mask_feature=True,
                           device=args.device,
                           max_sequence_length=args.max_sequence_length,
                           ).images
         print('videos.shape', videos.shape)
-        try:
-            if args.num_frames == 1:
-                videos = videos[:, 0].permute(0, 3, 1, 2)  # b t h w c -> b c h w
-                save_image(videos / 255.0, os.path.join(args.save_img_path,
-                                                        f'{model_path}', f'{args.sample_method}_{index}_{checkpoint_name}_gs{args.guidance_scale}_s{args.num_sampling_steps}_m{args.motion_score}.{ext}'),
-                           nrow=1, normalize=True, value_range=(0, 1))  # t c h w
-                print('save done...')
+        if args.num_frames == 1:
+            videos = videos[:, 0].permute(0, 3, 1, 2)  # b t h w c -> b c h w
+            save_image(videos / 255.0, os.path.join(args.save_img_path,
+                                                    f'{model_path}', f'{args.sample_method}_{index}_{checkpoint_name}_gs{args.guidance_scale}_s{args.num_sampling_steps}_m{args.motion_score}.{ext}'),
+                        nrow=1, normalize=True, value_range=(0, 1))  # t c h w
+            print('save done...')
 
-            else:
+        else:
+            if args.num_samples_per_prompt == 1:
                 imageio.mimwrite(
                     os.path.join(
                         args.save_img_path,
@@ -178,8 +182,24 @@ def run_model_and_save_images(pipeline, model_path):
                     ), videos[0],
                     fps=args.fps, quality=6)  # highest quality is 10, lowest is 0
                 print('save done...')
-        except:
-            print('Error when saving {}'.format(prompt))
+            else:
+                for i in range(args.num_samples_per_prompt):
+                    print(f'save i {i}')
+                    imageio.mimwrite(
+                        os.path.join(
+                            args.save_img_path,
+                            f'{model_path}', f'{args.sample_method}_{index}_{checkpoint_name}_gs{args.guidance_scale}_s{args.num_sampling_steps}_m{args.motion_score}_i{i}.{ext}'
+                        ), videos[i],
+                        fps=args.fps, quality=6)  # highest quality is 10, lowest is 0
+                videos = save_video_grid(videos)
+                print(f'save total video_grids {videos.shape}')
+                imageio.mimwrite(
+                    os.path.join(
+                        args.save_img_path,
+                        f'{model_path}', f'{args.sample_method}_{index}_{checkpoint_name}_gs{args.guidance_scale}_s{args.num_sampling_steps}_m{args.motion_score}.{ext}'
+                    ), videos,
+                    fps=args.fps, quality=6)  # highest quality is 10, lowest is 0)
+
         video_grids.append(videos)
     dist.barrier()
     video_grids = torch.cat(video_grids, dim=0).cuda()
@@ -229,12 +249,15 @@ if __name__ == "__main__":
     parser.add_argument("--text_prompt", nargs='+')
     parser.add_argument('--tile_overlap_factor', type=float, default=0.25)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--num_samples_per_prompt", type=int, default=1)
     parser.add_argument('--enable_tiling', action='store_true')
     parser.add_argument('--refine_caption', action='store_true')
     parser.add_argument('--compile', action='store_true')
     parser.add_argument('--model_type', type=str, default="dit", choices=['sparsedit', 'dit', 'udit', 'latte'])
     parser.add_argument('--save_memory', action='store_true')
-    parser.add_argument('--motion_score', type=float, default=None)
+    parser.add_argument('--motion_score', type=float, default=None)    
+    parser.add_argument("--prediction_type", type=str, default='epsilon', help="The prediction_type that shall be used for training. Choose between 'epsilon' or 'v_prediction' or leave `None`. If left to `None` the default prediction type of the scheduler: `noise_scheduler.config.prediciton_type` is chosen.")
+    parser.add_argument('--rescale_betas_zero_snr', action='store_true')
     args = parser.parse_args()
 
     if torch_npu is not None:
@@ -294,7 +317,7 @@ if __name__ == "__main__":
     text_encoder.eval()
 
     if args.sample_method == 'DDIM':  #########
-        scheduler = DDIMScheduler(clip_sample=False)
+        scheduler = DDIMScheduler(clip_sample=False, prediction_type=args.prediction_type, rescale_betas_zero_snr=args.rescale_betas_zero_snr, timestep_spacing="trailing")
     elif args.sample_method == 'EulerDiscrete':
         scheduler = EulerDiscreteScheduler()
     elif args.sample_method == 'DDPM':  #############
@@ -308,7 +331,7 @@ if __name__ == "__main__":
     elif args.sample_method == 'HeunDiscrete':  ########
         scheduler = HeunDiscreteScheduler()
     elif args.sample_method == 'EulerAncestralDiscrete':
-        scheduler = EulerAncestralDiscreteScheduler()
+        scheduler = EulerAncestralDiscreteScheduler(prediction_type=args.prediction_type, rescale_betas_zero_snr=args.rescale_betas_zero_snr, timestep_spacing="trailing")
     elif args.sample_method == 'DEISMultistep':
         scheduler = DEISMultistepScheduler()
     elif args.sample_method == 'KDPM2AncestralDiscrete':  #########

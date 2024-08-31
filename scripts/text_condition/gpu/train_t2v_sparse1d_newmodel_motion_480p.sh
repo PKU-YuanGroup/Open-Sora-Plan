@@ -32,8 +32,8 @@ accelerate launch \
     --ae_path "/storage/lcm/Causal-Video-VAE/results/WFVAE_DISTILL_FORMAL" \
     --sample_rate 1 \
     --num_frames 93 \
-    --max_height 320 \
-    --max_width 320 \
+    --max_height 640 \
+    --max_width 640 \
     --interpolation_scale_t 1.0 \
     --interpolation_scale_h 1.0 \
     --interpolation_scale_w 1.0 \
@@ -48,7 +48,7 @@ accelerate launch \
     --lr_warmup_steps=0 \
     --mixed_precision="bf16" \
     --report_to="wandb" \
-    --checkpointing_steps=1000 \
+    --checkpointing_steps=500 \
     --allow_tf32 \
     --model_max_length 512 \
     --use_image_num 0 \
@@ -63,13 +63,14 @@ accelerate launch \
     --speed_factor 1.0 \
     --ema_decay 0.9999 \
     --drop_short_ratio 0.0 \
-    --pretrained "/storage/ongoing/new/7.19anyres/Open-Sora-Plan/bs32x8x1_anyx93x320x320_fps16_lr5e-5_snr5_noioff0.02_ema9999_sparse1d4_dit_l_mt5xxl_alldata100m/checkpoint-118000/model_ema/diffusion_pytorch_model.safetensors" \
+    --pretrained "/storage/ongoing/new/7.19anyres/Open-Sora-Plan/bs32x8x1_anyx93x320x320_fps16_lr1e-5_snr5_noioff0.02_ema9999_sparse1d4_dit_l_mt5xxl_alldata100m/checkpoint-526000/model_ema/diffusion_pytorch_model.safetensors" \
     --hw_stride 32 \
     --sparse1d --sparse_n 4 \
     --use_motion \
     --train_fps 16 \
     --seed 1234 \
-    --trained_data_global_step 42000 \
+    --trained_data_global_step 0 \
     --group_data \
     --use_decord \
-    --output_dir="bs32x8x1_anyx93x320x320_fps16_lr1e-5_snr5_noioff0.02_ema9999_sparse1d4_dit_l_mt5xxl_alldata100m"  > training_log_new.txt
+    --force_resolution \
+    --output_dir="bs32x8x1_anyx93x640x640_fps16_lr1e-5_snr5_noioff0.02_ema9999_sparse1d4_dit_l_mt5xxl_aesimg18m"  > training_log_new.txt

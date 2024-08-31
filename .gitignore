@@ -81,3 +81,9 @@ stage2*.json
 kernel_meta
 ge_check_op.json
 WFVAE_DISTILL_FORMAL
+read_video*
+bs32x8x2*
+filter_json_aes_m*
+json2json*
+makenpu_json*
+

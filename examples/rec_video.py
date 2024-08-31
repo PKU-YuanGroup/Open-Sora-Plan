@@ -89,15 +89,15 @@ def main(args: argparse.Namespace):
     if args.enable_tiling:
         vae.vae.enable_tiling()
         vae.vae.tile_overlap_factor = args.tile_overlap_factor
-        vae.vae.tile_sample_min_size = 512
-        vae.vae.tile_latent_min_size = 64
-        vae.vae.tile_sample_min_size_t = 29
-        vae.vae.tile_latent_min_size_t = 8
-        if args.save_memory:
-            vae.vae.tile_sample_min_size = 256
-            vae.vae.tile_latent_min_size = 32
-            vae.vae.tile_sample_min_size_t = 9
-            vae.vae.tile_latent_min_size_t = 3
+        # vae.vae.tile_sample_min_size = 512
+        # vae.vae.tile_latent_min_size = 64
+        # vae.vae.tile_sample_min_size_t = 29
+        # vae.vae.tile_latent_min_size_t = 8
+        # if args.save_memory:
+        #     vae.vae.tile_sample_min_size = 256
+        #     vae.vae.tile_latent_min_size = 32
+        #     vae.vae.tile_sample_min_size_t = 9
+        #     vae.vae.tile_latent_min_size_t = 3
     vae.eval()
     vae = vae.to(device)
 

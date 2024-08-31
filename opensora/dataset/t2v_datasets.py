@@ -14,10 +14,11 @@ import os, io, csv, math, random
 import numpy as np
 import torchvision
 from einops import rearrange
-from decord import VideoReader
 from os.path import join as opj
 from collections import Counter
 
+import cv2
+import jsonlines
 import pandas as pd
 import time
 import torch
@@ -27,12 +28,14 @@ from torch.utils.data import DataLoader, Dataset, get_worker_info
 from tqdm import tqdm
 from PIL import Image
 from accelerate.logging import get_logger
+import gc
 
 from opensora.utils.dataset_utils import DecordInit
 from opensora.utils.utils import text_preprocessing
 from opensora.dataset.transform import get_params, longsideresize, add_masking_notice, motion_mapping_fun, calculate_statistics, \
     add_webvid_watermark_notice, clean_vidal, add_high_aesthetic_notice_image, add_aesthetic_notice_video, add_high_aesthetic_notice_image_human
 
+import decord
 logger = get_logger(__name__)
 
 def filter_json_by_existed_files(directory, data, postfix=".mp4"):
@@ -147,7 +150,8 @@ class T2V_dataset(Dataset):
         self.force_resolution = args.force_resolution
         self.use_motion = args.use_motion
         assert self.speed_factor >= 1
-        self.v_decoder = DecordInit()
+        self.video_reader = 'decord' if args.use_decord else 'opencv'
+        # self.v_decoder = DecordInit() if self.video_reader == 'decord' else None
 
         self.support_Chinese = True
         if not ('mt5' in args.text_encoder_name):
@@ -227,9 +231,12 @@ class T2V_dataset(Dataset):
         frame_indice = dataset_prog.cap_list[idx]['sample_frame_index']
         sample_h = video_data['resolution']['sample_height']
         sample_w = video_data['resolution']['sample_width']
-        # video = self.decord_read(video_path, predefine_frame_indice=frame_indice)
-        # import ipdb;ipdb.set_trace()
-        video = (torch.randn([len(frame_indice), 3, sample_h, sample_w]) * 255.0).to(torch.uint8)
+        if self.video_reader == 'decord':
+            video = self.decord_read(video_path, predefine_frame_indice=frame_indice)
+        elif self.video_reader == 'opencv':
+            video = self.opencv_read(video_path, predefine_frame_indice=frame_indice)
+        else:
+            NotImplementedError(f'Found {self.video_reader}, but support decord or opencv')
         # import ipdb;ipdb.set_trace()
         video = self.transform(video)  # T C H W -> T C H W
         assert video.shape[2] == sample_h and video.shape[3] == sample_w
@@ -288,6 +295,8 @@ class T2V_dataset(Dataset):
         if '/sam/' in image_data['path']:
             caps = [add_masking_notice(caps[0])]
         if 'ideogram' in image_data['path']:
+            caps = [add_high_aesthetic_notice_image(caps[0])]
+        if 'civitai' in image_data['path']:
             caps = [add_high_aesthetic_notice_image(caps[0])]
         if 'human_images' in image_data['path']:
             caps = [add_high_aesthetic_notice_image_human(caps[0])]
@@ -485,10 +494,43 @@ class T2V_dataset(Dataset):
     
     def decord_read(self, path, predefine_frame_indice):
         predefine_num_frames = len(predefine_frame_indice)
-        decord_vr = self.v_decoder(path)
+        # decord_vr = self.v_decoder(path)
+        decord_vr = decord.VideoReader(path, ctx=decord.cpu(0), num_threads=1)
+        # with open(path, 'rb') as f:
+        #     decord_vr = decord.VideoReader(f, ctx=decord.cpu(0), num_threads=1)
         total_frames = len(decord_vr)
         fps = decord_vr.get_avg_fps() if decord_vr.get_avg_fps() > 0 else 24.0
+
+        frame_indices = self.get_actual_frame(fps, total_frames, path, predefine_num_frames, predefine_frame_indice)
         
+        video_data = decord_vr.get_batch(frame_indices).asnumpy()
+        video_data = torch.from_numpy(video_data)
+        video_data = video_data.permute(0, 3, 1, 2)  # (T, H, W, C) -> (T C H W)
+        # del decord_vr
+        # gc.collect()
+        return video_data
+    
+    def opencv_read(self, path, predefine_frame_indice):
+        predefine_num_frames = len(predefine_frame_indice)
+        cv2_vr = cv2.VideoCapture(path)
+        if not cv2_vr.isOpened():
+            print(f'can not open {path}')
+            raise ValueError(f'can not open {path}')
+        total_frames = int(cv2_vr.get(cv2.CAP_PROP_FRAME_COUNT))
+        fps = cv2_vr.get(cv2.CAP_PROP_FPS) if cv2_vr.get(cv2.CAP_PROP_FPS) > 0 else 24.0
+        frame_indices = self.get_actual_frame(fps, total_frames, path, predefine_num_frames, predefine_frame_indice)
+
+        video_data = []
+        for frame_idx in frame_indices:
+            cv2_vr.set(1, frame_idx)
+            _, frame = cv2_vr.read()
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            video_data.append(torch.from_numpy(frame).permute(2, 0, 1))
+        cv2_vr.release()
+        video_data = torch.stack(video_data)  # (T C H W)
+        return video_data
+
+    def get_actual_frame(self, fps, total_frames, path, predefine_num_frames, predefine_frame_indice):
         # resample in case high fps, such as 50/60/90/144 -> train_fps(e.g, 24)
         frame_interval = 1.0 if abs(fps - self.train_fps) < 0.1 else fps / self.train_fps
         start_frame_idx = 10 if '/storage/dataset/movie' in path else 0  # special video
@@ -519,11 +561,8 @@ class T2V_dataset(Dataset):
             raise ValueError(f'video ({path}) predefine_num_frames ({predefine_num_frames}) ({predefine_frame_indice}) is not equal with frame_indices ({len(frame_indices)}) ({frame_indices})')
         if len(frame_indices) < self.num_frames and self.drop_short_ratio >= 1:
             raise IndexError(f'video ({path}) has {total_frames} frames, but need to sample {len(frame_indices)} frames ({frame_indices})')
-        video_data = decord_vr.get_batch(frame_indices).asnumpy()
-        video_data = torch.from_numpy(video_data)
-        video_data = video_data.permute(0, 3, 1, 2)  # (T, H, W, C) -> (T C H W)
-        return video_data
-
+        return frame_indices
+    
     def read_jsons(self, data, postfix=".jpg"):
         data_roots = []
         cap_lists = []

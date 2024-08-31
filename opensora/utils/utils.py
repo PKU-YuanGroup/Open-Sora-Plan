@@ -303,8 +303,9 @@ def save_video_grid(video, nrow=None):
     video_grid = torch.zeros((t, (padding + h) * nrow + padding,
                               (padding + w) * ncol + padding, c), dtype=torch.uint8)
 
-    print(video_grid.shape)
+    print('save_video_grid video_grid.shape', video_grid.shape)
     for i in range(b):
+        print('i', i)
         r = i // ncol
         c = i % ncol
         start_r = (padding + h) * r
@@ -344,7 +345,6 @@ bad_punct_regex = re.compile(r'['+'#®•©™&@·º½¾¿¡§~'+'\)'+'\('+'\]'+
 
 def text_preprocessing(text, support_Chinese=True):
     # The exact text cleaning as was in the training stage:
-    text = clean_caption(text, support_Chinese=support_Chinese)
     text = clean_caption(text, support_Chinese=support_Chinese)
     return text
 

@@ -158,7 +158,7 @@ class OpenSoraPipeline(DiffusionPipeline):
         prompt: Union[str, List[str]],
         do_classifier_free_guidance: bool = True,
         negative_prompt: str = "",
-        num_images_per_prompt: int = 1,
+        num_samples_per_prompt: int = 1,
         device: Optional[torch.device] = None,
         prompt_embeds: Optional[torch.FloatTensor] = None,
         negative_prompt_embeds: Optional[torch.FloatTensor] = None,
@@ -180,7 +180,7 @@ class OpenSoraPipeline(DiffusionPipeline):
                 PixArt-Alpha, this should be "".
             do_classifier_free_guidance (`bool`, *optional*, defaults to `True`):
                 whether to use classifier free guidance or not
-            num_images_per_prompt (`int`, *optional*, defaults to 1):
+            num_samples_per_prompt (`int`, *optional*, defaults to 1):
                 number of images that should be generated per prompt
             device: (`torch.device`, *optional*):
                 torch device to place the resulting embeddings on
@@ -251,10 +251,10 @@ class OpenSoraPipeline(DiffusionPipeline):
 
         bs_embed, seq_len, _ = prompt_embeds.shape
         # duplicate text embeddings and attention mask for each generation per prompt, using mps friendly method
-        prompt_embeds = prompt_embeds.repeat(1, num_images_per_prompt, 1)
-        prompt_embeds = prompt_embeds.view(bs_embed * num_images_per_prompt, seq_len, -1)
+        prompt_embeds = prompt_embeds.repeat(1, num_samples_per_prompt, 1)
+        prompt_embeds = prompt_embeds.view(bs_embed * num_samples_per_prompt, seq_len, -1)
         prompt_attention_mask = prompt_attention_mask.view(bs_embed, -1)
-        prompt_attention_mask = prompt_attention_mask.repeat(num_images_per_prompt, 1)
+        prompt_attention_mask = prompt_attention_mask.repeat(num_samples_per_prompt, 1)
 
         # get unconditional embeddings for classifier free guidance
         if do_classifier_free_guidance and negative_prompt_embeds is None:
@@ -284,11 +284,11 @@ class OpenSoraPipeline(DiffusionPipeline):
 
             negative_prompt_embeds = negative_prompt_embeds.to(dtype=dtype, device=device)
 
-            negative_prompt_embeds = negative_prompt_embeds.repeat(1, num_images_per_prompt, 1)
-            negative_prompt_embeds = negative_prompt_embeds.view(batch_size * num_images_per_prompt, seq_len, -1)
+            negative_prompt_embeds = negative_prompt_embeds.repeat(1, num_samples_per_prompt, 1)
+            negative_prompt_embeds = negative_prompt_embeds.view(batch_size * num_samples_per_prompt, seq_len, -1)
 
             negative_prompt_attention_mask = negative_prompt_attention_mask.view(bs_embed, -1)
-            negative_prompt_attention_mask = negative_prompt_attention_mask.repeat(num_images_per_prompt, 1)
+            negative_prompt_attention_mask = negative_prompt_attention_mask.repeat(num_samples_per_prompt, 1)
         else:
             negative_prompt_embeds = None
             negative_prompt_attention_mask = None
@@ -558,7 +558,7 @@ class OpenSoraPipeline(DiffusionPipeline):
         timesteps: List[int] = None,
         guidance_scale: float = 4.5,
         motion_score: float = None, 
-        num_images_per_prompt: Optional[int] = 1,
+        num_samples_per_prompt: Optional[int] = 1,
         num_frames: Optional[int] = None,
         height: Optional[int] = None,
         width: Optional[int] = None,
@@ -601,7 +601,7 @@ class OpenSoraPipeline(DiffusionPipeline):
                 Paper](https://arxiv.org/pdf/2205.11487.pdf). Guidance scale is enabled by setting `guidance_scale >
                 1`. Higher guidance scale encourages to generate images that are closely linked to the text `prompt`,
                 usually at the expense of lower image quality.
-            num_images_per_prompt (`int`, *optional*, defaults to 1):
+            num_samples_per_prompt (`int`, *optional*, defaults to 1):
                 The number of images to generate per prompt.
             height (`int`, *optional*, defaults to self.unet.config.sample_size):
                 The height in pixels of the generated image.
@@ -696,7 +696,7 @@ class OpenSoraPipeline(DiffusionPipeline):
             prompt,
             do_classifier_free_guidance,
             negative_prompt=negative_prompt,
-            num_images_per_prompt=num_images_per_prompt,
+            num_samples_per_prompt=num_samples_per_prompt,
             device=device,
             prompt_embeds=prompt_embeds,
             negative_prompt_embeds=negative_prompt_embeds,
@@ -715,7 +715,7 @@ class OpenSoraPipeline(DiffusionPipeline):
         # 5. Prepare latents.
         latent_channels = self.transformer.config.in_channels
         latents = self.prepare_latents(
-            batch_size * num_images_per_prompt,
+            batch_size * num_samples_per_prompt,
             latent_channels,
             num_frames, 
             height,
@@ -847,7 +847,7 @@ class OpenSoraFreeInitPipeline(OpenSoraPipeline):
         timesteps: List[int] = None,
         guidance_scale: float = 4.5,
         motion_score: float = None, 
-        num_images_per_prompt: Optional[int] = 1,
+        num_samples_per_prompt: Optional[int] = 1,
         num_frames: Optional[int] = None,
         height: Optional[int] = None,
         width: Optional[int] = None,
@@ -891,7 +891,7 @@ class OpenSoraFreeInitPipeline(OpenSoraPipeline):
                 Paper](https://arxiv.org/pdf/2205.11487.pdf). Guidance scale is enabled by setting `guidance_scale >
                 1`. Higher guidance scale encourages to generate images that are closely linked to the text `prompt`,
                 usually at the expense of lower image quality.
-            num_images_per_prompt (`int`, *optional*, defaults to 1):
+            num_samples_per_prompt (`int`, *optional*, defaults to 1):
                 The number of images to generate per prompt.
             height (`int`, *optional*, defaults to self.unet.config.sample_size):
                 The height in pixels of the generated image.
@@ -986,7 +986,7 @@ class OpenSoraFreeInitPipeline(OpenSoraPipeline):
             prompt,
             do_classifier_free_guidance,
             negative_prompt=negative_prompt,
-            num_images_per_prompt=num_images_per_prompt,
+            num_samples_per_prompt=num_samples_per_prompt,
             device=device,
             prompt_embeds=prompt_embeds,
             negative_prompt_embeds=negative_prompt_embeds,
@@ -1005,7 +1005,7 @@ class OpenSoraFreeInitPipeline(OpenSoraPipeline):
         # 5. Prepare latents.
         latent_channels = self.transformer.config.in_channels
         latents = self.prepare_latents(
-            batch_size * num_images_per_prompt,
+            batch_size * num_samples_per_prompt,
             latent_channels,
             num_frames, 
             height,
