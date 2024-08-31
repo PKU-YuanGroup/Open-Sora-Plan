@@ -719,7 +719,7 @@ def clean_vidal(text):
 
 def motion_mapping_fun(motion_score, n=3):
     assert motion_score is not None
-    return abs(motion_score) ** n
+    return max(motion_score, 0.0) ** n
 
 
 def calculate_statistics(data):

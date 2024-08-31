@@ -319,7 +319,7 @@ def main(args):
     ae.vae.tile_sample_min_size = args.tile_sample_min_size
     ae.vae.tile_sample_min_size_t = args.tile_sample_min_size_t
 
-    noise_scheduler = DDPMScheduler()
+    noise_scheduler = DDPMScheduler(rescale_betas_zero_snr=args.rescale_betas_zero_snr)
     # Move unet, vae and text_encoder to device and cast to weight_dtype
     # The VAE is in float32 to avoid NaN losses.
     ae.vae.to(accelerator.device, dtype=torch.float32)
@@ -439,47 +439,12 @@ def main(args):
         )
     logger.info(f"optimizer: {optimizer}")
 
-    global_step = 0
-    # first_epoch = 0
-    # Potentially load in the weights and states from a previous save
-    if args.resume_from_checkpoint:
-        if args.resume_from_checkpoint != "latest":
-            path = os.path.basename(args.resume_from_checkpoint)
-        else:
-            # Get the most recent checkpoint
-            dirs = os.listdir(args.output_dir)
-            dirs = [d for d in dirs if d.startswith("checkpoint")]
-            dirs = sorted(dirs, key=lambda x: int(x.split("-")[1]))
-            path = dirs[-1] if len(dirs) > 0 else None
-
-        if path is None:
-            accelerator.print(
-                f"Checkpoint '{args.resume_from_checkpoint}' does not exist. Starting a new training run."
-            )
-            args.resume_from_checkpoint = None
-            initial_global_step = 0
-        else:
-            accelerator.print(f"Resuming from checkpoint {path}")
-            accelerator.load_state(os.path.join(args.output_dir, path))
-            global_step = int(path.split("-")[1])
-
-            initial_global_step = global_step
-            # first_epoch = global_step // num_update_steps_per_epoch
-
-            if npu_config is not None:
-                train_dataset.n_used_elements = global_step * args.train_batch_size
-
-    else:
-        initial_global_step = 0
-
     # Setup data:
-    total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
-    total_batch_size = total_batch_size // args.sp_size * args.train_sp_batch_size
 
     if args.trained_data_global_step is not None:
         initial_global_step_for_sampler = args.trained_data_global_step
     else:
-        initial_global_step_for_sampler = initial_global_step
+        initial_global_step_for_sampler = 0
     # print('initial_global_step, initial_global_step_for_sampler, total_batch_size', 
     #       initial_global_step, initial_global_step_for_sampler, total_batch_size)
     train_dataset = getdataset(args)
@@ -500,7 +465,7 @@ def main(args):
         num_workers=args.dataloader_num_workers,
         sampler=sampler, 
         drop_last=True, 
-        # prefetch_factor=4
+        prefetch_factor=4
     )
     logger.info(f'after train_dataloader')
 
@@ -547,6 +512,9 @@ def main(args):
         accelerator.init_trackers(os.path.basename(args.output_dir), config=vars(args))
 
     # Train!
+    total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
+    total_batch_size = total_batch_size // args.sp_size * args.train_sp_batch_size
+
     logger.info("***** Running training *****")
     logger.info(f"  Model = {model}")
     logger.info(f"  Num examples = {len(train_dataset)}")
@@ -558,6 +526,35 @@ def main(args):
     logger.info(f"  Total optimization steps (num_update_steps_per_epoch) = {num_update_steps_per_epoch}")
     logger.info(f"  Total training parameters = {sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e9} B")
 
+    global_step = 0
+    first_epoch = 0
+    # Potentially load in the weights and states from a previous save
+    if args.resume_from_checkpoint:
+        if args.resume_from_checkpoint != "latest":
+            path = os.path.basename(args.resume_from_checkpoint)
+        else:
+            # Get the most recent checkpoint
+            dirs = os.listdir(args.output_dir)
+            dirs = [d for d in dirs if d.startswith("checkpoint")]
+            dirs = sorted(dirs, key=lambda x: int(x.split("-")[1]))
+            path = dirs[-1] if len(dirs) > 0 else None
+
+        if path is None:
+            accelerator.print(
+                f"Checkpoint '{args.resume_from_checkpoint}' does not exist. Starting a new training run."
+            )
+            args.resume_from_checkpoint = None
+            initial_global_step = 0
+        else:
+            accelerator.print(f"Resuming from checkpoint {path}")
+            accelerator.load_state(os.path.join(args.output_dir, path))
+            global_step = int(path.split("-")[1])
+
+            initial_global_step = global_step
+            first_epoch = global_step // num_update_steps_per_epoch
+
+    else:
+        initial_global_step = 0
 
     progress_bar = tqdm(
         range(0, args.max_train_steps),
@@ -689,6 +686,8 @@ def main(args):
                 mse_loss_weights = mse_loss_weights / snr
             elif noise_scheduler.config.prediction_type == "v_prediction":
                 mse_loss_weights = mse_loss_weights / (snr + 1)
+            else:
+                raise NameError(f'{noise_scheduler.config.prediction_type}')
             loss = F.mse_loss(model_pred.float(), target.float(), reduction="none")
             loss = loss.reshape(b, -1)
             mse_loss_weights = mse_loss_weights.reshape(b, 1)
@@ -872,6 +871,7 @@ if __name__ == "__main__":
     parser.add_argument("--skip_low_resolution", action="store_true")
     parser.add_argument("--force_resolution", action="store_true")
     parser.add_argument("--trained_data_global_step", type=int, default=None)
+    parser.add_argument("--use_decord", action="store_true")
 
     # text encoder & vae & diffusion model
     parser.add_argument("--model", type=str, choices=list(Diffusion_models.keys()), default="Latte-XL/122")
@@ -906,8 +906,9 @@ if __name__ == "__main__":
     parser.add_argument("--use_ema", action="store_true", help="Whether to use EMA model.")
     parser.add_argument("--ema_decay", type=float, default=0.999)
     parser.add_argument("--ema_start_step", type=int, default=0)
-    parser.add_argument("--noise_offset", type=float, default=0.02, help="The scale of noise offset.")
+    parser.add_argument("--noise_offset", type=float, default=0.0, help="The scale of noise offset.")
     parser.add_argument("--prediction_type", type=str, default=None, help="The prediction_type that shall be used for training. Choose between 'epsilon' or 'v_prediction' or leave `None`. If left to `None` the default prediction type of the scheduler: `noise_scheduler.config.prediciton_type` is chosen.")
+    parser.add_argument('--rescale_betas_zero_snr', action='store_true')
 
     # validation & logs
     parser.add_argument("--num_sampling_steps", type=int, default=20)

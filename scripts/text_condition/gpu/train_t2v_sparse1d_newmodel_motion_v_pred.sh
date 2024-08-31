@@ -40,7 +40,7 @@ accelerate launch \
     --attention_mode xformers \
     --gradient_checkpointing \
     --train_batch_size=1 \
-    --dataloader_num_workers 10 \
+    --dataloader_num_workers 8 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
     --learning_rate=1e-5 \
@@ -56,20 +56,22 @@ accelerate launch \
     --use_ema \
     --ema_start_step 0 \
     --cfg 0.1 \
-    --noise_offset 0.02 \
+    --noise_offset 0.0 \
     --use_rope \
     --resume_from_checkpoint="latest" \
     --skip_low_resolution \
     --speed_factor 1.0 \
     --ema_decay 0.9999 \
     --drop_short_ratio 0.0 \
-    --pretrained "/storage/ongoing/new/7.19anyres/Open-Sora-Plan/bs32x8x1_anyx93x320x320_fps16_lr5e-5_snr5_noioff0.02_ema9999_sparse1d4_dit_l_mt5xxl_alldata100m/checkpoint-118000/model_ema/diffusion_pytorch_model.safetensors" \
+    --pretrained "/storage/ongoing/new/7.19anyres/Open-Sora-Plan/bs32x8x2_anyx93x320x320_fps16_lr2e-6_snr5_ema9999_sparse1d4_dit_l_mt5xxl_alldata100m_vpred_zerosnr/checkpoint-45100/model_ema/diffusion_pytorch_model.safetensors" \
     --hw_stride 32 \
     --sparse1d --sparse_n 4 \
     --use_motion \
     --train_fps 16 \
     --seed 1234 \
-    --trained_data_global_step 42000 \
+    --trained_data_global_step 0 \
     --group_data \
     --use_decord \
-    --output_dir="bs32x8x1_anyx93x320x320_fps16_lr1e-5_snr5_noioff0.02_ema9999_sparse1d4_dit_l_mt5xxl_alldata100m"  > training_log_new.txt
+    --prediction_type "v_prediction" \
+    --rescale_betas_zero_snr \
+    --output_dir="bs32x8x1_anyx93x320x320_fps16_lr2e-6_snr5_ema9999_sparse1d4_dit_l_mt5xxl_40m_vpred_zerosnr"
