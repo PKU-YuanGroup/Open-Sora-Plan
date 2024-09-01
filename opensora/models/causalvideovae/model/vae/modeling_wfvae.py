@@ -4,6 +4,7 @@ try:
 except:
     torch_npu = None
     npu_config = None
+    
 from ..modeling_videobase import VideoBaseAE
 from diffusers.configuration_utils import register_to_config
 import torch
@@ -32,7 +33,6 @@ from ..utils.wavelet_utils import (
 import torch
 from copy import deepcopy
 import os
-from .modeling_causalvae import Decoder
 from ..registry import ModelRegistry
 from einops import rearrange
 
@@ -52,7 +52,7 @@ class Encoder(VideoBaseAE):
     ) -> None:
         super().__init__()
         self.down1 = nn.Sequential(
-            Conv2d(24, 128, kernel_size=3, stride=1, padding=1),
+            Conv2d(24, base_channels, kernel_size=3, stride=1, padding=1),
             *[
                 ResnetBlock2D(
                     in_channels=base_channels,
@@ -93,7 +93,7 @@ class Encoder(VideoBaseAE):
         # Mid
         mid_layers = [
             ResnetBlock3D(
-                in_channels=base_channels * 2 + 64,
+                in_channels=base_channels * 2 + energy_flow_hidden_size,
                 out_channels=base_channels * 4,
                 dropout=dropout,
                 norm_type=norm_type,
@@ -106,7 +106,9 @@ class Encoder(VideoBaseAE):
             ),
         ]
         if use_attention:
-            mid_layers.insert(1, AttnBlock3DFix(in_channels=base_channels * 4, norm_type=norm_type))
+            mid_layers.insert(
+                1, AttnBlock3DFix(in_channels=base_channels * 4, norm_type=norm_type)
+            )
         self.mid = nn.Sequential(*mid_layers)
 
         self.norm_out = Normalize(base_channels * 4, norm_type=norm_type)
@@ -123,6 +125,7 @@ class Encoder(VideoBaseAE):
         l2 = self.connect_l2(l2_coeffs)
         l3_coeffs = haar_wavelet_transform_3d(l2_coeffs[:, :3])
         l3 = self.connect_l3(l3_coeffs)
+        
         h = self.down1(coeffs)
         h = torch.concat([h, l2], dim=1)
         h = self.down2(h)
@@ -172,7 +175,9 @@ class Decoder(VideoBaseAE):
             ),
         ]
         if use_attention:
-            mid_layers.insert(1, AttnBlock3DFix(in_channels=base_channels * 4, norm_type=norm_type))
+            mid_layers.insert(
+                1, AttnBlock3DFix(in_channels=base_channels * 4, norm_type=norm_type)
+            )
         self.mid = nn.Sequential(*mid_layers)
 
         self.up2 = nn.Sequential(
@@ -302,6 +307,7 @@ class WFVAEModel(VideoBaseAE):
     ) -> None:
         super().__init__()
         self.use_tiling = False
+        self.t_chunk = 16
         self.use_quant_layer = False
 
         self.encoder = Encoder(
@@ -334,24 +340,79 @@ class WFVAEModel(VideoBaseAE):
             return [self.post_quant_conv, self.decoder]
         return [self.decoder]
 
+    def _empty_causal_cached(self, parent):
+        for name, module in parent.named_modules():
+            if hasattr(module, 'causal_cached'):
+                module.causal_cached = None
+                
+    def _set_causal_cached(self, enable_cached=True):
+        for name, module in self.named_modules():
+            if hasattr(module, 'enable_cached'):
+                module.enable_cached = enable_cached
+                
     def encode(self, x):
+        self._empty_causal_cached(self.encoder)
         coeffs = haar_wavelet_transform_3d(x)
-        h = self.encoder(coeffs)
-        if self.use_quant_layer:
-            h = self.quant_conv(h)
+        if self.use_tiling:
+            h = self.tile_encode(coeffs)
+        else:
+            h = self.encoder(coeffs)
+            if self.use_quant_layer:
+                h = self.quant_conv(h)
         posterior = DiagonalGaussianDistribution(h)
         return posterior
+    
+    def _get_t_chunk(self):
+        if self.t_chunk % 2 == 1:
+            t_chunk = self.t_chunk - 1
+        else:
+            t_chunk = self.t_chunk
+        return t_chunk
+    
+    def tile_encode(self, x):
+        b, c, t, h, w = x.shape
+        
+        t_chunk = self._get_t_chunk()
+        
+        result = []
+        for start in range(0, t, t_chunk):
+            end = min(start + t_chunk, t)
+            chunk = x[:, :, start:end, :, :]
+            chunk = self.encoder(chunk)
+            if self.use_quant_layer:
+                chunk = self.encoder(chunk)
+            result.append(chunk)
+            
+        return torch.cat(result, dim=2)
 
-    def _is_wavelet_output(self, x):
-        return x.shape[1] != 3
 
     def decode(self, z):
-        if self.use_quant_layer:
-            z = self.post_quant_conv(z)
-        dec = self.decoder(z)
-        if self._is_wavelet_output(dec):
-            dec = inverse_haar_wavelet_transform_3d(dec)
+        self._empty_causal_cached(self.decoder)
+        if self.use_tiling:
+            dec = self.tile_decode(z)
+        else:
+            if self.use_quant_layer:
+                z = self.post_quant_conv(z)
+            dec = self.decoder(z)
+            
+        dec = inverse_haar_wavelet_transform_3d(dec)
         return dec
+    
+    def tile_decode(self, x):
+        b, c, t, h, w = x.shape
+        
+        t_chunk = self._get_t_chunk()
+            
+        result = []
+        for start in range(0, t, t_chunk):
+            end = min(start + t_chunk, t)
+            chunk = x[:, :, start:end, :, :]
+            if self.use_quant_layer:
+                chunk = self.post_quant_conv(chunk)
+            chunk = self.decoder(chunk)
+            result.append(chunk)
+            
+        return torch.cat(result, dim=2)
 
     def forward(self, input, sample_posterior=True):
         posterior = self.encode(input)
@@ -369,9 +430,9 @@ class WFVAEModel(VideoBaseAE):
             return self.decoder.conv_out.weight
 
     def enable_tiling(self, use_tiling: bool = True):
-        raise NotImplementedError("WFVAE not support tiling yet.")
         self.use_tiling = use_tiling
-
+        self._set_causal_cached(use_tiling)
+        
     def disable_tiling(self):
         self.enable_tiling(False)
 
