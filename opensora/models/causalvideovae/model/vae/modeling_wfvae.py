@@ -364,12 +364,12 @@ class WFVAEModel(VideoBaseAE):
         coeffs = wt(x)
         if self.use_tiling:
             h = self.tile_encode(coeffs)
-            torch.save(h, "tile_encode.pt")
+            # torch.save(h, "tile_encode.pt")
         else:
             h = self.encoder(coeffs)
             if self.use_quant_layer:
                 h = self.quant_conv(h)
-            torch.save(h, "encode.pt")
+            # torch.save(h, "encode.pt")
             
         posterior = DiagonalGaussianDistribution(h)
         return posterior
@@ -402,12 +402,12 @@ class WFVAEModel(VideoBaseAE):
         
         if self.use_tiling:
             dec = self.tile_decode(z)
-            torch.save(dec, "tile_decode.pt")
+            # torch.save(dec, "tile_decode.pt")
         else:
             if self.use_quant_layer:
                 z = self.post_quant_conv(z)
             dec = self.decoder(z)
-            torch.save(dec, "decode.pt")
+            # torch.save(dec, "decode.pt")
             
         wt = InverseHaarWaveletTransform3D().to(dec.device, dtype=dec.dtype)
         dec = wt(dec)
