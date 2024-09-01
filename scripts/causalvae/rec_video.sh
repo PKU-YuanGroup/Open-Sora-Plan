@@ -1,25 +1,12 @@
 CUDA_VISIBLE_DEVICES=1 python examples/rec_video.py \
-<<<<<<< HEAD
     --ae WFVAEModel_D8_4x8x8 \
-    --ae_path "WFVAE_DISTILL_FORMAL" \
-    --video_path 134445.mp4 \
-=======
-    --ae CausalVAEModel_D8_4x8x8 \
-    --ae_path "/storage/dataset/new488dim8/last" \
-    --video_path /storage/dataset/mixkit-train-passing-the-rails-4462_resize1080p.mp4 \
->>>>>>> 7f41973 (fix resume)
+    --ae_path "../Causal-Video-VAE/results/WFVAE_DISTILL_FORMAL/" \
+    --video_path sample_video_dit_vae8_newmodel_anyx93x160x320_sora_m0.9_3k_s100_wf_xformer_refine_vpred_zerosnr_trailing/EulerAncestralDiscrete_0__gs7.5_s100_m0.9.mp4 \
     --rec_path rec.mp4 \
     --device cuda \
     --sample_rate 1 \
-    --num_frames 65 \
-<<<<<<< HEAD
-    --height 480 \
-    --width 640 \
-    --fps 30
-=======
-    --height 512 \
-    --width 512 \
+    --num_frames 33 \
+    --height 128 \
+    --width 128 \
     --fps 30 \
-    --enable_tiling \
-    --tile_overlap_factor 0.0
->>>>>>> 7f41973 (fix resume)
+    --enable_tiling
