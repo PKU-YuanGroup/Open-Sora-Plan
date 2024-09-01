@@ -4,6 +4,7 @@ try:
 except:
     torch_npu = None
     npu_config = None
+    
 import torch.nn as nn
 from typing import Union, Tuple
 import torch
@@ -11,6 +12,7 @@ from .block import Block
 from .ops import cast_tuple
 from .ops import video_to_image
 from torch.utils.checkpoint import checkpoint
+import torch.nn.functional as F
 
 
 class Conv2d(nn.Conv2d):
@@ -54,7 +56,8 @@ class CausalConv3d(Block):
         chan_out,
         kernel_size: Union[int, Tuple[int, int, int]],
         enable_cached=False,
-        **kwargs,
+        bias=True,
+        **kwargs
     ):
         super().__init__()
         self.kernel_size = cast_tuple(kernel_size, 3)
@@ -72,6 +75,7 @@ class CausalConv3d(Block):
             self.kernel_size,
             stride=self.stride,
             padding=self.padding,
+            bias=bias
         )
         self.enable_cached = enable_cached
         self.causal_cached = None
@@ -87,9 +91,12 @@ class CausalConv3d(Block):
 
         x = torch.concatenate((first_frame_pad, x), dim=2)
 
-        if self.enable_cached and self.time_kernel_size - 1 != 0:
-            self.causal_cached = x[:, :, -(self.time_kernel_size - 1) :, :, :]
-
+        if self.enable_cached and self.time_kernel_size != 1:
+            if (self.time_kernel_size - 1) // self.stride[0] != 0:
+                self.causal_cached = x[:, :, -(self.time_kernel_size - 1) // self.stride[0]:, :, :]
+            else:
+                self.causal_cached = x[:, :, 0:0, :, :]
+            
         if npu_config is not None and npu_config.on_npu:
             return npu_config.run_conv3d(self.conv, x, x_dtype)
         else:
@@ -103,7 +110,7 @@ class CausalConv3d_GC(CausalConv3d):
         chan_out,
         kernel_size: Union[int, Tuple[int]],
         init_method="random",
-        **kwargs,
+        **kwargs
     ):
         super().__init__(chan_in, chan_out, kernel_size, init_method, **kwargs)
 
