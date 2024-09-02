@@ -1,1 +1,1 @@
-/home/obs_data/20240426/20240704-02-bbc-01,/home/image_data/captions/TV01_clips_final_478625_llavanext_217405_aes478625.json
+/home/obs_data,/home/image_data/captions/2_16_3957043.json

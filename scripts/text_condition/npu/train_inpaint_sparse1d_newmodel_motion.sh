@@ -1,13 +1,13 @@
 export WANDB_KEY="720d886d8c437c2142c88056a1eab8ef78d64a1f"
-export WANDB_MODE="offline"
+export WANDB_MODE="online"
 export ENTITY="yunyang"
-# export PROJECT=$PROJECT_NAME
-export PROJECT='test'
+export PROJECT=$PROJECT_NAME
+# export PROJECT='test'
 export HF_DATASETS_OFFLINE=1 
 export TRANSFORMERS_OFFLINE=1
 
 export HCCL_OP_BASE_FFTS_MODE_ENABLE=TRUE
-export HCCL_ALGO="level0:NA;level1:H-D_R"
+# export HCCL_ALGO="level0:NA;level1:H-D_R"
 
 accelerate launch \
     --config_file scripts/accelerate_configs/multi_node_example_by_deepspeed.yaml \
@@ -31,7 +31,7 @@ accelerate launch \
     --attention_mode xformers \
     --gradient_checkpointing \
     --train_batch_size=1 \
-    --dataloader_num_workers 8 \
+    --dataloader_num_workers 10 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
     --learning_rate=1e-5 \
@@ -39,7 +39,7 @@ accelerate launch \
     --lr_warmup_steps=0 \
     --mixed_precision="bf16" \
     --report_to="wandb" \
-    --checkpointing_steps=10000 \
+    --checkpointing_steps=1000 \
     --allow_tf32 \
     --model_max_length 512 \
     --use_image_num 0 \
@@ -47,7 +47,7 @@ accelerate launch \
     --use_ema \
     --ema_start_step 0 \
     --cfg 0.1 \
-    --noise_offset 0.02 \
+    --noise_offset 0.0 \
     --use_rope \
     --skip_low_resolution \
     --speed_factor 1.0 \
@@ -58,14 +58,19 @@ accelerate launch \
     --use_motion \
     --train_fps 16 \
     --seed 1234 \
+    --trained_data_global_step 0 \
     --group_data \
+    --use_decord \
+    --prediction_type "v_prediction" \
+    --rescale_betas_zero_snr \
     --t2v_ratio 0.1 \
     --i2v_ratio 0.0 \
     --transition_ratio 0.0 \
     --v2v_ratio 0.4 \
     --clear_video_ratio 0.1 \
-    --min_clear_ratio 0.5 \
+    --min_clear_ratio 0.25 \
     --default_text_ratio 0.5 \
     --output_dir /home/save_dir/runs/$PROJECT > training_log.txt \
-    --pretrained_transformer_model_path "/home/image_data/lb/Open-Sora-Plan/bs32x8x1_anyx93x320x320_fps16_lr1e-5_snr5_noioff0.02_ema9999_sparse1d4_dit_l_mt5xxl_alldata100m/model_ema" \
-    # --resume_from_checkpoint="latest" \
+    --resume_from_checkpoint="latest" \ 
+    # --pretrained_transformer_model_path "/home/save_dir/runs/inpaint_93x320x320_stage1_step1/checkpoint-2000/model_ema" \
+    # 切part是resume，不是pretrained

@@ -153,16 +153,18 @@ class Inpaint_dataset(Meta_dataset):
         }
 
     def get_video(self, idx):
-        logger.info(f'Now we use inpaint dataset {idx}')
         video_data = dataset_prog.cap_list[idx]
         video_path = video_data['path']
         assert os.path.exists(video_path), f"file {video_path} do not exist!"
         frame_indice = dataset_prog.cap_list[idx]['sample_frame_index']
         sample_h = video_data['resolution']['sample_height']
         sample_w = video_data['resolution']['sample_width']
-        # video = self.decord_read(video_path, predefine_frame_indice=frame_indice)
-        # import ipdb;ipdb.set_trace()
-        video = (torch.randn([len(frame_indice), 3, sample_h, sample_w]) * 255.0).to(torch.uint8)
+        if self.video_reader == 'decord':
+            video = self.decord_read(video_path, predefine_frame_indice=frame_indice)
+        elif self.video_reader == 'opencv':
+            video = self.opencv_read(video_path, predefine_frame_indice=frame_indice)
+        else:
+            NotImplementedError(f'Found {self.video_reader}, but support decord or opencv')
 
         inpaint_cond_data = self.get_mask_masked_pixel_values(video, self.mask_func_weights_video)
         mask, masked_video = inpaint_cond_data['mask'], inpaint_cond_data['masked_pixel_values']
@@ -214,11 +216,9 @@ class Inpaint_dataset(Meta_dataset):
         sample_w = image_data['resolution']['sample_width']
 
         # import ipdb;ipdb.set_trace()
-        # image = Image.open(image_data['path']).convert('RGB')  # [h, w, c]
-        # image = torch.from_numpy(np.array(image))  # [h, w, c]
-        # image = rearrange(image, 'h w c -> c h w').unsqueeze(0)  #  [1 c h w]
-
-        image = (torch.randn([1, 3, sample_h, sample_w]) * 255.0).to(torch.uint8)
+        image = Image.open(image_data['path']).convert('RGB')  # [h, w, c]
+        image = torch.from_numpy(np.array(image))  # [h, w, c]
+        image = rearrange(image, 'h w c -> c h w').unsqueeze(0)  #  [1 c h w]
 
         inpaint_cond_data = self.get_mask_masked_pixel_values(image, self.mask_func_weights_image)
         mask, masked_image = inpaint_cond_data['mask'], inpaint_cond_data['masked_pixel_values']

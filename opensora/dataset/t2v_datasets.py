@@ -18,7 +18,6 @@ from os.path import join as opj
 from collections import Counter
 
 import cv2
-import jsonlines
 import pandas as pd
 import time
 import torch
