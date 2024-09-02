@@ -4,6 +4,7 @@ try:
 except:
     torch_npu = None
     npu_config = None
+    
 import torch.nn as nn
 from typing import Union, Tuple
 import torch
@@ -11,6 +12,8 @@ from .block import Block
 from .ops import cast_tuple
 from .ops import video_to_image
 from torch.utils.checkpoint import checkpoint
+import torch.nn.functional as F
+
 
 class Conv2d(nn.Conv2d):
     def __init__(
@@ -40,83 +43,81 @@ class Conv2d(nn.Conv2d):
             device,
             dtype,
         )
-        
+
     @video_to_image
     def forward(self, x):
         return super().forward(x)
-        
 
 
 class CausalConv3d(Block):
     def __init__(
-        self, chan_in, chan_out, kernel_size: Union[int, Tuple[int, int, int]], init_method="random", **kwargs
+        self,
+        chan_in,
+        chan_out,
+        kernel_size: Union[int, Tuple[int, int, int]],
+        enable_cached=False,
+        bias=True,
+        **kwargs
     ):
         super().__init__()
         self.kernel_size = cast_tuple(kernel_size, 3)
         self.time_kernel_size = self.kernel_size[0]
         self.chan_in = chan_in
         self.chan_out = chan_out
-        stride = kwargs.pop("stride", 1)
+        self.stride = kwargs.pop("stride", 1)
         self.padding = kwargs.pop("padding", 0)
         self.padding = list(cast_tuple(self.padding, 3))
         self.padding[0] = 0
-        stride = cast_tuple(stride, 3)
-        self.conv = nn.Conv3d(chan_in, chan_out, self.kernel_size, stride=stride, padding=self.padding)
-        self._init_weights(init_method)
-        
-    def _init_weights(self, init_method):
-        ks = torch.tensor(self.kernel_size)
-        if init_method == "avg":
-            assert (
-                self.kernel_size[1] == 1 and self.kernel_size[2] == 1
-            ), "only support temporal up/down sample"
-            assert self.chan_in == self.chan_out, "chan_in must be equal to chan_out"
-            weight = torch.zeros((self.chan_out, self.chan_in, *self.kernel_size))
+        self.stride = cast_tuple(self.stride, 3)
+        self.conv = nn.Conv3d(
+            chan_in,
+            chan_out,
+            self.kernel_size,
+            stride=self.stride,
+            padding=self.padding,
+            bias=bias
+        )
+        self.enable_cached = enable_cached
+        self.causal_cached = None
 
-            eyes = torch.concat(
-                [
-                    torch.eye(self.chan_in).unsqueeze(-1) * 1/3,
-                    torch.eye(self.chan_in).unsqueeze(-1) * 1/3,
-                    torch.eye(self.chan_in).unsqueeze(-1) * 1/3,
-                ],
-                dim=-1,
-            )
-            weight[:, :, :, 0, 0] = eyes
-
-            self.conv.weight = nn.Parameter(
-                weight,
-                requires_grad=True,
-            )
-        elif init_method == "zero":
-            self.conv.weight = nn.Parameter(
-                torch.zeros((self.chan_out, self.chan_in, *self.kernel_size)),
-                requires_grad=True,
-            )
-        if self.conv.bias is not None:
-            nn.init.constant_(self.conv.bias, 0)
-            
     def forward(self, x):
-        if npu_config is not None and npu_config.on_npu:
-            x_dtype = x.dtype
+        x_dtype = x.dtype
+        if self.causal_cached is None:
             first_frame_pad = x[:, :, :1, :, :].repeat(
                 (1, 1, self.time_kernel_size - 1, 1, 1)
             )
-            x = torch.concatenate((first_frame_pad, x), dim=2)
+        else:
+            first_frame_pad = self.causal_cached
+
+        x = torch.concatenate((first_frame_pad, x), dim=2)
+
+        if self.enable_cached and self.time_kernel_size != 1:
+            if (self.time_kernel_size - 1) // self.stride[0] != 0:
+                self.causal_cached = x[:, :, -(self.time_kernel_size - 1) // self.stride[0]:, :, :]
+            else:
+                self.causal_cached = x[:, :, 0:0, :, :]
+            
+        if npu_config is not None and npu_config.on_npu:
             return npu_config.run_conv3d(self.conv, x, x_dtype)
         else:
-            first_frame_pad = x[:, :, :1, :, :].repeat(
-                (1, 1, self.time_kernel_size - 1, 1, 1)
-            )
-            x = torch.concatenate((first_frame_pad, x), dim=2)
             return self.conv(x)
-    
+
+
 class CausalConv3d_GC(CausalConv3d):
-    def __init__(self, chan_in, chan_out, kernel_size: Union[int, Tuple[int]], init_method="random", **kwargs):
+    def __init__(
+        self,
+        chan_in,
+        chan_out,
+        kernel_size: Union[int, Tuple[int]],
+        init_method="random",
+        **kwargs
+    ):
         super().__init__(chan_in, chan_out, kernel_size, init_method, **kwargs)
+
     def forward(self, x):
         # 1 + 16   16 as video, 1 as image
         first_frame_pad = x[:, :, :1, :, :].repeat(
             (1, 1, self.time_kernel_size - 1, 1, 1)
-        )   # b c t h w
+        )  # b c t h w
         x = torch.concatenate((first_frame_pad, x), dim=2)  # 3 + 16
         return checkpoint(self.conv, x)

@@ -310,24 +310,35 @@ class Spatial2x3DUpsample(Block):
         return self.conv(x)
     
 class Spatial2xTime2x3DUpsample(Block):
-    def __init__(self, in_channels, out_channels, t_interpolation="trilinear"):
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        t_interpolation="trilinear",
+        enable_cached=False,
+    ):
         super().__init__()
         self.t_interpolation = t_interpolation
         self.conv = CausalConv3d(in_channels, out_channels, kernel_size=3, padding=1)
+        self.enable_cached = enable_cached
+        self.causal_cached = None
 
     def forward(self, x):
         if x.size(2) > 1:
-            x, x_ = x[:, :, :1], x[:, :, 1:]
-            x_ = F.interpolate(x_, scale_factor=(2, 1, 1), mode=self.t_interpolation)
-            x_ = F.interpolate(x_, scale_factor=(1, 2, 2), mode="trilinear")
-            x = F.interpolate(x, scale_factor=(1, 2, 2), mode="trilinear")
-            x = torch.concat([x, x_], dim=2)
+            if self.enable_cached and self.causal_cached:
+                x = F.interpolate(x, scale_factor=(2, 1, 1), mode=self.t_interpolation)
+                x = F.interpolate(x, scale_factor=(1, 2, 2), mode="trilinear")
+            else:
+                x, x_ = x[:, :, :1], x[:, :, 1:]
+                x_ = F.interpolate(
+                    x_, scale_factor=(2, 1, 1), mode=self.t_interpolation
+                )
+                x_ = F.interpolate(x_, scale_factor=(1, 2, 2), mode="trilinear")
+                x = F.interpolate(x, scale_factor=(1, 2, 2), mode="trilinear")
+                x = torch.concat([x, x_], dim=2)
+                self.causal_cached = True
         else:
-            # if npu_config is not None and npu_config.on_npu:
-            #     x_dtype = x.dtype
-            #     x = x.to(npu_config.replaced_type)
-            #     x = F.interpolate(x, scale_factor=(1, 2, 2), mode='trilinear')
-            #     x = x.to(x_dtype)
-            # else:
+            if self.enable_cached and not self.causal_cached:
+                self.causal_cached = True
             x = F.interpolate(x, scale_factor=(1, 2, 2), mode="trilinear")
         return self.conv(x)

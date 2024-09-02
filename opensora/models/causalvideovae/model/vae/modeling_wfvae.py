@@ -4,6 +4,7 @@ try:
 except:
     torch_npu = None
     npu_config = None
+    
 from ..modeling_videobase import VideoBaseAE
 from diffusers.configuration_utils import register_to_config
 import torch
@@ -24,15 +25,14 @@ from ..modules import (
 import torch.nn as nn
 from ..utils.distrib_utils import DiagonalGaussianDistribution
 from ..utils.wavelet_utils import (
-    haar_wavelet_transform_3d,
-    inverse_haar_wavelet_transform_3d,
-    haar_wavelet_transform_2d_new,
-    inverse_haar_wavelet_transform_2d_new,
+    HaarWaveletTransform2D,
+    HaarWaveletTransform3D,
+    InverseHaarWaveletTransform2D,
+    InverseHaarWaveletTransform3D
 )
 import torch
 from copy import deepcopy
 import os
-from .modeling_causalvae import Decoder
 from ..registry import ModelRegistry
 from einops import rearrange
 
@@ -52,7 +52,7 @@ class Encoder(VideoBaseAE):
     ) -> None:
         super().__init__()
         self.down1 = nn.Sequential(
-            Conv2d(24, 128, kernel_size=3, stride=1, padding=1),
+            Conv2d(24, base_channels, kernel_size=3, stride=1, padding=1),
             *[
                 ResnetBlock2D(
                     in_channels=base_channels,
@@ -93,7 +93,7 @@ class Encoder(VideoBaseAE):
         # Mid
         mid_layers = [
             ResnetBlock3D(
-                in_channels=base_channels * 2 + 64,
+                in_channels=base_channels * 2 + energy_flow_hidden_size,
                 out_channels=base_channels * 4,
                 dropout=dropout,
                 norm_type=norm_type,
@@ -106,19 +106,25 @@ class Encoder(VideoBaseAE):
             ),
         ]
         if use_attention:
-            mid_layers.insert(1, AttnBlock3DFix(in_channels=base_channels * 4, norm_type=norm_type))
+            mid_layers.insert(
+                1, AttnBlock3DFix(in_channels=base_channels * 4, norm_type=norm_type)
+            )
         self.mid = nn.Sequential(*mid_layers)
 
         self.norm_out = Normalize(base_channels * 4, norm_type=norm_type)
         self.conv_out = CausalConv3d(
             base_channels * 4, latent_dim * 2, kernel_size=3, stride=1, padding=1
         )
-
+        
+        self.wavelet_tranform_3d = HaarWaveletTransform3D()
+        self.wavelet_tranform_2d = HaarWaveletTransform2D()
+        
+        
     def forward(self, coeffs):
         l2_coeffs = coeffs[:, :3]
         t = l2_coeffs.shape[2]
         l2_coeffs = rearrange(l2_coeffs, "b c t h w -> (b t) c h w")
-        l2_coeffs = haar_wavelet_transform_2d_new(l2_coeffs)
+        l2_coeffs = self.wavelet_tranform_2d(l2_coeffs)
         l2_coeffs = rearrange(l2_coeffs, "(b t) c h w -> b c t h w", t=t)
         l2 = self.connect_l2(l2_coeffs)
         if torch_npu is not None:
@@ -128,15 +134,18 @@ class Encoder(VideoBaseAE):
         else:
             l3_coeffs = haar_wavelet_transform_3d(l2_coeffs[:, :3])
         l3 = self.connect_l3(l3_coeffs)
+        
         h = self.down1(coeffs)
         h = torch.concat([h, l2], dim=1)
         h = self.down2(h)
         h = torch.concat([h, l3], dim=1)
         h = self.mid(h)
+        
         if npu_config is None:
             h = self.norm_out(h)
         else:
             h = npu_config.run_group_norm(self.norm_out, h)
+            
         h = nonlinearity(h)
         h = self.conv_out(h)
         return h
@@ -177,7 +186,9 @@ class Decoder(VideoBaseAE):
             ),
         ]
         if use_attention:
-            mid_layers.insert(1, AttnBlock3DFix(in_channels=base_channels * 4, norm_type=norm_type))
+            mid_layers.insert(
+                1, AttnBlock3DFix(in_channels=base_channels * 4, norm_type=norm_type)
+            )
         self.mid = nn.Sequential(*mid_layers)
 
         self.up2 = nn.Sequential(
@@ -258,10 +269,13 @@ class Decoder(VideoBaseAE):
         self.norm_out = Normalize(base_channels, norm_type=norm_type)
         self.conv_out = Conv2d(base_channels, 24, kernel_size=3, stride=1, padding=1)
 
+        self.inverse_wavelet_tranform_3d = InverseHaarWaveletTransform3D()
+        self.inverse_wavelet_tranform_2d = InverseHaarWaveletTransform2D()
+        
+        
     def forward(self, z):
         h = self.conv_in(z)
         h = self.mid(h)
-
         l3_coeffs = self.connect_l3(h[:, -self.energy_flow_hidden_size :])
         if torch_npu is not None:
             dtype = l3_coeffs.dtype
@@ -269,19 +283,18 @@ class Decoder(VideoBaseAE):
             l3 = l3.to(dtype)
         else:
             l3 = inverse_haar_wavelet_transform_3d(l3_coeffs)
-
         h = self.up2(h[:, : -self.energy_flow_hidden_size])
-
         l2_coeffs = h[:, -self.energy_flow_hidden_size :]
         l2_coeffs = self.connect_l2(l2_coeffs)
         l2_coeffs[:, :3] = l2_coeffs[:, :3] + l3
+        
         t = l2_coeffs.shape[2]
         l2_coeffs = rearrange(l2_coeffs, "b c t h w -> (b t) c h w")
-        l2 = inverse_haar_wavelet_transform_2d_new(l2_coeffs)
+        l2 = self.inverse_wavelet_tranform_2d(l2_coeffs)
         l2 = rearrange(l2, "(b t) c h w -> b c t h w", t=t)
 
         h = self.up1(h[:, : -self.energy_flow_hidden_size])
-
+        
         h = self.layer(h)
         if npu_config is None:
             h = self.norm_out(h)
@@ -312,6 +325,7 @@ class WFVAEModel(VideoBaseAE):
     ) -> None:
         super().__init__()
         self.use_tiling = False
+        self.t_chunk = 8
         self.use_quant_layer = False
 
         self.encoder = Encoder(
@@ -344,36 +358,105 @@ class WFVAEModel(VideoBaseAE):
             return [self.post_quant_conv, self.decoder]
         return [self.decoder]
 
+    def _empty_causal_cached(self, parent):
+        for name, module in parent.named_modules():
+            if hasattr(module, 'causal_cached'):
+                module.causal_cached = None
+                
+    def _set_causal_cached(self, enable_cached=True):
+        for name, module in self.named_modules():
+            if hasattr(module, 'enable_cached'):
+                module.enable_cached = enable_cached
+                
     def encode(self, x):
+        self._empty_causal_cached(self.encoder)
         if torch_npu is not None:
             dtype = x.dtype
             x = x.to(torch.float16)
-            coeffs = haar_wavelet_transform_3d(x)
+            wt = HaarWaveletTransform3D().to(x.device, dtype=torch.float16)
             coeffs = coeffs.to(dtype)
         else:
-            coeffs = haar_wavelet_transform_3d(x)
-        h = self.encoder(coeffs)
-        if self.use_quant_layer:
-            h = self.quant_conv(h)
+            wt = HaarWaveletTransform3D().to(x.device, dtype=x.dtype)
+            coeffs = wt(x)
+        if self.use_tiling:
+            h = self.tile_encode(coeffs)
+            # torch.save(h, "tile_encode.pt")
+        else:
+            h = self.encoder(coeffs)
+            if self.use_quant_layer:
+                h = self.quant_conv(h)
+            # torch.save(h, "encode.pt")
+            
         posterior = DiagonalGaussianDistribution(h)
         return posterior
+    
+    def tile_encode(self, x):
+        b, c, t, h, w = x.shape
+        
+        assert self.t_chunk % 4 == 0
+        t_chunk = self.t_chunk
+        
+        result = []
+        chunk = self.encoder(x[:, :, :1, :, :])
+        if self.use_quant_layer:
+            chunk = self.quant_conv(chunk)
+            
+        result.append(chunk)
+        for start in range(1, t, t_chunk):
+            end = min(start + t_chunk, t)
+            chunk = x[:, :, start:end, :, :]
+            chunk = self.encoder(chunk)
+            if self.use_quant_layer:
+                chunk = self.quant_conv(chunk)
+            result.append(chunk)
+            
+        return torch.cat(result, dim=2)
 
-    def _is_wavelet_output(self, x):
-        return x.shape[1] != 3
 
     def decode(self, z):
-        if self.use_quant_layer:
-            z = self.post_quant_conv(z)
-        dec = self.decoder(z)
-        if self._is_wavelet_output(dec):
-            if torch_npu is not None:
-                dtype = dec.dtype
-                dec = dec.to(torch.float16)
-                dec = inverse_haar_wavelet_transform_3d(dec)
-                dec = dec.to(dtype)
-            else:
-                dec = inverse_haar_wavelet_transform_3d(dec)
+        self._empty_causal_cached(self.decoder)
+        
+        if self.use_tiling:
+            dec = self.tile_decode(z)
+            # torch.save(dec, "tile_decode.pt")
+        else:
+            if self.use_quant_layer:
+                z = self.post_quant_conv(z)
+            dec = self.decoder(z)
+            # torch.save(dec, "decode.pt")
+        if torch_npu is not None:
+            dtype = dec.dtype
+            dec = dec.to(torch.float16)
+            wt = InverseHaarWaveletTransform3D().to(dec.device, dtype=torch.float16)
+            dec = wt(dec)
+            dec = dec.to(dtype)
+        else:
+            wt = InverseHaarWaveletTransform3D().to(dec.device, dtype=dec.dtype)
+            dec = wt(dec)
         return dec
+    
+    def tile_decode(self, x):
+        b, c, t, h, w = x.shape
+        
+        assert self.t_chunk % 4 == 0
+        t_chunk = self.t_chunk
+            
+        result = []
+        chunk = x[:, :, 0:1, :, :]
+        if self.use_quant_layer:
+            chunk = self.post_quant_conv(chunk)
+        chunk = self.decoder(chunk)
+        result.append(chunk)
+        
+        for start in range(1, t, t_chunk):
+            end = min(start + t_chunk, t)
+            chunk = x[:, :, start:end, :, :]
+            if self.use_quant_layer:
+                chunk = self.post_quant_conv(chunk)
+            chunk = self.decoder(chunk)
+            result.append(chunk)
+            
+        return torch.cat(result, dim=2)
 
     def forward(self, input, sample_posterior=True):
         posterior = self.encode(input)
@@ -391,9 +474,9 @@ class WFVAEModel(VideoBaseAE):
             return self.decoder.conv_out.weight
 
     def enable_tiling(self, use_tiling: bool = True):
-        raise NotImplementedError("WFVAE not support tiling yet.")
         self.use_tiling = use_tiling
-
+        self._set_causal_cached(use_tiling)
+        
     def disable_tiling(self):
         self.enable_tiling(False)
 
@@ -424,5 +507,5 @@ class WFVAEModel(VideoBaseAE):
                     print("Deleting key {} from state_dict.".format(k))
                     del sd[k]
 
-        missing_keys, unexpected_keys = self.load_state_dict(sd, strict=True)
+        missing_keys, unexpected_keys = self.load_state_dict(sd, strict=False)
         print(missing_keys, unexpected_keys)
