@@ -4,7 +4,7 @@ import torch.nn as nn
 from einops import rearrange
 from timm.models.layers import DropPath
 from timm.models.vision_transformer import Mlp
-from megatron.core import mpu
+from megatron.core import mpu, tensor_parallel
 from megatron.training import get_args
 from mindspeed_mm.models.common.module import MultiModalModule
 from mindspeed_mm.models.common.checkpoint import auto_grad_checkpoint
@@ -95,6 +95,7 @@ class STDiTBlock(nn.Module):
         )
 
     def forward(self, x, y, t, mask=None, tpe=None):
+        mask = mask.tolist()
         B, N, C = x.shape
 
         shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
@@ -201,7 +202,15 @@ class STDiT(MultiModalModule):
         if args.virtual_pipeline_model_parallel_size is not None:
             raise NotImplementedError("VPP is not supported now")
         else:
-            offset = mpu.get_pipeline_model_parallel_group() * self.num_layers
+            offset = mpu.get_pipeline_model_parallel_rank() * self.num_layers
+        self.recompute_granularity = args.recompute_granularity
+        self.distribute_saved_activations = args.distribute_saved_activations
+        self.recompute_method = args.recompute_method
+        self.recompute_num_layers = args.recompute_num_layers
+        if self.recompute_granularity == "selective":
+            raise ValueError("recompute_granularity does not support selective mode in STDiT")
+        if self.distribute_saved_activations:
+            raise NotImplementedError("distribute_saved_activations is currently not supported")
 
         self.blocks = nn.ModuleList(
             [
@@ -235,6 +244,79 @@ class STDiT(MultiModalModule):
         else:
             self.sp_rank = None
 
+    def _get_layer(self, layer_number):
+        return self.blocks[layer_number]
+
+    def _checkpointed_forward(self, x, y, t0, y_lens, tpe):
+        """Forward method with activation checkpointing. """
+        def custom(start, end):
+            def custom_forward(*args, **kwargs):
+                x_, *args = args
+                for index in range(start, end):
+                    layer = self._get_layer(index)
+                    x_ = layer(x_, *args, **kwargs)
+                return x_
+            return custom_forward
+        
+        if self.recompute_method == "uniform":
+            # Uniformly divide the total number of Transformer layers and
+            # checkpoint the input activation of each divided chunk.
+            # A method to further reduce memory usage reducing checkpoints.
+            layer_num = 0
+            while layer_num < self.num_layers:
+                if layer_num == 0:
+                    if self.enable_sequence_parallelism:
+                        tpe = torch.chunk(
+                            self.pos_embed_temporal,
+                            mpu.get_context_parallel_world_size(),
+                            dim=1,
+                        )[self.sp_rank].contiguous()
+                    else:
+                        tpe = self.pos_embed_temporal
+                else:
+                    tpe = None
+                x = tensor_parallel.checkpoint(
+                    custom(layer_num, layer_num + self.recompute_num_layers),
+                    self.distribute_saved_activations,
+                    x,
+                    y,
+                    t0,
+                    y_lens,
+                    tpe)
+                layer_num += self.recompute_num_layers
+        elif self.recompute_method == "block":
+            # Checkpoint the input activation of only a set number of individual
+            # Transformer layers and skip the rest.
+            # A method fully use the device memory removing redundant re-computation.
+            for layer_num in range(self.num_layers):
+                if layer_num == 0:
+                    if self.enable_sequence_parallelism:
+                        tpe = torch.chunk(
+                            self.pos_embed_temporal,
+                            mpu.get_context_parallel_world_size(),
+                            dim=1,
+                        )[self.sp_rank].contiguous()
+                    else:
+                        tpe = self.pos_embed_temporal
+                else:
+                    tpe = None
+
+                if layer_num < self.recompute_num_layers:
+                    x = tensor_parallel.checkpoint(
+                        custom(layer_num, layer_num + 1),
+                        self.distribute_saved_activations,
+                        x,
+                        y,
+                        t0,
+                        y_lens,
+                        tpe)
+                else:
+                    block = self._get_layer(layer_num)
+                    x = block(x, y, t0, y_lens, tpe)
+        else: 
+            raise ValueError("Invalid activation recompute method.")
+        return x
+                
     def build_layer(self, drop_path, layer_number, enable_sequence_parallelism):
         return STDiTBlock(
             self.hidden_size,
@@ -300,19 +382,24 @@ class STDiT(MultiModalModule):
             x, y, t0, y_lens, tpe = self.input_tensor
 
         # blocks
-        for i, block in enumerate(self.blocks):
-            if i == 0:
-                if self.enable_sequence_parallelism:
-                    tpe = torch.chunk(
-                        self.pos_embed_temporal,
-                        mpu.get_context_parallel_world_size(),
-                        dim=1,
-                    )[self.sp_rank].contiguous()
+        tpe = None
+        y_lens = torch.tensor(y_lens)
+        if self.recompute_granularity == "full":
+            x = self._checkpointed_forward(x, y, t0, y_lens, tpe)
+        else:
+            for i, block in enumerate(self.blocks):
+                if i == 0:
+                    if self.enable_sequence_parallelism:
+                        tpe = torch.chunk(
+                            self.pos_embed_temporal,
+                            mpu.get_context_parallel_world_size(),
+                            dim=1,
+                        )[self.sp_rank].contiguous()
+                    else:
+                        tpe = self.pos_embed_temporal
                 else:
-                    tpe = self.pos_embed_temporal
-            else:
-                tpe = None
-            x = auto_grad_checkpoint(block, x, y, t0, y_lens, tpe)
+                    tpe = None
+                x = block(x, y, t0, y_lens, tpe)
 
         if mpu.is_pipeline_last_stage():
             if self.enable_sequence_parallelism:
