@@ -497,7 +497,7 @@ def main(args):
 
         # DeepSpeed requires saving weights on every device; saving weights only on the main process would cause issues.
         if accelerator.distributed_type == DistributedType.DEEPSPEED or accelerator.is_main_process:
-            if progress_info.global_step % args.checkpointing_steps == 0 or progress_info.global_step == args.one_epoch_training_step:
+            if progress_info.global_step % args.checkpointing_steps == 0 or progress_info.global_step == args.after_one_epoch_global_step:
                 # _before_ saving state, check if this save would set us over the `checkpoints_total_limit`
                 if accelerator.is_main_process and args.checkpoints_total_limit is not None:
                     checkpoints = os.listdir(args.output_dir)
@@ -728,7 +728,7 @@ def main(args):
         if progress_info.global_step >= args.max_train_steps:
             return True
 
-        args.one_epoch_training_step = len(train_dataloader) // args.gradient_accumulation_steps - 1
+        args.after_one_epoch_global_step = progress_info.global_step + len(train_dataloader) // args.gradient_accumulation_steps - 1
 
         for step, data_item in enumerate(train_dataloader):
             if train_one_step(step, data_item, prof_):
