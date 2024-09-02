@@ -384,13 +384,14 @@ class WFVAEModel(VideoBaseAE):
         else:
             wt = HaarWaveletTransform3D().to(x.device, dtype=x.dtype)
             coeffs = wt(x)
-            
         if self.use_tiling:
             h = self.tile_encode(coeffs)
+            # torch.save(h.detach().cpu(), 'tile_encoder.pt')
         else:
             h = self.encoder(coeffs)
             if self.use_quant_layer:
                 h = self.quant_conv(h)
+            # torch.save(h.detach().cpu(), 'encoder.pt')
             
         posterior = DiagonalGaussianDistribution(h)
         return posterior
@@ -415,10 +416,12 @@ class WFVAEModel(VideoBaseAE):
         
         if self.use_tiling:
             dec = self.tile_decode(z)
+            # torch.save(dec.detach().cpu(), 'tile_decoder.pt')
         else:
             if self.use_quant_layer:
                 z = self.post_quant_conv(z)
             dec = self.decoder(z)
+            # torch.save(dec.detach().cpu(), 'decoder.pt')
         
         if torch_npu is not None:
             dtype = dec.dtype
@@ -435,18 +438,10 @@ class WFVAEModel(VideoBaseAE):
     def tile_decode(self, x):
         b, c, t, h, w = x.shape
         
-        assert self.t_chunk % 4 == 0
-        t_chunk = self.t_chunk
-            
-        result = []
-        chunk = x[:, :, 0:1, :, :]
-        if self.use_quant_layer:
-            chunk = self.post_quant_conv(chunk)
-        chunk = self.decoder(chunk)
-        result.append(chunk)
+        start_end = self.build_chunk_start_end(t, decoder_mode=True)
         
-        for start in range(1, t, t_chunk):
-            end = min(start + t_chunk, t)
+        result = []
+        for start, end in start_end:
             chunk = x[:, :, start:end, :, :]
             if self.use_quant_layer:
                 chunk = self.post_quant_conv(chunk)
