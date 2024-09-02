@@ -98,19 +98,19 @@ def main(args: argparse.Namespace):
         #     vae.vae.tile_latent_min_size = 32
         #     vae.vae.tile_sample_min_size_t = 9
         #     vae.vae.tile_latent_min_size_t = 3
+    dtype = torch.float32
     vae.eval()
-    vae = vae.to(device)
-
-    vae = vae.half()
+    vae = vae.to(device, dtype=dtype)
+    
     with torch.no_grad():
         x_vae = preprocess(read_video(args.video_path, args.num_frames, args.sample_rate), args.height,
                            args.width)
         print(x_vae.shape)
-        x_vae = x_vae.to(device, dtype=torch.float16)  # b c t h w
+        x_vae = x_vae.to(device, dtype=dtype)  # b c t h w
         # for i in range(10000):
         latents = vae.encode(x_vae)
         print(latents.shape)
-        latents = latents.to(torch.float16)
+        latents = latents.to(dtype)
         video_recon = vae.decode(latents)  # b t c h w
         print(video_recon.shape)
 
