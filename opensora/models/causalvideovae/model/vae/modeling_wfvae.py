@@ -127,7 +127,12 @@ class Encoder(VideoBaseAE):
         l2_coeffs = self.wavelet_tranform_2d(l2_coeffs)
         l2_coeffs = rearrange(l2_coeffs, "(b t) c h w -> b c t h w", t=t)
         l2 = self.connect_l2(l2_coeffs)
-        l3_coeffs = self.wavelet_tranform_3d(l2_coeffs[:, :3])
+        if torch_npu is not None:
+            dtype = l2_coeffs.dtype
+            l3_coeffs = haar_wavelet_transform_3d(l2_coeffs[:, :3].to(torch.float16))
+            l3_coeffs = l3_coeffs.to(dtype)
+        else:
+            l3_coeffs = haar_wavelet_transform_3d(l2_coeffs[:, :3])
         l3 = self.connect_l3(l3_coeffs)
         
         h = self.down1(coeffs)
@@ -272,7 +277,12 @@ class Decoder(VideoBaseAE):
         h = self.conv_in(z)
         h = self.mid(h)
         l3_coeffs = self.connect_l3(h[:, -self.energy_flow_hidden_size :])
-        l3 = self.inverse_wavelet_tranform_3d(l3_coeffs)
+        if torch_npu is not None:
+            dtype = l3_coeffs.dtype
+            l3 = inverse_haar_wavelet_transform_3d(l3_coeffs.to(torch.float16))
+            l3 = l3.to(dtype)
+        else:
+            l3 = inverse_haar_wavelet_transform_3d(l3_coeffs)
         h = self.up2(h[:, : -self.energy_flow_hidden_size])
         l2_coeffs = h[:, -self.energy_flow_hidden_size :]
         l2_coeffs = self.connect_l2(l2_coeffs)
@@ -360,8 +370,14 @@ class WFVAEModel(VideoBaseAE):
                 
     def encode(self, x):
         self._empty_causal_cached(self.encoder)
-        wt = HaarWaveletTransform3D().to(x.device, dtype=x.dtype)
-        coeffs = wt(x)
+        if torch_npu is not None:
+            dtype = x.dtype
+            x = x.to(torch.float16)
+            wt = HaarWaveletTransform3D().to(x.device, dtype=torch.float16)
+            coeffs = coeffs.to(dtype)
+        else:
+            wt = HaarWaveletTransform3D().to(x.device, dtype=x.dtype)
+            coeffs = wt(x)
         if self.use_tiling:
             h = self.tile_encode(coeffs)
             # torch.save(h, "tile_encode.pt")
@@ -408,9 +424,15 @@ class WFVAEModel(VideoBaseAE):
                 z = self.post_quant_conv(z)
             dec = self.decoder(z)
             # torch.save(dec, "decode.pt")
-            
-        wt = InverseHaarWaveletTransform3D().to(dec.device, dtype=dec.dtype)
-        dec = wt(dec)
+        if torch_npu is not None:
+            dtype = dec.dtype
+            dec = dec.to(torch.float16)
+            wt = InverseHaarWaveletTransform3D().to(dec.device, dtype=torch.float16)
+            dec = wt(dec)
+            dec = dec.to(dtype)
+        else:
+            wt = InverseHaarWaveletTransform3D().to(dec.device, dtype=dec.dtype)
+            dec = wt(dec)
         return dec
     
     def tile_decode(self, x):

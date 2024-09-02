@@ -47,6 +47,8 @@ check.py
 bucket.py
 whileinf.py
 validation_dir/
+runs/
+samples/
 inpaint*/
 bs32x8x1*
 *tmp*
@@ -55,6 +57,8 @@ check.py
 bucket.py
 whileinf.py
 bs4x8x16_*
+*.zip
+*validation/
 bs1x8x32*
 bs16x8x1*
 bs8x8x2*
@@ -64,6 +68,9 @@ bs1x8x16*
 checklora.py
 dim4todim8.py
 *vae8_any*320x320*
+samples/
+runs/
+*validation/
 training_log*txt
 filter_motion*
 json2*.py
@@ -71,14 +78,12 @@ motionfun*
 res_dist*
 filter_json_aes_m*
 stage2*.json
-<<<<<<< HEAD
 kernel_meta
 ge_check_op.json
 WFVAE_DISTILL_FORMAL
-=======
 read_video*
 bs32x8x2*
 filter_json_aes_m*
 json2json*
 makenpu_json*
->>>>>>> 7f41973 (fix resume)
+

@@ -946,8 +946,6 @@ class AttnProcessor2_0:
                 value = rearrange(value, 's b h d -> b h s d')
                 # print('rearrange query', query.shape, 'key', key.shape, 'value', value.shape)
 
-
-
                 if self.sparse1d:
                     query, attention_mask, pad_len = self._sparse_1d(query, attention_mask, frame * sp_size, height, width)
                     

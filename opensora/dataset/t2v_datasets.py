@@ -18,7 +18,6 @@ from os.path import join as opj
 from collections import Counter
 
 import cv2
-import jsonlines
 import pandas as pd
 import time
 import torch
@@ -87,14 +86,14 @@ class DataSetProg(metaclass=SingletonMeta):
         self.elements = list(range(n_elements))
         
         print(f"n_elements: {len(self.elements)}", flush=True)
-        if torch_npu is not None:
-            random.shuffle(self.elements)
-            for i in range(self.num_workers):
-                self.n_used_elements[i] = 0
-                per_worker = int(math.ceil(len(self.elements) / float(self.num_workers)))
-                start = i * per_worker
-                end = min(start + per_worker, len(self.elements))
-                self.worker_elements[i] = self.elements[start: end]
+        # if torch_npu is not None:
+        #     random.shuffle(self.elements)
+        #     for i in range(self.num_workers):
+        #         self.n_used_elements[i] = 0
+        #         per_worker = int(math.ceil(len(self.elements) / float(self.num_workers)))
+        #         start = i * per_worker
+        #         end = min(start + per_worker, len(self.elements))
+        #         self.worker_elements[i] = self.elements[start: end]
 
     def get_item(self, work_info):
         if work_info is None:
@@ -199,9 +198,9 @@ class T2V_dataset(Dataset):
         return dataset_prog.n_elements
 
     def __getitem__(self, idx):
-        if npu_config is not None:
-            worker_info = get_worker_info()
-            idx = dataset_prog.get_item(worker_info)
+        # if npu_config is not None:
+        #     worker_info = get_worker_info()
+        #     idx = dataset_prog.get_item(worker_info)
         try:
             # print('idx:', idx)
             data = self.get_data(idx)
@@ -224,7 +223,7 @@ class T2V_dataset(Dataset):
         # # print('random shape', video.shape)
         # input_ids = torch.ones(1, 120).to(torch.long).squeeze(0)
         # cond_mask = torch.cat([torch.ones(1, 60).to(torch.long), torch.ones(1, 60).to(torch.long)], dim=1).squeeze(0)
-
+        logger.info(f'Now we use t2v dataset {idx}')
         video_data = dataset_prog.cap_list[idx]
         video_path = video_data['path']
         assert os.path.exists(video_path), f"file {video_path} do not exist!"
@@ -604,19 +603,5 @@ class T2V_dataset(Dataset):
     #     return img_cap_lists[:-1]  # drop last to avoid error length
 
     def get_cap_list(self):
-        if npu_config is None:
-            data_roots, cap_lists = self.read_jsons(self.data, postfix=".mp4")
-        else:
-            raise NotImplementedError('need return data_roots')
-            cap_lists = npu_config.try_load_pickle("cap_lists5",
-                                                       lambda: self.read_jsons(self.data, postfix=".mp4"))
-            # npu_config.print_msg(f"length of cap_lists is {len(cap_lists)}")
-            cap_lists = cap_lists[npu_config.get_local_rank()::npu_config.N_NPU_PER_NODE]
-            cap_lists_final = []
-            for item in cap_lists:
-                if os.path.exists(item['path']) and os.path.getsize(item['path']) > 10240:
-                    cap_lists_final.append(item)
-            cap_lists = cap_lists_final
-            npu_config.print_msg(f"length of cap_lists is {len(cap_lists)}")
-
+        data_roots, cap_lists = self.read_jsons(self.data, postfix=".mp4")
         return data_roots, cap_lists

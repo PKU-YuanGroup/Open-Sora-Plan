@@ -71,7 +71,7 @@ class BF16_Optimizer(ZeROOptimizer):
         self.unflatten = _unflatten_dense_tensors
 
         #align nccl all-gather send buffers to 4-bye boundary
-        self.nccl_start_alignment_factor = 512
+        self.nccl_start_alignment_factor = 16
 
         # Build BF16/FP32 groups
         self.bf16_groups = []

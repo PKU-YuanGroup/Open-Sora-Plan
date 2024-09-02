@@ -306,7 +306,7 @@ class DeepSpeedZeroOptimizer(ZeROOptimizer):
         self.partition_size = []
 
         # align nccl all-gather send buffers to 4-byte boundary
-        self.nccl_start_alignment_factor = 512  # 4-byte alignment/sizeof(fp16) = 2
+        self.nccl_start_alignment_factor = 16  # 4-byte alignment/sizeof(fp16) = 2
 
         assert (
                 allgather_bucket_size % self.nccl_start_alignment_factor == 0

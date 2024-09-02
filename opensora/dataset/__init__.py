@@ -5,32 +5,37 @@ from torchvision import transforms
 from torchvision.transforms import Lambda
 
 
+
 from opensora.dataset.t2v_datasets import T2V_dataset
 from opensora.models.causalvideovae import ae_norm, ae_denorm
-from opensora.dataset.transform import ToTensorVideo, TemporalRandomCrop, RandomHorizontalFlipVideo, CenterCropResizeVideo, LongSideResizeVideo, SpatialStrideCropVideo
+from opensora.dataset.transform import ToTensorVideo, TemporalRandomCrop, RandomHorizontalFlipVideo, CenterCropResizeVideo, LongSideResizeVideo, SpatialStrideCropVideo, NormalizeVideo, ToTensorAfterResize
 
+from opensora.dataset.inpaint_datasets import Inpaint_dataset
 
 
 def getdataset(args):
     temporal_sample = TemporalRandomCrop(args.num_frames)  # 16 x
     norm_fun = ae_norm[args.ae]
+    if args.force_resolution:
+        resize = [CenterCropResizeVideo((args.max_height, args.max_width)), ]
+    else:
+        resize = [
+            LongSideResizeVideo((args.max_height, args.max_width), skip_low_resolution=True), 
+            SpatialStrideCropVideo(stride=args.hw_stride), 
+        ]
+    transform = transforms.Compose([
+        ToTensorVideo(),
+        *resize, 
+        norm_fun
+    ])
+    tokenizer = AutoTokenizer.from_pretrained("/home/image_data/mt5-xxl", cache_dir=args.cache_dir)
+    # tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/models--DeepFloyd--t5-v1_1-xxl/snapshots/c9c625d2ec93667ec579ede125fd3811d1f81d37", cache_dir=args.cache_dir)
+    # tokenizer = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
     if args.dataset == 't2v':
-        if args.force_resolution:
-            resize = [CenterCropResizeVideo((args.max_height, args.max_width)), ]
-        else:
-            resize = [
-                LongSideResizeVideo((args.max_height, args.max_width), skip_low_resolution=True), 
-                SpatialStrideCropVideo(stride=args.hw_stride), 
-            ]
-        transform = transforms.Compose([
-            ToTensorVideo(),
-            *resize, 
-            norm_fun
-        ])
-        tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir)
-        # tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/models--DeepFloyd--t5-v1_1-xxl/snapshots/c9c625d2ec93667ec579ede125fd3811d1f81d37", cache_dir=args.cache_dir)
-        # tokenizer = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
         return T2V_dataset(args, transform=transform, temporal_sample=temporal_sample, tokenizer=tokenizer)
+    elif args.dataset == 'inpaint' or args.dataset == 'i2v':
+        mask_processor = transforms.Compose([*resize])
+        return Inpaint_dataset(args, transform=transform, temporal_sample=temporal_sample, tokenizer=tokenizer, mask_processor=mask_processor)
     raise NotImplementedError(args.dataset)
 
 

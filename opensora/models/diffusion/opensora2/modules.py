@@ -760,7 +760,7 @@ class AttnProcessor2_0:
 
                 if npu_config is not None and attention_mask is not None:
                     # b h(1) 1 l
-                    print('l756', attention_mask.shape, 'query, key, value', query.shape, key.shape, value.shape)
+                    # print('l756', attention_mask.shape, 'query, key, value', query.shape, key.shape, value.shape)
                     if self.sparse1d or self.sparse2d:
                         # import ipdb;ipdb.set_trace()
                         assert attention_mask.shape[1] == 1 and attention_mask.shape[2] == 1 and attention_mask.ndim == 4
@@ -774,7 +774,7 @@ class AttnProcessor2_0:
                     else:
                         attention_mask = npu_config.get_attention_mask(attention_mask, attention_mask.shape[-1])
                         attention_mask = attention_mask.reshape(attention_mask.shape[0], 1, -1, attention_mask.shape[-1])
-                    print('l767', attention_mask.shape)
+                    # print('l767', attention_mask.shape)
                 with set_run_dtype(query, dtype):
                     query, key, value = npu_config.set_current_run_dtype([query, key, value])
                     hidden_states = npu_config.run_attention(query, key, value, attention_mask, "BSH",
