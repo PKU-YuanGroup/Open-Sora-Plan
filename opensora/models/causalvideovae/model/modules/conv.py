@@ -49,6 +49,7 @@ class Conv2d(nn.Conv2d):
         return super().forward(x)
 
 
+
 class CausalConv3d(Block):
     def __init__(
         self,
@@ -57,7 +58,7 @@ class CausalConv3d(Block):
         kernel_size: Union[int, Tuple[int, int, int]],
         enable_cached=False,
         bias=True,
-        **kwargs
+        **kwargs,
     ):
         super().__init__()
         self.kernel_size = cast_tuple(kernel_size, 3)
@@ -96,11 +97,12 @@ class CausalConv3d(Block):
                 self.causal_cached = x[:, :, -(self.time_kernel_size - 1) // self.stride[0]:, :, :]
             else:
                 self.causal_cached = x[:, :, 0:0, :, :]
-            
+
         if npu_config is not None and npu_config.on_npu:
             return npu_config.run_conv3d(self.conv, x, x_dtype)
         else:
-            return self.conv(x)
+            x = self.conv(x)
+            return x
 
 
 class CausalConv3d_GC(CausalConv3d):
