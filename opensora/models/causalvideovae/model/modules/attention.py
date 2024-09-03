@@ -83,7 +83,7 @@ class AttnBlock3DFix(nn.Module):
                 scale=c ** -0.5
             )
         else:
-            print('npu_config.enable_FA, q.dtype == torch.float32', npu_config.enable_FA, q.dtype == torch.float32)
+            # print('npu_config.enable_FA, q.dtype == torch.float32', npu_config.enable_FA, q.dtype == torch.float32)
             if npu_config.enable_FA and q.dtype == torch.float32:
                 dtype = torch.bfloat16
             else:

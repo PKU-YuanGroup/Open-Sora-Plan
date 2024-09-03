@@ -63,12 +63,12 @@ class RoPE3D(torch.nn.Module):
 
     def apply_rope1d(self, tokens, pos1d, cos, sin):
         assert pos1d.ndim == 2
-        if not get_sequence_parallel_state():
+        if torch_npu is None and not get_sequence_parallel_state():
             # for (batch_size x nheads x ntokens x dim)
             cos = torch.nn.functional.embedding(pos1d, cos)[:, None, :, :]
             sin = torch.nn.functional.embedding(pos1d, sin)[:, None, :, :]
         else:
-            # for (batch_size x ntokens x nheads x dim)
+            # for (batch_size x ntokens x nheads x dim) or (ntokens x batch_size x nheads x dim)
             cos = torch.nn.functional.embedding(pos1d, cos)[:, :, None, :]
             sin = torch.nn.functional.embedding(pos1d, sin)[:, :, None, :]
 

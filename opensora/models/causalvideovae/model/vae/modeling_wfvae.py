@@ -380,6 +380,7 @@ class WFVAEModel(VideoBaseAE):
             dtype = x.dtype
             x = x.to(torch.float16)
             wt = HaarWaveletTransform3D().to(x.device, dtype=torch.float16)
+            coeffs = wt(x)
             coeffs = coeffs.to(dtype)
         else:
             wt = HaarWaveletTransform3D().to(x.device, dtype=x.dtype)
