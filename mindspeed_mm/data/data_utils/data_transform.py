@@ -398,6 +398,8 @@ class UCFCenterCropVideo:
         size,
         interpolation_mode="bilinear",
     ):
+        if isinstance(size, list):
+            size = tuple(size)
         if isinstance(size, tuple):
             if len(size) != 2:
                 raise ValueError(

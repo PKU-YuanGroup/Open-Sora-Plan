@@ -10,6 +10,7 @@ class MultiModalModule(MegatronModule):
 
     def __init__(self, config: TransformerConfig):
         super().__init__(config)
+        self.input_tensor = None
 
     def set_input_tensor(self, input_tensor):
         """
@@ -23,7 +24,7 @@ class MultiModalModule(MegatronModule):
         """
         self.input_tensor = input_tensor
 
-    def build_layer(self, args):
+    def build_layer(self, *args, **kwargs):
         """
         Build model layers for each pipeline groups.
         """

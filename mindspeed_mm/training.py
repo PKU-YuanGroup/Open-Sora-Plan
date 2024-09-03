@@ -8,6 +8,7 @@ from megatron.core import mpu
 from megatron.core.utils import get_model_config
 from megatron.core.distributed import DistributedDataParallel as DDP
 from megatron.core.distributed import finalize_model_grads
+from megatron.core.pipeline_parallel import get_forward_backward_func
 from megatron.training.checkpointing import save_checkpoint
 from megatron.training.initialize import initialize_megatron
 from megatron.training.initialize import set_jit_fusion_options
@@ -23,7 +24,6 @@ from megatron.training.global_vars import (
     update_num_microbatches,
 )
 from megatron.training.training import (
-    train_step,
     get_num_microbatches,
     training_log,
     evaluate_and_print_results,
@@ -39,6 +39,7 @@ from megatron.training.utils import (
     calc_params_l2_norm,
     check_adlr_autoresume_termination,
     print_rank_0,
+    unwrap_model,
 )
 from mindspeed_mm.configs.config import merge_mm_args
 
@@ -52,7 +53,7 @@ def pretrain(
     forward_step_func,
     process_non_loss_data_func=None,
     extra_args_provider=None,
-    **args_defaults,
+    args_defaults={},
 ):
     """
     Main training program.
@@ -88,6 +89,10 @@ def pretrain(
     initialize_megatron(
         extra_args_provider=extra_args_provider, args_defaults=args_defaults
     )
+
+    init_func = args_defaults.get("init_func", None)
+    if init_func:
+        init_func()
 
     args = get_args()
     merge_mm_args(args)
@@ -560,3 +565,79 @@ def train(
         sys.exit()
 
     return iteration, num_floating_point_operations_so_far
+
+
+def train_step(
+    forward_step_func, data_iterator, model, optimizer, opt_param_scheduler, config
+):
+    """Single training step."""
+    args = get_args()
+    timers = get_timers()
+
+    # Set grad to zero.
+    for model_chunk in model:
+        model_chunk.zero_grad_buffer()
+    optimizer.zero_grad()
+
+    # Forward pass.
+    forward_backward_func = get_forward_backward_func()
+    losses_reduced = forward_backward_func(
+        forward_step_func=forward_step_func,
+        data_iterator=data_iterator,
+        model=model,
+        num_microbatches=get_num_microbatches(),
+        seq_length=args.seq_length,
+        micro_batch_size=args.micro_batch_size,
+        decoder_seq_length=args.decoder_seq_length,
+        forward_only=False,
+    )
+
+    # Empty unused memory.
+    if args.empty_unused_memory_level >= 1:
+        torch.cuda.empty_cache()
+
+    # Vision gradients.
+    if (
+        getattr(args, "vision_pretraining", False)
+        and args.vision_pretraining_type == "dino"
+    ):
+        unwrapped_model = unwrap_model(model[0])
+        unwrapped_model.cancel_gradients_last_layer(args.curr_iteration)
+
+    # Update parameters.
+    timers("optimizer", log_level=1).start(barrier=args.barrier_with_L1_time)
+    update_successful, grad_norm, num_zeros_in_grad = optimizer.step()
+    timers("optimizer").stop()
+
+    # Vision momentum.
+    if (
+        getattr(args, "vision_pretraining", False)
+        and args.vision_pretraining_type == "dino"
+    ):
+        unwrapped_model = unwrap_model(model[0])
+        unwrapped_model.update_momentum(args.curr_iteration)
+
+    # Update learning rate.
+    if update_successful:
+        increment = (
+            get_num_microbatches() * args.micro_batch_size * args.data_parallel_size
+        )
+        opt_param_scheduler.step(increment=increment)
+        skipped_iter = 0
+    else:
+        skipped_iter = 1
+
+    # Empty unused memory.
+    if args.empty_unused_memory_level >= 2:
+        torch.cuda.empty_cache()
+
+    if mpu.is_pipeline_last_stage(ignore_virtual=True):
+        # Average loss across microbatches.
+        loss_reduced = {}
+        for key in losses_reduced[0]:
+            losses_reduced_for_key = [x[key] for x in losses_reduced]
+            loss_reduced[key] = sum(losses_reduced_for_key) / len(
+                losses_reduced_for_key
+            )
+        return loss_reduced, skipped_iter, grad_norm, num_zeros_in_grad
+    return {}, skipped_iter, grad_norm, num_zeros_in_grad

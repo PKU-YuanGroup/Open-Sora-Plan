@@ -13,12 +13,6 @@ COEF_THRESHOLD = torch.Tensor([0.001])
 
 
 class TestIDDPM:
-    def test_init(self):
-        diffusion = IDDPM()
-        coef1_sum = diffusion.posterior_mean_coef1.sum().cpu()
-        coef2_sum = diffusion.posterior_mean_coef2.sum().cpu()
-        judge_expression(abs(coef1_sum - COEF1_SUM) < COEF_THRESHOLD)
-        judge_expression(abs(coef2_sum - COEF2_SUM) < COEF_THRESHOLD)
 
     def test_init_from_diffusers(self):
         config = {

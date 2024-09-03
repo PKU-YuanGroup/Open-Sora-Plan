@@ -148,3 +148,7 @@ cython_debug/
 
 # User stuff
 /kernel*/
+/ci/kernel*/
+
+# mindspeed core
+/mindspeed/

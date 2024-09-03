@@ -180,7 +180,21 @@ class ImageProcesser:
 class TextProcesser:
     """Used for text data preprocessing"""
 
-    bad_punct_regex = re.compile(r"[" + re.escape(string.punctuation) + "]{1,}")  # noqa
+    bad_punct_regex = re.compile(
+        r"["
+        + "#®•©™&@·º½¾¿¡§~"
+        + "\)"
+        + "\("
+        + "\]"
+        + "\["
+        + "\}"
+        + "\{"
+        + "\|"
+        + "\\"
+        + "\/"
+        + "\*"
+        + r"]{1,}"
+    )
 
     def __init__(
         self,

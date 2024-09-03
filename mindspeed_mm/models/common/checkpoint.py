@@ -1,5 +1,6 @@
 from collections.abc import Iterable
-
+import os
+import torch
 import torch.nn as nn
 from torch.utils.checkpoint import checkpoint, checkpoint_sequential
 
@@ -23,3 +24,21 @@ def auto_grad_checkpoint(module, *args, **kwargs):
         gc_step = module[0].grad_checkpointing_step
         return checkpoint_sequential(module, gc_step, *args, **kwargs)
     return module(*args, **kwargs)
+
+
+def load_checkpoint(model, ckpt_path):
+    # TODO: 使用统一的接口进行模型保存/加载管理
+    if not os.path.isfile(ckpt_path):
+        raise FileNotFoundError(f"Could not find checkpoint at {ckpt_path}")
+    ckpt_dict = torch.load(ckpt_path, map_location=lambda storage, loc: storage)
+
+    if "pos_embed_temporal" in ckpt_dict:
+        del ckpt_dict["pos_embed_temporal"]
+    if "pos_embed" in ckpt_dict:
+        del ckpt_dict["pos_embed"]
+    if "ema" in ckpt_dict:  # supports checkpoints from train.py
+        ckpt_dict = ckpt_dict["ema"]
+
+    missing_keys, unexpected_keys = model.load_state_dict(ckpt_dict, strict=False)
+    print(f"Missing keys: {missing_keys}")
+    print(f"Unexpected keys: {unexpected_keys}")

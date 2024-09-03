@@ -88,7 +88,7 @@ class DDPM:
                 new_betas.append(1 - alpha_cumprod / last_alpha_cumprod)
                 last_alpha_cumprod = alpha_cumprod
                 timestep_map.append(i)
-        self.betas = torch.FloatTensor(new_betas).to(self.device)
+        self.betas = torch.tensor(new_betas, device=self.device)
         self.num_timesteps = int(self.betas.shape[0])
 
         # Prepare alphas related constant
@@ -486,6 +486,7 @@ class DDPM:
         self,
         model_output: Tensor,
         x_start: Tensor,
+        x_t: Tensor,
         noise: Tensor = None,
         mask: Tensor = None,
         weights: Tensor = None,
@@ -506,12 +507,6 @@ class DDPM:
             noise = torch.randn_like(x_start, device=x_start.device)
         if t is None:
             t = torch.randint(0, self.num_timesteps, (x_start.shape[0],), device=x_start.device)
-
-        x_t = self.q_sample(x_start, t, noise=noise)
-        if mask is not None:
-            t0 = torch.zeros_like(t)
-            x_t0 = self.q_sample(x_start, t0, noise=noise)
-            x_t = torch.where(mask[:, None, :, None, None], x_t, x_t0)
 
         terms = {}
 

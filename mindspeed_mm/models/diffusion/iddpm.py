@@ -23,7 +23,7 @@ class IDDPM(DDPM):
 
     def __init__(
         self,
-        num_inference_steps: int = 100,
+        num_inference_steps: int = None,
         num_train_steps: int = 1000,
         timestep_respacing: Union[str, List] = None,
         noise_schedule: str = "linear",

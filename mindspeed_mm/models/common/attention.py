@@ -7,13 +7,15 @@ import torch_npu
 from megatron.core import mpu
 from mindspeed_mm.utils.utils import video_to_image
 
-# Todo: 后续使用megatron通信接口替换
-from .communications import (
-    all_to_all,
-    split_forward_gather_backward, all_to_all_SBH,
-)
 from .embeddings.rope import RoPE3D, PositionGetter3D
 from .conv import CausalConv3d
+
+# TODO: 使用megatron通信接口替换
+from .communications import (
+    all_to_all,
+    all_to_all_SBH,
+    split_forward_gather_backward,
+)
 
 
 class MultiHeadAttentionBSH(nn.Module):
@@ -43,7 +45,7 @@ class MultiHeadAttentionBSH(nn.Module):
         proj_qkv_bias: bool = False,
         proj_out_bias: bool = True,
         use_rope: bool = False,
-        interpolation_scale: Tuple[int] = (1, 1, 1)
+        interpolation_scale: Tuple[int] = (1, 1, 1),
     ):
         super().__init__()
         self.num_heads = num_heads
@@ -70,7 +72,7 @@ class MultiHeadAttentionBSH(nn.Module):
         mask: Optional[torch.Tensor] = None,
         frames: Optional[int] = None,
         height: Optional[int] = None,
-        width: Optional[int] = None
+        width: Optional[int] = None,
     ) -> torch.Tensor:
         """
         Args:
@@ -101,8 +103,12 @@ class MultiHeadAttentionBSH(nn.Module):
 
         if self.use_rope:
             if (frames is None) or (height is None) or (width is None):
-                raise ValueError("frames, height, and width can not be none when use_rope")
-            pos_thw = self.position_getter(b, t=frames, h=height, w=width, device=query.device)
+                raise ValueError(
+                    "frames, height, and width can not be none when use_rope"
+                )
+            pos_thw = self.position_getter(
+                b, t=frames, h=height, w=width, device=query.device
+            )
             q = self.rope(q, pos_thw)
             k = self.rope(k, pos_thw)
         q = q.view(b, -1, self.inner_dim)
@@ -508,8 +514,8 @@ class SeqParallelMultiHeadCrossAttention(MultiHeadCrossAttention):
 
         # shape:
         # q, k, v: [B, SUB_N, NUM_HEADS, HEAD_DIM]
-        q = self.q_linear(x).view(B, -1, self.num_heads, self.head_dim)
-        kv = self.kv_linear(cond).view(B, -1, 2, self.num_heads, self.head_dim)
+        q = self.q_linear(x).view(1, -1, self.num_heads, self.head_dim)
+        kv = self.kv_linear(cond).view(1, -1, 2, self.num_heads, self.head_dim)
         k, v = kv.unbind(2)
 
         # apply all_to_all to gather sequence and split attention heads
@@ -576,14 +582,24 @@ class Conv2dAttnBlock(nn.Module):
         kernel_size=1,
         stride=1,
         padding=0,
-        affine=True
+        affine=True,
     ):
         super().__init__()
-        self.norm = nn.GroupNorm(num_groups=num_groups, num_channels=in_channels, eps=eps, affine=affine)
-        self.q = torch.nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding)
-        self.k = torch.nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding)
-        self.v = torch.nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding)
-        self.proj_out = torch.nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding)
+        self.norm = nn.GroupNorm(
+            num_groups=num_groups, num_channels=in_channels, eps=eps, affine=affine
+        )
+        self.q = torch.nn.Conv2d(
+            in_channels, out_channels, kernel_size, stride, padding
+        )
+        self.k = torch.nn.Conv2d(
+            in_channels, out_channels, kernel_size, stride, padding
+        )
+        self.v = torch.nn.Conv2d(
+            in_channels, out_channels, kernel_size, stride, padding
+        )
+        self.proj_out = torch.nn.Conv2d(
+            in_channels, out_channels, kernel_size, stride, padding
+        )
 
     @video_to_image
     def forward(self, x):
@@ -622,14 +638,24 @@ class CausalConv3dAttnBlock(nn.Module):
         stride,
         num_groups=32,
         eps=1e-6,
-        affine=True
+        affine=True,
     ):
         super().__init__()
-        self.norm = nn.GroupNorm(num_groups=num_groups, num_channels=in_channels, eps=eps, affine=affine)
-        self.q = CausalConv3d(in_channels, out_channels, kernel_size=kernel_size, stride=stride)
-        self.k = CausalConv3d(in_channels, out_channels, kernel_size=kernel_size, stride=stride)
-        self.v = CausalConv3d(in_channels, out_channels, kernel_size=kernel_size, stride=stride)
-        self.proj_out = CausalConv3d(in_channels, out_channels, kernel_size=kernel_size, stride=stride)
+        self.norm = nn.GroupNorm(
+            num_groups=num_groups, num_channels=in_channels, eps=eps, affine=affine
+        )
+        self.q = CausalConv3d(
+            in_channels, out_channels, kernel_size=kernel_size, stride=stride
+        )
+        self.k = CausalConv3d(
+            in_channels, out_channels, kernel_size=kernel_size, stride=stride
+        )
+        self.v = CausalConv3d(
+            in_channels, out_channels, kernel_size=kernel_size, stride=stride
+        )
+        self.proj_out = CausalConv3d(
+            in_channels, out_channels, kernel_size=kernel_size, stride=stride
+        )
 
     def forward(self, x):
         y = x
@@ -641,11 +667,15 @@ class CausalConv3dAttnBlock(nn.Module):
         # compute attention
         # q: (b c t h w) -> (b t c h w) -> (b*t c h*w) -> (b*t h*w c)
         b, c, t, h, w = q.shape
-        q = torch_npu.npu_confusion_transpose(q, (0, 2, 1, 3, 4), (b * t, c, h * w), True)
+        q = torch_npu.npu_confusion_transpose(
+            q, (0, 2, 1, 3, 4), (b * t, c, h * w), True
+        )
         q = q.permute(0, 2, 1)
 
         # k: (b c t h w) -> (b t c h w) -> (b*t c h*w)
-        k = torch_npu.npu_confusion_transpose(k, (0, 2, 1, 3, 4), (b * t, c, h * w), True)
+        k = torch_npu.npu_confusion_transpose(
+            k, (0, 2, 1, 3, 4), (b * t, c, h * w), True
+        )
 
         # w: (b*t hw hw)
         z = torch.bmm(q, k)

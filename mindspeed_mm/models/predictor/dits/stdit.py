@@ -11,12 +11,11 @@ from mindspeed_mm.models.common.checkpoint import auto_grad_checkpoint
 from mindspeed_mm.models.common.communications import (
     gather_forward_split_backward,
     split_forward_gather_backward,
+    all_to_all,
 )
 from mindspeed_mm.models.common.attention import (
     Attention,
     MultiHeadCrossAttention,
-    SeqParallelAttention,
-    SeqParallelMultiHeadCrossAttention,
 )
 from mindspeed_mm.models.common.blocks import (
     T2IFinalLayer,
@@ -48,12 +47,8 @@ class STDiTBlock(nn.Module):
         self.enable_flashattn = enable_flashattn
         self._enable_sequence_parallelism = enable_sequence_parallelism
 
-        if enable_sequence_parallelism:
-            self.attn_cls = SeqParallelAttention
-            self.mha_cls = SeqParallelMultiHeadCrossAttention
-        else:
-            self.attn_cls = Attention
-            self.mha_cls = MultiHeadCrossAttention
+        self.attn_cls = Attention
+        self.mha_cls = MultiHeadCrossAttention
         self.norm1 = nn.LayerNorm(hidden_size, eps=1e-6, elementwise_affine=False)
         self.attn = self.attn_cls(
             hidden_size,
@@ -79,13 +74,13 @@ class STDiTBlock(nn.Module):
         self.d_t = d_t
 
         if self._enable_sequence_parallelism:
-            sp_size = mpu.get_context_parallel_world_size()
+            self.sp_size = mpu.get_context_parallel_world_size()
             # make sure d_t is divisible by sp_size
-            if d_t % sp_size != 0:
+            if d_t % self.sp_size != 0:
                 raise AssertionError(
-                    "d_t (%d) must be divisible by sp_size (%d)" % (d_t, sp_size)
+                    "d_t (%d) must be divisible by sp_size (%d)" % (d_t, self.sp_size)
                 )
-            self.d_t = d_t // sp_size
+            self.d_t = d_t // self.sp_size
 
         self.attn_temp = self.attn_cls(
             hidden_size,
@@ -95,7 +90,6 @@ class STDiTBlock(nn.Module):
         )
 
     def forward(self, x, y, t, mask=None, tpe=None):
-        mask = mask.tolist()
         B, N, C = x.shape
 
         shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
@@ -109,6 +103,16 @@ class STDiTBlock(nn.Module):
         x_s = rearrange(x_s, "(B T) S C -> B (T S) C", T=self.d_t, S=self.d_s)
         x = x + self.drop_path(gate_msa * x_s)
 
+        # temporal to spatital switch in dsp
+        if self._enable_sequence_parallelism:
+            x = rearrange(x, "B (T S) C -> B T S C", T=self.d_t, S=self.d_s)
+            x = all_to_all(
+                x, mpu.get_context_parallel_group(), scatter_dim=2, gather_dim=1
+            )
+            self.d_t = self.d_t * self.sp_size
+            self.d_s = self.d_s // self.sp_size
+            x = rearrange(x, "B T S C -> B (T S) C", T=self.d_t, S=self.d_s)
+
         # temporal branch
         x_t = rearrange(x, "B (T S) C -> (B S) T C", T=self.d_t, S=self.d_s)
         if tpe is not None:
@@ -116,6 +120,16 @@ class STDiTBlock(nn.Module):
         x_t = self.attn_temp(x_t)
         x_t = rearrange(x_t, "(B S) T C -> B (T S) C", T=self.d_t, S=self.d_s)
         x = x + self.drop_path(gate_msa * x_t)
+
+        # spatital to temporal switch in dsp
+        if self._enable_sequence_parallelism:
+            x = rearrange(x, "B (T S) C -> B T S C", T=self.d_t, S=self.d_s)
+            x = all_to_all(
+                x, mpu.get_context_parallel_group(), scatter_dim=1, gather_dim=2
+            )
+            self.d_t = self.d_t // self.sp_size
+            self.d_s = self.d_s * self.sp_size
+            x = rearrange(x, "B T S C -> B (T S) C", T=self.d_t, S=self.d_s)
 
         # cross attn
         x = x + self.cross_attn(x, y, mask)
@@ -175,7 +189,6 @@ class STDiT(MultiModalModule):
         self.register_buffer("pos_embed", self.get_spatial_pos_embed())
         self.register_buffer("pos_embed_temporal", self.get_temporal_pos_embed())
 
-        self.input_tensor = None
         if mpu.is_pipeline_first_stage():
             self.x_embedder = PatchEmbed3D(patch_size, in_channels, hidden_size)
             self.t_embedder = TimestepEmbedder(hidden_size)
@@ -203,14 +216,21 @@ class STDiT(MultiModalModule):
             raise NotImplementedError("VPP is not supported now")
         else:
             offset = mpu.get_pipeline_model_parallel_rank() * self.num_layers
+        enable_sequence_parallelism = (
+            enable_sequence_parallelism and mpu.get_context_parallel_world_size() > 1
+        )
         self.recompute_granularity = args.recompute_granularity
         self.distribute_saved_activations = args.distribute_saved_activations
         self.recompute_method = args.recompute_method
         self.recompute_num_layers = args.recompute_num_layers
         if self.recompute_granularity == "selective":
-            raise ValueError("recompute_granularity does not support selective mode in STDiT")
+            raise ValueError(
+                "recompute_granularity does not support selective mode in STDiT"
+            )
         if self.distribute_saved_activations:
-            raise NotImplementedError("distribute_saved_activations is currently not supported")
+            raise NotImplementedError(
+                "distribute_saved_activations is currently not supported"
+            )
 
         self.blocks = nn.ModuleList(
             [
@@ -248,7 +268,8 @@ class STDiT(MultiModalModule):
         return self.blocks[layer_number]
 
     def _checkpointed_forward(self, x, y, t0, y_lens, tpe):
-        """Forward method with activation checkpointing. """
+        """Forward method with activation checkpointing."""
+
         def custom(start, end):
             def custom_forward(*args, **kwargs):
                 x_, *args = args
@@ -256,8 +277,9 @@ class STDiT(MultiModalModule):
                     layer = self._get_layer(index)
                     x_ = layer(x_, *args, **kwargs)
                 return x_
+
             return custom_forward
-        
+
         if self.recompute_method == "uniform":
             # Uniformly divide the total number of Transformer layers and
             # checkpoint the input activation of each divided chunk.
@@ -265,14 +287,7 @@ class STDiT(MultiModalModule):
             layer_num = 0
             while layer_num < self.num_layers:
                 if layer_num == 0:
-                    if self.enable_sequence_parallelism:
-                        tpe = torch.chunk(
-                            self.pos_embed_temporal,
-                            mpu.get_context_parallel_world_size(),
-                            dim=1,
-                        )[self.sp_rank].contiguous()
-                    else:
-                        tpe = self.pos_embed_temporal
+                    tpe = self.pos_embed_temporal
                 else:
                     tpe = None
                 x = tensor_parallel.checkpoint(
@@ -282,7 +297,8 @@ class STDiT(MultiModalModule):
                     y,
                     t0,
                     y_lens,
-                    tpe)
+                    tpe,
+                )
                 layer_num += self.recompute_num_layers
         elif self.recompute_method == "block":
             # Checkpoint the input activation of only a set number of individual
@@ -290,14 +306,7 @@ class STDiT(MultiModalModule):
             # A method fully use the device memory removing redundant re-computation.
             for layer_num in range(self.num_layers):
                 if layer_num == 0:
-                    if self.enable_sequence_parallelism:
-                        tpe = torch.chunk(
-                            self.pos_embed_temporal,
-                            mpu.get_context_parallel_world_size(),
-                            dim=1,
-                        )[self.sp_rank].contiguous()
-                    else:
-                        tpe = self.pos_embed_temporal
+                    tpe = self.pos_embed_temporal
                 else:
                     tpe = None
 
@@ -309,14 +318,15 @@ class STDiT(MultiModalModule):
                         y,
                         t0,
                         y_lens,
-                        tpe)
+                        tpe,
+                    )
                 else:
                     block = self._get_layer(layer_num)
                     x = block(x, y, t0, y_lens, tpe)
-        else: 
+        else:
             raise ValueError("Invalid activation recompute method.")
         return x
-                
+
     def build_layer(self, drop_path, layer_number, enable_sequence_parallelism):
         return STDiTBlock(
             self.hidden_size,
@@ -329,14 +339,14 @@ class STDiT(MultiModalModule):
             d_s=self.num_spatial,
         )
 
-    def forward(self, video, timestep, prompt, promp_mask=None, **kwargs):
+    def forward(self, video, timestep, prompt, prompt_mask=None, **kwargs):
         """
         Forward pass of STDiT.
         Args:
             video (torch.Tensor): latent representation of video; of shape [B, C, T, H, W]
             timestep (torch.Tensor): diffusion time steps; of shape [B]
             prompt (torch.Tensor): representation of prompts; of shape [B, 1, N_token, C]
-            promp_mask (torch.Tensor): mask for selecting prompt tokens; of shape [B, N_token]
+            prompt_mask (torch.Tensor): mask for selecting prompt tokens; of shape [B, N_token]
 
         Returns:
             x (torch.Tensor): output latent representation; of shape [B, C, T, H, W]
@@ -345,7 +355,7 @@ class STDiT(MultiModalModule):
             x = video.to(self.dtype)
             timestep = timestep.to(self.dtype)
             y = prompt.to(self.dtype)
-            mask = promp_mask
+            mask = prompt_mask
 
             # embedding
             x = self.x_embedder(x)  # [B, N, C]
@@ -389,14 +399,7 @@ class STDiT(MultiModalModule):
         else:
             for i, block in enumerate(self.blocks):
                 if i == 0:
-                    if self.enable_sequence_parallelism:
-                        tpe = torch.chunk(
-                            self.pos_embed_temporal,
-                            mpu.get_context_parallel_world_size(),
-                            dim=1,
-                        )[self.sp_rank].contiguous()
-                    else:
-                        tpe = self.pos_embed_temporal
+                    tpe = self.pos_embed_temporal
                 else:
                     tpe = None
                 x = block(x, y, t0, y_lens, tpe)

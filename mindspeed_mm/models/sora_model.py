@@ -38,6 +38,7 @@ class SoRAModel(nn.Module):
             ...
         }
     """
+
     def __init__(self, config):
         super().__init__()
         self.load_video_features = config.load_video_features
@@ -46,13 +47,17 @@ class SoRAModel(nn.Module):
             self.ae = AEModel(config.ae)
             self.ae.requires_grad_(False)
         if not self.load_text_features:
-            self.text_encoder = TextEncoder(config.text_encoder)
+            # TODO: t5固定输入权重情况下如何获取固定输出
+            self.text_encoder = TextEncoder(config.text_encoder).eval()
             self.text_encoder.requires_grad_(False)
 
         self.predictor = PredictModel(config.predictor).get_model()
         self.diffusion = DiffusionModel(config.diffusion).get_model()
 
-    def forward(self, video, prompt_ids, video_mask, prompt_mask, **kwargs):
+    def set_input_tensor(self, input_tensor):
+        self.predictor.set_input_tensor(input_tensor)
+
+    def forward(self, video, prompt_ids, video_mask=None, prompt_mask=None, **kwargs):
         """
         video: raw video tensors, or ae encoded latent
         prompt_ids: tokenized input_ids, or encoded hidden states
@@ -70,15 +75,37 @@ class SoRAModel(nn.Module):
                 prompt = prompt_ids
             else:
                 B, N, L = prompt_ids.shape
-                prompt_ids = prompt_ids.reshape(-1, L)
-                prompt_mask = prompt_mask.reshape(-1, L)
-                prompt = self.text_encoder.encode(prompt_ids, prompt_mask.reshape(-1, L))
-                prompt = prompt.reshape(B, N, L, -1)
+                prompt_ids = prompt_ids.view(-1, L)
+                prompt_mask = prompt_mask.view(-1, L)
+                hidden_states = self.text_encoder.encode(prompt_ids, prompt_mask)
+                prompt = hidden_states["last_hidden_state"].view(B, N, L, -1)
 
-        model_output = self.predictor(latents, prompt, video_mask, prompt_mask, **kwargs)
-        return model_output, latents
+        timesteps = torch.randint(
+            0, self.diffusion.num_timesteps, (latents.shape[0],), device=latents.device
+        )
+        noise = torch.randn_like(latents)
+        noised_latents = self.diffusion.q_sample(latents, timesteps, noise)
 
-    def compute_loss(self, model_output, latents):
+        model_output = self.predictor(
+            video=noised_latents,
+            timestep=timesteps,
+            prompt=prompt,
+            video_mask=video_mask,
+            prompt_mask=prompt_mask,
+            **kwargs,
+        )
+        return model_output, latents, noised_latents, timesteps, noise, video_mask
+
+    def compute_loss(
+        self, model_output, latents, noised_latents, timesteps, noise, video_mask
+    ):
         """compute diffusion loss"""
-        loss_dict = self.diffusion.training_losses(model_output, latents)
+        loss_dict = self.diffusion.training_losses(
+            model_output=model_output,
+            x_start=latents,
+            x_t=noised_latents,
+            noise=noise,
+            t=timesteps,
+            mask=video_mask,
+        )
         return loss_dict

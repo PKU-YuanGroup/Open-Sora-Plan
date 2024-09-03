@@ -23,12 +23,12 @@ AE_MODEL_MAPPINGS = {"vae": VideoAutoencoderKL}
 class AEModel(nn.Module):
 
     def __init__(self, config):
-        super().__init__(config)
+        super().__init__()
         self.config = config
-        self.ae = AE_MODEL_MAPPINGS[config.model_id](config)
+        self.model = AE_MODEL_MAPPINGS[config.model_id](config)
 
     def get_model(self):
-        return self.ae
+        return self.model
 
     def encode(self, x):
         return self.model.encode(x)
@@ -38,5 +38,3 @@ class AEModel(nn.Module):
 
     def forward(self, x):
         raise NotImplementedError("forward function is not implemented")
-
-

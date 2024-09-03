@@ -82,7 +82,7 @@ def get_2d_sincos_pos_embed(
     grid = np.meshgrid(grid_w, grid_h)  # here w goes first
     grid = np.stack(grid, axis=0)
 
-    grid = grid.reshape([2, 1, grid_size[2], grid_size[1]])
+    grid = grid.reshape([2, 1, grid_size[1], grid_size[0]])
     pos_embed = get_2d_sincos_pos_embed_from_grid(embed_dim, grid)
     if cls_token and extra_tokens > 0:
         pos_embed = np.concatenate(
