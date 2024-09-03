@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 import torch.nn.functional as F
+from megatron.core import mpu
 
 
 class PositionGetter3D:
@@ -8,21 +9,24 @@ class PositionGetter3D:
 
     def __init__(self):
         self.cache_positions = {}
-        
+
     def __call__(self, b, t, h, w, device):
         if not (b, t, h, w) in self.cache_positions:
             x = torch.arange(w, device=device)
             y = torch.arange(h, device=device)
             z = torch.arange(t, device=device)
             pos = torch.cartesian_prod(z, y, x)
-            pos = pos.reshape(t * h * w, 3).transpose(0, 1).reshape(3, 1, -1).contiguous().expand(3, b, -1).clone()
+            if mpu.get_context_parallel_world_size() > 1:
+                pos = pos.reshape(t * h * w, 3).transpose(0, 1).reshape(3, -1, 1).contiguous().expand(3, -1, b).clone()
+            else:
+                pos = pos.reshape(t * h * w, 3).transpose(0, 1).reshape(3, 1, -1).contiguous().expand(3, b, -1).clone()
             poses = (pos[0].contiguous(), pos[1].contiguous(), pos[2].contiguous())
             max_poses = (int(poses[0].max()), int(poses[1].max()), int(poses[2].max()))
 
             self.cache_positions[b, t, h, w] = (poses, max_poses)
         pos = self.cache_positions[b, t, h, w]
         return pos
-    
+
 
 class RoPE3D(nn.Module):
 

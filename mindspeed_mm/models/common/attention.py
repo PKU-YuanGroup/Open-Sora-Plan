@@ -4,14 +4,14 @@ import math
 import torch
 import torch.nn as nn
 import torch_npu
-
-# Todo: 后续使用megatron通信接口替换
-from communications import (
-    all_to_all,
-    split_forward_gather_backward,
-)
 from megatron.core import mpu
 from mindspeed_mm.utils.utils import video_to_image
+
+# Todo: 后续使用megatron通信接口替换
+from .communications import (
+    all_to_all,
+    split_forward_gather_backward, all_to_all_SBH,
+)
 from .embeddings.rope import RoPE3D, PositionGetter3D
 from .conv import CausalConv3d
 
@@ -30,7 +30,7 @@ class MultiHeadAttentionBSH(nn.Module):
         proj_out_bias: Whether to use bias in out projection.
         use_rope: Whether to use rope
         interpolation_scale: The scale of interpolation.
-        
+
     """
 
     def __init__(
@@ -112,16 +112,149 @@ class MultiHeadAttentionBSH(nn.Module):
             q,
             k,
             v,
+            head_num=self.num_heads,
             atten_mask=mask,
             input_layout="BSH",
-            scale=1 / math.sqrt(self.head_dim),
-            head_num=self.num_heads
+            scale=1 / math.sqrt(self.head_dim)
         )[0]
 
         out = self.proj_out(out)
         out = self.dropout(out)
         if input_ndim == 4:
             out = out.transpose(-1, -2).reshape(b, c, h, w)
+        return out
+
+
+class ParallelMultiHeadAttentionSBH(nn.Module):
+    """
+    A multi-head context parallel attention layer for both self-attention and cross-attention, layout "SBH".
+
+    Args:
+        query_dim: The number of channels in the query.
+        key_dim: The number of channels in the key, defaults to `query_dim`.
+        num_heads: The number of heads to use for multi-head attention.
+        head_dim: The number of channels in each head.
+        dropout: The dropout probability to use.
+        proj_qkv_bias: Whether to use bias in qkv projection.
+        proj_out_bias: Whether to use bias in out projection.
+        use_rope: Whether to use rope
+        interpolation_scale: The scale of interpolation.
+
+    """
+
+    def __init__(
+        self,
+        query_dim: int,
+        key_dim: int,
+        num_heads: int,
+        head_dim: int,
+        dropout: float = 0.0,
+        proj_qkv_bias: bool = False,
+        proj_out_bias: bool = True,
+        use_rope: bool = False,
+        interpolation_scale: Tuple[int] = (1, 1, 1)
+    ):
+        super().__init__()
+        self.num_heads = num_heads
+        self.head_dim = head_dim
+        self.inner_dim = self.num_heads * self.head_dim
+        self.use_rope = use_rope
+        if self.use_rope:
+            self.rope = RoPE3D(interpolation_scale=interpolation_scale)
+            self.position_getter = PositionGetter3D()
+
+        key_dim = key_dim if key_dim is not None else query_dim
+
+        self.proj_q = nn.Linear(query_dim, self.inner_dim, bias=proj_qkv_bias)
+        self.proj_k = nn.Linear(key_dim, self.inner_dim, bias=proj_qkv_bias)
+        self.proj_v = nn.Linear(key_dim, self.inner_dim, bias=proj_qkv_bias)
+
+        self.proj_out = nn.Linear(self.inner_dim, query_dim, bias=proj_out_bias)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(
+        self,
+        query: torch.Tensor,
+        key: Optional[torch.Tensor] = None,
+        mask: Optional[torch.Tensor] = None,
+        frames: Optional[int] = None,
+        height: Optional[int] = None,
+        width: Optional[int] = None
+    ) -> torch.Tensor:
+        """
+        Args:
+            query: The hidden states of the query.
+            key: The hidden states of the key.
+            mask: The attention mask to use.
+            frames: The frame number of latents
+            height: The height of the frame
+            width: The width of the frame
+        """
+        if query.dtype not in (torch.float16, torch.bfloat16):
+            raise AssertionError("FlashAttention only support fp16 or bf16")
+
+        if len(query.shape) != 3:
+            raise AssertionError("Parallel attention only support SBH.")
+
+        is_cross_attention = key is not None
+
+        key = query if key is None else key
+        s, b, _ = query.shape
+
+        if mask is not None:
+            mask = mask.view(b, 1, -1, mask.shape[-1])
+
+        q = self.proj_q(query)
+        k = self.proj_k(key)
+        v = self.proj_v(key)
+
+        q = q.view(-1, self.num_heads, self.head_dim)
+        k = k.view(-1, self.num_heads, self.head_dim)
+        v = v.view(-1, self.num_heads, self.head_dim)
+
+        sp_size = mpu.get_context_parallel_world_size()
+        h_size_sp = self.inner_dim // sp_size
+        sp_group = mpu.get_context_parallel_group()
+
+        q = all_to_all_SBH(q, sp_group, scatter_dim=1, gather_dim=0).view(-1, b, h_size_sp)
+        if not is_cross_attention:
+            k = all_to_all_SBH(k, sp_group, scatter_dim=1, gather_dim=0).view(-1, b, h_size_sp)
+            v = all_to_all_SBH(v, sp_group, scatter_dim=1, gather_dim=0).view(-1, b, h_size_sp)
+        else:
+            k = split_forward_gather_backward(k, sp_group, dim=1, grad_scale="down").view(-1, b, h_size_sp)
+            v = split_forward_gather_backward(v, sp_group, dim=1, grad_scale="down").view(-1, b, h_size_sp)
+
+        if self.use_rope:
+            # TODO: 原仓BUG，view使用错误，不能跨轴view
+            q = q.view(-1, b, self.num_heads // sp_size, self.head_dim)
+            k = k.view(-1, b, self.num_heads // sp_size, self.head_dim)
+
+            if (frames is None) or (height is None) or (width is None):
+                raise ValueError("frames, height and width can not be none when use_rope")
+            pos_thw = self.position_getter(b, t=frames, h=height, w=width, device=query.device)
+            q = self.rope(q, pos_thw)
+            k = self.rope(k, pos_thw)
+
+        q = q.view(-1, b, h_size_sp)
+        k = k.view(-1, b, h_size_sp)
+        v = v.view(-1, b, h_size_sp)
+
+        out = torch_npu.npu_fusion_attention(
+            q,
+            k,
+            v,
+            head_num=self.num_heads // sp_size,
+            atten_mask=mask,
+            input_layout="SBH",
+            scale=1 / math.sqrt(self.head_dim)
+        )[0]
+
+        out = out.view(-1, self.num_heads // sp_size, self.head_dim)
+        out = all_to_all_SBH(out, sp_group, scatter_dim=0, gather_dim=1).view(-1, b, self.inner_dim)
+
+        out = self.proj_out(out)
+        out = self.dropout(out)
+
         return out
 
 
@@ -145,7 +278,7 @@ class Attention(nn.Module):
         self.dim = dim
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
-        self.scale = self.head_dim**-0.5
+        self.scale = self.head_dim ** -0.5
         self.enable_flashattn = enable_flashattn
 
         self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
@@ -435,7 +568,7 @@ class SeqParallelMultiHeadCrossAttention(MultiHeadCrossAttention):
 
 class Conv2dAttnBlock(nn.Module):
     def __init__(
-        self, 
+        self,
         in_channels,
         out_channels,
         num_groups=32,
@@ -490,7 +623,7 @@ class CausalConv3dAttnBlock(nn.Module):
         num_groups=32,
         eps=1e-6,
         affine=True
-        ):
+    ):
         super().__init__()
         self.norm = nn.GroupNorm(num_groups=num_groups, num_channels=in_channels, eps=eps, affine=affine)
         self.q = CausalConv3d(in_channels, out_channels, kernel_size=kernel_size, stride=stride)

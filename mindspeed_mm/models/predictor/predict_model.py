@@ -1,10 +1,9 @@
 from torch import nn
 
-from .dits import DiT, Latte, STDiT
-
+from .dits import VideoDiT, Latte, STDiT
 
 PREDICTOR_MODEL_MAPPINGS = {
-    "dit": DiT,
+    "dit": VideoDiT,
     "latte": Latte,
     "stdit": STDiT,
 }

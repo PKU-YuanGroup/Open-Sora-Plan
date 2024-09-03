@@ -7,17 +7,40 @@ import torch.distributed as dist
 # ====================
 def _all_to_all(
     input_: torch.Tensor,
-    world_size: int,
     group: dist.ProcessGroup,
     scatter_dim: int,
     gather_dim: int,
 ):
+    world_size = dist.get_world_size(group=group)
     input_list = [
         t.contiguous() for t in torch.tensor_split(input_, world_size, scatter_dim)
     ]
     output_list = [torch.empty_like(input_list[0]) for _ in range(world_size)]
     dist.all_to_all(output_list, input_list, group=group)
     return torch.cat(output_list, dim=gather_dim).contiguous()
+
+
+def _single_all_to_all(
+    input_: torch.Tensor,
+    group: dist.ProcessGroup,
+    scatter_dim: int,
+    gather_dim: int
+):
+    sp_size = dist.get_world_size(group)
+    inp_shape = list(input_.shape)
+    inp_shape[scatter_dim] = inp_shape[scatter_dim] // sp_size
+    if scatter_dim < 1:
+        input_t = input_.reshape([sp_size, inp_shape[scatter_dim]] + inp_shape[scatter_dim + 1:])
+    else:
+        input_t = input_.reshape([-1, sp_size, inp_shape[scatter_dim]]
+                                 + inp_shape[scatter_dim + 1:]).transpose(0, 1).contiguous()
+
+    output = torch.empty_like(input_t)
+    dist.all_to_all_single(output, input_t, group=group)
+
+    if scatter_dim < 1:
+        output = output.transpose(0, 1).contiguous()
+    return output.reshape(inp_shape[:gather_dim] + [inp_shape[gather_dim] * sp_size, ] + inp_shape[gather_dim + 1:])
 
 
 class _AllToAll(torch.autograd.Function):
@@ -31,27 +54,27 @@ class _AllToAll(torch.autograd.Function):
     """
 
     @staticmethod
-    def forward(ctx, input_, process_group, scatter_dim, gather_dim):
+    def forward(ctx, input_, process_group, scatter_dim, gather_dim, all_to_all_func):
         ctx.process_group = process_group
         ctx.scatter_dim = scatter_dim
         ctx.gather_dim = gather_dim
-        ctx.world_size = dist.get_world_size(process_group)
-        output = _all_to_all(
-            input_, ctx.world_size, process_group, scatter_dim, gather_dim
+        ctx.all_to_all_func = all_to_all_func
+        output = all_to_all_func(
+            input_, process_group, scatter_dim, gather_dim
         )
         return output
 
     @staticmethod
     def backward(ctx, grad_output):
-        grad_output = _all_to_all(
+        grad_output = ctx.all_to_all_func(
             grad_output,
-            ctx.world_size,
             ctx.process_group,
             ctx.gather_dim,
             ctx.scatter_dim,
         )
         return (
             grad_output,
+            None,
             None,
             None,
             None,
@@ -64,7 +87,16 @@ def all_to_all(
     scatter_dim: int = 2,
     gather_dim: int = 1,
 ):
-    return _AllToAll.apply(input_, process_group, scatter_dim, gather_dim)
+    return _AllToAll.apply(input_, process_group, scatter_dim, gather_dim, _all_to_all)
+
+
+def all_to_all_SBH(
+    input_: torch.Tensor,
+    process_group: dist.ProcessGroup,
+    scatter_dim: int = 2,
+    gather_dim: int = 1,
+):
+    return _AllToAll.apply(input_, process_group, scatter_dim, gather_dim, _single_all_to_all)
 
 
 # ====================

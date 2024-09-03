@@ -7,16 +7,18 @@ import torch.nn.functional as F
 from diffusers.models.embeddings import SinusoidalPositionalEmbedding, PixArtAlphaTextProjection
 from diffusers.models.normalization import AdaLayerNorm, AdaLayerNormContinuous, AdaLayerNormZero, AdaLayerNormSingle
 from diffusers.models.attention import FeedForward
+from megatron.core import mpu
 
+from mindspeed_mm.models.common.communications import split_forward_gather_backward, gather_forward_split_backward
 from mindspeed_mm.models.common.module import MultiModalModule
 from mindspeed_mm.models.common.embeddings.patch_embeddings import VideoPatchEmbed2D
-from mindspeed_mm.models.common.attention import MultiHeadAttentionBSH
+from mindspeed_mm.models.common.attention import MultiHeadAttentionBSH, ParallelMultiHeadAttentionSBH
 
 
 class VideoDiT(MultiModalModule):
     """
-    A video dit model for video generation. can process both standard continuous images of shape 
-    (batch_size, num_channels, width, height) as well as quantized image embeddings of shape 
+    A video dit model for video generation. can process both standard continuous images of shape
+    (batch_size, num_channels, width, height) as well as quantized image embeddings of shape
     (batch_size, num_image_vectors). Define whether input is continuous or discrete depending on config.
 
     Args:
@@ -33,7 +35,7 @@ class VideoDiT(MultiModalModule):
         activation_fn: The name of activation function use in VideoDiTBlock.
         norm_type: can be 'layer_norm', 'ada_norm', 'ada_norm_zero', 'ada_norm_single', 'ada_norm_continuous', 'layer_norm_i2vgen'.
         num_embeds_ada_norm: The number of diffusion steps used during training. Pass if at least one of the norm_layers is
-                             `AdaLayerNorm`. This is fixed during training since it is used to learn a number of embeddings 
+                             `AdaLayerNorm`. This is fixed during training since it is used to learn a number of embeddings
                              that are added to the hidden states.
         norm_elementswise_affine: Whether to use learnable elementwise affine parameters for normalization.
         norm_eps: The eps of he normalization.
@@ -78,6 +80,11 @@ class VideoDiT(MultiModalModule):
         self.out_channels = out_channels
         inner_dim = num_heads * head_dim
 
+        if mpu.get_context_parallel_world_size() > 1:
+            self.enable_sequence_parallelism = True
+        else:
+            self.enable_sequence_parallelism = False
+
         # Initialize blocks
         # Init PatchEmbed
         self.pos_embed = VideoPatchEmbed2D(
@@ -90,7 +97,7 @@ class VideoDiT(MultiModalModule):
             embed_dim=inner_dim,
             interpolation_scale=(interpolation_scale[1], interpolation_scale[2]),
             interpolation_scale_t=interpolation_scale[0],
-            use_abs_pos=not use_rope, 
+            use_abs_pos=not use_rope,
         )
         # Init VideoDiTBlock
         self.videodit_blocks = nn.ModuleList(
@@ -107,8 +114,9 @@ class VideoDiT(MultiModalModule):
                     norm_type=norm_type,
                     norm_elementwise_affine=norm_elementwise_affine,
                     norm_eps=norm_eps,
-                    use_rope=use_rope, 
-                    interpolation_scale=interpolation_scale, 
+                    use_rope=use_rope,
+                    interpolation_scale=interpolation_scale,
+                    enable_sequence_parallelism=self.enable_sequence_parallelism,
                 )
                 for _ in range(num_layers)
             ]
@@ -120,7 +128,7 @@ class VideoDiT(MultiModalModule):
             self.proj_out_2 = nn.Linear(inner_dim, self.patch_size_t * self.patch_size_h * self.patch_size_w * self.out_channels)
         elif norm_type == "ada_norm_single":
             self.norm_out = nn.LayerNorm(inner_dim, elementwise_affine=False, eps=1e-6)
-            self.scale_shift_table = nn.Parameter(torch.randn(2, inner_dim) / inner_dim**0.5)
+            self.scale_shift_table = nn.Parameter(torch.randn(2, inner_dim) / inner_dim ** 0.5)
             self.proj_out = nn.Linear(inner_dim, self.patch_size_t * self.patch_size_h * self.patch_size_w * self.out_channels)
         self.adaln_single = None
         if norm_type == "ada_norm_single":
@@ -167,20 +175,20 @@ class VideoDiT(MultiModalModule):
                 vid_mask = vid_mask.unsqueeze(1)  # [b, 1, t, h, w]
                 vid_mask = F.max_pool3d(vid_mask, kernel_size=(self.patch_size_t, self.patch_size_h, self.patch_size_w),
                                         stride=(self.patch_size_t, self.patch_size_h, self.patch_size_w))
-                vid_mask = rearrange(vid_mask, 'b 1 t h w -> (b 1) 1 (t h w)') 
+                vid_mask = rearrange(vid_mask, 'b 1 t h w -> (b 1) 1 (t h w)')
             if img_mask.numel() > 0:
                 img_mask = F.max_pool2d(img_mask, kernel_size=(self.patch_size_h, self.patch_size_w),
                                         stride=(self.patch_size_h, self.patch_size_w))
-                img_mask = rearrange(img_mask, 'b i h w -> (b i) 1 (h w)') 
+                img_mask = rearrange(img_mask, 'b i h w -> (b i) 1 (h w)')
 
             vid_mask = (1 - vid_mask.bool().to(self.dtype)) * -10000.0 if vid_mask.numel() > 0 else None
             img_mask = (1 - img_mask.bool().to(self.dtype)) * -10000.0 if img_mask.numel() > 0 else None
 
-            if frames == 1 and use_image_num == 0:
+            if frames == 1 and use_image_num == 0 and not self.enable_sequence_parallelism:
                 img_mask = vid_mask
                 vid_mask = None
         # convert prompt_mask to a bias the same way we do for video_mask
-        if prompt_mask is not None and prompt_mask.ndim == 3:  
+        if prompt_mask is not None and prompt_mask.ndim == 3:
             prompt_mask = (1 - prompt_mask.to(self.dtype)) * -10000.0
             in_t = prompt_mask.shape[1]
             prompt_vid_mask = prompt_mask[:, :in_t - use_image_num]
@@ -189,7 +197,7 @@ class VideoDiT(MultiModalModule):
             prompt_img_mask = prompt_mask[:, in_t - use_image_num:]
             prompt_img_mask = rearrange(prompt_img_mask, 'b i l -> (b i) 1 l') if prompt_img_mask.numel() > 0 else None
 
-            if frames == 1 and use_image_num == 0:
+            if frames == 1 and use_image_num == 0 and not self.enable_sequence_parallelism:
                 prompt_img_mask = prompt_vid_mask
                 prompt_vid_mask = None
 
@@ -206,9 +214,17 @@ class VideoDiT(MultiModalModule):
 
         added_cond_kwargs = {"resolution": None, "aspect_ratio": None}
         latents_vid, latents_img, prompt_vid, prompt_img, timestep_vid, timestep_img, \
-        embedded_timestep_vid, embedded_timestep_img = self._operate_on_patched_inputs(
+            embedded_timestep_vid, embedded_timestep_img = self._operate_on_patched_inputs(
             latents, prompt, timestep, added_cond_kwargs, b, frames, use_image_num
         )
+
+        if self.enable_sequence_parallelism and latents_vid is not None and prompt_vid is not None:
+            latents_vid = rearrange(latents_vid, 'b s h -> s b h', b=b).contiguous()
+            prompt_vid = rearrange(prompt_vid, 'b s h -> s b h', b=b).contiguous()
+            timestep_vid = timestep_vid.view(latents_vid.shape[1], 6, -1).transpose(0, 1).contiguous()
+
+            latents_vid = split_forward_gather_backward(latents_vid, mpu.get_context_parallel_group(), dim=0,
+                                                        grad_scale='down')
 
         for block in self.videodit_blocks:
             if latents_vid is not None:
@@ -219,9 +235,9 @@ class VideoDiT(MultiModalModule):
                     prompt_mask=prompt_vid_mask,
                     timestep=timestep_vid,
                     class_labels=class_labels,
-                    frames=frames, 
-                    height=height, 
-                    width=width, 
+                    frames=frames,
+                    height=height,
+                    width=width,
                 )
             if latents_img is not None:
                 latents_img = block(
@@ -231,20 +247,25 @@ class VideoDiT(MultiModalModule):
                     prompt_mask=prompt_img_mask,
                     timestep=timestep_img,
                     class_labels=class_labels,
-                    frames=1, 
-                    height=height, 
-                    width=width, 
+                    frames=1,
+                    height=height,
+                    width=width,
                 )
 
+        if self.enable_sequence_parallelism and latents_vid is not None:
+            latents_vid = rearrange(latents_vid, 's b h -> b s h', b=b).contiguous()
+            latents_vid = gather_forward_split_backward(latents_vid, mpu.get_context_parallel_group(), dim=1,
+                                                        grad_scale='up')
+
         # 3. Output
-        output_vid, output_img = None, None 
+        output_vid, output_img = None, None
         if latents_vid is not None:
             output_vid = self._get_output_for_patched_inputs(
                 latents=latents_vid,
                 timestep=timestep_vid,
                 class_labels=class_labels,
                 embedded_timestep=embedded_timestep_vid,
-                num_frames=frames, 
+                num_frames=frames,
                 height=height,
                 width=width,
             )  # [b, c, t, h, w]
@@ -254,7 +275,7 @@ class VideoDiT(MultiModalModule):
                 timestep=timestep_img,
                 class_labels=class_labels,
                 embedded_timestep=embedded_timestep_img,
-                num_frames=1, 
+                num_frames=1,
                 height=height,
                 width=width,
             )  # [b, c, 1, h, w]
@@ -268,7 +289,7 @@ class VideoDiT(MultiModalModule):
         elif output_img is not None:
             output = output_img
         return output
-    
+
     @property
     def dtype(self) -> torch.dtype:
         """The dtype of the module (assuming that all the module parameters have the same dtype)."""
@@ -279,15 +300,16 @@ class VideoDiT(MultiModalModule):
             buffers = tuple(self.buffers())
             return buffers[0].dtype
 
-
-    def _operate_on_patched_inputs(self, latents, prompt, timestep, added_cond_kwargs, batch_size, frames, use_image_num):
+    def _operate_on_patched_inputs(self, latents, prompt, timestep, added_cond_kwargs, batch_size, frames,
+                                   use_image_num):
         latents_vid, latents_img = self.pos_embed(latents.to(self.dtype), frames)
         timestep_vid, timestep_img = None, None
         embedded_timestep_vid, embedded_timestep_img = None, None
         prompt_vid, prompt_img = None, None
 
         if self.adaln_single is not None:
-            timestep, embedded_timestep = self.adaln_single(timestep, added_cond_kwargs, batch_size=batch_size, hidden_dtype=self.dtype)
+            timestep, embedded_timestep = self.adaln_single(timestep, added_cond_kwargs, batch_size=batch_size,
+                                                            hidden_dtype=self.dtype)
             if latents_vid is None:
                 timestep_img = timestep
                 embedded_timestep_img = embedded_timestep
@@ -308,8 +330,9 @@ class VideoDiT(MultiModalModule):
                     prompt_img = rearrange(prompt[:, 1:], 'b i l d -> (b i) l d')
 
         return latents_vid, latents_img, prompt_vid, prompt_img, timestep_vid, timestep_img, embedded_timestep_vid, embedded_timestep_img
-    
-    def _get_output_for_patched_inputs(self, latents, timestep, class_labels, embedded_timestep, num_frames, height=None, width=None):  
+
+    def _get_output_for_patched_inputs(self, latents, timestep, class_labels, embedded_timestep, num_frames,
+                                       height=None, width=None):
         if self.norm_type != "ada_norm_single":
             conditioning = self.videodit_blocks[0].norm1.emb(timestep, class_labels, hidden_dtype=self.dtype)
             shift, scale = self.proj_out_1(F.silu(conditioning)).chunk(2, dim=1)
@@ -327,10 +350,10 @@ class VideoDiT(MultiModalModule):
         if self.adaln_single is None:
             height = width = int(latents.shape[1] ** 0.5)
         latents = latents.reshape(shape=(-1, num_frames, height, width, self.patch_size_t,
-                                        self.patch_size_h, self.patch_size_w, self.out_channels))
+                                         self.patch_size_h, self.patch_size_w, self.out_channels))
         latents = torch.einsum("nthwopqc->nctohpwq", latents)
         output = latents.reshape(shape=(-1, self.out_channels, num_frames * self.patch_size_t,
-                                       height * self.patch_size_h, width * self.patch_size_w))
+                                        height * self.patch_size_h, width * self.patch_size_w))
         return output
 
 
@@ -350,12 +373,13 @@ class VideoDiTBlock(nn.Module):
         activation_fn: The name of activation function use in VideoDiTBlock.
         norm_type: can be 'layer_norm', 'ada_norm', 'ada_norm_zero', 'ada_norm_single', 'ada_norm_continuous', 'layer_norm_i2vgen'.
         num_embeds_ada_norm: The number of diffusion steps used during training. Pass if at least one of the norm_layers is
-                             `AdaLayerNorm`. This is fixed during training since it is used to learn a number of embeddings 
+                             `AdaLayerNorm`. This is fixed during training since it is used to learn a number of embeddings
                              that are added to the hidden states.
         norm_elementswise_affine: Whether to use learnable elementwise affine parameters for normalization.
         norm_eps: The eps of he normalization.
         interpolation_scale: The scale for interpolation.
     """
+
     def __init__(
         self,
         dim: int,
@@ -379,6 +403,7 @@ class VideoDiTBlock(nn.Module):
         ff_bias: bool = True,
         use_rope: bool = False,
         interpolation_scale: Tuple[float] = None,
+        enable_sequence_parallelism: bool = False,
     ):
         super().__init__()
         if norm_type in ("ada_norm", "ada_norm_zero") and num_embeds_ada_norm is None:
@@ -413,7 +438,13 @@ class VideoDiTBlock(nn.Module):
         else:
             self.norm1 = nn.LayerNorm(dim, elementwise_affine=norm_elementwise_affine, eps=norm_eps)
 
-        self.self_atten = MultiHeadAttentionBSH(
+        self.enable_sequence_parallelism = enable_sequence_parallelism
+        if self.enable_sequence_parallelism:
+            attention = ParallelMultiHeadAttentionSBH
+        else:
+            attention = MultiHeadAttentionBSH
+
+        self.self_atten = attention(
             query_dim=dim,
             key_dim=None,
             num_heads=num_heads,
@@ -440,7 +471,7 @@ class VideoDiTBlock(nn.Module):
         else:
             self.norm2 = nn.LayerNorm(dim, norm_eps, norm_elementwise_affine)
 
-        self.cross_atten = MultiHeadAttentionBSH(
+        self.cross_atten = attention(
             query_dim=dim,
             key_dim=cross_attention_dim,
             num_heads=num_heads,
@@ -491,9 +522,9 @@ class VideoDiTBlock(nn.Module):
         prompt_mask: Optional[torch.Tensor] = None,
         timestep: Dict[str, torch.Tensor] = None,
         class_labels: Optional[torch.Tensor] = None,
-        frames: int = None, 
-        height: int = None, 
-        width: int = None, 
+        frames: int = None,
+        height: int = None,
+        width: int = None,
         added_cond_kwargs: Optional[Dict[str, torch.Tensor]] = None,
     ) -> torch.FloatTensor:
         # 1. Self-Attention
@@ -509,9 +540,15 @@ class VideoDiTBlock(nn.Module):
         elif self.norm_type == "ada_norm_continuous":
             norm_latents = self.norm1(latents, added_cond_kwargs["pooled_text_emb"])
         elif self.norm_type == "ada_norm_single":
-            shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
+            if self.enable_sequence_parallelism:
+                batch_size = latents.shape[1]
+                shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
+                    self.scale_shift_table[:, None] + timestep.reshape(6, batch_size, -1)
+                ).chunk(6, dim=0)
+            else:
+                shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
                     self.scale_shift_table[None] + timestep.reshape(batch_size, 6, -1)
-            ).chunk(6, dim=1)
+                ).chunk(6, dim=1)
             norm_latents = self.norm1(latents)
             norm_latents = norm_latents * (1 + scale_msa) + shift_msa
         else:
