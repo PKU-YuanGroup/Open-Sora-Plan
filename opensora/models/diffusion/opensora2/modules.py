@@ -521,6 +521,37 @@ class AttnProcessor2_0:
         if self.is_cross_attn:
             attention_mask = attention_mask.repeat(self.sparse_n, 1, 1, 1)
         return x, attention_mask, pad_len
+
+    def _sparse_1d_on_npu(self, x, attention_mask, frame, height, width):
+        """
+        require the shape of (batch_size x ntokens x nheads x dim)
+        attention_mask: b nheads 1 thw
+        """
+        l = x.shape[1]
+        assert l == frame*height*width
+        # import ipdb;ipdb.set_trace()
+        if torch_npu is not None and attention_mask is not None:
+            assert attention_mask.ndim == 3 and attention_mask.shape[1] == 1
+            attention_mask = attention_mask.unsqueeze(1)
+        assert attention_mask is None or attention_mask.shape[2] == 1
+        pad_len = 0
+        if l % (self.sparse_n * self.sparse_n) != 0:
+            pad_len = self.sparse_n * self.sparse_n - l % (self.sparse_n * self.sparse_n)
+        if pad_len != 0:
+            x = F.pad(x, (0, 0, 0, 0, 0, pad_len))
+            if attention_mask is not None and not self.is_cross_attn:
+                attention_mask = F.pad(attention_mask, (0, pad_len, 0, 0), value=-9980.0)
+        if not self.sparse_group:
+            x = rearrange(x, 'b (g k) h d -> (b k) g h d', k=self.sparse_n)
+            if attention_mask is not None and not self.is_cross_attn:
+                attention_mask = rearrange(attention_mask, 'b h 1 (g k) -> (b k) h 1 g', k=self.sparse_n).contiguous()
+        else:
+            x = rearrange(x, 'b (n m k) h d -> (b m) (n k) h d', m=self.sparse_n, k=self.sparse_n)
+            if attention_mask is not None and not self.is_cross_attn:
+                attention_mask = rearrange(attention_mask, 'b h 1 (n m k) -> (b m) h 1 (n k)', m=self.sparse_n, k=self.sparse_n)
+        if self.is_cross_attn:
+            attention_mask = repeat(attention_mask, 'b h 1 s -> (b k) h 1 s', k=self.sparse_n)
+        return x, attention_mask, pad_len
     
     def _reverse_sparse_1d(self, x, frame, height, width, pad_len):
         """
@@ -535,12 +566,32 @@ class AttnProcessor2_0:
         x = x[:, :, :frame*height*width, :]
         # x = x.contiguous()
         return x
+
+    def _reverse_sparse_1d_on_npu(self, x, frame, height, width, pad_len):
+        """
+        require the shape of (batch_size x ntokens x nheads x dim)
+        """
+        assert x.shape[1] == (frame * height * width + pad_len) // self.sparse_n
+        if not self.sparse_group:
+            x = rearrange(x, '(b k) g h d -> b (g k) h d', k=self.sparse_n)
+        else:
+            x = rearrange(x, '(b m) (n k) h d -> b (n m k) h d', m=self.sparse_n, k=self.sparse_n)
+        x = x[:, :frame*height*width, :, :]
+        # x = x.contiguous()
+        return x
     
     def _sparse_1d_kv(self, x):
         """
         require the shape of (batch_size x nheads x ntokens x dim)
         """
         x = repeat(x, 'b h s d -> (k b) h s d', k=self.sparse_n)
+        return x
+
+    def _sparse_1d_kv_on_npu(self, x):
+        """
+        require the shape of (batch_size x ntokens x nheads x dim)
+        """
+        x = repeat(x, 'b h s d -> (b k) h s d', k=self.sparse_n)
         return x
     
     def _sparse_2d(self, x, attention_mask, frame, height, width):
@@ -716,28 +767,28 @@ class AttnProcessor2_0:
                 else:
                     dtype = None
 
-                query = query.reshape(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
-                key = key.reshape(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
+                query = query.reshape(batch_size, -1, attn.heads, head_dim)
+                key = key.reshape(batch_size, -1, attn.heads, head_dim)
                 # query = attn.q_norm(query)
                 # key = attn.k_norm(key)
                 if self.use_rope:
-                    # require the shape of (batch_size x nheads x ntokens x dim)
+                    # require the shape of (batch_size x ntokens x nheads x dim)
                     pos_thw = self.position_getter(batch_size, t=frame, h=height, w=width, device=query.device)
                     query = self.rope(query, pos_thw)
                     key = self.rope(key, pos_thw)
-                value = value.reshape(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
+                value = value.reshape(batch_size, -1, attn.heads, head_dim)
                 # print('l727', frame, height, width, query.shape, attention_mask.shape)
                 # import ipdb;ipdb.set_trace()
                 if self.sparse1d:
-                    query, attention_mask, pad_len = self._sparse_1d(query, attention_mask, frame, height, width)
+                    query, attention_mask, pad_len = self._sparse_1d_on_npu(query, attention_mask, frame, height, width)
                     
                     # import ipdb;ipdb.set_trace()
                     if self.is_cross_attn:
-                        key = self._sparse_1d_kv(key)
-                        value = self._sparse_1d_kv(value)
+                        key = self._sparse_1d_kv_on_npu(key)
+                        value = self._sparse_1d_kv_on_npu(value)
                     else:
-                        key, _, pad_len = self._sparse_1d(key, None, frame, height, width)
-                        value, _, pad_len = self._sparse_1d(value, None, frame, height, width)
+                        key, _, pad_len = self._sparse_1d_on_npu(key, None, frame, height, width)
+                        value, _, pad_len = self._sparse_1d_on_npu(value, None, frame, height, width)
 
                 elif self.sparse2d:
                     # import ipdb;ipdb.set_trace()
@@ -749,14 +800,9 @@ class AttnProcessor2_0:
                         key, _, pad_height, pad_width = self._sparse_2d(key, None, frame, height, width)
                         value, _, pad_height, pad_width = self._sparse_2d(value, None, frame, height, width)
 
-                query = rearrange(query, 'b h s d -> b s (h d)')
-                key = rearrange(key, 'b h s d -> b s (h d)')
-                value = rearrange(value, 'b h s d -> b s (h d)')
-                # query = query.transpose(1, 2).reshape(batch_size, -1, attn.heads * head_dim)
-                # key = key.transpose(1, 2).reshape(batch_size, -1, attn.heads * head_dim)
-                # value = value.transpose(1, 2).reshape(batch_size, -1, attn.heads * head_dim)
-
-                
+                query = query.reshape(query.shape[0], query.shape[1], -1)
+                key = key.reshape(key.shape[0], key.shape[1], -1)
+                value = value.reshape(value.shape[0], value.shape[1], -1)
 
                 if npu_config is not None and attention_mask is not None:
                     # b h(1) 1 l
@@ -782,13 +828,13 @@ class AttnProcessor2_0:
 
                     hidden_states = npu_config.restore_dtype(hidden_states)
 
-                hidden_states = hidden_states.reshape(hidden_states.shape[0], -1, attn.heads, head_dim).transpose(1, 2)
+                hidden_states = hidden_states.reshape(hidden_states.shape[0], -1, attn.heads, head_dim)
                 if self.sparse1d:
-                    hidden_states = self._reverse_sparse_1d(hidden_states, frame, height, width, pad_len)
+                    hidden_states = self._reverse_sparse_1d_on_npu(hidden_states, frame, height, width, pad_len)
                 elif self.sparse2d:
                     hidden_states = self._reverse_sparse_2d(hidden_states, frame, height, width, pad_height, pad_width)
 
-                hidden_states = hidden_states.transpose(1, 2).reshape(batch_size, -1, attn.heads * head_dim)
+                hidden_states = hidden_states.reshape(batch_size, -1, attn.heads * head_dim)
 
         else:
             if get_sequence_parallel_state():
