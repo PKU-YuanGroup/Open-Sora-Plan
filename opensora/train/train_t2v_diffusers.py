@@ -214,19 +214,19 @@ def main(args):
     # Create model:
     kwargs = {}
     ae = ae_wrapper[args.ae](args.ae_path, cache_dir=args.cache_dir, **kwargs).eval()
-    print(f'ae {args.ae}: {sum(p.numel() for p in ae.parameters()) / 1e9} B')
+    logger.info(f'ae {args.ae}: {sum(p.numel() for p in ae.parameters()) / 1e9} B')
     
     if args.enable_tiling:
         ae.vae.enable_tiling()
 
     kwargs = {'load_in_8bit': args.enable_8bit_t5, 'torch_dtype': weight_dtype, 'low_cpu_mem_usage': True}
     text_enc_1 = get_text_warpper(args.text_encoder_name_1)(args, **kwargs).eval()
-    print(f'text_enc_1 {args.text_encoder_name_1}, weight_dtype: {weight_dtype}: {sum(p.numel() for p in text_enc_1.parameters()) / 1e9} B')
+    logger.info(f'text_enc_1 {args.text_encoder_name_1}, weight_dtype: {weight_dtype}: {sum(p.numel() for p in text_enc_1.parameters()) / 1e9} B')
 
     text_enc_2 = None
     if args.text_encoder_name_2 is not None:
         text_enc_2 = get_text_warpper(args.text_encoder_name_2)(args, **kwargs).eval()
-        print(f'text_enc_2 {args.text_encoder_name_2}, weight_dtype: {weight_dtype}: {sum(p.numel() for p in text_enc_2.parameters()) / 1e9} B')
+        logger.info(f'text_enc_2 {args.text_encoder_name_2}, weight_dtype: {weight_dtype}: {sum(p.numel() for p in text_enc_2.parameters()) / 1e9} B')
 
     ae_stride_t, ae_stride_h, ae_stride_w = ae_stride_config[args.ae]
     ae.vae_scale_factor = (ae_stride_t, ae_stride_h, ae_stride_w)
@@ -318,14 +318,6 @@ def main(args):
     if text_enc_2 is not None:
         text_enc_2.to(accelerator.device, dtype=weight_dtype)
 
-    # print('vae text encoder')
-    # print('vae text encoder')
-    # print('vae text encoder')
-    # print('vae text encoder')
-    # print('vae text encoder')
-    # print('vae text encoder')
-    # import time
-    # time.sleep(20)
     # Create EMA for the unet.
     if args.use_ema:
         ema_model = deepcopy(model)
@@ -440,13 +432,11 @@ def main(args):
     logger.info(f"optimizer: {optimizer}")
 
     # Setup data:
-
     if args.trained_data_global_step is not None:
         initial_global_step_for_sampler = args.trained_data_global_step
     else:
         initial_global_step_for_sampler = 0
-    # print('initial_global_step, initial_global_step_for_sampler, total_batch_size', 
-    #       initial_global_step, initial_global_step_for_sampler, total_batch_size)
+        
     train_dataset = getdataset(args)
     sampler = LengthGroupedSampler(
                 args.train_batch_size,
@@ -491,29 +481,13 @@ def main(args):
         for name, param in model.named_parameters():
             if 'pos_embed' in name or 'proj_out' in name:
                 param.requires_grad = True
+
     logger.info(f'before accelerator.prepare')
-    # logger.info(f'before accelerator.prepare')
-    # logger.info(f'before accelerator.prepare')
-    # logger.info(f'before accelerator.prepare')
-    # logger.info(f'before accelerator.prepare')
-    # logger.info(f'before accelerator.prepare')
-    # logger.info(f'before accelerator.prepare')
-    # logger.info(f'before accelerator.prepare')
-    # import time
-    # time.sleep(20)
     model, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
         model, optimizer, train_dataloader, lr_scheduler
     )
     logger.info(f'after accelerator.prepare')
-    # logger.info(f'after accelerator.prepare')
-    # logger.info(f'after accelerator.prepare')
-    # logger.info(f'after accelerator.prepare')
-    # logger.info(f'after accelerator.prepare')
-    # logger.info(f'after accelerator.prepare')
-    # logger.info(f'after accelerator.prepare')
-    # logger.info(f'after accelerator.prepare')
-    # import time
-    # time.sleep(20)
+    
     if args.use_ema:
         ema_model.to(accelerator.device)
 
@@ -763,9 +737,9 @@ def main(args):
     def train_one_step(step_, data_item_, prof_=None):
         train_loss = 0.0
         x, attn_mask, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2, motion_score = data_item_
-        # print(f'step: {step_}, rank: {accelerator.process_index}, x: {x.shape}')
+        print(f'step: {step_}, rank: {accelerator.process_index}, x: {x.shape}')
         assert not torch.any(torch.isnan(x)), 'torch.any(torch.isnan(x))'
-        x = x.to(accelerator.device, dtype=ae.vae.dtype)  # B C T H W, 16 + 4
+        x = x.to(accelerator.device, dtype=ae.vae.dtype)  # B C T H W
 
         attn_mask = attn_mask.to(accelerator.device)  # B T H W
         input_ids_1 = input_ids_1.to(accelerator.device)  # B 1 L

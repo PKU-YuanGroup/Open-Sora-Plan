@@ -212,7 +212,6 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
 
 
         # convert encoder_attention_mask to a bias the same way we do for attention_mask
-        print('encoder_attention_mask', encoder_attention_mask.shape)
         if encoder_attention_mask is not None and encoder_attention_mask.ndim == 3:  
             # b, 1, l -> only images
             encoder_attention_mask = (1 - encoder_attention_mask.to(self.dtype)) * -10000.0
@@ -254,10 +253,7 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
 
         # 3. Output
         output = self._get_output_for_patched_inputs(
-            hidden_states=hidden_states,
-            num_frames=frame, 
-            height=height,
-            width=width,
+            hidden_states, embedded_timestep, frame, height=height, width=width,
         )  # b c t h w
 
         if not return_dict:
@@ -274,8 +270,8 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
         skip_connections = [hidden_states]
         for idx, stage_block in enumerate(self.transformer_blocks[:len(self.config.num_layers)//2]):
             for idx_, block in enumerate(stage_block):
-                print(f'enc stage_block_{idx}, block_{idx_}', 
-                      f'sparse1d {block.sparse1d}, sparse2d {block.sparse2d}, sparse_n {block.sparse_n}, sparse_group {block.sparse_group}')
+                # print(f'enc stage_block_{idx}, block_{idx_}', 
+                #       f'sparse1d {block.sparse1d}, sparse2d {block.sparse2d}, sparse_n {block.sparse_n}, sparse_group {block.sparse_group}')
                 if self.training and self.gradient_checkpointing:
                     hidden_states = torch.utils.checkpoint.checkpoint(
                         create_custom_forward(block),
@@ -311,8 +307,8 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
         ):
         
         for idx_, block in enumerate(self.transformer_blocks[len(self.config.num_layers)//2]):
-            print(f'mid block_{idx_}', 
-                  f'sparse1d {block.sparse1d}, sparse2d {block.sparse2d}, sparse_n {block.sparse_n}, sparse_group {block.sparse_group}')
+            # print(f'mid block_{idx_}', 
+            #       f'sparse1d {block.sparse1d}, sparse2d {block.sparse2d}, sparse_n {block.sparse_n}, sparse_group {block.sparse_group}')
             if self.training and self.gradient_checkpointing:
                 hidden_states = torch.utils.checkpoint.checkpoint(
                     create_custom_forward(block),
@@ -351,8 +347,8 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
             hidden_states = torch.cat([hidden_states, skip_hidden_states], dim=-1)
             hidden_states = self.skip_norm_linear[idx](hidden_states)
             for idx_, block in enumerate(stage_block):
-                print(f'dec stage_block_{idx}, block_{idx_}', 
-                      f'sparse1d {block.sparse1d}, sparse2d {block.sparse2d}, sparse_n {block.sparse_n}, sparse_group {block.sparse_group}')
+                # print(f'dec stage_block_{idx}, block_{idx_}', 
+                #       f'sparse1d {block.sparse1d}, sparse2d {block.sparse2d}, sparse_n {block.sparse_n}, sparse_group {block.sparse_group}')
                 if self.training and self.gradient_checkpointing:
                     hidden_states = torch.utils.checkpoint.checkpoint(
                         create_custom_forward(block),
@@ -393,10 +389,10 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
         return hidden_states, encoder_hidden_states, timesteps_emb
     
     def _get_output_for_patched_inputs(
-        self, hidden_states, num_frames, height, width
+        self, hidden_states, embedded_timestep, num_frames, height, width
     ):  
         # Modulation
-        hidden_states = self.norm_out(hidden_states)
+        hidden_states = self.norm_out(hidden_states, embedded_timestep)
         # unpatchify
         hidden_states = self.proj_out(hidden_states)
         hidden_states = hidden_states.reshape(
@@ -413,7 +409,7 @@ def OpenSoraT2V_v1_5_5B_122(**kwargs):
     if kwargs.get('sparse_n', None) is not None:
         kwargs.pop('sparse_n')
     return OpenSoraT2V_v1_5(
-        num_layers=[2, 4, 8, 10, 8, 4, 2], sparse_n=[1, 4, 16, 64, 16, 4, 1], 
+        num_layers=[2, 4, 8, 10, 8, 4, 2], sparse_n=[1, 4, 16, 16, 16, 4, 1], 
         attention_head_dim=72, num_attention_heads=32, 
         patch_size_t=1, patch_size=2, norm_type="ada_norm_single", 
         caption_channels=4096, cross_attention_dim=2304, pooled_projection_dim=1280, **kwargs
@@ -457,8 +453,8 @@ if __name__ == '__main__':
     latent_size = (args.max_height // ae_stride_h, args.max_width // ae_stride_w)
     num_frames = (args.num_frames - 1) // ae_stride_t + 1
 
-    device = torch.device('cpu')
-    # device = torch.device('cuda:0')
+    # device = torch.device('cpu')
+    device = torch.device('cuda:0')
     model = OpenSoraT2V_v1_5_5B_122(
         in_channels=c, 
         out_channels=c, 

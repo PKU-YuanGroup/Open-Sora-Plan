@@ -809,18 +809,6 @@ class BasicTransformerBlock(nn.Module):
     ) -> torch.FloatTensor:
         
         # 0. Self-Attention
-        batch_size = hidden_states.shape[0]
-
-        # if get_sequence_parallel_state():
-        #     batch_size = hidden_states.shape[1]
-        #     shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
-        #             self.scale_shift_table[:, None] + timestep.reshape(6, batch_size, -1)
-        #     ).chunk(6, dim=0)
-        # else:
-        #     shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
-        #             self.scale_shift_table[None] + timestep.reshape(batch_size, 6, -1)
-        #     ).chunk(6, dim=1)
-
         norm_hidden_states, norm_encoder_hidden_states, gate_msa, gate_mca = self.norm1(
             hidden_states, encoder_hidden_states, embedded_timestep
             )
@@ -832,7 +820,7 @@ class BasicTransformerBlock(nn.Module):
         attn_output = gate_msa * attn_output
         hidden_states = attn_output + hidden_states
 
-        # 3. Cross-Attention
+        # 1. Cross-Attention
         norm_hidden_states = self.norm2(hidden_states)
         attn_output = self.attn2(
             norm_hidden_states,
@@ -842,10 +830,8 @@ class BasicTransformerBlock(nn.Module):
         attn_output = gate_mca * attn_output
         hidden_states = attn_output + hidden_states
 
-        # 4. Feed-forward
-        norm_hidden_states, gate_mlp = self.norm1(
-            hidden_states, encoder_hidden_states, embedded_timestep
-            )
+        # 2. Feed-forward
+        norm_hidden_states, gate_mlp = self.norm3(hidden_states, embedded_timestep)
         ff_output = self.ff(norm_hidden_states)
         ff_output = gate_mlp * ff_output
         hidden_states = ff_output + hidden_states
