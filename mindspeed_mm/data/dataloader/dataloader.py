@@ -6,7 +6,11 @@ from torch.distributed.distributed_c10d import _get_default_group
 from torch.utils.data import DataLoader, Dataset
 
 from mindspeed_mm.data.data_utils.utils import get_seed_worker
-from mindspeed_mm.data.dataloader.sampler import StatefulDistributedSampler
+from mindspeed_mm.data.dataloader.sampler import (
+    Collate,
+    LengthGroupedSampler,
+    StatefulDistributedSampler,
+)
 
 
 def prepare_base_dataloader(
@@ -59,6 +63,9 @@ def prepare_sampler_dataloader(
     num_workers=0,
     process_group: Optional[ProcessGroup] = None,
     sampler_type="stateful_distributed_sampler",
+    group_frame=False,
+    group_resolution=False,
+    world_size=-1,
     **kwargs,
 ):
     """
@@ -97,6 +104,34 @@ def prepare_sampler_dataloader(
             drop_last=drop_last,
             pin_memory=pin_memory,
             num_workers=num_workers,
+        )
+    elif sampler_type == "LengthGroupedSampler":
+        sampler = (
+            LengthGroupedSampler(
+                batch_size,
+                world_size=world_size,
+                lengths=dataset.lengths,
+                group_frame=group_frame,
+                group_resolution=group_resolution,
+            )
+            if (group_frame or group_resolution)
+            else None
+        )
+
+        collate_param = kwargs.get("collate_param", None)
+        if collate_param is None:
+            raise ValueError("collate_param must be provided.")
+        collate_fn = Collate(**collate_param)
+
+        return DataLoader(
+            dataset,
+            shuffle=shuffle,
+            pin_memory=pin_memory,
+            collate_fn=collate_fn,
+            batch_size=batch_size,
+            num_workers=num_workers,
+            sampler=sampler if (group_frame or group_resolution) else None,
+            drop_last=drop_last,
         )
     else:
         raise NotImplementedError(f"sampler type: {sampler_type}")

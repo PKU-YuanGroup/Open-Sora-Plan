@@ -95,13 +95,17 @@ def crop(clip, i, j, h, w):
     return clip[..., i : i + h, j : j + w]
 
 
-def resize(clip, target_size, interpolation_mode):
+def resize(clip, target_size, interpolation_mode, align_corners=False, antialias=False):
     if len(target_size) != 2:
         raise ValueError(
             f"target size should be tuple (height, width), instead got {target_size}"
         )
     return torch.nn.functional.interpolate(
-        clip, size=target_size, mode=interpolation_mode, align_corners=False
+        clip,
+        size=target_size,
+        mode=interpolation_mode,
+        align_corners=align_corners,
+        antialias=antialias,
     )
 
 
@@ -145,6 +149,24 @@ def center_crop_using_short_edge(clip):
     return crop(clip, i, j, th, tw)
 
 
+def center_crop_th_tw(clip, th, tw, top_crop):
+    if not _is_tensor_video_clip(clip):
+        raise ValueError("clip should be a 4D torch.tensor")
+
+    h, w = clip.size(-2), clip.size(-1)
+    tr = th / tw
+    if h / w > tr:
+        new_h = int(w * tr)
+        new_w = w
+    else:
+        new_h = h
+        new_w = int(h / tr)
+
+    i = 0 if top_crop else int(round((h - new_h) / 2.0))
+    j = int(round((w - new_w) / 2.0))
+    return crop(clip, i, j, new_h, new_w)
+
+
 def resize_crop_to_fill(clip, target_size):
     if not _is_tensor_video_clip(clip):
         raise ValueError("clip should be a 4D torch.tensor")
@@ -164,6 +186,32 @@ def resize_crop_to_fill(clip, target_size):
     if i + th > clip.size(-2) or j + tw > clip.size(-1):
         raise AssertionError("size mismatch.")
     return crop(clip, i, j, th, tw)
+
+
+class AENorm:
+    """
+    Apply an ae_norm to a PIL image or video.
+    """
+
+    def __init__(self):
+        pass
+
+    def __call__(self, clip):
+        """
+        Apply the center crop to the input video.
+
+        Args:
+            video (clip): The input video.
+
+        Returns:
+            video: The ae_norm video.
+        """
+
+        clip = 2.0 * clip - 1.0
+        return clip
+
+    def __repr__(self) -> str:
+        return self.__class__.__name__
 
 
 class CenterCropArr:
@@ -354,8 +402,14 @@ class CenterCropResizeVideo:
     def __init__(
         self,
         size,
+        use_short_edge=False,
+        top_crop=False,
         interpolation_mode="bilinear",
+        align_corners=False,
+        antialias=False,
     ):
+        if isinstance(size, list):
+            size = tuple(size)
         if isinstance(size, tuple):
             if len(size) != 2:
                 raise ValueError(
@@ -365,7 +419,11 @@ class CenterCropResizeVideo:
         else:
             self.size = (size, size)
 
+        self.use_short_edge = use_short_edge
+        self.top_crop = top_crop
         self.interpolation_mode = interpolation_mode
+        self.align_corners = align_corners
+        self.antialias = antialias
 
     def __call__(self, clip):
         """
@@ -375,11 +433,19 @@ class CenterCropResizeVideo:
             torch.tensor: scale resized / center cropped video clip.
                 size is (T, C, crop_size, crop_size)
         """
-        clip_center_crop = center_crop_using_short_edge(clip)
+        if self.use_short_edge:
+            clip_center_crop = center_crop_using_short_edge(clip)
+        else:
+            clip_center_crop = center_crop_th_tw(
+                clip, self.size[0], self.size[1], top_crop=self.top_crop
+            )
+
         clip_center_crop_resize = resize(
             clip_center_crop,
             target_size=self.size,
             interpolation_mode=self.interpolation_mode,
+            align_corners=self.align_corners,
+            antialias=self.antialias,
         )
         return clip_center_crop_resize
 

@@ -1,17 +1,17 @@
 import torchvision.transforms as transforms
 
 from mindspeed_mm.data.data_utils.data_transform import (
-    ToTensorVideo,
-    RandomHorizontalFlipVideo,
-    UCFCenterCropVideo,
-    ResizeCrop,
+    AENorm,
+    CenterCropArr,
     CenterCropResizeVideo,
     LongSideResizeVideo,
-    SpatialStrideCropVideo,
-    CenterCropArr,
+    RandomHorizontalFlipVideo,
+    ResizeCrop,
     ResizeCropToFill,
+    SpatialStrideCropVideo,
+    ToTensorVideo,
+    UCFCenterCropVideo,
 )
-
 
 VIDEO_TRANSFORM_MAPPING = {
     "ToTensorVideo": ToTensorVideo,
@@ -22,15 +22,19 @@ VIDEO_TRANSFORM_MAPPING = {
     "LongSideResizeVideo": LongSideResizeVideo,
     "SpatialStrideCropVideo": SpatialStrideCropVideo,
     "norm_fun": transforms.Normalize,
+    "ae_norm": AENorm,
 }
 
 
 IMAGE_TRANSFORM_MAPPING = {
+    "ToTensorVideo": ToTensorVideo,
+    "CenterCropResizeVideo": CenterCropResizeVideo,
     "CenterCropArr": CenterCropArr,
     "ResizeCropToFill": ResizeCropToFill,
     "RandomHorizontalFlip": transforms.RandomHorizontalFlip,
     "ToTensor": transforms.ToTensor,
     "norm_fun": transforms.Normalize,
+    "ae_norm": AENorm,
 }
 
 

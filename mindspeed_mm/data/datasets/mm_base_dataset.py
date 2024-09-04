@@ -6,7 +6,7 @@ import torchvision
 from torch.utils.data.dataset import Dataset
 from torchvision.datasets.folder import IMG_EXTENSIONS
 
-from mindspeed_mm.data.data_utils.utils import VID_EXTENSIONS, GetDataFromPath
+from mindspeed_mm.data.data_utils.utils import VID_EXTENSIONS, DataFileReader
 
 
 class MMBaseDataset(Dataset):
@@ -22,12 +22,14 @@ class MMBaseDataset(Dataset):
         self,
         data_path: str = "",
         data_folder: str = "",
+        data_storage_mode: str = "standard",
         **kwargs,
     ):
         self.data_path = data_path
         self.data_folder = data_folder
-        self.get_data = GetDataFromPath(self.data_path)
-        self.data_samples = self.get_data()
+        self.data_storage_mode = data_storage_mode
+        self.get_data = DataFileReader(data_storage_mode=data_storage_mode)
+        self.data_samples = self.get_data(self.data_path)
 
     def __len__(self):
         return len(self.data_samples)
