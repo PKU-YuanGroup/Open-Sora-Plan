@@ -5,11 +5,11 @@ import torch
 from einops import rearrange, repeat
 from typing import Any, Dict, Optional, Tuple
 from diffusers.configuration_utils import register_to_config
-from opensora.models.diffusion.opensora2.modules import PatchEmbed2D
+from opensora.models.diffusion.opensora_v1_2.modules import PatchEmbed2D
 from opensora.utils.utils import to_2tuple
 
 
-from opensora.models.diffusion.opensora2.modeling_opensora import OpenSoraT2V
+from opensora.models.diffusion.opensora_v1_2.modeling_opensora import OpenSoraT2V_v1_2
 
 import glob
 
@@ -26,7 +26,7 @@ def reconstitute_checkpoint(pretrained_checkpoint, model_state_dict):
     return checkpoint
 
 
-class OpenSoraInpaint(OpenSoraT2V):
+class OpenSoraInpaint(OpenSoraT2V_v1_2):
     _supports_gradient_checkpointing = True
 
     @register_to_config

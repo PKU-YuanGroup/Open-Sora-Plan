@@ -25,7 +25,7 @@ from opensora.models.causalvideovae import ae_stride_config, ae_wrapper
 from opensora.models.text_encoder import get_text_enc
 from opensora.utils.utils import save_video_grid
 
-from opensora.models.diffusion.opensora2.modeling_inpaint import OpenSoraInpaint
+from opensora.models.diffusion.opensora_v1_2.modeling_inpaint import OpenSoraInpaint
 from opensora.sample.pipeline_inpaint import OpenSoraInpaintPipeline
 from opensora.dataset.transform import ToTensorVideo, TemporalRandomCrop, RandomHorizontalFlipVideo, CenterCropResizeVideo, LongSideResizeVideo, SpatialStrideCropVideo, NormalizeVideo, ToTensorAfterResize
 from opensora.utils.dataset_utils import DecordInit

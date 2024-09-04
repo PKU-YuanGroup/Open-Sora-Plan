@@ -730,7 +730,6 @@ class OpenSoraPipeline(DiffusionPipeline):
         extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
 
         # 6.1 Prepare micro-conditions.
-        added_cond_kwargs = {"resolution": None, "aspect_ratio": None}
 
         # 7. Denoising loop
         num_warmup_steps = max(len(timesteps) - num_inference_steps * self.scheduler.order, 0)
@@ -770,7 +769,6 @@ class OpenSoraPipeline(DiffusionPipeline):
                     encoder_hidden_states=prompt_embeds,
                     encoder_attention_mask=prompt_attention_mask,
                     timestep=current_timestep,
-                    added_cond_kwargs=added_cond_kwargs,
                     motion_score=motion_score, 
                     return_dict=False,
                 )[0]
@@ -1040,7 +1038,6 @@ class OpenSoraFreeInitPipeline(OpenSoraPipeline):
         extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
 
         # 6.1 Prepare micro-conditions.
-        added_cond_kwargs = {"resolution": None, "aspect_ratio": None}
 
         # 7. Denoising loop
         num_warmup_steps = max(len(timesteps) - num_inference_steps * self.scheduler.order, 0)
@@ -1117,7 +1114,6 @@ class OpenSoraFreeInitPipeline(OpenSoraPipeline):
                         encoder_hidden_states=prompt_embeds,
                         encoder_attention_mask=prompt_attention_mask,
                         timestep=current_timestep,
-                        added_cond_kwargs=added_cond_kwargs,
                         motion_score=motion_score, 
                         return_dict=False,
                     )[0]

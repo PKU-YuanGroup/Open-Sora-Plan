@@ -21,7 +21,7 @@ from opensora.adaptor.modules import replace_with_fp32_forwards
 from opensora.models.causalvideovae import ae_stride_config, ae_wrapper
 from opensora.models.diffusion.udit.modeling_udit import UDiTT2V
 from opensora.models.diffusion.opensora.modeling_opensora import OpenSoraT2V
-from opensora.models.diffusion.opensora2.modeling_opensora import OpenSoraT2V as SparseOpenSoraT2V
+from opensora.models.diffusion.opensora_v1_2.modeling_opensora import OpenSoraT2V as SparseOpenSoraT2V
 # from opensora.models.diffusion.latte.modeling_latte import LatteT2V
 # from opensora.models.diffusion.udit_ultra.modeling_udit_ultra import UDiTUltraT2V
 

@@ -19,9 +19,7 @@ import os, sys
 
 from opensora.models.causalvideovae import ae_stride_config, ae_wrapper
 
-from opensora.models.diffusion.udit.modeling_udit import UDiTT2V
-from opensora.models.diffusion.opensora.modeling_opensora import OpenSoraT2V
-from opensora.models.diffusion.opensora2.modeling_opensora import OpenSoraT2V as SparseOpenSoraT2V
+from opensora.models.diffusion.opensora_v1_2.modeling_opensora import OpenSoraT2V_v1_2
 # from opensora.models.diffusion.latte.modeling_latte import LatteT2V
 # from opensora.models.captioner.refiner import model_gen
 
@@ -44,34 +42,16 @@ import time
 
 
 def load_t2v_checkpoint(model_path):
-    if args.model_type == 'udit':
-        transformer_model = UDiTT2V.from_pretrained(model_path, cache_dir=args.cache_dir,
+    if args.version == 'v1_2':
+        transformer_model = OpenSoraT2V_v1_2.from_pretrained(model_path, cache_dir=args.cache_dir,
                                                         low_cpu_mem_usage=False, device_map=None,
                                                         torch_dtype=weight_dtype)
-    elif args.model_type == 'sparsedit':
-        transformer_model = SparseOpenSoraT2V.from_pretrained(model_path, cache_dir=args.cache_dir,
+    elif args.version == 'v1_5':
+        transformer_model = OpenSoraT2V_v1_5.from_pretrained(model_path, cache_dir=args.cache_dir,
                                                         low_cpu_mem_usage=False, device_map=None,
                                                         torch_dtype=weight_dtype)
-    elif args.model_type == 'dit':
-        transformer_model = OpenSoraT2V.from_pretrained(model_path, cache_dir=args.cache_dir,
-                                                        low_cpu_mem_usage=False, device_map=None,
-                                                        torch_dtype=weight_dtype)
-    else:
-        transformer_model = LatteT2V.from_pretrained(model_path, cache_dir=args.cache_dir, low_cpu_mem_usage=False,
-                                                     device_map=None, torch_dtype=weight_dtype)
-    # print(transformer_model.config)
-
     # set eval mode
     transformer_model.eval()
-    # if True:
-    #     pipeline = OpenSoraFreeInitPipeline(
-    #         vae=vae,
-    #         text_encoder=text_encoder,
-    #         tokenizer=tokenizer,
-    #         scheduler=scheduler,
-    #         transformer=transformer_model
-    #     ).to(device)
-    # else:
     pipeline = OpenSoraPipeline(
         vae=vae,
         text_encoder=text_encoder,
@@ -81,17 +61,6 @@ def load_t2v_checkpoint(model_path):
     ).to(device)
 
     if args.compile:
-        # 5%  https://github.com/siliconflow/onediff/tree/main/src/onediff/infer_compiler/backends/nexfort
-        # options = '{"mode": "max-optimize:max-autotune:freezing:benchmark:low-precision",             \
-        #             "memory_format": "channels_last", "options": {"inductor.optimize_linear_epilogue": false, \
-        #             "triton.fuse_attention_allow_fp16_reduction": false}}'
-        # # options = '{"mode": "max-autotune", "memory_format": "channels_last",              \
-        # #             "options": {"inductor.optimize_linear_epilogue": false, "triton.fuse_attention_allow_fp16_reduction": false}}'
-        # from onediffx import compile_pipe
-        # pipeline = compile_pipe(
-        #         pipeline, backend="nexfort", options=options, fuse_qkv_projections=True
-        #     )
-
         # 4%
         pipeline.transformer = torch.compile(pipeline.transformer)
     return pipeline
@@ -231,7 +200,7 @@ def run_model_and_save_images(pipeline, model_path):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_path", type=str, default='LanguageBind/Open-Sora-Plan-v1.0.0')
-    parser.add_argument("--version", type=str, default=None, choices=[None, '65x512x512', '65x256x256', '17x256x256'])
+    parser.add_argument("--version", type=str, default='v1_2', choices=['v1_2', 'v1_5'])
     parser.add_argument("--num_frames", type=int, default=1)
     parser.add_argument("--height", type=int, default=512)
     parser.add_argument("--width", type=int, default=512)
@@ -253,7 +222,6 @@ if __name__ == "__main__":
     parser.add_argument('--enable_tiling', action='store_true')
     parser.add_argument('--refine_caption', action='store_true')
     parser.add_argument('--compile', action='store_true')
-    parser.add_argument('--model_type', type=str, default="dit", choices=['sparsedit', 'dit', 'udit', 'latte'])
     parser.add_argument('--save_memory', action='store_true')
     parser.add_argument('--motion_score', type=float, default=None)    
     parser.add_argument("--prediction_type", type=str, default='epsilon', help="The prediction_type that shall be used for training. Choose between 'epsilon' or 'v_prediction' or leave `None`. If left to `None` the default prediction type of the scheduler: `noise_scheduler.config.prediciton_type` is chosen.")

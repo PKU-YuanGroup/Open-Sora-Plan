@@ -42,6 +42,7 @@ ae_wrapper = {
     'CausalVAEModel_D4_4x8x8': CausalVAEModelWrapper,
     'CausalVAEModel_D8_4x8x8': CausalVAEModelWrapper,
     'WFVAEModel_D8_4x8x8': WFVAEModelWrapper,
+    'WFVAEModel_D16_4x8x8': WFVAEModelWrapper,
 }
 
 ae_stride_config = {
@@ -50,6 +51,7 @@ ae_stride_config = {
     'CausalVAEModel_D4_4x8x8': [4, 8, 8],
     'CausalVAEModel_D8_4x8x8': [4, 8, 8],
     'WFVAEModel_D8_4x8x8': [4, 8, 8],
+    'WFVAEModel_D16_4x8x8': [4, 8, 8],
 }
 
 ae_channel_config = {
@@ -58,6 +60,7 @@ ae_channel_config = {
     'CausalVAEModel_D4_4x8x8': 4,
     'CausalVAEModel_D8_4x8x8': 8,
     'WFVAEModel_D8_4x8x8': 8,
+    'WFVAEModel_D16_4x8x8': 8,
 }
 
 ae_denorm = {
@@ -66,6 +69,7 @@ ae_denorm = {
     'CausalVAEModel_D4_4x8x8': lambda x: (x + 1.) / 2.,
     'CausalVAEModel_D8_4x8x8': lambda x: (x + 1.) / 2.,
     'WFVAEModel_D8_4x8x8': lambda x: (x + 1.) / 2.,
+    'WFVAEModel_D16_4x8x8': lambda x: (x + 1.) / 2.,
 }
 
 ae_norm = {
@@ -74,4 +78,5 @@ ae_norm = {
     'CausalVAEModel_D4_4x8x8': Lambda(lambda x: 2. * x - 1.),
     'CausalVAEModel_D8_4x8x8': Lambda(lambda x: 2. * x - 1.),
     'WFVAEModel_D8_4x8x8': Lambda(lambda x: 2. * x - 1.),
+    'WFVAEModel_D16_4x8x8': Lambda(lambda x: 2. * x - 1.),
 }
