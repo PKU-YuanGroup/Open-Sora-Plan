@@ -31,7 +31,7 @@ accelerate launch \
     --attention_mode xformers \
     --gradient_checkpointing \
     --train_batch_size=1 \
-    --dataloader_num_workers 10 \
+    --dataloader_num_workers 8 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
     --learning_rate=1e-5 \
@@ -70,7 +70,7 @@ accelerate launch \
     --clear_video_ratio 0.1 \
     --min_clear_ratio 0.25 \
     --default_text_ratio 0.5 \
-    --output_dir /home/save_dir/runs/$PROJECT > training_log.txt \
-    --resume_from_checkpoint="latest" \ 
-    # --pretrained_transformer_model_path "/home/save_dir/runs/inpaint_93x320x320_stage1_step1/checkpoint-2000/model_ema" \
+    --output_dir /home/save_dir/runs/$PROJECT \
+    --resume_from_checkpoint="latest" 
+    # --pretrained_transformer_model_path "/home/image_data/captions/vpre_latest_134k/model_ema" \
     # 切part是resume，不是pretrained

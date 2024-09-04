@@ -1,1 +1,1 @@
-/home/obs_data,/home/image_data/captions/2_16_3957043.json
+/home/obs_data,/home/image_data/captions/2_16_4764771.json
