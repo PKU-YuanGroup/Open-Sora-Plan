@@ -634,8 +634,8 @@ class CausalConv3dAttnBlock(nn.Module):
         self,
         in_channels,
         out_channels,
-        kernel_size,
-        stride,
+        kernel_size=1,
+        stride=1,
         num_groups=32,
         eps=1e-6,
         affine=True,
@@ -685,12 +685,12 @@ class CausalConv3dAttnBlock(nn.Module):
         # attend to values
         # v: (b c t h w) -> (b t c h w) -> (bt c hw)
         # z: (bt hw hw) -> (bt hw hw)
-        v = torch_npu.npu_confusion_transpose(v, (0, 2, 1, 3, 4), (b * t, c, h * w))
+        v = torch_npu.npu_confusion_transpose(v, (0, 2, 1, 3, 4), (b * t, c, h * w), True)
         z = z.permute(0, 2, 1)  # [b, hw, hw] (first hw of k, second of q)
         y = torch.bmm(v, z)  # [b, c, hw] (hw of q)
 
         # y: (b*t c hw) -> (b t c h w) -> (b c t h w)
-        y = torch.npu_confusion_transpose(y, (0, 2, 1, 3, 4), (b, t, c, h, w), False)
+        y = torch_npu.npu_confusion_transpose(y, (0, 2, 1, 3, 4), (b, t, c, h, w), False)
 
         y = self.proj_out(y)
 

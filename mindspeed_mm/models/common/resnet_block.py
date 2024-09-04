@@ -76,7 +76,7 @@ class ResnetBlock3D(nn.Module):
         self.use_conv_shortcut = conv_shortcut
 
         self.norm1 = nn.GroupNorm(num_groups=num_groups, num_channels=in_channels, eps=eps, affine=affine)
-        self.conv1 = CausalConv3d(in_channels, out_channels, kernel_size, stride, padding)
+        self.conv1 = CausalConv3d(in_channels, out_channels, kernel_size, stride=stride, padding=padding)
 
         self.norm2 = nn.GroupNorm(num_groups=num_groups, num_channels=out_channels, eps=eps, affine=affine)
         self.dropout = torch.nn.Dropout(dropout)

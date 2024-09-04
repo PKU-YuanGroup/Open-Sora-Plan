@@ -97,7 +97,7 @@ class SpatialDownsample2x(nn.Module):
         return x
 
 
-class SpatialUpample2x(nn.Module):
+class SpatialUpsample2x(nn.Module):
     def __init__(
         self,
         in_channels,
@@ -156,7 +156,7 @@ class TimeUpsample2x(nn.Module):
     def forward(self, x):
         if x.size(2) > 1:
             x, y = x[:, :, :1], x[:, :, 1:]
-            y = F.interpolate(y, scale_factor=(2, 1, 1), mode='trilinear')
+            y = F.interpolate(y, scale_factor=(2, 1, 1), mode="trilinear")
             x = torch.concat([x, y], dim=2)
         return x
 
@@ -210,6 +210,34 @@ class TimeUpsampleRes2x(nn.Module):
         if x.size(2) > 1:
             x, y = x[:, :, :1], x[:, :, 1:]
             x, y = x[:, :, :1], x[:, :, 1:]
-            y = F.interpolate(y.float(), scale_factor=(2, 1, 1), mode='trilinear')
+            y = F.interpolate(y.float(), scale_factor=(2, 1, 1), mode="trilinear")
             x = torch.concat([x, y], dim=2)
         return alpha * x + (1 - alpha) * self.conv(x)
+
+
+class Spatial2xTime2x3DDownsample(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.conv = CausalConv3d(in_channels, out_channels, kernel_size=3, padding=0, stride=2)
+
+    def forward(self, x):
+        pad = (0, 1, 0, 1, 0, 0)
+        x = torch.nn.functional.pad(x, pad, mode="constant", value=0)
+        x = self.conv(x)
+        return x
+    
+
+class Spatial2xTime2x3DUpsample(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.conv = CausalConv3d(in_channels, out_channels, kernel_size=3, padding=1)
+
+    def forward(self, x):
+        if x.size(2) > 1:
+            x, x_ = x[:, :, :1], x[:, :, 1:]
+            x_ = F.interpolate(x_, scale_factor=(2, 2, 2), mode="trilinear")
+            x = F.interpolate(x, scale_factor=(1, 2, 2), mode="trilinear")
+            x = torch.concat([x, x_], dim=2)
+        else:
+            x = F.interpolate(x, scale_factor=(1, 2, 2), mode="trilinear")
+        return self.conv(x)

@@ -5,22 +5,27 @@ import torch
 from torch import nn
 
 from ..common.module import MultiModalModule
-from .conv import Conv2d, CausalConv3d
-from .attention import AttnBlock3D
-from .resnet_block import ResnetBlock3D
-from .updownsample import SpatialDownsample2x, TimeDownsample2x, SpatialUpsample2x, TimeUpsample2x, TimeUpsampleRes2x
+from ..common.conv import Conv2d, CausalConv3d
+from ..common.attention import CausalConv3dAttnBlock
+from ..common.resnet_block import ResnetBlock2D, ResnetBlock3D
+from ..common.updownsample import SpatialDownsample2x, TimeDownsample2x, SpatialUpsample2x, TimeUpsample2x, \
+                                    TimeUpsampleRes2x, Downsample, Spatial2xTime2x3DDownsample, Spatial2xTime2x3DUpsample
 
 
 CASUALVAE_MODULE_MAPPINGS = {
     "Conv2d": Conv2d,
+    "ResnetBlock2D": ResnetBlock2D,
     "CausalConv3d": CausalConv3d,
-    "AttnBlock3D": AttnBlock3D,
+    "AttnBlock3D": CausalConv3dAttnBlock,
     "ResnetBlock3D": ResnetBlock3D,
+    "Downsample": Downsample,
     "SpatialDownsample2x": SpatialDownsample2x,
     "TimeDownsample2x": TimeDownsample2x,
     "SpatialUpsample2x": SpatialUpsample2x,
     "TimeUpsample2x": TimeUpsample2x,
-    "TimeUpsampleRes2x": TimeUpsampleRes2x
+    "TimeUpsampleRes2x": TimeUpsampleRes2x,
+    "Spatial2xTime2x3DDownsample": Spatial2xTime2x3DDownsample,
+    "Spatial2xTime2x3DUpsample": Spatial2xTime2x3DUpsample
 }
 
 
@@ -387,7 +392,11 @@ class Encoder(nn.Module):
                 )
                 block_in = block_out
                 if curr_res in attn_resolutions:
-                    attn.append(model_name_to_cls(attention)(block_in))
+                    attn.append(model_name_to_cls(attention)(
+                        in_channels=block_in,
+                        out_channels=block_in
+                        )
+                    )
             down = nn.Module()
             down.block = block
             down.attn = attn
@@ -409,7 +418,10 @@ class Encoder(nn.Module):
             out_channels=block_in,
             dropout=dropout,
         )
-        self.mid.attn_1 = model_name_to_cls(attention)(block_in)
+        self.mid.attn_1 = model_name_to_cls(attention)(
+            in_channels=block_in,
+            out_channels=block_in
+        )
         self.mid.block_2 = model_name_to_cls(mid_resnet)(
             in_channels=block_in,
             out_channels=block_in,
@@ -497,7 +509,10 @@ class Decoder(nn.Module):
             out_channels=block_in,
             dropout=dropout,
         )
-        self.mid.attn_1 = model_name_to_cls(attention)(block_in)
+        self.mid.attn_1 = model_name_to_cls(attention)(
+            in_channels=block_in,
+            out_channels=block_in
+        )
         self.mid.block_2 = model_name_to_cls(mid_resnet)(
             in_channels=block_in,
             out_channels=block_in,
@@ -520,7 +535,11 @@ class Decoder(nn.Module):
                 )
                 block_in = block_out
                 if curr_res in attn_resolutions:
-                    attn.append(model_name_to_cls(attention)(block_in))
+                    attn.append(model_name_to_cls(attention)(
+                        in_channels=block_in,
+                        out_channels=block_in
+                        )
+                    )
             up = nn.Module()
             up.block = block
             up.attn = attn
@@ -558,8 +577,6 @@ class Decoder(nn.Module):
                 h = self.up[i_level].time_upsample(h)
         h = self.norm_out(h)
         h = self.nonlinearity(h)
-        if h.dtype not in [torch.float16, torch.bfloat16]:
-            raise AssertionError("Conv3D only support float16 or bfloat16 now")
         h = self.conv_out(h)
         return h
 
