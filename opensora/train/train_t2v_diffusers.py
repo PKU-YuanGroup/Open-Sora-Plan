@@ -59,7 +59,7 @@ from diffusers.utils import check_min_version, is_wandb_available
 from opensora.models.causalvideovae import ae_stride_config, ae_channel_config
 from opensora.models.causalvideovae import ae_norm, ae_denorm
 from opensora.models import CausalVAEModelWrapper
-from opensora.models.text_encoder import get_text_enc, get_text_warpper
+from opensora.models.text_encoder import get_text_warpper
 from opensora.dataset import getdataset
 from opensora.models import CausalVAEModelWrapper
 from opensora.models.diffusion import Diffusion_models, Diffusion_models_class
@@ -82,17 +82,12 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
         "a cat wearing sunglasses and working as a lifeguard at pool.",
         "A serene underwater scene featuring a sea turtle swimming through a coral reef. The turtle, with its greenish-brown shell, is the main focus of the video, swimming gracefully towards the right side of the frame. The coral reef, teeming with life, is visible in the background, providing a vibrant and colorful backdrop to the turtle's journey. Several small fish, darting around the turtle, add a sense of movement and dynamism to the scene."
         ]
-    if 'mt5' in args.text_encoder_name:
-        validation_prompt_cn = [
-            "一只戴着墨镜在泳池当救生员的猫咪。",
-            "这是一个宁静的水下场景，一只海龟游过珊瑚礁。海龟带着绿褐色的龟壳，优雅地游向画面右侧，成为视频的焦点。背景中的珊瑚礁生机盎然，为海龟的旅程提供了生动多彩的背景。几条小鱼在海龟周围穿梭，为画面增添了动感和活力。"
-            ]
-        validation_prompt += validation_prompt_cn
     logger.info(f"Running validation....\n")
     model = accelerator.unwrap_model(model)
     scheduler = DPMSolverMultistepScheduler()
     opensora_pipeline = OpenSoraPipeline(vae=vae,
-                                         text_encoder=text_encoder,
+                                         text_encoder_1=text_encoder[0],
+                                         text_encoder_2=text_encoder[1],
                                          tokenizer=tokenizer,
                                          scheduler=scheduler,
                                          transformer=model).to(device=accelerator.device)
@@ -166,8 +161,6 @@ def main(args):
     logging_dir = Path(args.output_dir, args.logging_dir)
 
     # use LayerNorm, GeLu, SiLu always as fp32 mode
-    if args.enable_stable_fp32:
-        replace_with_fp32_forwards()
     if torch_npu is not None and npu_config is not None:
         npu_config.print_msg(args)
         npu_config.seed_everything(args.seed)
@@ -221,12 +214,19 @@ def main(args):
     # Create model:
     kwargs = {}
     ae = ae_wrapper[args.ae](args.ae_path, cache_dir=args.cache_dir, **kwargs).eval()
+    print(f'ae {args.ae}: {sum(p.numel() for p in ae.parameters()) / 1e9} B')
+    
     if args.enable_tiling:
         ae.vae.enable_tiling()
-        ae.vae.tile_overlap_factor = args.tile_overlap_factor
 
     kwargs = {'load_in_8bit': args.enable_8bit_t5, 'torch_dtype': weight_dtype, 'low_cpu_mem_usage': True}
-    text_enc = get_text_warpper(args.text_encoder_name)(args, **kwargs).eval()
+    text_enc_1 = get_text_warpper(args.text_encoder_name_1)(args, **kwargs).eval()
+    print(f'text_enc_1 {args.text_encoder_name_1}, weight_dtype: {weight_dtype}: {sum(p.numel() for p in text_enc_1.parameters()) / 1e9} B')
+
+    text_enc_2 = None
+    if args.text_encoder_name_2 is not None:
+        text_enc_2 = get_text_warpper(args.text_encoder_name_2)(args, **kwargs).eval()
+        print(f'text_enc_2 {args.text_encoder_name_2}, weight_dtype: {weight_dtype}: {sum(p.numel() for p in text_enc_2.parameters()) / 1e9} B')
 
     ae_stride_t, ae_stride_h, ae_stride_w = ae_stride_config[args.ae]
     ae.vae_scale_factor = (ae_stride_t, ae_stride_h, ae_stride_w)
@@ -254,31 +254,19 @@ def main(args):
     model = Diffusion_models[args.model](
         in_channels=ae_channel_config[args.ae],
         out_channels=ae_channel_config[args.ae],
-        # caption_channels=4096,
-        # cross_attention_dim=1152,
         attention_bias=True,
         sample_size=latent_size,
         sample_size_t=latent_size_t,
-        num_vector_embeds=None,
         activation_fn="gelu-approximate",
-        num_embeds_ada_norm=1000,
         use_linear_projection=False,
         only_cross_attention=False,
         double_self_attention=False,
         upcast_attention=False,
-        # norm_type="ada_norm_single",
         norm_elementwise_affine=False,
         norm_eps=1e-6,
-        attention_type='default',
-        attention_mode=args.attention_mode,
         interpolation_scale_h=args.interpolation_scale_h,
         interpolation_scale_w=args.interpolation_scale_w,
         interpolation_scale_t=args.interpolation_scale_t,
-        downsampler=args.downsampler,
-        # compress_kv_factor=args.compress_kv_factor,
-        use_rope=args.use_rope,
-        # model_max_length=args.model_max_length,
-        use_stable_fp32=args.enable_stable_fp32, 
         sparse1d=args.sparse1d, 
         sparse2d=args.sparse2d, 
         sparse_n=args.sparse_n, 
@@ -312,7 +300,9 @@ def main(args):
 
     # Freeze vae and text encoders.
     ae.vae.requires_grad_(False)
-    text_enc.requires_grad_(False)
+    text_enc_1.requires_grad_(False)
+    if text_enc_2 is not None:
+        text_enc_2.requires_grad_(False)
     # Set model as trainable.
     model.train()
 
@@ -324,8 +314,18 @@ def main(args):
     # The VAE is in float32 to avoid NaN losses.
     ae.vae.to(accelerator.device, dtype=torch.float32)
     # ae.vae.to(accelerator.device, dtype=weight_dtype)
-    text_enc.to(accelerator.device, dtype=weight_dtype)
+    text_enc_1.to(accelerator.device, dtype=weight_dtype)
+    if text_enc_2 is not None:
+        text_enc_2.to(accelerator.device, dtype=weight_dtype)
 
+    # print('vae text encoder')
+    # print('vae text encoder')
+    # print('vae text encoder')
+    # print('vae text encoder')
+    # print('vae text encoder')
+    # print('vae text encoder')
+    # import time
+    # time.sleep(20)
     # Create EMA for the unet.
     if args.use_ema:
         ema_model = deepcopy(model)
@@ -492,10 +492,28 @@ def main(args):
             if 'pos_embed' in name or 'proj_out' in name:
                 param.requires_grad = True
     logger.info(f'before accelerator.prepare')
+    # logger.info(f'before accelerator.prepare')
+    # logger.info(f'before accelerator.prepare')
+    # logger.info(f'before accelerator.prepare')
+    # logger.info(f'before accelerator.prepare')
+    # logger.info(f'before accelerator.prepare')
+    # logger.info(f'before accelerator.prepare')
+    # logger.info(f'before accelerator.prepare')
+    # import time
+    # time.sleep(20)
     model, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
         model, optimizer, train_dataloader, lr_scheduler
     )
     logger.info(f'after accelerator.prepare')
+    # logger.info(f'after accelerator.prepare')
+    # logger.info(f'after accelerator.prepare')
+    # logger.info(f'after accelerator.prepare')
+    # logger.info(f'after accelerator.prepare')
+    # logger.info(f'after accelerator.prepare')
+    # logger.info(f'after accelerator.prepare')
+    # logger.info(f'after accelerator.prepare')
+    # import time
+    # time.sleep(20)
     if args.use_ema:
         ema_model.to(accelerator.device)
 
@@ -630,6 +648,9 @@ def main(args):
             motion_score = model_kwargs.pop('motion_score', None)
             if motion_score is not None:
                 raise NotImplementedError 
+            pooled_projections = model_kwargs.pop('pooled_projections', None)
+            if pooled_projections is not None:
+                raise NotImplementedError 
 
         # Add noise to the model input according to the noise magnitude at each timestep
         # (this is the forward diffusion process)
@@ -717,15 +738,19 @@ def main(args):
             if progress_info.global_step % args.checkpointing_steps == 0:
 
                 if args.enable_tracker:
-                    log_validation(args, model, ae, text_enc.text_enc, train_dataset.tokenizer, accelerator,
-                                   weight_dtype, progress_info.global_step)
+                    log_validation(
+                        args, model, ae, [text_enc_1.text_enc, getattr(text_enc_2, 'text_enc', None)], 
+                        train_dataset.tokenizer, accelerator, weight_dtype, progress_info.global_step
+                    )
 
                     if args.use_ema and npu_config is None:
                         # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
                         ema_model.store(model.parameters())
                         ema_model.copy_to(model.parameters())
-                        log_validation(args, model, ae, text_enc.text_enc, train_dataset.tokenizer, accelerator,
-                                    weight_dtype, progress_info.global_step, ema=True)
+                        log_validation(
+                            args, model, ae, [text_enc_1.text_enc, getattr(text_enc_2, 'text_enc', None)], 
+                            train_dataset.tokenizer, accelerator, weight_dtype, progress_info.global_step, ema=True
+                        )
                         # Switch back to the original UNet parameters.
                         ema_model.restore(model.parameters())
 
@@ -737,25 +762,31 @@ def main(args):
 
     def train_one_step(step_, data_item_, prof_=None):
         train_loss = 0.0
-        x, attn_mask, input_ids, cond_mask, motion_score = data_item_
+        x, attn_mask, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2, motion_score = data_item_
         # print(f'step: {step_}, rank: {accelerator.process_index}, x: {x.shape}')
         assert not torch.any(torch.isnan(x)), 'torch.any(torch.isnan(x))'
-        x = x.to(accelerator.device, dtype=ae.vae.dtype)  # B C T+num_images H W, 16 + 4
+        x = x.to(accelerator.device, dtype=ae.vae.dtype)  # B C T H W, 16 + 4
 
-        attn_mask = attn_mask.to(accelerator.device)  # B T+num_images H W
-        input_ids = input_ids.to(accelerator.device)  # B 1+num_images L
-        cond_mask = cond_mask.to(accelerator.device)  # B 1+num_images L
+        attn_mask = attn_mask.to(accelerator.device)  # B T H W
+        input_ids_1 = input_ids_1.to(accelerator.device)  # B 1 L
+        cond_mask_1 = cond_mask_1.to(accelerator.device)  # B 1 L
+        input_ids_2 = input_ids_2.to(accelerator.device) if input_ids_2 is not None else input_ids_2 # B L
+        cond_mask_2 = cond_mask_2.to(accelerator.device) if cond_mask_2 is not None else cond_mask_2 # B L
         motion_score = motion_score.to(accelerator.device) if motion_score is not None else motion_score # B 1
         # if accelerator.process_index == 0:
         #     logger.info(f'rank: {accelerator.process_index}, x: {x.shape}, attn_mask: {attn_mask.shape}')
 
         with torch.no_grad():
-            B, N, L = input_ids.shape  # B 1+num_images L
+            B, N, L = input_ids_1.shape  # B 1 L
             # use batch inference
-            input_ids_ = input_ids.reshape(-1, L)
-            cond_mask_ = cond_mask.reshape(-1, L)
-            cond = text_enc(input_ids_, cond_mask_)  # B 1+num_images L D
-            cond = cond.reshape(B, N, L, -1)
+            input_ids_1 = input_ids_1.reshape(-1, L)
+            cond_mask_1 = cond_mask_1.reshape(-1, L)
+            cond_1 = text_enc_1(input_ids_1, cond_mask_1)  # B 1 L D
+            cond_1 = cond_1.reshape(B, N, L, -1)
+            cond_mask_1 = cond_mask_1.reshape(B, N, L)
+            if text_enc_2 is not None:
+                cond_2 = text_enc_2(input_ids_2, cond_mask_2)  # B D
+
             # Map input images to latent space + normalize latents
             x = ae.encode(x)  # B C T H W
 
@@ -780,24 +811,23 @@ def main(args):
             else:
                 set_sequence_parallel_state(True)
         if get_sequence_parallel_state():
-            x, cond, attn_mask, cond_mask, use_image_num = prepare_parallel_data(x, cond, attn_mask, cond_mask,
+            x, cond_1, attn_mask, cond_mask_1, use_image_num = prepare_parallel_data(x, cond_1, attn_mask, cond_mask_1,
                                                                                  args.use_image_num)
             for iter in range(args.train_batch_size * args.sp_size // args.train_sp_batch_size):
                 with accelerator.accumulate(model):
                     st_idx = iter * args.train_sp_batch_size
                     ed_idx = (iter + 1) * args.train_sp_batch_size
-                    model_kwargs = dict(encoder_hidden_states=cond[st_idx: ed_idx],
+                    model_kwargs = dict(encoder_hidden_states=cond_1[st_idx: ed_idx],
                                         attention_mask=attn_mask[st_idx: ed_idx],
-                                        encoder_attention_mask=cond_mask[st_idx: ed_idx], use_image_num=use_image_num)
+                                        encoder_attention_mask=cond_mask_1[st_idx: ed_idx], use_image_num=use_image_num)
                     run(x[st_idx: ed_idx], model_kwargs, prof_)
 
         else:
             with accelerator.accumulate(model):
                 assert not torch.any(torch.isnan(x)), 'after vae'
                 x = x.to(weight_dtype)
-                # print(f'rank: {accelerator.process_index}, x: {x.shape}')
-                model_kwargs = dict(encoder_hidden_states=cond, attention_mask=attn_mask, motion_score=motion_score, 
-                                    encoder_attention_mask=cond_mask, use_image_num=args.use_image_num)
+                model_kwargs = dict(encoder_hidden_states=cond_1, attention_mask=attn_mask, motion_score=motion_score, 
+                                    encoder_attention_mask=cond_mask_1, pooled_projections=cond_2)
                 run(x, model_kwargs, prof_)
 
         set_sequence_parallel_state(current_step_sp_state)  # in case the next step use sp, which need broadcast(timesteps)
@@ -876,22 +906,18 @@ if __name__ == "__main__":
     # text encoder & vae & diffusion model
     parser.add_argument("--model", type=str, choices=list(Diffusion_models.keys()), default="Latte-XL/122")
     parser.add_argument('--enable_8bit_t5', action='store_true')
-    parser.add_argument('--tile_overlap_factor', type=float, default=0.125)
     parser.add_argument('--enable_tiling', action='store_true')
-    parser.add_argument("--compress_kv", action="store_true")
-    parser.add_argument("--attention_mode", type=str, choices=['xformers', 'math', 'flash'], default="xformers")
     parser.add_argument('--use_rope', action='store_true')
-    parser.add_argument('--compress_kv_factor', type=int, default=1)
     parser.add_argument('--interpolation_scale_h', type=float, default=1.0)
     parser.add_argument('--interpolation_scale_w', type=float, default=1.0)
     parser.add_argument('--interpolation_scale_t', type=float, default=1.0)
     parser.add_argument("--downsampler", type=str, default=None)
     parser.add_argument("--ae", type=str, default="stabilityai/sd-vae-ft-mse")
     parser.add_argument("--ae_path", type=str, default="stabilityai/sd-vae-ft-mse")
-    parser.add_argument("--text_encoder_name", type=str, default='DeepFloyd/t5-v1_1-xxl')
+    parser.add_argument("--text_encoder_name_1", type=str, default='DeepFloyd/t5-v1_1-xxl')
+    parser.add_argument("--text_encoder_name_2", type=str, default=None)
     parser.add_argument("--cache_dir", type=str, default='./cache_dir')
     parser.add_argument("--pretrained", type=str, default=None)
-    parser.add_argument('--enable_stable_fp32', action='store_true')
     parser.add_argument('--sparse1d', action='store_true')
     parser.add_argument('--sparse2d', action='store_true')
     parser.add_argument('--sparse_n', type=int, default=2)
@@ -956,7 +982,7 @@ if __name__ == "__main__":
     parser.add_argument("--prodigy_decouple", type=bool, default=True, help="Use AdamW style decoupled weight decay")
     parser.add_argument("--adam_weight_decay", type=float, default=1e-02, help="Weight decay to use for unet params")
     parser.add_argument("--adam_weight_decay_text_encoder", type=float, default=None, help="Weight decay to use for text_encoder")
-    parser.add_argument("--adam_epsilon", type=float, default=1e-08, help="Epsilon value for the Adam optimizer and Prodigy optimizers.")
+    parser.add_argument("--adam_epsilon", type=float, default=1e-15, help="Epsilon value for the Adam optimizer and Prodigy optimizers.")
     parser.add_argument("--prodigy_use_bias_correction", type=bool, default=True, help="Turn on Adam's bias correction. True by default. Ignored if optimizer is adamW")
     parser.add_argument("--prodigy_safeguard_warmup", type=bool, default=True, help="Remove lr from the denominator of D estimate to avoid issues during warm-up stage. True by default. Ignored if optimizer is adamW")
     parser.add_argument("--max_grad_norm", default=1.0, type=float, help="Max gradient norm.")

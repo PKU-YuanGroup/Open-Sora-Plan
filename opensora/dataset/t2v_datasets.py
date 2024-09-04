@@ -129,7 +129,7 @@ def read_parquet(path):
     return data
 
 class T2V_dataset(Dataset):
-    def __init__(self, args, transform, temporal_sample, tokenizer):
+    def __init__(self, args, transform, temporal_sample, tokenizer_1, tokenizer_2):
         self.data = args.data
         self.num_frames = args.num_frames
         self.train_fps = args.train_fps
@@ -137,7 +137,8 @@ class T2V_dataset(Dataset):
         self.use_img_from_vid = args.use_img_from_vid
         self.transform = transform
         self.temporal_sample = temporal_sample
-        self.tokenizer = tokenizer
+        self.tokenizer_1 = tokenizer_1
+        self.tokenizer_2 = tokenizer_2
         self.model_max_length = args.model_max_length
         self.cfg = args.cfg
         self.speed_factor = args.speed_factor
@@ -152,9 +153,12 @@ class T2V_dataset(Dataset):
         self.video_reader = 'decord' if args.use_decord else 'opencv'
         # self.v_decoder = DecordInit() if self.video_reader == 'decord' else None
 
-        self.support_Chinese = True
-        if not ('mt5' in args.text_encoder_name):
-            self.support_Chinese = False
+        self.support_Chinese = False
+        if 'mt5' in args.text_encoder_name_1:
+            self.support_Chinese = True
+        if args.text_encoder_name_2 is not None and 'mt5' in args.text_encoder_name_2:
+            self.support_Chinese = True
+
 
         s = time.time()
 
@@ -223,7 +227,7 @@ class T2V_dataset(Dataset):
         # # print('random shape', video.shape)
         # input_ids = torch.ones(1, 120).to(torch.long).squeeze(0)
         # cond_mask = torch.cat([torch.ones(1, 60).to(torch.long), torch.ones(1, 60).to(torch.long)], dim=1).squeeze(0)
-        logger.info(f'Now we use t2v dataset {idx}')
+        # logger.info(f'Now we use t2v dataset {idx}')
         video_data = dataset_prog.cap_list[idx]
         video_path = video_data['path']
         assert os.path.exists(video_path), f"file {video_path} do not exist!"
@@ -255,8 +259,9 @@ class T2V_dataset(Dataset):
             text = [add_aesthetic_notice_video(text[0], video_data['aesthetic'])]
 
         text = [text[0].replace(' image ', ' video ').replace(' image,', ' video,')]
-        text = text_preprocessing(text, support_Chinese=self.support_Chinese) if random.random() > self.cfg else ""
-        text_tokens_and_mask = self.tokenizer(
+        text = text if random.random() > self.cfg else ""
+
+        text_tokens_and_mask_1 = self.tokenizer_1(
             text,
             max_length=self.model_max_length,
             padding='max_length',
@@ -265,25 +270,44 @@ class T2V_dataset(Dataset):
             add_special_tokens=True,
             return_tensors='pt'
         )
-        input_ids = text_tokens_and_mask['input_ids']
-        cond_mask = text_tokens_and_mask['attention_mask']
+        input_ids_1 = text_tokens_and_mask_1['input_ids']
+        cond_mask_1 = text_tokens_and_mask_1['attention_mask']
+        
+        input_ids_2, cond_mask_2 = None, None
+        if self.tokenizer_2 is not None:
+            text_tokens_and_mask_2 = self.tokenizer_2(
+                text,
+                max_length=self.tokenizer_2.model_max_length,
+                padding='max_length',
+                truncation=True,
+                return_attention_mask=True,
+                add_special_tokens=True,
+                return_tensors='pt'
+            )
+            input_ids_2 = text_tokens_and_mask_2['input_ids']
+            cond_mask_2 = text_tokens_and_mask_2['attention_mask']
+
         if self.use_motion:
             motion_score = motion_mapping_fun(video_data['motion_score'])
-            return dict(pixel_values=video, input_ids=input_ids, cond_mask=cond_mask, motion_score=motion_score)
+            return dict(
+                pixel_values=video, input_ids_1=input_ids_1, cond_mask_1=cond_mask_1, motion_score=motion_score, 
+                input_ids_2=input_ids_2, cond_mask_2=cond_mask_2,
+                )
         else:
-            return dict(pixel_values=video, input_ids=input_ids, cond_mask=cond_mask, motion_score=None)
+            return dict(
+                pixel_values=video, input_ids_1=input_ids_1, cond_mask_1=cond_mask_1, motion_score=None, 
+                input_ids_2=input_ids_2, cond_mask_2=cond_mask_2,
+                )
 
     def get_image(self, idx):
         image_data = dataset_prog.cap_list[idx]  # [{'path': path, 'cap': cap}, ...]
         sample_h = image_data['resolution']['sample_height']
         sample_w = image_data['resolution']['sample_width']
 
-        # import ipdb;ipdb.set_trace()
         image = Image.open(image_data['path']).convert('RGB')  # [h, w, c]
         image = torch.from_numpy(np.array(image))  # [h, w, c]
         image = rearrange(image, 'h w c -> c h w').unsqueeze(0)  #  [1 c h w]
 
-        # import ipdb;ipdb.set_trace()
         image = self.transform(image) #  [1 C H W] -> num_img [1 C H W]
         assert image.shape[2] == sample_h, image.shape[3] == sample_w
         # image = [torch.rand(1, 3, 480, 640) for i in image_data]
@@ -300,9 +324,10 @@ class T2V_dataset(Dataset):
         if 'human_images' in image_data['path']:
             caps = [add_high_aesthetic_notice_image_human(caps[0])]
         text = text_preprocessing(caps, support_Chinese=self.support_Chinese)
-        input_ids, cond_mask = [], []
         text = text if random.random() > self.cfg else ""
-        text_tokens_and_mask = self.tokenizer(
+
+
+        text_tokens_and_mask_1 = self.tokenizer(
             text,
             max_length=self.model_max_length,
             padding='max_length',
@@ -311,13 +336,35 @@ class T2V_dataset(Dataset):
             add_special_tokens=True,
             return_tensors='pt'
         )
-        input_ids = text_tokens_and_mask['input_ids']  # 1, l
-        cond_mask = text_tokens_and_mask['attention_mask']  # 1, l
+        input_ids_1 = text_tokens_and_mask_1['input_ids']  # 1, l
+        cond_mask_1 = text_tokens_and_mask_1['attention_mask']  # 1, l
+
+        
+        input_ids_2, cond_mask_2 = None, None
+        if self.tokenizer_2 is not None:
+            text_tokens_and_mask_2 = self.tokenizer_2(
+                text,
+                max_length=self.tokenizer_2.model_max_length,
+                padding='max_length',
+                truncation=True,
+                return_attention_mask=True,
+                add_special_tokens=True,
+                return_tensors='pt'
+            )
+            input_ids_2 = text_tokens_and_mask_2['input_ids']  # 1, l
+            cond_mask_2 = text_tokens_and_mask_2['attention_mask']  # 1, l
+
         if self.use_motion:
             motion_score = motion_mapping_fun(image_data['motion_score'])
-            return dict(pixel_values=image, input_ids=input_ids, cond_mask=cond_mask, motion_score=motion_score)
+            return dict(
+                pixel_values=image, input_ids_1=input_ids_1, cond_mask_1=cond_mask_1, motion_score=motion_score, 
+                input_ids_2=input_ids_2, cond_mask_2=cond_mask_2
+                )
         else:
-            return dict(pixel_values=image, input_ids=input_ids, cond_mask=cond_mask, motion_score=None)
+            return dict(
+                pixel_values=image, input_ids_1=input_ids_1, cond_mask_1=cond_mask_1, motion_score=None, 
+                input_ids_2=input_ids_2, cond_mask_2=cond_mask_2
+                )
 
     def define_frame_index(self, data):
         
@@ -589,18 +636,6 @@ class T2V_dataset(Dataset):
             data_roots.append(folder)
             cap_lists.append(sub_list)
         return data_roots, cap_lists
-
-    # def get_img_cap_list(self):
-    #     use_image_num = self.use_image_num if self.use_image_num != 0 else 1
-    #     if npu_config is None:
-    #         img_cap_lists = self.read_jsons(self.image_data, postfix=".jpg")
-    #         img_cap_lists = [img_cap_lists[i: i + use_image_num] for i in range(0, len(img_cap_lists), use_image_num)]
-    #     else:
-    #         img_cap_lists = npu_config.try_load_pickle("img_cap_lists_all",
-    #                                                    lambda: self.read_jsons(self.image_data, postfix=".jpg"))
-    #         img_cap_lists = [img_cap_lists[i: i + use_image_num] for i in range(0, len(img_cap_lists), use_image_num)]
-    #         img_cap_lists = img_cap_lists[npu_config.get_local_rank()::npu_config.N_NPU_PER_NODE]
-    #     return img_cap_lists[:-1]  # drop last to avoid error length
 
     def get_cap_list(self):
         data_roots, cap_lists = self.read_jsons(self.data, postfix=".mp4")

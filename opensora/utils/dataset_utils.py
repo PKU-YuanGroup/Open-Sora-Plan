@@ -72,28 +72,36 @@ class Collate:
 
     def package(self, batch):
         batch_tubes = [i['pixel_values'] for i in batch]  # b [c t h w]
-        input_ids = [i['input_ids'] for i in batch]  # b [1 l]
-        cond_mask = [i['cond_mask'] for i in batch]  # b [1 l]
+        input_ids_1 = [i['input_ids_1'] for i in batch]  # b [1 l]
+        cond_mask_1 = [i['cond_mask_1'] for i in batch]  # b [1 l]
+        input_ids_2 = [i['input_ids_2'] for i in batch]  # b [1 l]
+        cond_mask_2 = [i['cond_mask_2'] for i in batch]  # b [1 l]
         motion_score = [i['motion_score'] for i in batch]  # List[float]
         assert all([i is None for i in motion_score]) or all([i is not None for i in motion_score])
+        assert all([i is None for i in input_ids_2]) or all([i is not None for i in input_ids_2])
+        assert all([i is None for i in cond_mask_2]) or all([i is not None for i in cond_mask_2])
         if all([i is None for i in motion_score]):
             motion_score = None
-        return batch_tubes, input_ids, cond_mask, motion_score
+        if all([i is None for i in input_ids_2]):
+            input_ids_2 = None
+        if all([i is None for i in cond_mask_2]):
+            cond_mask_2 = None
+        return batch_tubes, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2, motion_score
 
     def __call__(self, batch):
-        batch_tubes, input_ids, cond_mask, motion_score = self.package(batch)
+        batch_tubes, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2, motion_score = self.package(batch)
 
         ds_stride = self.ae_stride * self.patch_size
         t_ds_stride = self.ae_stride_t * self.patch_size_t
         
-        pad_batch_tubes, attention_mask, input_ids, cond_mask, motion_score = self.process(batch_tubes, input_ids, 
-                                                                                           cond_mask, motion_score, 
-                                                                                           t_ds_stride, ds_stride, 
-                                                                                           self.max_thw, self.ae_stride_thw)
+        pad_batch_tubes, attention_mask, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2, motion_score = self.process(
+            batch_tubes, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2, motion_score, 
+            t_ds_stride, ds_stride, self.max_thw, self.ae_stride_thw
+        )
         assert not torch.any(torch.isnan(pad_batch_tubes)), 'after pad_batch_tubes'
-        return pad_batch_tubes, attention_mask, input_ids, cond_mask, motion_score
+        return pad_batch_tubes, attention_mask, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2, motion_score
 
-    def process(self, batch_tubes, input_ids, cond_mask, motion_score, t_ds_stride, ds_stride, max_thw, ae_stride_thw):
+    def process(self, batch_tubes, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2, motion_score, t_ds_stride, ds_stride, max_thw, ae_stride_thw):
         # pad to max multiple of ds_stride
         batch_input_size = [i.shape for i in batch_tubes]  # [(c t h w), (c t h w)]
         assert len(batch_input_size) == self.batch_size
@@ -113,8 +121,12 @@ class Collate:
 
                 batch_tubes = [batch_tubes[i] for i in pick_idx]
                 batch_input_size = [i.shape for i in batch_tubes]  # [(c t h w), (c t h w)]
-                input_ids = [input_ids[i] for i in pick_idx]  # b [1, l]
-                cond_mask = [cond_mask[i] for i in pick_idx]  # b [1, l]
+                input_ids_1 = [input_ids_1[i] for i in pick_idx]  # b [1, l]
+                cond_mask_1 = [cond_mask_1[i] for i in pick_idx]  # b [1, l]
+                if input_ids_2 is not None:
+                    input_ids_2 = [input_ids_2[i] for i in pick_idx]  # b [1, l]
+                if cond_mask_2 is not None:
+                    cond_mask_2 = [cond_mask_2[i] for i in pick_idx]  # b [1, l]
                 if motion_score is not None:
                     motion_score = [motion_score[i] for i in pick_idx]  # b [1, l]
 
@@ -165,11 +177,13 @@ class Collate:
                 print(batch_input_size, (max_t, max_h, max_w), (pad_max_t, pad_max_h, pad_max_w), each_pad_t_h_w, max_latent_size, valid_latent_size)
             assert torch.all(attention_mask.bool())
 
-        input_ids = torch.stack(input_ids)  # b 1 l
-        cond_mask = torch.stack(cond_mask)  # b 1 l
+        input_ids_1 = torch.stack(input_ids_1)  # b 1 l
+        cond_mask_1 = torch.stack(cond_mask_1)  # b 1 l
+        input_ids_2 = torch.cat(input_ids_2) if input_ids_2 is not None else input_ids_2  # b l
+        cond_mask_2 = torch.cat(cond_mask_2) if cond_mask_2 is not None else cond_mask_2  # b l
         motion_score = torch.tensor(motion_score) if motion_score is not None else motion_score # b
 
-        return pad_batch_tubes, attention_mask, input_ids, cond_mask, motion_score
+        return pad_batch_tubes, attention_mask, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2, motion_score
 
 
 def group_data_fun(lengths, generator=None):

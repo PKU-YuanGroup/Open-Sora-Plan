@@ -22,7 +22,6 @@ from opensora.models.causalvideovae import ae_stride_config, ae_wrapper
 # from opensora.models.diffusion.latte.modeling_latte import LatteT2V
 # from opensora.models.diffusion.udit_ultra.modeling_udit_ultra import UDiTUltraT2V
 
-from opensora.models.text_encoder import get_text_enc
 from opensora.utils.utils import save_video_grid
 
 from opensora.models.diffusion.opensora_v1_2.modeling_inpaint import OpenSoraInpaint

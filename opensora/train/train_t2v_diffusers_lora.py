@@ -57,7 +57,7 @@ from diffusers.utils import check_min_version, is_wandb_available
 from opensora.models.causalvideovae import ae_stride_config, ae_channel_config
 from opensora.models.causalvideovae import ae_norm, ae_denorm
 from opensora.models import CausalVAEModelWrapper
-from opensora.models.text_encoder import get_text_enc, get_text_warpper
+from opensora.models.text_encoder import get_text_warpper
 from opensora.dataset import getdataset
 from opensora.models import CausalVAEModelWrapper
 from opensora.models.diffusion import Diffusion_models, Diffusion_models_class

@@ -39,11 +39,9 @@ class OpenSoraT2V_v1_2(ModelMixin, ConfigMixin):
         attention_bias: bool = False,
         sample_size: Optional[int] = None,
         sample_size_t: Optional[int] = None,
-        num_vector_embeds: Optional[int] = None,
         patch_size: Optional[int] = None,
         patch_size_t: Optional[int] = None,
         activation_fn: str = "geglu",
-        use_linear_projection: bool = False,
         only_cross_attention: bool = False,
         double_self_attention: bool = False,
         upcast_attention: bool = False,
@@ -58,7 +56,6 @@ class OpenSoraT2V_v1_2(ModelMixin, ConfigMixin):
         sparse1d: bool = False,
         sparse2d: bool = False,
         sparse_n: int = 2,
-        use_motion: bool = False,
         **kwarg, 
     ):
         super().__init__()
@@ -83,6 +80,7 @@ class OpenSoraT2V_v1_2(ModelMixin, ConfigMixin):
             interpolation_scale=(self.config.interpolation_scale_h, self.config.interpolation_scale_w), 
             interpolation_scale_t=self.config.interpolation_scale_t,
         )
+        
         interpolation_scale_thw = (
             self.config.interpolation_scale_t, self.config.interpolation_scale_h, self.config.interpolation_scale_w
             )
@@ -331,8 +329,8 @@ if __name__ == '__main__':
         "rank": 64, 
     }
     )
-    b = 16
-    c = 4
+    b = 2
+    c = 8
     cond_c = 4096
     num_timesteps = 1000
     ae_stride_t, ae_stride_h, ae_stride_w = ae_stride_config[args.ae]
@@ -351,28 +349,29 @@ if __name__ == '__main__':
         norm_elementwise_affine=False,
         norm_eps=1e-06,
         norm_num_groups=32,
-        num_vector_embeds=None,
         only_cross_attention=False,
         upcast_attention=False,
-        use_linear_projection=False,
         interpolation_scale_t=args.interpolation_scale_t, 
         interpolation_scale_h=args.interpolation_scale_h, 
         interpolation_scale_w=args.interpolation_scale_w, 
         sparse1d=args.sparse1d, 
         sparse2d=args.sparse2d, 
         sparse_n=args.sparse_n
-                            ).to(device)
+    )
     
     try:
         path = "/storage/ongoing/new/7.19anyres/Open-Sora-Plan/bs32x8x1_anyx93x640x640_fps16_lr1e-5_snr5_ema9999_sparse1d4_dit_l_mt5xxl_vpred_zerosnr/checkpoint-43000/model_ema/diffusion_pytorch_model.safetensors"
-        ckpt = torch.load(path, map_location="cpu")
+        # ckpt = torch.load(path, map_location="cpu")
+        from safetensors.torch import load_file as safe_load
+        ckpt = safe_load(path, device="cpu")
         msg = model.load_state_dict(ckpt, strict=True)
         print(msg)
     except Exception as e:
         print(e)
     print(model)
     print(f'{sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e9} B')
-    # import sys;sys.exit()
+    import sys;sys.exit()
+    model = model.to(device)
     x = torch.randn(b, c,  1+(args.num_frames-1)//ae_stride_t+args.use_image_num, args.max_height//ae_stride_h, args.max_width//ae_stride_w).to(device)
     cond = torch.randn(b, 1+args.use_image_num, args.model_max_length, cond_c).to(device)
     attn_mask = torch.randint(0, 2, (b, 1+(args.num_frames-1)//ae_stride_t+args.use_image_num, args.max_height//ae_stride_h, args.max_width//ae_stride_w)).to(device)  # B L or B 1+num_images L

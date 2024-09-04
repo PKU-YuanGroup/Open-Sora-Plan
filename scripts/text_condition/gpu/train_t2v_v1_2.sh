@@ -24,7 +24,7 @@ accelerate launch \
     --config_file scripts/accelerate_configs/multi_node_example.yaml \
     opensora/train/train_t2v_diffusers.py \
     --model OpenSoraT2V2-L/122 \
-    --text_encoder_name google/mt5-xxl \
+    --text_encoder_name_1 google/mt5-xxl \
     --cache_dir "../../cache_dir/" \
     --dataset t2v \
     --data "scripts/train_data/merge_data.txt" \
@@ -37,7 +37,6 @@ accelerate launch \
     --interpolation_scale_t 1.0 \
     --interpolation_scale_h 1.0 \
     --interpolation_scale_w 1.0 \
-    --attention_mode xformers \
     --gradient_checkpointing \
     --train_batch_size=1 \
     --dataloader_num_workers 8 \

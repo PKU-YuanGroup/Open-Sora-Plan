@@ -36,7 +36,6 @@ from opensora.models.diffusion.opensora.modeling_inpaint import OpenSoraInpaint,
 from opensora.models.diffusion.opensora.modeling_inpaint import STR_TO_TYPE, TYPE_TO_STR, ModelType
 import timm
 
-from opensora.models.text_encoder import get_text_enc
 from opensora.utils.utils import save_video_grid
 
 from opensora.sample.pipeline_opensora import OpenSoraPipeline
