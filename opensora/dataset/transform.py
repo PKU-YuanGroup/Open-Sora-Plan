@@ -121,9 +121,12 @@ def center_crop_th_tw(clip, th, tw, top_crop):
     h, w = clip.size(-2), clip.size(-1)
     tr = th / tw
     if h / w > tr:
+        # hxw 720x1280  thxtw 320x640  hw_raito 9/16 > tr_ratio 8/16  newh=1280*320/640=640  neww=1280 
         new_h = int(w * tr)
         new_w = w
     else:
+        # hxw 720x1280  thxtw 480x640  hw_raito 9/16 < tr_ratio 12/16   newh=720 neww=720/(12/16)=960  
+        # hxw 1080x1920  thxtw 720x1280  hw_raito 9/16 = tr_ratio 9/16   newh=1080 neww=1080/(9/16)=1920  
         new_h = h
         new_w = int(h / tr)
     
@@ -282,11 +285,15 @@ class SpatialStrideCropVideo:
 def longsideresize(h, w, size, skip_low_resolution):
     if h <= size[0] and w <= size[1] and skip_low_resolution:
         return h, w
+    
     if h / w > size[0] / size[1]:
-        w = int(w * size[0] / h)
+        # hxw 720x1280  size 320x640  hw_raito 9/16 > size_ratio 8/16  neww=320/720*1280=568  newh=320  
+        w = int(size[0] / h * w)
         h = size[0]
     else:
-        h = int(h * size[1] / w)
+        # hxw 720x1280  size 480x640  hw_raito 9/16 < size_ratio 12/16   newh=640/1280*720=360 neww=640  
+        # hxw 1080x1920  size 720x1280  hw_raito 9/16 = size_ratio 9/16   newh=1280/1920*1080=720 neww=1280  
+        h = int(size[1] / w * h)
         w = size[1]
     return h, w
 
