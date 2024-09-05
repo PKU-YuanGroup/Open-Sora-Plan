@@ -34,8 +34,8 @@ accelerate launch \
     --ae_path "/storage/lcm/Causal-Video-VAE/results/WFVAE_DISTILL_FORMAL" \
     --sample_rate 1 \
     --num_frames 93 \
-    --max_height 1280 \
-    --max_width 1280 \
+    --max_height 640 \
+    --max_width 640 \
     --interpolation_scale_t 1.0 \
     --interpolation_scale_h 1.0 \
     --interpolation_scale_w 1.0 \
@@ -73,7 +73,6 @@ accelerate launch \
     --trained_data_global_step 0 \
     --group_data \
     --use_decord \
-    --enable_tiling \
     --prediction_type "v_prediction" \
     --rescale_betas_zero_snr \
     --output_dir="debug"

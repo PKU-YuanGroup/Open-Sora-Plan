@@ -9,9 +9,9 @@ from diffusers.models.modeling_outputs import Transformer2DModelOutput
 from diffusers.utils import is_torch_version, deprecate
 from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.models.modeling_utils import ModelMixin
-from diffusers.models.normalization import AdaLayerNormContinuous
-from diffusers.models.embeddings import PixArtAlphaTextProjection, CombinedTimestepTextProjEmbeddings
-from opensora.models.diffusion.opensora_v1_5.modules import MotionAdaLayerNormSingle, PatchEmbed2D, BasicTransformerBlock
+from diffusers.models.normalization import AdaLayerNorm
+from diffusers.models.embeddings import PixArtAlphaTextProjection
+from opensora.models.diffusion.opensora_v1_5.modules import CombinedTimestepTextProjEmbeddings, PatchEmbed2D, BasicTransformerBlock
 from opensora.utils.utils import to_2tuple
 try:
     import torch_npu
@@ -69,6 +69,7 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
         sparse1d: bool = False,
         sparse2d: bool = False,
         pooled_projection_dim: int = 1024, 
+        timestep_embed_dim: int = 512,
         **kwarg, 
     ):
         super().__init__()
@@ -102,7 +103,9 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
         
         # 2. time embedding and pooled text embedding
         self.time_text_embed = CombinedTimestepTextProjEmbeddings(
-            embedding_dim=self.config.hidden_size, pooled_projection_dim=self.config.pooled_projection_dim
+            timestep_embed_dim=self.config.timestep_embed_dim, 
+            embedding_dim=self.config.timestep_embed_dim, 
+            pooled_projection_dim=self.config.pooled_projection_dim
         )
 
         # 3. anthor text embedding
@@ -127,6 +130,7 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
                         self.config.hidden_size,
                         self.config.num_attention_heads,
                         self.config.attention_head_dim,
+                        self.config.timestep_embed_dim, 
                         dropout=self.config.dropout,
                         cross_attention_dim=self.config.cross_attention_dim,
                         activation_fn=self.config.activation_fn,
@@ -151,9 +155,13 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
         self.skip_norm_linear = nn.ModuleList(self.skip_norm_linear)
 
         # norm out and unpatchfy
-        self.norm_out = AdaLayerNormContinuous(
-            self.config.hidden_size, self.config.hidden_size, elementwise_affine=self.config.norm_elementwise_affine, eps=self.config.norm_eps
-            )
+        self.norm_out = AdaLayerNorm(
+            embedding_dim=self.config.timestep_embed_dim,
+            output_dim=self.config.hidden_size * 2,  # shift and scale
+            norm_elementwise_affine=self.config.norm_elementwise_affine,
+            norm_eps=self.config.norm_eps,
+            chunk_dim=1,
+        )
         self.proj_out = nn.Linear(
             self.config.hidden_size, self.config.patch_size_t * self.config.patch_size * self.config.patch_size * self.out_channels
         )
@@ -392,16 +400,20 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
         self, hidden_states, embedded_timestep, num_frames, height, width
     ):  
         # Modulation
-        hidden_states = self.norm_out(hidden_states, embedded_timestep)
+        hidden_states = self.norm_out(hidden_states, temb=embedded_timestep)
         # unpatchify
         hidden_states = self.proj_out(hidden_states)
         hidden_states = hidden_states.reshape(
-            shape=(-1, num_frames, height, width, self.config.patch_size_t, self.config.patch_size, self.config.patch_size, self.out_channels)
+            -1, num_frames, height, width, 
+            self.config.patch_size_t, self.config.patch_size, self.config.patch_size, self.out_channels
         )
         hidden_states = torch.einsum("nthwopqc->nctohpwq", hidden_states)
         output = hidden_states.reshape(
-            shape=(-1, self.out_channels, 
-                   num_frames * self.config.patch_size_t, height * self.config.patch_size, width * self.config.patch_size)
+            -1, 
+            self.out_channels, 
+            num_frames * self.config.patch_size_t, 
+            height * self.config.patch_size, 
+            width * self.config.patch_size
         )
         return output
 
@@ -409,10 +421,10 @@ def OpenSoraT2V_v1_5_5B_122(**kwargs):
     if kwargs.get('sparse_n', None) is not None:
         kwargs.pop('sparse_n')
     return OpenSoraT2V_v1_5(
-        num_layers=[2, 4, 8, 10, 8, 4, 2], sparse_n=[1, 4, 16, 16, 16, 4, 1], 
-        attention_head_dim=72, num_attention_heads=32, 
+        num_layers=[2, 4, 6, 8, 6, 4, 2], sparse_n=[1, 4, 16, 64, 16, 4, 1], 
+        attention_head_dim=96, num_attention_heads=32, timestep_embed_dim=512, 
         patch_size_t=1, patch_size=2, norm_type="ada_norm_single", 
-        caption_channels=4096, cross_attention_dim=2304, pooled_projection_dim=1280, **kwargs
+        caption_channels=4096, cross_attention_dim=3072, pooled_projection_dim=1280, **kwargs
     )
 
 OpenSora_v1_5_models = {
