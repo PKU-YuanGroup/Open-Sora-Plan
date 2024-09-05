@@ -34,8 +34,8 @@ accelerate launch \
     --ae_path "/storage/lcm/Causal-Video-VAE/results/WFVAE_DISTILL_FORMAL" \
     --sample_rate 1 \
     --num_frames 93 \
-    --max_height 640 \
-    --max_width 640 \
+    --max_height 720 \
+    --max_width 1280 \
     --interpolation_scale_t 1.0 \
     --interpolation_scale_h 1.0 \
     --interpolation_scale_w 1.0 \
@@ -57,8 +57,6 @@ accelerate launch \
     --use_ema \
     --ema_start_step 0 \
     --cfg 0.1 \
-    --noise_offset 0.0 \
-    --use_rope \
     --resume_from_checkpoint="latest" \
     --skip_low_resolution \
     --speed_factor 1.0 \
@@ -67,7 +65,6 @@ accelerate launch \
     --pretrained "/storage/ongoing/new/7.19anyres/Open-Sora-Plan/bs32x8x2_anyx93x320x320_fps16_lr2e-6_snr5_ema9999_sparse1d4_dit_l_mt5xxl_alldata100m_vpred_zerosnr/checkpoint-45100/model_ema/diffusion_pytorch_model.safetensors" \
     --hw_stride 32 \
     --sparse1d \
-    --use_motion \
     --train_fps 12 \
     --seed 1234 \
     --trained_data_global_step 0 \
@@ -75,4 +72,7 @@ accelerate launch \
     --use_decord \
     --prediction_type "v_prediction" \
     --rescale_betas_zero_snr \
-    --output_dir="debug"
+    --output_dir="debug" \
+    --extra_save_mem \
+    --force_resolution \
+    --vae_fp32

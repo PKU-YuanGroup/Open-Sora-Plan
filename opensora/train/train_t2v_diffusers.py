@@ -214,19 +214,16 @@ def main(args):
     # Create model:
     kwargs = {}
     ae = ae_wrapper[args.ae](args.ae_path, cache_dir=args.cache_dir, **kwargs).eval()
-    logger.info(f'ae {args.ae}: {sum(p.numel() for p in ae.parameters()) / 1e9} B')
     
     if args.enable_tiling:
         ae.vae.enable_tiling()
 
     kwargs = {'load_in_8bit': args.enable_8bit_t5, 'torch_dtype': weight_dtype, 'low_cpu_mem_usage': True}
     text_enc_1 = get_text_warpper(args.text_encoder_name_1)(args, **kwargs).eval()
-    logger.info(f'text_enc_1 {args.text_encoder_name_1}, weight_dtype: {weight_dtype}: {sum(p.numel() for p in text_enc_1.parameters()) / 1e9} B')
 
     text_enc_2 = None
     if args.text_encoder_name_2 is not None:
         text_enc_2 = get_text_warpper(args.text_encoder_name_2)(args, **kwargs).eval()
-        logger.info(f'text_enc_2 {args.text_encoder_name_2}, weight_dtype: {weight_dtype}: {sum(p.numel() for p in text_enc_2.parameters()) / 1e9} B')
 
     ae_stride_t, ae_stride_h, ae_stride_w = ae_stride_config[args.ae]
     ae.vae_scale_factor = (ae_stride_t, ae_stride_h, ae_stride_w)
@@ -312,11 +309,12 @@ def main(args):
     noise_scheduler = DDPMScheduler(rescale_betas_zero_snr=args.rescale_betas_zero_snr)
     # Move unet, vae and text_encoder to device and cast to weight_dtype
     # The VAE is in float32 to avoid NaN losses.
-    ae.vae.to(accelerator.device, dtype=torch.float32)
-    # ae.vae.to(accelerator.device, dtype=weight_dtype)
-    text_enc_1.to(accelerator.device, dtype=weight_dtype)
-    if text_enc_2 is not None:
-        text_enc_2.to(accelerator.device, dtype=weight_dtype)
+    if not args.extra_save_mem:
+        ae.vae.to(accelerator.device, dtype=torch.float32 if args.vae_fp32 else weight_dtype)
+        # ae.vae.to(accelerator.device, dtype=weight_dtype)
+        text_enc_1.to(accelerator.device, dtype=weight_dtype)
+        if text_enc_2 is not None:
+            text_enc_2.to(accelerator.device, dtype=weight_dtype)
 
     # Create EMA for the unet.
     if args.use_ema:
@@ -517,6 +515,11 @@ def main(args):
     logger.info(f"  Total optimization steps = {args.max_train_steps}")
     logger.info(f"  Total optimization steps (num_update_steps_per_epoch) = {num_update_steps_per_epoch}")
     logger.info(f"  Total training parameters = {sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e9} B")
+    
+    logger.info(f"  AutoEncoder = {args.ae}; Dtype = {ae.vae.dtype}; Parameters = {sum(p.numel() for p in ae.parameters()) / 1e9} B")
+    logger.info(f"  Text_enc_1 = {args.text_encoder_name_1}; Dtype = {weight_dtype}; Parameters = {sum(p.numel() for p in text_enc_1.parameters()) / 1e9} B")
+    if args.text_encoder_name_2 is not None:
+        logger.info(f"  Text_enc_2 = {args.text_encoder_name_2}; Dtype = {weight_dtype}; Parameters = {sum(p.numel() for p in text_enc_2.parameters()) / 1e9} B")
 
     global_step = 0
     first_epoch = 0
@@ -739,16 +742,22 @@ def main(args):
         x, attn_mask, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2, motion_score = data_item_
         print(f'step: {step_}, rank: {accelerator.process_index}, x: {x.shape}')
         assert not torch.any(torch.isnan(x)), 'torch.any(torch.isnan(x))'
-        x = x.to(accelerator.device, dtype=ae.vae.dtype)  # B C T H W
 
+        if args.extra_save_mem:
+            torch.cuda.empty_cache()
+            ae.vae.to(accelerator.device, dtype=torch.float32 if args.vae_fp32 else weight_dtype)
+            # ae.vae.to(accelerator.device, dtype=weight_dtype)
+            text_enc_1.to(accelerator.device, dtype=weight_dtype)
+            if text_enc_2 is not None:
+                text_enc_2.to(accelerator.device, dtype=weight_dtype)
+
+        x = x.to(accelerator.device, dtype=ae.vae.dtype)  # B C T H W
         attn_mask = attn_mask.to(accelerator.device)  # B T H W
         input_ids_1 = input_ids_1.to(accelerator.device)  # B 1 L
         cond_mask_1 = cond_mask_1.to(accelerator.device)  # B 1 L
         input_ids_2 = input_ids_2.to(accelerator.device) if input_ids_2 is not None else input_ids_2 # B L
         cond_mask_2 = cond_mask_2.to(accelerator.device) if cond_mask_2 is not None else cond_mask_2 # B L
         motion_score = motion_score.to(accelerator.device) if motion_score is not None else motion_score # B 1
-        # if accelerator.process_index == 0:
-        #     logger.info(f'rank: {accelerator.process_index}, x: {x.shape}, attn_mask: {attn_mask.shape}')
 
         with torch.no_grad():
             B, N, L = input_ids_1.shape  # B 1 L
@@ -777,6 +786,15 @@ def main(args):
             # videos = videos.transpose(0, 1)
             # custom_to_video(videos.to(torch.float32), fps=24, output_file='tmp.mp4')
             # import sys;sys.exit()
+        
+        if args.extra_save_mem:
+            ae.vae.to('cpu')
+            # ae.vae.to(accelerator.device, dtype=weight_dtype)
+            text_enc_1.to('cpu')
+            if text_enc_2 is not None:
+                text_enc_2.to('cpu')
+            torch.cuda.empty_cache()
+
         current_step_frame = x.shape[2]
         current_step_sp_state = get_sequence_parallel_state()
         if args.sp_size != 1:  # enable sp
@@ -878,10 +896,11 @@ if __name__ == "__main__":
     parser.add_argument("--use_decord", action="store_true")
 
     # text encoder & vae & diffusion model
+    parser.add_argument('--vae_fp32', action='store_true')
+    parser.add_argument('--extra_save_mem', action='store_true')
     parser.add_argument("--model", type=str, choices=list(Diffusion_models.keys()), default="Latte-XL/122")
     parser.add_argument('--enable_8bit_t5', action='store_true')
     parser.add_argument('--enable_tiling', action='store_true')
-    parser.add_argument('--use_rope', action='store_true')
     parser.add_argument('--interpolation_scale_h', type=float, default=1.0)
     parser.add_argument('--interpolation_scale_w', type=float, default=1.0)
     parser.add_argument('--interpolation_scale_t', type=float, default=1.0)
@@ -942,6 +961,7 @@ if __name__ == "__main__":
                             ' (default), `"wandb"` and `"comet_ml"`. Use `"all"` to report to all integrations.'
                         ),
                         )
+    
     # optimizer & scheduler
     parser.add_argument("--num_train_epochs", type=int, default=100)
     parser.add_argument("--max_train_steps", type=int, default=None, help="Total number of training steps to perform.  If provided, overrides num_train_epochs.")

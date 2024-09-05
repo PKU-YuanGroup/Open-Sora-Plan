@@ -55,8 +55,6 @@ accelerate launch \
     --use_ema \
     --ema_start_step 0 \
     --cfg 0.1 \
-    --noise_offset 0.0 \
-    --use_rope \
     --resume_from_checkpoint="latest" \
     --skip_low_resolution \
     --speed_factor 1.0 \
