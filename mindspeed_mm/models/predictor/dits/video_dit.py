@@ -7,7 +7,8 @@ import torch.nn.functional as F
 from diffusers.models.embeddings import SinusoidalPositionalEmbedding, PixArtAlphaTextProjection
 from diffusers.models.normalization import AdaLayerNorm, AdaLayerNormContinuous, AdaLayerNormZero, AdaLayerNormSingle
 from diffusers.models.attention import FeedForward
-from megatron.core import mpu
+from megatron.core import mpu, tensor_parallel
+from megatron.training import get_args
 
 from mindspeed_mm.models.common.communications import split_forward_gather_backward, gather_forward_split_backward
 from mindspeed_mm.models.common.module import MultiModalModule
@@ -78,7 +79,18 @@ class VideoDiT(MultiModalModule):
         self.patch_size_t, self.patch_size_h, self.patch_size_w = patch_size
         self.norm_type = norm_type
         self.out_channels = out_channels
+        self.num_layers = num_layers
         inner_dim = num_heads * head_dim
+
+        args = get_args()
+        self.recompute_granularity = args.recompute_granularity
+        self.distribute_saved_activations = args.distribute_saved_activations
+        self.recompute_method = args.recompute_method
+        self.recompute_num_layers = args.recompute_num_layers
+        if self.recompute_granularity == "selective":
+            raise ValueError("recompute_granularity does not support selective mode in VideoDiT")
+        if self.distribute_saved_activations:
+            raise NotImplementedError("distribute_saved_activations is currently not supported")
 
         if mpu.get_context_parallel_world_size() > 1:
             self.enable_sequence_parallelism = True
@@ -226,9 +238,12 @@ class VideoDiT(MultiModalModule):
             latents_vid = split_forward_gather_backward(latents_vid, mpu.get_context_parallel_group(), dim=0,
                                                         grad_scale='down')
 
-        for block in self.videodit_blocks:
+        frames = torch.tensor(frames)
+        height = torch.tensor(height)
+        width = torch.tensor(width)
+        if self.recompute_granularity == "full":
             if latents_vid is not None:
-                latents_vid = block(
+                latents_vid = self._checkpointed_forward(
                     latents_vid,
                     video_mask=vid_mask,
                     prompt=prompt_vid,
@@ -237,20 +252,46 @@ class VideoDiT(MultiModalModule):
                     class_labels=class_labels,
                     frames=frames,
                     height=height,
-                    width=width,
+                    width=width
                 )
             if latents_img is not None:
-                latents_img = block(
+                latents_img = self._checkpointed_forward(
                     latents_img,
                     video_mask=img_mask,
                     prompt=prompt_img,
                     prompt_mask=prompt_img_mask,
                     timestep=timestep_img,
                     class_labels=class_labels,
-                    frames=1,
+                    frames=torch.tensor(1),
                     height=height,
-                    width=width,
+                    width=width
                 )
+        else:
+            for block in self.videodit_blocks:
+                if latents_vid is not None:
+                    latents_vid = block(
+                        latents_vid,
+                        video_mask=vid_mask,
+                        prompt=prompt_vid,
+                        prompt_mask=prompt_vid_mask,
+                        timestep=timestep_vid,
+                        class_labels=class_labels,
+                        frames=frames,
+                        height=height,
+                        width=width
+                    )
+                if latents_img is not None:
+                    latents_img = block(
+                        latents_img,
+                        video_mask=img_mask,
+                        prompt=prompt_img,
+                        prompt_mask=prompt_img_mask,
+                        timestep=timestep_img,
+                        class_labels=class_labels,
+                        frames=torch.tensor(1),
+                        height=height,
+                        width=width
+                    )
 
         if self.enable_sequence_parallelism and latents_vid is not None:
             latents_vid = rearrange(latents_vid, 's b h -> b s h', b=b).contiguous()
@@ -289,6 +330,84 @@ class VideoDiT(MultiModalModule):
         elif output_img is not None:
             output = output_img
         return output
+
+    def _get_block(self, layer_number):
+        return self.videodit_blocks[layer_number]
+
+    def _checkpointed_forward(
+        self,
+        latents,
+        video_mask,
+        prompt, 
+        prompt_mask,
+        timestep,
+        class_labels,
+        frames,
+        height,
+        width):
+        """Forward method with activation checkpointing."""
+
+        def custom(start, end):
+            def custom_forward(*args, **kwargs):
+                x_, *args = args
+                for index in range(start, end):
+                    layer = self._get_block(index)
+                    x_ = layer(x_, *args, **kwargs)
+                return x_
+            return custom_forward
+
+        if self.recompute_method == "uniform":
+            # Uniformly divide the total number of Transformer layers and
+            # checkpoint the input activation of each divided chunk.
+            # A method to further reduce memory usage reducing checkpoints.
+            layer_num = 0
+            while layer_num < self.num_layers:
+                latents = tensor_parallel.checkpoint(
+                    custom(layer_num, layer_num + self.recompute_num_layers),
+                    self.distribute_saved_activations,
+                    latents,
+                    prompt,
+                    video_mask,
+                    prompt_mask,
+                    timestep,
+                    class_labels,
+                    frames,
+                    height,
+                    width
+                )
+                layer_num += self.recompute_num_layers
+        elif self.recompute_method == "block":
+            for layer_num in range(self.num_layers):
+                if layer_num < self.recompute_num_layers:
+                    latents = tensor_parallel.checkpoint(
+                        custom(layer_num, layer_num + 1),
+                        self.distribute_saved_activations,
+                        latents,
+                        prompt,
+                        video_mask,
+                        prompt_mask,
+                        timestep,
+                        class_labels,
+                        frames,
+                        height,
+                        width
+                    )
+                else:
+                    block = self._get_block(layer_num)
+                    latents = block(
+                        latents,
+                        video_mask=video_mask,
+                        prompt=prompt,
+                        prompt_mask=prompt_mask,
+                        timestep=timestep,
+                        class_labels=class_labels,
+                        frames=frames,
+                        height=height,
+                        width=width
+                    )
+        else:
+            raise ValueError("Invalid activation recompute method.")
+        return latents
 
     @property
     def dtype(self) -> torch.dtype:
@@ -522,12 +641,15 @@ class VideoDiTBlock(nn.Module):
         prompt_mask: Optional[torch.Tensor] = None,
         timestep: Dict[str, torch.Tensor] = None,
         class_labels: Optional[torch.Tensor] = None,
-        frames: int = None,
-        height: int = None,
-        width: int = None,
+        frames: torch.int64 = None, 
+        height: torch.int64 = None, 
+        width: torch.int64 = None, 
         added_cond_kwargs: Optional[Dict[str, torch.Tensor]] = None,
     ) -> torch.FloatTensor:
         # 1. Self-Attention
+        frames = frames.item()
+        height = height.item()
+        width = width.item()
         batch_size = latents.shape[0]
         if self.norm_type == "ada_norm":
             norm_latents = self.norm1(latents, timestep)
