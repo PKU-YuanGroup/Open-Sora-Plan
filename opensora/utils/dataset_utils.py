@@ -264,8 +264,7 @@ def split_to_even_chunks(megabatch, lengths, world_size, batch_size):
                 print(chunks[idx], '->', chunk)
         pad_chunks.append(chunk)
     return pad_chunks
-from accelerate import Accelerator
-accelerator = Accelerator()
+
 def get_length_grouped_indices(lengths, batch_size, world_size, gradient_accumulation_size, initial_global_step, generator=None, group_data=False, seed=42):
     # We need to use torch for the random part as a distributed sampler will set the random seed for torch.
     if generator is None:

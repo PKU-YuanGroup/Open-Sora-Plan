@@ -34,7 +34,7 @@ accelerate launch \
     --ae_path "/storage/lcm/Causal-Video-VAE/results/WFVAE_DISTILL_FORMAL" \
     --sample_rate 1 \
     --num_frames 93 \
-    --max_height 480 \
+    --max_height 640 \
     --max_width 640 \
     --max_height_for_img 1280 \
     --max_width_for_img 1280 \

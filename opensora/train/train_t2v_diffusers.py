@@ -770,6 +770,8 @@ def main(args):
             cond_mask_1 = cond_mask_1.reshape(B, N, L)
             if text_enc_2 is not None:
                 cond_2 = text_enc_2(input_ids_2, cond_mask_2)  # B D
+            else:
+                cond_2 = None
 
             # Map input images to latent space + normalize latents
             x = ae.encode(x)  # B C T H W

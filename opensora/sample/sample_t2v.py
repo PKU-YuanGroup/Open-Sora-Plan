@@ -19,9 +19,7 @@ import os, sys
 from opensora.adaptor.modules import replace_with_fp32_forwards
 from opensora.models.causalvideovae import ae_stride_config, ae_channel_config, ae_norm, ae_denorm, CausalVAEModelWrapper
 
-from opensora.models.diffusion.opensora.modeling_opensora import OpenSoraT2V
-from opensora.models.diffusion.opensora_v1_2.modeling_opensora import OpenSoraT2V as SparseOpenSoraT2V
-from opensora.models.diffusion.udit.modeling_udit import UDiTT2V
+from opensora.models.diffusion.opensora_v1_2.modeling_opensora import OpenSoraT2V_v1_2
 
 from opensora.utils.utils import save_video_grid
 
@@ -41,39 +39,14 @@ def main(args):
     vae.vae = vae.vae.to(device=device, dtype=weight_dtype)
     if args.enable_tiling:
         vae.vae.enable_tiling()
-        vae.vae.tile_overlap_factor = args.tile_overlap_factor
-        vae.vae.tile_sample_min_size = 512
-        vae.vae.tile_latent_min_size = 64
-        vae.vae.tile_sample_min_size_t = 29
-        vae.vae.tile_latent_min_size_t = 8
-        if args.save_memory:
-            vae.vae.tile_sample_min_size = 256
-            vae.vae.tile_latent_min_size = 32
-            vae.vae.tile_sample_min_size_t = 29
-            vae.vae.tile_latent_min_size_t = 8
     vae.vae_scale_factor = ae_stride_config[args.ae]
 
-    # if args.model_3d:
-    #     transformer_model = OpenSoraT2V.from_pretrained(args.model_path, subfolder=args.version, cache_dir=args.cache_dir, low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
-    # else:
-    #     transformer_model = LatteT2V.from_pretrained(args.model_path, subfolder=args.version, cache_dir=args.cache_dir, low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
-    
-    if args.model_type == 'dit':
-        transformer_model = OpenSoraT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, 
+    if args.version == 'v1_2':
+        transformer_model = OpenSoraT2V_v1_2.from_pretrained(args.model_path, cache_dir=args.cache_dir, ignore_mismatched_sizes=True, 
                                                         low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
-    elif args.model_type == 'udit':
-        transformer_model = UDiTT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, ignore_mismatched_sizes=True, 
+    elif args.version == 'v1_5':
+        transformer_model = OpenSoraT2V_v1_5.from_pretrained(args.model_path, cache_dir=args.cache_dir, ignore_mismatched_sizes=True, 
                                                         low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
-    elif args.model_type == 'sparsedit':
-        transformer_model = SparseOpenSoraT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, ignore_mismatched_sizes=True, 
-                                                        low_cpu_mem_usage=False, device_map=None, torch_dtype=weight_dtype)
-    else:
-        transformer_model = LatteT2V.from_pretrained(args.model_path, cache_dir=args.cache_dir, low_cpu_mem_usage=False, 
-                                                     device_map=None, torch_dtype=weight_dtype)
-    # ckpt = torch.load('/storage/ongoing/new/image2video_weight/480p_73000_ema_ds_k3_p1_repeat_lowsize2.pt')
-    # transformer_model.load_state_dict(ckpt)
-    # text_encoder = T5EncoderModel.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/models--DeepFloyd--t5-v1_1-xxl/snapshots/c9c625d2ec93667ec579ede125fd3811d1f81d37", cache_dir=args.cache_dir, low_cpu_mem_usage=True, torch_dtype=weight_dtype)
-    # tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/models--DeepFloyd--t5-v1_1-xxl/snapshots/c9c625d2ec93667ec579ede125fd3811d1f81d37", cache_dir=args.cache_dir)
     text_encoder = MT5EncoderModel.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir, low_cpu_mem_usage=True, torch_dtype=weight_dtype)
     tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir)
     
@@ -127,19 +100,7 @@ def main(args):
                                 transformer=transformer_model)
     pipeline.to(device)
     if args.compile:
-        # 5%  https://github.com/siliconflow/onediff/tree/main/src/onediff/infer_compiler/backends/nexfort
-        options = '{"mode": "max-optimize:max-autotune:freezing:benchmark:low-precision",             \
-                    "memory_format": "channels_last", "options": {"inductor.optimize_linear_epilogue": false, \
-                    "triton.fuse_attention_allow_fp16_reduction": false}}'
-        # options = '{"mode": "max-autotune", "memory_format": "channels_last",              \
-        #             "options": {"inductor.optimize_linear_epilogue": false, "triton.fuse_attention_allow_fp16_reduction": false}}'
-        from onediffx import compile_pipe
-        pipeline = compile_pipe(
-                pipeline, backend="nexfort", options=options, fuse_qkv_projections=True
-            )
-
-        # 4%
-        # pipeline.transformer = torch.compile(pipeline.transformer)
+        pipeline.transformer = torch.compile(pipeline.transformer)
     
     if not os.path.exists(args.save_img_path):
         os.makedirs(args.save_img_path)
@@ -160,20 +121,6 @@ def main(args):
     low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry.
     """
 
-    # positive_prompt = "{}"
-    
-    # negative_prompt = None
-    # positive_prompt = """
-    # (masterpiece), (best quality), (ultra-detailed), 
-    # {}. 
-    # emotional, harmonious, vignette, 4k epic detailed, shot on kodak, 35mm photo, 
-    # sharp focus, high budget, cinemascope, moody, epic, gorgeous
-    # """
-    
-    # negative_prompt = """
-    # disfigured, poorly drawn face, longbody, lowres, bad anatomy, bad hands, missing fingers, cropped, worst quality, low quality
-    # """
-
     video_grids = []
     for idx, prompt in enumerate(text_prompt):
         videos = pipeline(positive_prompt.format(prompt),
@@ -185,10 +132,9 @@ def main(args):
                           guidance_scale=args.guidance_scale,
                           motion_score=args.motion_score, 
                           num_images_per_prompt=1,
-                          mask_feature=True,
                           device=args.device, 
                           max_sequence_length=args.max_sequence_length, 
-                          ).images
+                          ).videos
         try:
             if args.num_frames == 1:
                 ext = 'jpg'

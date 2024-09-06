@@ -27,9 +27,9 @@ def getdataset(args):
             SpatialStrideCropVideo(stride=args.hw_stride), 
         ]
         resize_for_img = None
-        if args.max_height_for_img > 0 and args.max_width_for_img > 0:
-            assert args.max_height_for_img > args.max_height
-            assert args.max_width_for_img > args.max_width
+        if args.max_height_for_img is not None and args.max_width_for_img is not None:
+            assert args.max_height_for_img > 0 and args.max_width_for_img > 0
+            assert args.max_height_for_img > args.max_height and args.max_width_for_img > args.max_width
             resize_for_img = [
                 LongSideResizeVideo((args.max_height_for_img, args.max_width_for_img), skip_low_resolution=True), 
                 SpatialStrideCropVideo(stride=args.hw_stride), 

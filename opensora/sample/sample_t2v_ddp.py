@@ -10,24 +10,16 @@ from diffusers.schedulers import (DDIMScheduler, DDPMScheduler, PNDMScheduler,
                                   HeunDiscreteScheduler, EulerAncestralDiscreteScheduler,
                                   DEISMultistepScheduler, KDPM2AncestralDiscreteScheduler)
 from diffusers.schedulers.scheduling_dpmsolver_singlestep import DPMSolverSinglestepScheduler
-from diffusers.models import AutoencoderKL, AutoencoderKLTemporalDecoder, Transformer2DModel
-from omegaconf import OmegaConf
 from torchvision.utils import save_image
 from transformers import T5EncoderModel, T5Tokenizer, AutoTokenizer, MT5EncoderModel
-
+import imageio
 import os, sys
 
 from opensora.models.causalvideovae import ae_stride_config, ae_wrapper
-
 from opensora.models.diffusion.opensora_v1_2.modeling_opensora import OpenSoraT2V_v1_2
-# from opensora.models.diffusion.latte.modeling_latte import LatteT2V
-# from opensora.models.captioner.refiner import model_gen
-
 from opensora.utils.utils import save_video_grid
+from opensora.sample.pipeline_opensora import OpenSoraPipeline
 
-from opensora.sample.pipeline_opensora import OpenSoraPipeline, OpenSoraFreeInitPipeline
-
-import imageio
 
 try:
     import torch_npu
@@ -129,10 +121,8 @@ def run_model_and_save_images(pipeline, model_path):
                           num_inference_steps=args.num_sampling_steps,
                           guidance_scale=args.guidance_scale,
                           num_samples_per_prompt=args.num_samples_per_prompt,
-                          mask_feature=True,
-                          device=args.device,
                           max_sequence_length=args.max_sequence_length,
-                          ).images
+                          ).videos
         print('videos.shape', videos.shape)
         if args.num_frames == 1:
             videos = videos[:, 0].permute(0, 3, 1, 2)  # b t h w c -> b c h w
