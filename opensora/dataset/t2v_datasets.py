@@ -155,6 +155,8 @@ class T2V_dataset(Dataset):
         self.ood_img_ratio = args.ood_img_ratio
         assert self.speed_factor >= 1
         self.video_reader = 'decord' if args.use_decord else 'opencv'
+        self.seed = 42
+        self.generator = torch.Generator().manual_seed(self.seed) 
 
         self.support_Chinese = False
         if 'mt5' in args.text_encoder_name_1:
@@ -358,6 +360,7 @@ class T2V_dataset(Dataset):
         cnt_vid = 0
         cnt_img = 0
         cnt = 0
+        
 
         with open(data, 'r') as f:
             folder_anno = [i.strip().split(',') for i in f.readlines() if len(i.strip()) > 0]
@@ -412,7 +415,7 @@ class T2V_dataset(Dataset):
                                 continue
                             
                             if path.endswith('.jpg') and self.max_height_for_img is not None and self.max_width_for_img is not None:
-                                if self.ood_img_ratio > random.random():
+                                if self.ood_img_ratio > torch.rand(1, generator=self.generator).item():
                                     tr_h, tr_w = longsideresize(height, width, (self.max_height_for_img, self.max_width_for_img), self.skip_low_resolution)
                                     is_ood_img = True
                                 else:
@@ -497,49 +500,30 @@ class T2V_dataset(Dataset):
                 sample_size.append(f"{len(i['sample_frame_index'])}x{sample_h}x{sample_w}")
                 if self.use_motion:
                     motion_score.append(i['motion_score'])
-
-        min_group_pick_num = 256
-        cnt_no_pick = 0
-        filter_new_cap_list = []
-        filter_sample_size = []
-        counter = Counter(sample_size)
-        filter_motion_score = [] if self.use_motion else motion_score
-            
-        for i in tqdm(range(len(new_cap_list))):
-            shape = sample_size[i]
-            if counter[shape] >= min_group_pick_num:
-                filter_new_cap_list.append(new_cap_list[i])
-                filter_sample_size.append(shape)
-                if self.use_motion:
-                    filter_motion_score.append(motion_score[i])
-            else:
-                cnt_no_pick += 1
-
-        logger.info(f'before filter: {cnt}, after filter: {len(filter_new_cap_list)}, cnt_no_pick: {cnt_no_pick}')
-        
+                    
         logger.info(f'no_cap: {cnt_no_cap}, too_long: {cnt_too_long}, too_short: {cnt_too_short}, '
                 f'no_resolution: {cnt_no_resolution}, resolution_mismatch: {cnt_resolution_mismatch}, '
-                f'Counter(sample_size): {Counter(filter_sample_size)}, cnt_vid: {cnt_vid}, cnt_img: {cnt_img}, '
-                f'before filter: {cnt}, after filter: {len(filter_new_cap_list)}')
+                f'Counter(sample_size): {Counter(sample_size)}, cnt_vid: {cnt_vid}, cnt_img: {cnt_img}, '
+                f'before filter: {cnt}, after filter: {len(new_cap_list)}')
         
         if self.use_motion:
-            stats_motion = calculate_statistics(filter_motion_score)
-            logger.info(f"before filter: {cnt}, after filter: {len(filter_new_cap_list)} | "
-                        f"motion_score: {len(filter_motion_score)}, cnt_no_motion: {cnt_no_motion} | "
-                        f"{len([i for i in filter_motion_score if i>=0.95])} > 0.95, 0.7 > {len([i for i in filter_motion_score if i<=0.7])} "
+            stats_motion = calculate_statistics(motion_score)
+            logger.info(f"before filter: {cnt}, after filter: {len(new_cap_list)} | "
+                        f"motion_score: {len(motion_score)}, cnt_no_motion: {cnt_no_motion} | "
+                        f"{len([i for i in motion_score if i>=0.95])} > 0.95, 0.7 > {len([i for i in motion_score if i<=0.7])} "
                         f"Mean: {stats_motion['mean']}, Var: {stats_motion['variance']}, Std: {stats_motion['std_dev']}, "
                         f"Min: {stats_motion['min']}, Max: {stats_motion['max']}")
         
         if len(aesthetic_score) > 0:
             stats_aesthetic = calculate_statistics(aesthetic_score)
-            logger.info(f"before filter: {cnt}, after filter: {len(filter_new_cap_list)} | "
+            logger.info(f"before filter: {cnt}, after filter: {len(new_cap_list)} | "
                         f"aesthetic_score: {len(aesthetic_score)}, cnt_no_aesthetic: {cnt_no_aesthetic} | "
                         f"{len([i for i in aesthetic_score if i>=5.75])} > 5.75, 4.5 > {len([i for i in aesthetic_score if i<=4.5])} "
                         f"Mean: {stats_aesthetic['mean']}, Var: {stats_aesthetic['variance']}, Std: {stats_aesthetic['std_dev']}, "
                         f"Min: {stats_aesthetic['min']}, Max: {stats_aesthetic['max']}")
         
 
-        return filter_new_cap_list, filter_sample_size, filter_motion_score
+        return new_cap_list, sample_size, motion_score
     
     def decord_read(self, path, predefine_frame_indice):
         predefine_num_frames = len(predefine_frame_indice)

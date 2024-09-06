@@ -472,9 +472,9 @@ def main(args):
     )
 
     # Prepare everything with our `accelerator`.
-    model.requires_grad_(False)
+    # model.requires_grad_(False)
     # model.pos_embed.requires_grad_(True)
-    model.patch_embed.requires_grad_(True)
+    # model.patch_embed.requires_grad_(True)
     if args.adapt_vae:
         model.requires_grad_(False)
         for name, param in model.named_parameters():

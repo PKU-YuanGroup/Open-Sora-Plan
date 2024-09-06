@@ -264,7 +264,8 @@ def split_to_even_chunks(megabatch, lengths, world_size, batch_size):
                 print(chunks[idx], '->', chunk)
         pad_chunks.append(chunk)
     return pad_chunks
-
+from accelerate import Accelerator
+accelerator = Accelerator()
 def get_length_grouped_indices(lengths, batch_size, world_size, gradient_accumulation_size, initial_global_step, generator=None, group_data=False, seed=42):
     # We need to use torch for the random part as a distributed sampler will set the random seed for torch.
     if generator is None:
@@ -289,24 +290,30 @@ def get_length_grouped_indices(lengths, batch_size, world_size, gradient_accumul
     # megabatches = [sorted(megabatch, key=lambda i: lengths[i], reverse=True) for megabatch in megabatches]
     # import ipdb;ipdb.set_trace()
     # print('sort megabatches', len(megabatches))
-    # megabatches_len = [[lengths[i] for i in megabatch] for megabatch in megabatches]
-    # print('\nsorted megabatches', megabatches)
-    # print('\nsorted megabatches_len', megabatches_len)
+    megabatches_len = [[lengths[i] for i in megabatch] for megabatch in megabatches]
+    # print(f'\nrank {accelerator.process_index} sorted megabatches_len', megabatches_len[0], megabatches_len[1], megabatches_len[-2], megabatches_len[-1])
     # import ipdb;ipdb.set_trace()
     megabatches = [split_to_even_chunks(megabatch, lengths, world_size, batch_size) for megabatch in megabatches]
     # import ipdb;ipdb.set_trace()
     # print('nsplit_to_even_chunks megabatches', len(megabatches))
     # print('\nsplit_to_even_chunks megabatches', megabatches)
-    # print('\nsplit_to_even_chunks len', [lengths[i] for megabatch in megabatches for batch in megabatch for i in batch])
+    split_to_even_chunks_len = [[[lengths[i] for i in batch] for batch in megabatch] for megabatch in megabatches]
+    # print(f'\nrank {accelerator.process_index} split_to_even_chunks_len', split_to_even_chunks_len[0], split_to_even_chunks_len[1], split_to_even_chunks_len[-2], split_to_even_chunks_len[-1])
+    # print('\nsplit_to_even_chunks len', split_to_even_chunks_len)
     # return [i for megabatch in megabatches for batch in megabatch for i in batch]
 
     indices_mega = torch.randperm(len(megabatches), generator=generator).tolist()
+    # print(f'rank {accelerator.process_index} seed {seed}, len(megabatches) {len(megabatches)}, indices_mega, {indices_mega[:50]}')
     shuffled_megabatches = [megabatches[i] for i in indices_mega]
+    shuffled_megabatches_len = [[[lengths[i] for i in batch] for batch in megabatch] for megabatch in shuffled_megabatches]
+    # print(f'\nrank {accelerator.process_index} sorted shuffled_megabatches_len', shuffled_megabatches_len[0], shuffled_megabatches_len[1], shuffled_megabatches_len[-2], shuffled_megabatches_len[-1])
 
     # import ipdb;ipdb.set_trace()
     # print('shuffled_megabatches', len(shuffled_megabatches))
     if group_data:
         shuffled_megabatches = last_group_data_fun(shuffled_megabatches, lengths)
+        group_shuffled_megabatches_len = [[[lengths[i] for i in batch] for batch in megabatch] for megabatch in shuffled_megabatches]
+        # print(f'\nrank {accelerator.process_index} group_shuffled_megabatches_len', group_shuffled_megabatches_len[0], group_shuffled_megabatches_len[1], group_shuffled_megabatches_len[-2], group_shuffled_megabatches_len[-1])
     
     # import ipdb;ipdb.set_trace()
     initial_global_step = initial_global_step * gradient_accumulation_size

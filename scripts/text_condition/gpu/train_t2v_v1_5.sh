@@ -21,7 +21,7 @@ export NCCL_IB_RETRY_CNT=32
 # export NCCL_ALGO=Tree
 
 accelerate launch \
-    --config_file scripts/accelerate_configs/debug.yaml \
+    --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
     opensora/train/train_t2v_diffusers.py \
     --model OpenSoraT2V_v1_5-5B/122 \
     --text_encoder_name_1 DeepFloyd/t5-v1_1-xxl \
@@ -42,7 +42,7 @@ accelerate launch \
     --interpolation_scale_h 1.0 \
     --interpolation_scale_w 1.0 \
     --gradient_checkpointing \
-    --train_batch_size=4 \
+    --train_batch_size=1 \
     --dataloader_num_workers 8 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
