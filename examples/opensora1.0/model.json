@@ -1,5 +1,4 @@
 {
-    "grad_checkpointing": false,
     "use_ema": false,
     "dtype": "bf16",
     "load_video_features": false,
