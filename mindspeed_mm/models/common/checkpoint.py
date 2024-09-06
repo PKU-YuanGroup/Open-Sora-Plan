@@ -1,5 +1,6 @@
 from collections.abc import Iterable
 import os
+
 import torch
 import torch.nn as nn
 from torch.utils.checkpoint import checkpoint, checkpoint_sequential

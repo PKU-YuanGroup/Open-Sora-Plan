@@ -1,4 +1,5 @@
 from torch import nn
+
 from megatron.training.utils import print_rank_0
 from ..common.checkpoint import load_checkpoint
 from .dits import VideoDiT, Latte, STDiT

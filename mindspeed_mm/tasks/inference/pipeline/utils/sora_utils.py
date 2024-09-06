@@ -48,3 +48,12 @@ def prepare_multi_resolution_info(info_type, batch_size, image_size, num_frames,
         return dict(height=height, width=width, num_frames=num_frames, ar=ar, fps=fps)
     else:
         raise NotImplementedError("only support PixArtMS, OpenSora, STDiT2 Model")
+
+
+def load_prompts(prompt):
+    if os.path.exists(prompt):
+        with open(prompt, "r") as f:
+            prompts = [line.strip() for line in f.readlines()]
+        return prompts
+    else:
+        return prompt

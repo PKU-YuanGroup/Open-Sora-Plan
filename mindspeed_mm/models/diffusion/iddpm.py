@@ -48,6 +48,8 @@ class IDDPM(DDPM):
             device=device,
             **kwargs,
         )
+        self.scale = kwargs.get("scale", None)
+        self.channel = kwargs.get("channel", None)
 
     def ddim_sample(
         self,
@@ -76,8 +78,23 @@ class IDDPM(DDPM):
                  - 'sample': a random sample from the model.
                  - 'pred_xstart': a prediction of x_0.
         """
+        new_ts = self.map_tensors[t].to(device=t.device, dtype=t.dtype)
 
-        model_output = model(x, t, **model_kwargs)
+        half = x[: len(x) // 2]
+        x = torch.cat([half, half], dim=0)
+        model_output = model(x, new_ts, **model_kwargs)
+
+        model_output = model_output["x"] if isinstance(model_output, dict) else model_output
+        if self.scale is None:
+            raise Exception("scale cannot be None")
+        if self.channel is None:
+            self.channel = model_output.shape[1] // 2
+        eps, rest = model_output[:, :self.channel], model_output[:, self.channel:]
+        cond_eps, uncond_eps = torch.split(eps, len(eps) // 2, dim=0)
+        half_eps = uncond_eps + self.scale * (cond_eps - uncond_eps)
+        eps = torch.cat([half_eps, half_eps], dim=0)
+        model_output = torch.cat([eps, rest], dim=1)
+
 
         out = self.p_mean_variance(
             model_output,
@@ -141,7 +158,6 @@ class IDDPM(DDPM):
         indices = list(range(self.num_timesteps))[::-1]
         if progress:
             indices = tqdm(indices)
-
         for i in indices:
             t = torch.tensor([i] * shape[0], device=self.device)
             with torch.no_grad():
@@ -156,13 +172,13 @@ class IDDPM(DDPM):
                     eta=eta,
                 )
                 yield out
-                img = out["sample"]
+                latents = out["sample"]
 
     def sample(
         self,
         model: callable,
         shape: Union[Tuple, List],
-        noised_latents: Tensor = None,
+        latents: Tensor = None,
         clip_denoised: bool = True,
         denoised_fn: Callable = None,
         cond_fn: Callable = None,
@@ -179,7 +195,7 @@ class IDDPM(DDPM):
         for sample in self.ddim_sample_loop_progressive(
             model,
             shape,
-            noised_latents=noised_latents,
+            latents=latents,
             clip_denoised=clip_denoised,
             denoised_fn=denoised_fn,
             cond_fn=cond_fn,

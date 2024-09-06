@@ -59,13 +59,11 @@ class OpenSoraPipeline(MMPipeline, InputsCheckMixin, MMEncoderMixin):
                                                                               do_classifier_free_guidance=False)
         prompt_embeds = prompt_embeds[:, None]
         if model_args:
-            model_args.update(dict(y=prompt_embeds, mask=prompt_embeds_attention_mask))
+            model_args.update(dict(prompt=prompt_embeds, prompt_mask=prompt_embeds_attention_mask))
         else:
-            model_args = dict(y=prompt_embeds, mask=prompt_embeds_attention_mask)
+            model_args = dict(prompt=prompt_embeds, prompt_mask=prompt_embeds_attention_mask)
         y_null = self.null(batch_size)
-        model_args["y"] = torch.cat([model_args["y"], y_null], 0) #TODO 后续套件适配修改
-        model_args["scale"] = 7
-        model_args["channel"] = 3
+        model_args["prompt"] = torch.cat([model_args["prompt"], y_null], 0)
 
         # 5. Prepare latents
         image_size = (height, width)
@@ -79,7 +77,7 @@ class OpenSoraPipeline(MMPipeline, InputsCheckMixin, MMEncoderMixin):
 
         latents = self.scheduler.sample(model=self.transformer, shape=shape, clip_denoised=False, latents=z,
                                         model_kwargs=model_args, progress=True)  # b,c,t,h,w
-        latents, _ = latents.chunk(latents, dim=0)
+        latents, _ = latents.chunk(2, dim=0)
         video = self.decode_latents(latents.to(self.vae.dtype))  # b,c,t,h,w
         video = video[:, :num_frames, :height, :width]
 

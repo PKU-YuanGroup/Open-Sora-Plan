@@ -63,8 +63,8 @@ class MMEncoderMixin:
                     f" {max_length} tokens: {removed_text}"
                 )
             # TODO 加入参数use_attention_mask
-            if hasattr(self.text_encoder.config,
-                       "use_attention_mask") and self.text_encoder.config.use_attention_mask:
+            if hasattr(self.text_encoder,
+                       "use_attention_mask") and self.text_encoder.use_attention_mask:
                 attention_mask = text_inputs.attention_mask.to(device)
             else:
                 attention_mask = None
@@ -88,7 +88,7 @@ class MMEncoderMixin:
                 # layer.
                 prompt_embeds = self.text_encoder.text_model.final_layer_norm(prompt_embeds)
         else:
-            if hasattr(self.text_encoder.config, "use_attention_mask") and self.text_encoder.config.use_attention_mask:
+            if hasattr(self.text_encoder, "use_attention_mask") and self.text_encoder.use_attention_mask:
                 prompt_embeds_attention_mask = torch.ones_like(prompt_embeds)
             else:
                 prompt_embeds_attention_mask = None
@@ -109,11 +109,6 @@ class MMEncoderMixin:
             uncond_tokens: List[str]
             if negative_prompt is None:
                 uncond_tokens = [""] * batch_size
-            elif prompt is not None and type(prompt) is not type(negative_prompt):
-                raise TypeError(
-                    f"`negative_prompt` should be the same type to `prompt`, but got {type(negative_prompt)} !="
-                    f" {type(prompt)}."
-                )
             elif isinstance(negative_prompt, str):
                 uncond_tokens = [negative_prompt]
             elif batch_size != len(negative_prompt):
@@ -139,8 +134,8 @@ class MMEncoderMixin:
                 return_tensors="pt",
             )
             #  参数控制
-            if hasattr(self.text_encoder.config,
-                       "use_attention_mask") and self.text_encoder.config.use_attention_mask:
+            if hasattr(self.text_encoder,
+                       "use_attention_mask") and self.text_encoder.use_attention_mask:
                 attention_mask = uncond_input.attention_mask.to(device)
             else:
                 attention_mask = None
@@ -153,8 +148,8 @@ class MMEncoderMixin:
                 # [0]表示取last_hidden_state TODO 如果使用mindspeed-mm这里就不需要
                 negative_prompt_embeds = negative_prompt_embeds[0]
         else:
-            if hasattr(self.text_encoder.config,
-                       "use_attention_mask") and self.text_encoder.config.use_attention_mask and negative_prompt_embeds is not None:
+            if hasattr(self.text_encoder,
+                       "use_attention_mask") and self.text_encoder.use_attention_mask and negative_prompt_embeds is not None:
                 negative_prompt_attention_mask = torch.ones_like(negative_prompt_embeds)
             else:
                 negative_prompt_attention_mask = None

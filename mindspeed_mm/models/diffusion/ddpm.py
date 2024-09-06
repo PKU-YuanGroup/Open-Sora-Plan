@@ -89,6 +89,7 @@ class DDPM:
                 last_alpha_cumprod = alpha_cumprod
                 timestep_map.append(i)
         self.betas = torch.tensor(new_betas, device=self.device)
+        self.map_tensors = torch.FloatTensor(timestep_map).to(self.device)
         self.num_timesteps = int(self.betas.shape[0])
 
         # Prepare alphas related constant
