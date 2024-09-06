@@ -187,13 +187,16 @@ class Collate:
 
 
 def group_data_fun(lengths, generator=None):
-    counter = Counter(lengths)
+    # counter is decrease order
+    counter = Counter(lengths)  # counter {'1x256x256': 3, ''}   lengths ['1x256x256', '1x256x256', '1x256x256', ...]
     grouped_indices = defaultdict(list)
-    for idx, item in enumerate(lengths):
-        grouped_indices[counter[item]].append(idx)
-    grouped_indices = dict(grouped_indices)  
-    sorted_indices = [grouped_indices[count] for count in sorted(grouped_indices, reverse=True)]
+    for idx, item in enumerate(lengths):  # group idx to a list
+        grouped_indices[item].append(idx)
 
+    grouped_indices = dict(grouped_indices)  # {'1x256x256': [0, 1, 2], ...}
+    sorted_indices = [grouped_indices[item] for (item, _) in sorted(counter.items(), key=lambda x: x[1], reverse=True)]
+    
+    # shuffle in each group
     shuffle_sorted_indices = []
     for indice in sorted_indices:
         shuffle_idx = torch.randperm(len(indice), generator=generator).tolist()
@@ -201,6 +204,7 @@ def group_data_fun(lengths, generator=None):
     return shuffle_sorted_indices
 
 def last_group_data_fun(shuffled_megabatches, lengths):
+    # lengths ['1x256x256', '1x256x256', '1x256x256' ...]
     re_shuffled_megabatches = []
     # print('shuffled_megabatches', len(shuffled_megabatches))
     for i_megabatch, megabatch in enumerate(shuffled_megabatches):
@@ -208,11 +212,11 @@ def last_group_data_fun(shuffled_megabatches, lengths):
         for i_batch, batch in enumerate(megabatch):
             assert len(batch) != 0
                 
-            len_each_batch = [lengths[i] for i in batch]
-            idx_length_dict = dict([*zip(batch, len_each_batch)])
-            count_dict = Counter(len_each_batch)
+            len_each_batch = [lengths[i] for i in batch]  # ['1x256x256', '1x256x256']
+            idx_length_dict = dict([*zip(batch, len_each_batch)])  # {0: '1x256x256', 100: '1x256x256'}
+            count_dict = Counter(len_each_batch)  # {'1x256x256': 2} or {'1x256x256': 1, '1x768x256': 1}
             if len(count_dict) != 1:
-                sorted_by_value = sorted(count_dict.items(), key=lambda item: item[1])
+                sorted_by_value = sorted(count_dict.items(), key=lambda item: item[1])  # {'1x256x256': 1, '1x768x256': 1}
                 # import ipdb;ipdb.set_trace()
                 # print(batch, idx_length_dict, count_dict, sorted_by_value)
                 pick_length = sorted_by_value[-1][0]  # the highest frequency
@@ -238,30 +242,25 @@ def last_group_data_fun(shuffled_megabatches, lengths):
     #                 print(i, re_i)
     return re_shuffled_megabatches
                 
-def split_to_even_chunks(indices, lengths, num_chunks, batch_size):
+def split_to_even_chunks(megabatch, lengths, world_size, batch_size):
     """
     Split a list of indices into `chunks` chunks of roughly equal lengths.
     """
+    # batch_size=2, world_size=2
+    # [1, 2, 3, 4] -> [[1, 2], [3, 4]]
+    # [1, 2, 3] -> [[1, 2], [3]]
+    # [1, 2] -> [[1], [2]]
+    # [1] -> [[1], []]
+    chunks = [megabatch[i::world_size] for i in range(world_size)]
 
-    if len(indices) % num_chunks != 0:
-        chunks = [indices[i::num_chunks] for i in range(num_chunks)]
-    else:
-        num_indices_per_chunk = len(indices) // num_chunks
-
-        chunks = [[] for _ in range(num_chunks)]
-        cur_chunk = 0
-        for index in indices:
-            chunks[cur_chunk].append(index)
-            if len(chunks[cur_chunk]) == num_indices_per_chunk:
-                cur_chunk += 1
     pad_chunks = []
     for idx, chunk in enumerate(chunks):
-        if batch_size != len(chunk):
+        if batch_size != len(chunk):  
             assert batch_size > len(chunk)
-            if len(chunk) != 0:
+            if len(chunk) != 0:  # [[1, 2], [3]] -> [[1, 2], [3, 3]]
                 chunk = chunk + [random.choice(chunk) for _ in range(batch_size - len(chunk))]
             else:
-                chunk = random.choice(pad_chunks)
+                chunk = random.choice(pad_chunks)  # [[1], []] -> [[1], [1]]
                 print(chunks[idx], '->', chunk)
         pad_chunks.append(chunk)
     return pad_chunks
@@ -284,34 +283,39 @@ def get_length_grouped_indices(lengths, batch_size, world_size, gradient_accumul
     
     megabatch_size = world_size * batch_size
     megabatches = [indices[i: i + megabatch_size] for i in range(0, len(lengths), megabatch_size)]
+    # import ipdb;ipdb.set_trace()
     # print('megabatches', len(megabatches))
     # print('\nmegabatches', megabatches)
-    megabatches = [sorted(megabatch, key=lambda i: lengths[i], reverse=True) for megabatch in megabatches]
+    # megabatches = [sorted(megabatch, key=lambda i: lengths[i], reverse=True) for megabatch in megabatches]
+    # import ipdb;ipdb.set_trace()
     # print('sort megabatches', len(megabatches))
     # megabatches_len = [[lengths[i] for i in megabatch] for megabatch in megabatches]
     # print('\nsorted megabatches', megabatches)
     # print('\nsorted megabatches_len', megabatches_len)
     # import ipdb;ipdb.set_trace()
     megabatches = [split_to_even_chunks(megabatch, lengths, world_size, batch_size) for megabatch in megabatches]
+    # import ipdb;ipdb.set_trace()
     # print('nsplit_to_even_chunks megabatches', len(megabatches))
     # print('\nsplit_to_even_chunks megabatches', megabatches)
     # print('\nsplit_to_even_chunks len', [lengths[i] for megabatch in megabatches for batch in megabatch for i in batch])
     # return [i for megabatch in megabatches for batch in megabatch for i in batch]
 
     indices_mega = torch.randperm(len(megabatches), generator=generator).tolist()
-
     shuffled_megabatches = [megabatches[i] for i in indices_mega]
+
+    # import ipdb;ipdb.set_trace()
     # print('shuffled_megabatches', len(shuffled_megabatches))
     if group_data:
         shuffled_megabatches = last_group_data_fun(shuffled_megabatches, lengths)
     
+    # import ipdb;ipdb.set_trace()
     initial_global_step = initial_global_step * gradient_accumulation_size
-    print('shuffled_megabatches', len(shuffled_megabatches))
-    print('have been trained idx:', len(shuffled_megabatches[:initial_global_step]))
+    # print('shuffled_megabatches', len(shuffled_megabatches))
+    # print('have been trained idx:', len(shuffled_megabatches[:initial_global_step]))
     # print('shuffled_megabatches[:10]', shuffled_megabatches[:10])
     # print('have been trained idx:', shuffled_megabatches[:initial_global_step])
     shuffled_megabatches = shuffled_megabatches[initial_global_step:]
-    print('after shuffled_megabatches', len(shuffled_megabatches))
+    # print('after shuffled_megabatches', len(shuffled_megabatches))
     # print('after shuffled_megabatches[:10]', shuffled_megabatches[:10])
 
     # print('\nshuffled_megabatches', shuffled_megabatches)

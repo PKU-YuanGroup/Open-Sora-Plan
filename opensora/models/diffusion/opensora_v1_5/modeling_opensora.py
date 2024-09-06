@@ -59,7 +59,6 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
         only_cross_attention: bool = False,
         double_self_attention: bool = False,
         upcast_attention: bool = False,
-        norm_type: str = "ada_norm_single",  # 'layer_norm', 'ada_norm', 'ada_norm_zero', 'ada_norm_single', 'ada_norm_continuous', 'layer_norm_i2vgen'
         norm_elementwise_affine: bool = False,
         norm_eps: float = 1e-6,
         caption_channels: int = None,
@@ -120,8 +119,8 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
             if idx > len(self.config.num_layers) // 2:
                 self.skip_norm_linear.append(
                     nn.Sequential(
-                        nn.LayerNorm(self.config.hidden_size*2, elementwise_affine=self.config.norm_elementwise_affine, eps=self.config.norm_eps), 
-                        nn.Linear(self.config.hidden_size*2, self.config.hidden_size)
+                        nn.Linear(self.config.hidden_size*2, self.config.hidden_size), 
+                        nn.LayerNorm(self.config.hidden_size, elementwise_affine=self.config.norm_elementwise_affine, eps=self.config.norm_eps), 
                     )
                 )
             stage_blocks = nn.ModuleList(
@@ -138,7 +137,6 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
                         only_cross_attention=self.config.only_cross_attention,
                         double_self_attention=self.config.double_self_attention,
                         upcast_attention=self.config.upcast_attention,
-                        norm_type=self.config.norm_type,
                         norm_elementwise_affine=self.config.norm_elementwise_affine,
                         norm_eps=self.config.norm_eps,
                         interpolation_scale_thw=interpolation_scale_thw, 
@@ -275,7 +273,7 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
             embedded_timestep, frame, height, width
         ):
         
-        skip_connections = [hidden_states]
+        skip_connections = []
         for idx, stage_block in enumerate(self.transformer_blocks[:len(self.config.num_layers)//2]):
             for idx_, block in enumerate(stage_block):
                 # print(f'enc stage_block_{idx}, block_{idx_}', 
@@ -423,7 +421,7 @@ def OpenSoraT2V_v1_5_5B_122(**kwargs):
     return OpenSoraT2V_v1_5(
         num_layers=[2, 4, 6, 8, 6, 4, 2], sparse_n=[1, 4, 16, 64, 16, 4, 1], 
         attention_head_dim=96, num_attention_heads=32, timestep_embed_dim=512, 
-        patch_size_t=1, patch_size=2, norm_type="ada_norm_single", 
+        patch_size_t=1, patch_size=2, 
         caption_channels=4096, cross_attention_dim=3072, pooled_projection_dim=1280, **kwargs
     )
 

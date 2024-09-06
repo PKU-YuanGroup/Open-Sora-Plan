@@ -53,16 +53,7 @@ class MotionEmbeddings(nn.Module):
         return motions_emb
 
 class MotionAdaLayerNormSingle(nn.Module):
-    r"""
-    Norm layer adaptive layer norm single (adaLN-single).
-
-    As proposed in PixArt-Alpha (see: https://arxiv.org/abs/2310.00426; Section 2.3).
-
-    Parameters:
-        embedding_dim (`int`): The size of each embedding vector.
-        use_additional_conditions (`bool`): To use additional conditions for normalization or not.
-    """
-
+    
     def __init__(self, embedding_dim: int):
         super().__init__()
 
@@ -92,58 +83,37 @@ class MotionAdaLayerNormSingle(nn.Module):
         return self.linear(self.silu(embedded_motion))
     
 class PatchEmbed2D(nn.Module):
-    """2D Image to Patch Embedding but with 3D position embedding"""
+    """2D Image to Patch Embedding but with video"""
 
     def __init__(
         self,
-        num_frames=1, 
-        height=224,
-        width=224,
-        patch_size_t=1,
         patch_size=16,
         in_channels=3,
         embed_dim=768,
-        layer_norm=False,
-        flatten=True,
         bias=True,
-        interpolation_scale=(1, 1),
-        interpolation_scale_t=1,
-        use_abs_pos=True, 
     ):
         super().__init__()
-        # assert num_frames == 1
-        self.use_abs_pos = use_abs_pos
-        self.flatten = flatten
-        self.layer_norm = layer_norm
-
         self.proj = nn.Conv2d(
-            in_channels, embed_dim, kernel_size=(patch_size, patch_size), stride=(patch_size, patch_size), bias=bias
+            in_channels, embed_dim, 
+            kernel_size=(patch_size, patch_size), stride=(patch_size, patch_size), bias=bias
         )
 
-        self.patch_size_t = patch_size_t
-        self.patch_size = patch_size
-        # See:
-        # https://github.com/PixArt-alpha/PixArt-alpha/blob/0f55e922376d8b797edd44d25d0e7464b260dcab/diffusion/model/nets/PixArtMS.py#L161
-
-        self.height, self.width = height // patch_size, width // patch_size
-        self.base_size = (height // patch_size, width // patch_size)
-        self.interpolation_scale = (interpolation_scale[0], interpolation_scale[1])
-        self.num_frames = (num_frames - 1) // patch_size_t + 1 if num_frames % 2 == 1 else num_frames // patch_size_t
-        self.base_size_t = (num_frames - 1) // patch_size_t + 1 if num_frames % 2 == 1 else num_frames // patch_size_t
-        self.interpolation_scale_t = interpolation_scale_t
-    def forward(self, latent, num_frames):
+    def forward(self, latent):
         b, _, _, _, _ = latent.shape
         latent = rearrange(latent, 'b c t h w -> (b t) c h w')
         latent = self.proj(latent)
         latent = rearrange(latent, '(b t) c h w -> b (t h w) c', b=b)
         return latent
-    
 
 class Attention(Attention_):
-    def __init__(self, interpolation_scale_thw, 
-                 sparse1d, sparse2d, sparse_n, sparse_group, is_cross_attn, **kwags):
-        processor = OpenSoraAttnProcessor2_0(interpolation_scale_thw=interpolation_scale_thw, 
-                                     sparse1d=sparse1d, sparse2d=sparse2d, sparse_n=sparse_n, sparse_group=sparse_group, is_cross_attn=is_cross_attn)
+    def __init__(
+            self, interpolation_scale_thw, sparse1d, sparse2d, sparse_n, 
+            sparse_group, is_cross_attn, **kwags
+            ):
+        processor = OpenSoraAttnProcessor2_0(
+            interpolation_scale_thw=interpolation_scale_thw, sparse1d=sparse1d, sparse2d=sparse2d, sparse_n=sparse_n, 
+            sparse_group=sparse_group, is_cross_attn=is_cross_attn
+            )
         super().__init__(processor=processor, **kwags)
         
     def prepare_attention_mask(
@@ -173,18 +143,7 @@ class Attention(Attention_):
 
         current_length: int = attention_mask.shape[-1]
         if current_length != target_length:
-            if attention_mask.device.type == "mps":
-                # HACK: MPS: Does not support padding by greater than dimension of input tensor.
-                # Instead, we can manually construct the padding tensor.
-                padding_shape = (attention_mask.shape[0], attention_mask.shape[1], target_length)
-                padding = torch.zeros(padding_shape, dtype=attention_mask.dtype, device=attention_mask.device)
-                attention_mask = torch.cat([attention_mask, padding], dim=2)
-            else:
-                # TODO: for pipelines such as stable-diffusion, padding cross-attn mask:
-                #       we want to instead pad by (0, remaining_length), where remaining_length is:
-                #       remaining_length: int = target_length - current_length
-                # TODO: re-enable tests/models/test_models_unet_2d_condition.py#test_model_xattn_padding
-                attention_mask = F.pad(attention_mask, (0, target_length), value=0.0)
+            attention_mask = F.pad(attention_mask, (0, target_length), value=0.0)
 
         if out_dim == 3:
             if attention_mask.shape[0] < batch_size * head_size:
@@ -225,7 +184,6 @@ class OpenSoraAttnProcessor2_0:
         """
         l = x.shape[-2]
         assert l == frame*height*width
-        # import ipdb;ipdb.set_trace()
         if torch_npu is not None and attention_mask is not None:
             assert attention_mask.ndim == 3 and attention_mask.shape[1] == 1
             attention_mask = attention_mask.unsqueeze(1)
@@ -256,7 +214,6 @@ class OpenSoraAttnProcessor2_0:
         """
         l = x.shape[1]
         assert l == frame*height*width
-        # import ipdb;ipdb.set_trace()
         if torch_npu is not None and attention_mask is not None:
             assert attention_mask.ndim == 3 and attention_mask.shape[1] == 1
             attention_mask = attention_mask.unsqueeze(1)
@@ -291,7 +248,6 @@ class OpenSoraAttnProcessor2_0:
         else:
             x = rearrange(x, '(m b) h (n k) d -> b h (n m k) d', m=self.sparse_n, k=self.sparse_n)
         x = x[:, :, :frame*height*width, :]
-        # x = x.contiguous()
         return x
 
     def _reverse_sparse_1d_on_npu(self, x, frame, height, width, pad_len):
@@ -304,7 +260,6 @@ class OpenSoraAttnProcessor2_0:
         else:
             x = rearrange(x, '(b m) (n k) h d -> b (n m k) h d', m=self.sparse_n, k=self.sparse_n)
         x = x[:, :frame*height*width, :, :]
-        # x = x.contiguous()
         return x
     
     def _sparse_1d_kv(self, x):
@@ -374,9 +329,7 @@ class OpenSoraAttnProcessor2_0:
                           n1=(height+pad_height)//self.sparse_n//self.sparse_n, n2=(width+pad_width)//self.sparse_n//self.sparse_n)
         x = x[:, :, :, :height, :width, :]
         x = rearrange(x, 'b h T H W d -> b h (T H W) d')
-        # x = x.contiguous()
         return x
-    
     
     def _sparse_2d_kv(self, x):
         """
@@ -442,8 +395,7 @@ class OpenSoraAttnProcessor2_0:
                 query = query.view(-1, attn.heads, head_dim)  # [s // sp, b, h * d] -> [s // sp * b, h, d]
                 key = key.view(-1, attn.heads, head_dim)
                 value = value.view(-1, attn.heads, head_dim)
-                # query = attn.q_norm(query)
-                # key = attn.k_norm(key)
+                
                 h_size = attn.heads * head_dim
                 sp_size = hccl_info.world_size
                 h_size_sp = h_size // sp_size
@@ -479,8 +431,6 @@ class OpenSoraAttnProcessor2_0:
 
                 query = query.reshape(batch_size, -1, attn.heads, head_dim)
                 key = key.reshape(batch_size, -1, attn.heads, head_dim)
-                # query = attn.q_norm(query)
-                # key = attn.k_norm(key)
 
                 if not self.is_cross_attn:
                     # require the shape of (batch_size x ntokens x nheads x dim)
@@ -546,8 +496,7 @@ class OpenSoraAttnProcessor2_0:
                 query = query.reshape(-1, attn.heads, head_dim)  # [s // sp, b, h * d] -> [s // sp * b, h, d]
                 key = key.reshape(-1, attn.heads, head_dim)
                 value = value.reshape(-1, attn.heads, head_dim)
-                # query = attn.q_norm(query)
-                # key = attn.k_norm(key)
+                
                 h_size = attn.heads * head_dim
                 sp_size = nccl_info.world_size
                 h_size_sp = h_size // sp_size
@@ -692,7 +641,6 @@ class BasicTransformerBlock(nn.Module):
         double_self_attention: bool = False,
         upcast_attention: bool = False,
         norm_elementwise_affine: bool = True,
-        norm_type: str = "layer_norm",  # 'layer_norm', 'ada_norm', 'ada_norm_zero', 'ada_norm_single', 'ada_norm_continuous', 'layer_norm_i2vgen'
         norm_eps: float = 1e-5,
         final_dropout: bool = False,
         ff_inner_dim: Optional[int] = None,
@@ -705,7 +653,6 @@ class BasicTransformerBlock(nn.Module):
         sparse_group: bool = False,
     ):
         super().__init__()
-        self.norm_type = norm_type
 
         # Define 3 blocks. Each block has its own normalization layer.
         # 1. Self-Attn

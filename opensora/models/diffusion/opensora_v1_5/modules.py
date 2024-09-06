@@ -33,66 +33,8 @@ except:
 logger = logging.get_logger(__name__)
 
 
-class MotionEmbeddings(nn.Module):
-    """
-    From PixArt-Alpha.
-
-    Reference:
-    https://github.com/PixArt-alpha/PixArt-alpha/blob/0f55e922376d8b797edd44d25d0e7464b260dcab/diffusion/model/nets/PixArtMS.py#L164C9-L168C29
-    """
-
-    def __init__(self, embedding_dim):
-        super().__init__()
-
-        self.motion_proj = Timesteps(num_channels=256, flip_sin_to_cos=True, downscale_freq_shift=0)
-        self.motion_embedder = TimestepEmbedding(in_channels=256, time_embed_dim=embedding_dim)
-
-    def forward(self, motion_score, hidden_dtype):
-        motions_proj = self.motion_proj(motion_score)
-        motions_emb = self.motion_embedder(motions_proj.to(dtype=hidden_dtype))  # (N, D)
-        return motions_emb
-
-class MotionAdaLayerNormSingle(nn.Module):
-    r"""
-    Norm layer adaptive layer norm single (adaLN-single).
-
-    As proposed in PixArt-Alpha (see: https://arxiv.org/abs/2310.00426; Section 2.3).
-
-    Parameters:
-        embedding_dim (`int`): The size of each embedding vector.
-        use_additional_conditions (`bool`): To use additional conditions for normalization or not.
-    """
-
-    def __init__(self, embedding_dim: int):
-        super().__init__()
-
-        self.emb = MotionEmbeddings(embedding_dim)
-
-        self.silu = nn.SiLU()
-        self.linear = nn.Linear(embedding_dim, 6 * embedding_dim, bias=True)
-
-        self.linear.weight.data.zero_()
-        if self.linear.bias is not None:
-            self.linear.bias.data.zero_()
-
-    def forward(
-        self,
-        motion_score: torch.Tensor,
-        batch_size: int, 
-        hidden_dtype: Optional[torch.dtype] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        if isinstance(motion_score, float) or isinstance(motion_score, int):
-            motion_score = torch.tensor([motion_score], device=self.linear.weight.device)[: ]
-        assert motion_score.ndim == 1
-        if motion_score.shape[0] != batch_size:
-            motion_score = motion_score.repeat(batch_size//motion_score.shape[0])
-            assert motion_score.shape[0] == batch_size
-        # No modulation happening here.
-        embedded_motion = self.emb(motion_score, hidden_dtype=hidden_dtype)
-        return self.linear(self.silu(embedded_motion))
-    
 class PatchEmbed2D(nn.Module):
-    """2D Image to Patch Embedding but with 3D position embedding"""
+    """2D Image to Patch Embedding but with video"""
 
     def __init__(
         self,
@@ -116,10 +58,14 @@ class PatchEmbed2D(nn.Module):
     
 
 class Attention(Attention_):
-    def __init__(self, interpolation_scale_thw, 
-                 sparse1d, sparse2d, sparse_n, sparse_group, is_cross_attn, **kwags):
-        processor = OpenSoraAttnProcessor2_0(interpolation_scale_thw=interpolation_scale_thw, 
-                                     sparse1d=sparse1d, sparse2d=sparse2d, sparse_n=sparse_n, sparse_group=sparse_group, is_cross_attn=is_cross_attn)
+    def __init__(
+            self, interpolation_scale_thw, sparse1d, sparse2d, sparse_n, 
+            sparse_group, is_cross_attn, **kwags
+        ):
+        processor = OpenSoraAttnProcessor2_0(
+            interpolation_scale_thw=interpolation_scale_thw, sparse1d=sparse1d, sparse2d=sparse2d, 
+            sparse_n=sparse_n, sparse_group=sparse_group, is_cross_attn=is_cross_attn
+            )
         super().__init__(processor=processor, **kwags)
         
     def prepare_attention_mask(
@@ -149,18 +95,7 @@ class Attention(Attention_):
 
         current_length: int = attention_mask.shape[-1]
         if current_length != target_length:
-            if attention_mask.device.type == "mps":
-                # HACK: MPS: Does not support padding by greater than dimension of input tensor.
-                # Instead, we can manually construct the padding tensor.
-                padding_shape = (attention_mask.shape[0], attention_mask.shape[1], target_length)
-                padding = torch.zeros(padding_shape, dtype=attention_mask.dtype, device=attention_mask.device)
-                attention_mask = torch.cat([attention_mask, padding], dim=2)
-            else:
-                # TODO: for pipelines such as stable-diffusion, padding cross-attn mask:
-                #       we want to instead pad by (0, remaining_length), where remaining_length is:
-                #       remaining_length: int = target_length - current_length
-                # TODO: re-enable tests/models/test_models_unet_2d_condition.py#test_model_xattn_padding
-                attention_mask = F.pad(attention_mask, (0, target_length), value=0.0)
+            attention_mask = F.pad(attention_mask, (0, target_length), value=0.0)
 
         if out_dim == 3:
             if attention_mask.shape[0] < batch_size * head_size:
@@ -260,7 +195,6 @@ class OpenSoraAttnProcessor2_0:
         """
         require the shape of (batch_size x nheads x ntokens x dim)
         """
-        # import ipdb;ipdb.set_trace()
         assert x.shape[2] == (frame*height*width+pad_len) // self.sparse_n
         if not self.sparse_group:
             x = rearrange(x, '(k b) h g d -> b h (g k) d', k=self.sparse_n)
@@ -280,7 +214,6 @@ class OpenSoraAttnProcessor2_0:
         else:
             x = rearrange(x, '(b m) (n k) h d -> b (n m k) h d', m=self.sparse_n, k=self.sparse_n)
         x = x[:, :frame*height*width, :, :]
-        # x = x.contiguous()
         return x
     
     def _sparse_1d_kv(self, x):
@@ -353,14 +286,12 @@ class OpenSoraAttnProcessor2_0:
         # x = x.contiguous()
         return x
     
-    
     def _sparse_2d_kv(self, x):
         """
         require the shape of (batch_size x nheads x ntokens x dim)
         """
         x = repeat(x, 'b h s d -> (k1 k2 b) h s d', k1=self.sparse_n, k2=self.sparse_n)
         return x
-
 
     def __call__(
         self,
@@ -689,6 +620,7 @@ class OpenSoraLayerNormZero(nn.Module):
         self.silu = nn.SiLU()
         self.linear = nn.Linear(timestep_embed_dim, 6 * embedding_dim, bias=bias)
         self.norm = nn.LayerNorm(embedding_dim, eps=eps, elementwise_affine=elementwise_affine)
+        self.norm_enc = nn.LayerNorm(embedding_dim, eps=eps, elementwise_affine=elementwise_affine)
 
     def forward(
         self, hidden_states: torch.Tensor, encoder_hidden_states: torch.Tensor, temb: torch.Tensor
@@ -696,12 +628,12 @@ class OpenSoraLayerNormZero(nn.Module):
         if get_sequence_parallel_state():
             shift, scale, gate, enc_shift, enc_scale, enc_gate = self.linear(self.silu(temb)).chunk(6, dim=1)
             hidden_states = self.norm(hidden_states) * (1 + scale)[None, :, :] + shift[None, :, :]
-            encoder_hidden_states = self.norm(encoder_hidden_states) * (1 + enc_scale)[None, :, :] + enc_shift[None, :, :]
+            encoder_hidden_states = self.norm_enc(encoder_hidden_states) * (1 + enc_scale)[None, :, :] + enc_shift[None, :, :]
             return hidden_states, encoder_hidden_states, gate[None, :, :], enc_gate[None, :, :]
         else:
             shift, scale, gate, enc_shift, enc_scale, enc_gate = self.linear(self.silu(temb)).chunk(6, dim=1)
             hidden_states = self.norm(hidden_states) * (1 + scale)[:, None, :] + shift[:, None, :]
-            encoder_hidden_states = self.norm(encoder_hidden_states) * (1 + enc_scale)[:, None, :] + enc_shift[:, None, :]
+            encoder_hidden_states = self.norm_enc(encoder_hidden_states) * (1 + enc_scale)[:, None, :] + enc_shift[:, None, :]
             return hidden_states, encoder_hidden_states, gate[:, None, :], enc_gate[:, None, :]
 
 class OpenSoraLayerNormZeroMlp(nn.Module):
@@ -747,7 +679,6 @@ class BasicTransformerBlock(nn.Module):
         double_self_attention: bool = False,
         upcast_attention: bool = False,
         norm_elementwise_affine: bool = True,
-        norm_type: str = "layer_norm",  # 'layer_norm', 'ada_norm', 'ada_norm_zero', 'ada_norm_single', 'ada_norm_continuous', 'layer_norm_i2vgen'
         norm_eps: float = 1e-5,
         final_dropout: bool = False,
         ff_inner_dim: Optional[int] = None,
@@ -760,7 +691,6 @@ class BasicTransformerBlock(nn.Module):
         sparse_group: bool = False,
     ):
         super().__init__()
-        self.norm_type = norm_type
         self.sparse1d = sparse1d
         self.sparse2d = sparse2d
         self.sparse_n = sparse_n

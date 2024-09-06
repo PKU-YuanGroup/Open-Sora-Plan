@@ -34,7 +34,6 @@ class OpenSoraT2V_v1_2(ModelMixin, ConfigMixin):
         out_channels: Optional[int] = None,
         num_layers: int = 1,
         dropout: float = 0.0,
-        norm_num_groups: int = 32,
         cross_attention_dim: Optional[int] = None,
         attention_bias: bool = False,
         sample_size: Optional[int] = None,
@@ -45,14 +44,12 @@ class OpenSoraT2V_v1_2(ModelMixin, ConfigMixin):
         only_cross_attention: bool = False,
         double_self_attention: bool = False,
         upcast_attention: bool = False,
-        norm_type: str = "layer_norm",  # 'layer_norm', 'ada_norm', 'ada_norm_zero', 'ada_norm_single', 'ada_norm_continuous', 'layer_norm_i2vgen'
         norm_elementwise_affine: bool = True,
         norm_eps: float = 1e-5,
         caption_channels: int = None,
         interpolation_scale_h: float = 1.0,
         interpolation_scale_w: float = 1.0,
         interpolation_scale_t: float = 1.0,
-        downsampler: str = None, 
         sparse1d: bool = False,
         sparse2d: bool = False,
         sparse_n: int = 2,
@@ -68,22 +65,23 @@ class OpenSoraT2V_v1_2(ModelMixin, ConfigMixin):
     def _init_patched_inputs(self):
 
         self.config.sample_size = to_2tuple(self.config.sample_size)
+        interpolation_scale_thw = (
+            self.config.interpolation_scale_t, 
+            self.config.interpolation_scale_h, 
+            self.config.interpolation_scale_w
+            )
         
+        self.caption_projection = PixArtAlphaTextProjection(
+            in_features=self.config.caption_channels, hidden_size=self.config.hidden_size
+        )
+        self.motion_projection = MotionAdaLayerNormSingle(self.config.hidden_size)
+
         self.pos_embed = PatchEmbed2D(
-            num_frames=self.config.sample_size_t,
-            height=self.config.sample_size[0],
-            width=self.config.sample_size[1],
-            patch_size_t=self.config.patch_size_t,
             patch_size=self.config.patch_size,
             in_channels=self.config.in_channels,
             embed_dim=self.config.hidden_size,
-            interpolation_scale=(self.config.interpolation_scale_h, self.config.interpolation_scale_w), 
-            interpolation_scale_t=self.config.interpolation_scale_t,
         )
         
-        interpolation_scale_thw = (
-            self.config.interpolation_scale_t, self.config.interpolation_scale_h, self.config.interpolation_scale_w
-            )
         self.transformer_blocks = nn.ModuleList(
             [
                 BasicTransformerBlock(
@@ -97,7 +95,6 @@ class OpenSoraT2V_v1_2(ModelMixin, ConfigMixin):
                     only_cross_attention=self.config.only_cross_attention,
                     double_self_attention=self.config.double_self_attention,
                     upcast_attention=self.config.upcast_attention,
-                    norm_type=self.config.norm_type,
                     norm_elementwise_affine=self.config.norm_elementwise_affine,
                     norm_eps=self.config.norm_eps,
                     interpolation_scale_thw=interpolation_scale_thw, 
@@ -115,10 +112,6 @@ class OpenSoraT2V_v1_2(ModelMixin, ConfigMixin):
             self.config.hidden_size, self.config.patch_size_t * self.config.patch_size * self.config.patch_size * self.out_channels
         )
         self.adaln_single = AdaLayerNormSingle(self.config.hidden_size)
-        self.caption_projection = PixArtAlphaTextProjection(
-            in_features=self.config.caption_channels, hidden_size=self.config.hidden_size
-        )
-        self.motion_projection = MotionAdaLayerNormSingle(self.config.hidden_size)
 
     def _set_gradient_checkpointing(self, module, value=False):
         if hasattr(module, "gradient_checkpointing"):
@@ -131,14 +124,12 @@ class OpenSoraT2V_v1_2(ModelMixin, ConfigMixin):
         encoder_hidden_states: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         encoder_attention_mask: Optional[torch.Tensor] = None,
-        use_image_num: Optional[int] = 0,
         motion_score: Optional[torch.FloatTensor] = None,
         return_dict: bool = True,
+        **kwargs, 
     ):
         
         batch_size, c, frame, h, w = hidden_states.shape
-        assert use_image_num == 0
-        frame = frame - use_image_num  # 21-4=17
         # ensure attention_mask is a bias, and give it a singleton query_tokens dimension.
         #   we may have done this conversion already, e.g. if we came here via UNet2DConditionModel#forward.
         #   we can tell by counting dims; if ndim == 2: it's a mask rather than a bias.
@@ -154,7 +145,7 @@ class OpenSoraT2V_v1_2(ModelMixin, ConfigMixin):
             #   (1 = keep,      0 = discard)
             # convert mask into a bias that can be added to attention scores:
             #   (keep = +0,     discard = -10000.0)
-            # b, frame+use_image_num, h, w -> a video with images
+            # b, frame, h, w -> a video with images
             # b, 1, h, w -> only images
             attention_mask = attention_mask.to(self.dtype)
             if get_sequence_parallel_state():
@@ -187,7 +178,7 @@ class OpenSoraT2V_v1_2(ModelMixin, ConfigMixin):
 
 
         hidden_states, encoder_hidden_states, timestep, embedded_timestep = self._operate_on_patched_inputs(
-            hidden_states, encoder_hidden_states, timestep, motion_score, batch_size, frame, use_image_num
+            hidden_states, encoder_hidden_states, timestep, motion_score, batch_size, frame
         )
         if get_sequence_parallel_state():
             hidden_states = rearrange(hidden_states, 'b s h -> s b h', b=batch_size).contiguous()
@@ -252,9 +243,9 @@ class OpenSoraT2V_v1_2(ModelMixin, ConfigMixin):
         return Transformer2DModelOutput(sample=output)
 
 
-    def _operate_on_patched_inputs(self, hidden_states, encoder_hidden_states, timestep, motion_score, batch_size, frame, use_image_num):
+    def _operate_on_patched_inputs(self, hidden_states, encoder_hidden_states, timestep, motion_score, batch_size, frame):
         
-        hidden_states = self.pos_embed(hidden_states.to(self.dtype), frame)
+        hidden_states = self.pos_embed(hidden_states.to(self.dtype))
 
         added_cond_kwargs = {"resolution": None, "aspect_ratio": None}
         timestep, embedded_timestep = self.adaln_single(
@@ -262,10 +253,9 @@ class OpenSoraT2V_v1_2(ModelMixin, ConfigMixin):
         )  # b 6d, b d
 
         motion_embed = self.motion_projection(motion_score, batch_size=batch_size, hidden_dtype=self.dtype)  # b 6d
-        # print('use self.motion_projection, motion_embed:', torch.sum(motion_embed))
         timestep = timestep + motion_embed
             
-        encoder_hidden_states = self.caption_projection(encoder_hidden_states)  # b, 1+use_image_num, l, d or b, 1, l, d
+        encoder_hidden_states = self.caption_projection(encoder_hidden_states)  # b, 1, l, d or b, 1, l, d
         assert encoder_hidden_states.shape[1] == 1
         encoder_hidden_states = rearrange(encoder_hidden_states, 'b 1 l d -> (b 1) l d')
 
@@ -295,8 +285,10 @@ class OpenSoraT2V_v1_2(ModelMixin, ConfigMixin):
         return output
 
 def OpenSoraT2V_v1_2_L_122(**kwargs):
-    return OpenSoraT2V_v1_2(num_layers=32, attention_head_dim=96, num_attention_heads=24, patch_size_t=1, patch_size=2,
-                       norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=2304, **kwargs)
+    return OpenSoraT2V_v1_2(
+        num_layers=32, attention_head_dim=96, num_attention_heads=24, patch_size_t=1, patch_size=2,
+        caption_channels=4096, cross_attention_dim=2304, **kwargs
+        )
 
 OpenSora_v1_2_models = {
     "OpenSoraT2V_v1_2-L/122": OpenSoraT2V_v1_2_L_122,  # 2.7B
@@ -318,7 +310,6 @@ if __name__ == '__main__':
         'max_height': 480,
         'max_width': 640,
         'num_frames': 29,
-        'use_image_num': 0, 
         'compress_kv_factor': 1, 
         'interpolation_scale_t': 1,
         'interpolation_scale_h': 1,
@@ -348,7 +339,6 @@ if __name__ == '__main__':
         double_self_attention=False,
         norm_elementwise_affine=False,
         norm_eps=1e-06,
-        norm_num_groups=32,
         only_cross_attention=False,
         upcast_attention=False,
         interpolation_scale_t=args.interpolation_scale_t, 
@@ -370,16 +360,18 @@ if __name__ == '__main__':
         print(e)
     print(model)
     print(f'{sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e9} B')
-    import sys;sys.exit()
+    # import sys;sys.exit()
     model = model.to(device)
-    x = torch.randn(b, c,  1+(args.num_frames-1)//ae_stride_t+args.use_image_num, args.max_height//ae_stride_h, args.max_width//ae_stride_w).to(device)
-    cond = torch.randn(b, 1+args.use_image_num, args.model_max_length, cond_c).to(device)
-    attn_mask = torch.randint(0, 2, (b, 1+(args.num_frames-1)//ae_stride_t+args.use_image_num, args.max_height//ae_stride_h, args.max_width//ae_stride_w)).to(device)  # B L or B 1+num_images L
-    cond_mask = torch.randint(0, 2, (b, 1+args.use_image_num, args.model_max_length)).to(device)  # B L or B 1+num_images L
+    x = torch.randn(b, c,  1+(args.num_frames-1)//ae_stride_t, args.max_height//ae_stride_h, args.max_width//ae_stride_w).to(device)
+    cond = torch.randn(b, 1, args.model_max_length, cond_c).to(device)
+    attn_mask = torch.randint(0, 2, (b, 1+(args.num_frames-1)//ae_stride_t, args.max_height//ae_stride_h, args.max_width//ae_stride_w)).to(device)  # B L or B 1+num_images L
+    cond_mask = torch.randint(0, 2, (b, 1, args.model_max_length)).to(device)  # B L or B 1+num_images L
     timestep = torch.randint(0, 1000, (b,), device=device)
     motion_score = torch.LongTensor([1]*b).to(device)
-    model_kwargs = dict(hidden_states=x, encoder_hidden_states=cond, attention_mask=attn_mask, motion_score=motion_score, 
-                        encoder_attention_mask=cond_mask, use_image_num=args.use_image_num, timestep=timestep)
+    model_kwargs = dict(
+        hidden_states=x, encoder_hidden_states=cond, attention_mask=attn_mask, 
+        motion_score=motion_score, encoder_attention_mask=cond_mask, timestep=timestep
+        )
     with torch.no_grad():
         output = model(**model_kwargs)
     print(output[0].shape)

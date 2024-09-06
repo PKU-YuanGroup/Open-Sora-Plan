@@ -453,7 +453,7 @@ def main(args):
         num_workers=args.dataloader_num_workers,
         sampler=sampler, 
         drop_last=True, 
-        prefetch_factor=4
+        # prefetch_factor=4
     )
     logger.info(f'after train_dataloader')
 
@@ -472,8 +472,9 @@ def main(args):
     )
 
     # Prepare everything with our `accelerator`.
-    # model.requires_grad_(False)
+    model.requires_grad_(False)
     # model.pos_embed.requires_grad_(True)
+    model.patch_embed.requires_grad_(True)
     if args.adapt_vae:
         model.requires_grad_(False)
         for name, param in model.named_parameters():
@@ -882,6 +883,9 @@ if __name__ == "__main__":
     parser.add_argument("--num_frames", type=int, default=65)
     parser.add_argument("--max_height", type=int, default=320)
     parser.add_argument("--max_width", type=int, default=240)
+    parser.add_argument("--max_height_for_img", type=int, default=None)
+    parser.add_argument("--max_width_for_img", type=int, default=None)
+    parser.add_argument("--ood_img_ratio", type=float, default=0.0)
     parser.add_argument("--use_img_from_vid", action="store_true")
     parser.add_argument("--use_image_num", type=int, default=0)
     parser.add_argument("--model_max_length", type=int, default=512)

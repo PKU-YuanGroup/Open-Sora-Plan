@@ -21,7 +21,7 @@ export NCCL_IB_RETRY_CNT=32
 # export NCCL_ALGO=Tree
 
 accelerate launch \
-    --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
+    --config_file scripts/accelerate_configs/debug.yaml \
     opensora/train/train_t2v_diffusers.py \
     --model OpenSoraT2V_v1_5-5B/122 \
     --text_encoder_name_1 DeepFloyd/t5-v1_1-xxl \
@@ -34,13 +34,15 @@ accelerate launch \
     --ae_path "/storage/lcm/Causal-Video-VAE/results/WFVAE_DISTILL_FORMAL" \
     --sample_rate 1 \
     --num_frames 93 \
-    --max_height 720 \
-    --max_width 1280 \
+    --max_height 480 \
+    --max_width 640 \
+    --max_height_for_img 1280 \
+    --max_width_for_img 1280 \
     --interpolation_scale_t 1.0 \
     --interpolation_scale_h 1.0 \
     --interpolation_scale_w 1.0 \
     --gradient_checkpointing \
-    --train_batch_size=1 \
+    --train_batch_size=4 \
     --dataloader_num_workers 8 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
@@ -73,6 +75,5 @@ accelerate launch \
     --prediction_type "v_prediction" \
     --rescale_betas_zero_snr \
     --output_dir="debug" \
-    --extra_save_mem \
-    --force_resolution \
-    --vae_fp32
+    --vae_fp32 \
+    --ood_img_ratio 0.5

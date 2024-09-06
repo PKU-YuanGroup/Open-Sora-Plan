@@ -129,13 +129,14 @@ def read_parquet(path):
     return data
 
 class T2V_dataset(Dataset):
-    def __init__(self, args, transform, temporal_sample, tokenizer_1, tokenizer_2):
+    def __init__(self, args, transform, transform_img, temporal_sample, tokenizer_1, tokenizer_2):
         self.data = args.data
         self.num_frames = args.num_frames
         self.train_fps = args.train_fps
         self.use_image_num = args.use_image_num
         self.use_img_from_vid = args.use_img_from_vid
         self.transform = transform
+        self.transform_img = transform_img if transform_img is not None else transform
         self.temporal_sample = temporal_sample
         self.tokenizer_1 = tokenizer_1
         self.tokenizer_2 = tokenizer_2
@@ -144,14 +145,16 @@ class T2V_dataset(Dataset):
         self.speed_factor = args.speed_factor
         self.max_height = args.max_height
         self.max_width = args.max_width
+        self.max_height_for_img = args.max_height_for_img
+        self.max_width_for_img = args.max_width_for_img
         self.drop_short_ratio = args.drop_short_ratio
         self.hw_stride = args.hw_stride
         self.skip_low_resolution = args.skip_low_resolution
         self.force_resolution = args.force_resolution
         self.use_motion = args.use_motion
+        self.ood_img_ratio = args.ood_img_ratio
         assert self.speed_factor >= 1
         self.video_reader = 'decord' if args.use_decord else 'opencv'
-        # self.v_decoder = DecordInit() if self.video_reader == 'decord' else None
 
         self.support_Chinese = False
         if 'mt5' in args.text_encoder_name_1:
@@ -159,40 +162,15 @@ class T2V_dataset(Dataset):
         if args.text_encoder_name_2 is not None and 'mt5' in args.text_encoder_name_2:
             self.support_Chinese = True
 
-
         s = time.time()
-
-        # self.cache_pkl = f"/storage/dataset/{os.path.basename(self.data).replace('.txt', '_cache.pkl')}"
-        # self.cache_json = f"/storage/dataset/{os.path.basename(self.data).replace('.txt', '_cache.json')}"
-        
-        # if os.path.exists(self.cache_pkl):
-        #     print(f"Load cache from {self.cache_pkl}")
-        #     with open(self.cache_pkl, 'rb') as f:
-        #         load_data = pickle.load(f)
-        #     cap_list, self.sample_size = load_data['cap_list'], load_data['sample_size']
-        # if os.path.exists(self.cache_json):
-        #     print(f"Load cache from {self.cache_json}")
-        #     with open(self.cache_json, 'r') as f:
-        #         load_data = json.load(f)
-        #     cap_list, self.sample_size = load_data['cap_list'], load_data['sample_size']
-        # else:
-        # data_root, cap_list = self.get_cap_list()
-        # assert len(cap_list) > 0
         cap_list, self.sample_size, _ = self.define_frame_index(self.data)
-        # save_data = dict(cap_list=cap_list, sample_size=self.sample_size)
-        # print(f"Save cache to {self.cache_pkl}")
-        # with open(self.cache_pkl, 'wb') as f:
-        #     pickle.dump(save_data, f)
-        # print(f"Save cache to {self.cache_json}")
-        # with open(self.cache_json, 'w') as f:
-        #     json.dump(save_data, f)
         e = time.time()
-        print('time', e-s)
+        logger.info(f'Build data time: {e-s}')
         self.lengths = self.sample_size
 
         n_elements = len(cap_list)
         dataset_prog.set_cap_list(args.dataloader_num_workers, cap_list, n_elements)
-        print(f"data length: {len(dataset_prog.cap_list)}")
+        logger.info(f"Data length: {len(dataset_prog.cap_list)}")
 
     def set_checkpoint(self, n_used_elements):
         for i in range(len(dataset_prog.n_used_elements)):
@@ -202,11 +180,7 @@ class T2V_dataset(Dataset):
         return dataset_prog.n_elements
 
     def __getitem__(self, idx):
-        # if npu_config is not None:
-        #     worker_info = get_worker_info()
-        #     idx = dataset_prog.get_item(worker_info)
         try:
-            # print('idx:', idx)
             data = self.get_data(idx)
             return data
         except Exception as e:
@@ -242,7 +216,7 @@ class T2V_dataset(Dataset):
             NotImplementedError(f'Found {self.video_reader}, but support decord or opencv')
         # import ipdb;ipdb.set_trace()
         video = self.transform(video)  # T C H W -> T C H W
-        assert video.shape[2] == sample_h and video.shape[3] == sample_w
+        assert video.shape[2] == sample_h and video.shape[3] == sample_w, f'sample_h ({sample_h}), sample_w ({sample_w}), video ({video.shape})'
 
         # video = torch.rand(221, 3, 480, 640)
 
@@ -303,12 +277,16 @@ class T2V_dataset(Dataset):
         image_data = dataset_prog.cap_list[idx]  # [{'path': path, 'cap': cap}, ...]
         sample_h = image_data['resolution']['sample_height']
         sample_w = image_data['resolution']['sample_width']
+        is_ood_img =  image_data['is_ood_img']
 
         image = Image.open(image_data['path']).convert('RGB')  # [h, w, c]
         image = torch.from_numpy(np.array(image))  # [h, w, c]
         image = rearrange(image, 'h w c -> c h w').unsqueeze(0)  #  [1 c h w]
 
-        image = self.transform(image) #  [1 C H W] -> num_img [1 C H W]
+        if is_ood_img:
+            image = self.transform_img(image)
+        else:
+            image = self.transform(image) #  [1 C H W] -> num_img [1 C H W]
         assert image.shape[2] == sample_h, image.shape[3] == sample_w
         # image = [torch.rand(1, 3, 480, 640) for i in image_data]
         image = image.transpose(0, 1)  # [1 C H W] -> [C 1 H W]
@@ -326,8 +304,7 @@ class T2V_dataset(Dataset):
         text = text_preprocessing(caps, support_Chinese=self.support_Chinese)
         text = text if random.random() > self.cfg else ""
 
-
-        text_tokens_and_mask_1 = self.tokenizer(
+        text_tokens_and_mask_1 = self.tokenizer_1(
             text,
             max_length=self.model_max_length,
             padding='max_length',
@@ -338,7 +315,6 @@ class T2V_dataset(Dataset):
         )
         input_ids_1 = text_tokens_and_mask_1['input_ids']  # 1, l
         cond_mask_1 = text_tokens_and_mask_1['attention_mask']  # 1, l
-
         
         input_ids_2, cond_mask_2 = None, None
         if self.tokenizer_2 is not None:
@@ -379,7 +355,7 @@ class T2V_dataset(Dataset):
         cnt_no_motion = 0
         cnt_no_aesthetic = 0
         cnt_resolution_mismatch = 0
-        cnt_movie = 0
+        cnt_vid = 0
         cnt_img = 0
         cnt = 0
 
@@ -428,28 +404,41 @@ class T2V_dataset(Dataset):
                         cnt_no_resolution += 1
                         continue
                     else:
+                        is_ood_img = False
                         height, width = i['resolution']['height'], i['resolution']['width']
                         if not self.force_resolution:
                             if height <= 0 or width <= 0:
                                 cnt_no_resolution += 1
                                 continue
-                            tr_h, tr_w = longsideresize(height, width, (self.max_height, self.max_width), self.skip_low_resolution)
+                            
+                            if path.endswith('.jpg') and self.max_height_for_img is not None and self.max_width_for_img is not None:
+                                if self.ood_img_ratio > random.random():
+                                    tr_h, tr_w = longsideresize(height, width, (self.max_height_for_img, self.max_width_for_img), self.skip_low_resolution)
+                                    is_ood_img = True
+                                else:
+                                    tr_h, tr_w = longsideresize(height, width, (self.max_height, self.max_width), self.skip_low_resolution)
+                            else:
+                                tr_h, tr_w = longsideresize(height, width, (self.max_height, self.max_width), self.skip_low_resolution)
+
                             _, _, sample_h, sample_w = get_params(tr_h, tr_w, self.hw_stride)
                             if sample_h <= 0 or sample_w <= 0:
                                 cnt_resolution_mismatch += 1
                                 continue
                             i['resolution'].update(dict(sample_height=sample_h, sample_width=sample_w))
+                            
                         else:
                             aspect = self.max_height / self.max_width
-                            hw_aspect_thr = 1.85
+                            hw_aspect_thr = 1.85  
                             is_pick = filter_resolution(height, width, max_h_div_w_ratio=hw_aspect_thr*aspect, 
                                                         min_h_div_w_ratio=1/hw_aspect_thr*aspect)
                             if not is_pick:
                                 cnt_resolution_mismatch += 1
                                 continue
                             sample_h, sample_w = self.max_height, self.max_width
+                            
                             i['resolution'].update(dict(sample_height=sample_h, sample_width=sample_w))
 
+                        i['is_ood_img'] = is_ood_img
 
                 if path.endswith('.mp4'):
                     # ======no fps and duration=====
@@ -490,22 +479,17 @@ class T2V_dataset(Dataset):
                         continue
                     frame_indices = frame_indices[:end_frame_idx]
 
-                    if '/storage/dataset/movie' in i['path']:
-                        cnt_movie += 1
-                        
                     i['sample_frame_index'] = frame_indices.tolist()
                     i['motion_score'] = i.get('motion_average', None) or i.get('motion')
 
                     new_cap_list.append(i)
-                    # i['sample_num_frames'] = len(i['sample_frame_index'])  # will use in dataloader(group sampler)
-
+                    cnt_vid += 1
 
                 elif path.endswith('.jpg'):  # image
                     cnt_img += 1
                     i['sample_frame_index'] = [0]
                     i['motion_score'] = 1.0
                     new_cap_list.append(i)
-                    # i['sample_num_frames'] = len(i['sample_frame_index'])  # will use in dataloader(group sampler)
                 
                 else:
                     raise NameError(f"Unknown file extention {path.split('.')[-1]}, only support .mp4 for video and .jpg for image")
@@ -514,29 +498,48 @@ class T2V_dataset(Dataset):
                 if self.use_motion:
                     motion_score.append(i['motion_score'])
 
+        min_group_pick_num = 256
+        cnt_no_pick = 0
+        filter_new_cap_list = []
+        filter_sample_size = []
+        counter = Counter(sample_size)
+        filter_motion_score = [] if self.use_motion else motion_score
+            
+        for i in tqdm(range(len(new_cap_list))):
+            shape = sample_size[i]
+            if counter[shape] >= min_group_pick_num:
+                filter_new_cap_list.append(new_cap_list[i])
+                filter_sample_size.append(shape)
+                if self.use_motion:
+                    filter_motion_score.append(motion_score[i])
+            else:
+                cnt_no_pick += 1
+
+        logger.info(f'before filter: {cnt}, after filter: {len(filter_new_cap_list)}, cnt_no_pick: {cnt_no_pick}')
+        
         logger.info(f'no_cap: {cnt_no_cap}, too_long: {cnt_too_long}, too_short: {cnt_too_short}, '
                 f'no_resolution: {cnt_no_resolution}, resolution_mismatch: {cnt_resolution_mismatch}, '
-                f'Counter(sample_size): {Counter(sample_size)}, cnt_movie: {cnt_movie}, cnt_img: {cnt_img}, '
-                f'before filter: {cnt}, after filter: {len(new_cap_list)}')
+                f'Counter(sample_size): {Counter(filter_sample_size)}, cnt_vid: {cnt_vid}, cnt_img: {cnt_img}, '
+                f'before filter: {cnt}, after filter: {len(filter_new_cap_list)}')
+        
         if self.use_motion:
-            stats_motion = calculate_statistics(motion_score)
-            logger.info(f"before filter: {cnt}, after filter: {len(new_cap_list)} | "
-                        f"motion_score: {len(motion_score)}, cnt_no_motion: {cnt_no_motion} | "
-                        f"{len([i for i in motion_score if i>=0.95])} > 0.95, 0.7 > {len([i for i in motion_score if i<=0.7])} "
+            stats_motion = calculate_statistics(filter_motion_score)
+            logger.info(f"before filter: {cnt}, after filter: {len(filter_new_cap_list)} | "
+                        f"motion_score: {len(filter_motion_score)}, cnt_no_motion: {cnt_no_motion} | "
+                        f"{len([i for i in filter_motion_score if i>=0.95])} > 0.95, 0.7 > {len([i for i in filter_motion_score if i<=0.7])} "
                         f"Mean: {stats_motion['mean']}, Var: {stats_motion['variance']}, Std: {stats_motion['std_dev']}, "
                         f"Min: {stats_motion['min']}, Max: {stats_motion['max']}")
         
         if len(aesthetic_score) > 0:
             stats_aesthetic = calculate_statistics(aesthetic_score)
-            logger.info(f"before filter: {cnt}, after filter: {len(new_cap_list)} | "
+            logger.info(f"before filter: {cnt}, after filter: {len(filter_new_cap_list)} | "
                         f"aesthetic_score: {len(aesthetic_score)}, cnt_no_aesthetic: {cnt_no_aesthetic} | "
                         f"{len([i for i in aesthetic_score if i>=5.75])} > 5.75, 4.5 > {len([i for i in aesthetic_score if i<=4.5])} "
                         f"Mean: {stats_aesthetic['mean']}, Var: {stats_aesthetic['variance']}, Std: {stats_aesthetic['std_dev']}, "
                         f"Min: {stats_aesthetic['min']}, Max: {stats_aesthetic['max']}")
-            
-        # import ipdb;ipdb.set_trace()
+        
 
-        return new_cap_list, sample_size, motion_score
+        return filter_new_cap_list, filter_sample_size, filter_motion_score
     
     def decord_read(self, path, predefine_frame_indice):
         predefine_num_frames = len(predefine_frame_indice)
@@ -609,34 +612,15 @@ class T2V_dataset(Dataset):
             raise IndexError(f'video ({path}) has {total_frames} frames, but need to sample {len(frame_indices)} frames ({frame_indices})')
         return frame_indices
     
-    def read_jsons(self, data, postfix=".jpg"):
+    def get_cap_list(self):
         data_roots = []
         cap_lists = []
-        with open(data, 'r') as f:
+        with open(self.data, 'r') as f:
             folder_anno = [i.strip().split(',') for i in f.readlines() if len(i.strip()) > 0]
         for folder, anno in tqdm(folder_anno):
             logger.info(f'Building {anno}...')
-            if anno.endswith('.json'):
-                with open(anno, 'r') as f:
-                    sub_list = json.load(f)
-            elif anno.endswith('.pkl'):
-                with open(anno, 'rb') as f:
-                    sub_list = pickle.load(f)
-            elif anno.endswith('.parquet'):
-                sub_list = read_parquet(anno)
-            else:
-                raise NotImplementedError
-            # for i in tqdm(range(len(sub_list))):
-            #     sub_list[i]['path'] = opj(folder, sub_list[i]['path'])
-            # if npu_config is not None:
-            #     if "civitai" in anno or "ideogram" in anno or "human" in anno:
-            #         sub_list = sub_list[npu_config.get_node_id()::npu_config.get_node_size()]
-            #     else:
-            #         sub_list = filter_json_by_existed_files(folder, sub_list, postfix=postfix)
+            with open(anno, 'r') as f:
+                sub_list = json.load(f)
             data_roots.append(folder)
             cap_lists.append(sub_list)
-        return data_roots, cap_lists
-
-    def get_cap_list(self):
-        data_roots, cap_lists = self.read_jsons(self.data, postfix=".mp4")
         return data_roots, cap_lists

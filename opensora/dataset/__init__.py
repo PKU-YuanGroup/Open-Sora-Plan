@@ -18,16 +18,37 @@ def getdataset(args):
     norm_fun = ae_norm[args.ae]
     if args.force_resolution:
         resize = [CenterCropResizeVideo((args.max_height, args.max_width)), ]
+        resize_for_img = None
+        assert args.max_height_for_img is None
+        assert args.max_width_for_img is None
     else:
         resize = [
             LongSideResizeVideo((args.max_height, args.max_width), skip_low_resolution=True), 
             SpatialStrideCropVideo(stride=args.hw_stride), 
         ]
+        resize_for_img = None
+        if args.max_height_for_img > 0 and args.max_width_for_img > 0:
+            assert args.max_height_for_img > args.max_height
+            assert args.max_width_for_img > args.max_width
+            resize_for_img = [
+                LongSideResizeVideo((args.max_height_for_img, args.max_width_for_img), skip_low_resolution=True), 
+                SpatialStrideCropVideo(stride=args.hw_stride), 
+            ]
+
     transform = transforms.Compose([
         ToTensorVideo(),
         *resize, 
         norm_fun
-    ])
+    ])  # also work for img, because img is video when frame=1
+
+    transform_img = None
+    if resize_for_img is not None:
+        transform_img = transforms.Compose([
+            ToTensorVideo(),
+            *resize_for_img, 
+            norm_fun
+        ])
+
     # tokenizer_1 = AutoTokenizer.from_pretrained(args.text_encoder_name_1, cache_dir=args.cache_dir)
     tokenizer_1 = AutoTokenizer.from_pretrained('/storage/cache_dir/models--DeepFloyd--t5-v1_1-xxl/snapshots/c9c625d2ec93667ec579ede125fd3811d1f81d37', cache_dir=args.cache_dir)
     tokenizer_2 = None
@@ -35,7 +56,10 @@ def getdataset(args):
         # tokenizer_2 = AutoTokenizer.from_pretrained(args.text_encoder_name_2, cache_dir=args.cache_dir)
         tokenizer_2 = AutoTokenizer.from_pretrained('/storage/cache_dir/CLIP-ViT-bigG-14-laion2B-39B-b160k', cache_dir=args.cache_dir)
     if args.dataset == 't2v':
-        return T2V_dataset(args, transform=transform, temporal_sample=temporal_sample, tokenizer_1=tokenizer_1, tokenizer_2=tokenizer_2)
+        return T2V_dataset(
+            args, transform=transform, transform_img=transform_img, 
+            temporal_sample=temporal_sample, tokenizer_1=tokenizer_1, tokenizer_2=tokenizer_2
+            )
     elif args.dataset == 'inpaint' or args.dataset == 'i2v':
         mask_processor = transforms.Compose([*resize])
         return Inpaint_dataset(args, transform=transform, temporal_sample=temporal_sample, tokenizer=tokenizer, mask_processor=mask_processor)
