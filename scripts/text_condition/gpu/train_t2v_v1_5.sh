@@ -65,7 +65,7 @@ accelerate launch \
     --pretrained "/storage/ongoing/new/7.19anyres/Open-Sora-Plan/bs32x8x2_anyx93x320x320_fps16_lr2e-6_snr5_ema9999_sparse1d4_dit_l_mt5xxl_alldata100m_vpred_zerosnr/checkpoint-45100/model_ema/diffusion_pytorch_model.safetensors" \
     --hw_stride 32 \
     --sparse1d \
-    --train_fps 12 \
+    --train_fps 16 \
     --seed 1234 \
     --trained_data_global_step 0 \
     --group_data \

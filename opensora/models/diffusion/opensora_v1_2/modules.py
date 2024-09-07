@@ -73,7 +73,10 @@ class MotionAdaLayerNormSingle(nn.Module):
         hidden_dtype: Optional[torch.dtype] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         if isinstance(motion_score, float) or isinstance(motion_score, int):
-            motion_score = torch.tensor([motion_score], device=self.linear.weight.device)[: ]
+            motion_score = torch.tensor([motion_score], device=self.linear.weight.device)
+        if motion_score.ndim == 2:
+            assert motion_score.shape[1] == 1
+            motion_score = motion_score.squeeze(1)
         assert motion_score.ndim == 1
         if motion_score.shape[0] != batch_size:
             motion_score = motion_score.repeat(batch_size//motion_score.shape[0])

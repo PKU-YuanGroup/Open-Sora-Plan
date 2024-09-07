@@ -607,7 +607,7 @@ class CombinedTimestepTextProjEmbeddings(nn.Module):
         conditioning = timesteps_emb + pooled_projections
 
         return conditioning
-    
+
 class OpenSoraLayerNormZero(nn.Module):
     def __init__(
         self,
@@ -628,6 +628,7 @@ class OpenSoraLayerNormZero(nn.Module):
         self, hidden_states: torch.Tensor, encoder_hidden_states: torch.Tensor, temb: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         if get_sequence_parallel_state():
+            temb = temb.transpose(0, 1).contiguous()
             shift, scale, gate, enc_shift, enc_scale, enc_gate = self.linear(self.silu(temb)).chunk(6, dim=1)
             hidden_states = self.norm(hidden_states) * (1 + scale)[None, :, :] + shift[None, :, :]
             encoder_hidden_states = self.norm_enc(encoder_hidden_states) * (1 + enc_scale)[None, :, :] + enc_shift[None, :, :]

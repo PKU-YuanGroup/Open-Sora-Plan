@@ -234,6 +234,7 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
         if get_sequence_parallel_state():
             hidden_states = rearrange(hidden_states, 'b s h -> s b h', b=batch_size).contiguous()
             encoder_hidden_states = rearrange(encoder_hidden_states, 'b s h -> s b h', b=batch_size).contiguous()
+            embedded_timestep = embedded_timestep.transpose(0, 1).contiguous()
 
         # 2. Blocks
         hidden_states, skip_connections = self._operate_on_enc(
@@ -385,7 +386,8 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
     def _operate_on_patched_inputs(self, hidden_states, encoder_hidden_states, timestep, pooled_projections):
         
         hidden_states = self.patch_embed(hidden_states.to(self.dtype))
-
+        assert pooled_projections.shape[1] == 1
+        pooled_projections = pooled_projections.squeeze(1)  # b 1 l d -> b l d
         timesteps_emb = self.time_text_embed(timestep, pooled_projections)  # (N, D)
             
         encoder_hidden_states = self.caption_projection(encoder_hidden_states)  # b, 1, l, d or b, 1, l, d
@@ -398,6 +400,8 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
         self, hidden_states, embedded_timestep, num_frames, height, width
     ):  
         # Modulation
+        if get_sequence_parallel_state():
+            embedded_timestep = embedded_timestep.transpose(0, 1).contiguous()
         hidden_states = self.norm_out(hidden_states, temb=embedded_timestep)
         # unpatchify
         hidden_states = self.proj_out(hidden_states)
@@ -419,8 +423,8 @@ def OpenSoraT2V_v1_5_5B_122(**kwargs):
     if kwargs.get('sparse_n', None) is not None:
         kwargs.pop('sparse_n')
     return OpenSoraT2V_v1_5(
-        num_layers=[2, 4, 6, 8, 6, 4, 2], sparse_n=[1, 4, 16, 64, 16, 4, 1], 
-        # num_layers=[2, 4, 4, 12, 4, 4, 2], sparse_n=[1, 2, 4, 16, 4, 2, 1], 
+        # num_layers=[2, 4, 6, 8, 6, 4, 2], sparse_n=[1, 4, 16, 64, 16, 4, 1], 
+        num_layers=[2, 4, 6, 8, 6, 4, 2], sparse_n=[1, 2, 4, 16, 4, 2, 1], 
         attention_head_dim=96, num_attention_heads=32, cross_attention_dim=3072, 
         timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
         caption_channels=4096, pooled_projection_dim=1280, **kwargs
@@ -499,9 +503,9 @@ if __name__ == '__main__':
     x = torch.randn(b, c,  1+(args.num_frames-1)//ae_stride_t, args.max_height//ae_stride_h, args.max_width//ae_stride_w).to(device)
     cond = torch.randn(b, 1, args.model_max_length, cond_c).to(device)
     attn_mask = torch.randint(0, 2, (b, 1+(args.num_frames-1)//ae_stride_t, args.max_height//ae_stride_h, args.max_width//ae_stride_w)).to(device)  # B L or B 1+num_images L
-    cond_mask = torch.randint(0, 2, (b, 1, args.model_max_length)).to(device)  # B L or B 1+num_images L
+    cond_mask = torch.randint(0, 2, (b, 1, args.model_max_length)).to(device)  # B 1 L
     timestep = torch.randint(0, 1000, (b,), device=device)
-    pooled_projections = torch.randn(b, cond_c1).to(device)
+    pooled_projections = torch.randn(b, 1, cond_c1).to(device)
     model_kwargs = dict(hidden_states=x, encoder_hidden_states=cond, attention_mask=attn_mask, pooled_projections=pooled_projections, 
                         encoder_attention_mask=cond_mask, timestep=timestep)
     with torch.no_grad():

@@ -4,10 +4,10 @@ from typing import Callable, Dict, List, Optional, Tuple, Union
 from dataclasses import dataclass
 import numpy as np
 import torch
+from einops import rearrange
 from transformers import CLIPTextModelWithProjection, CLIPTokenizer, CLIPImageProcessor, MT5Tokenizer, T5EncoderModel
 
 from diffusers.pipelines.stable_diffusion import StableDiffusionPipelineOutput
-
 from diffusers.callbacks import MultiPipelineCallbacks, PipelineCallback
 from diffusers.image_processor import VaeImageProcessor
 from diffusers.models import AutoencoderKL, HunyuanDiT2DModel
@@ -19,7 +19,12 @@ from diffusers.utils.torch_utils import randn_tensor
 from diffusers.pipelines.pipeline_utils import DiffusionPipeline
 
 from opensora.models.diffusion.opensora_v1_2.modeling_opensora import OpenSoraT2V_v1_2
-
+try:
+    import torch_npu
+    from opensora.acceleration.parallel_states import get_sequence_parallel_state, hccl_info
+except:
+    torch_npu = None
+    from opensora.utils.parallel_states import get_sequence_parallel_state, nccl_info
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
@@ -482,7 +487,6 @@ class OpenSoraPipeline(DiffusionPipeline):
             max_sequence_length=max_sequence_length,
             text_encoder_index=0,
         )
-
         if self.tokenizer_2 is not None:
             (
                 prompt_embeds_2,
@@ -514,11 +518,13 @@ class OpenSoraPipeline(DiffusionPipeline):
         timesteps = self.scheduler.timesteps
 
         # 5. Prepare latent variables
+        if get_sequence_parallel_state():
+            world_size = hccl_info.world_size if torch_npu is not None else nccl_info.world_size
         num_channels_latents = self.transformer.config.in_channels
         latents = self.prepare_latents(
             batch_size * num_samples_per_prompt,
             num_channels_latents,
-            num_frames, 
+            (num_frames + world_size - 1) // world_size if get_sequence_parallel_state() else num_frames, 
             height,
             width,
             prompt_embeds.dtype,
@@ -544,6 +550,24 @@ class OpenSoraPipeline(DiffusionPipeline):
             prompt_embeds_2 = prompt_embeds_2.to(device=device)
             prompt_attention_mask_2 = prompt_attention_mask_2.to(device=device)
 
+
+        # ==================make sp=====================================
+        if get_sequence_parallel_state():
+            prompt_embeds = rearrange(
+                prompt_embeds, 
+                'b (n x) h -> b n x h', 
+                n=world_size,
+                x=prompt_embeds.shape[1] // world_size
+                ).contiguous()
+            rank = hccl_info.rank if torch_npu is not None else nccl_info.rank
+            prompt_embeds = prompt_embeds[:, rank, :, :]
+            if prompt_embeds_2 is not None:
+                if prompt_embeds_2.ndim == 2:
+                    prompt_embeds_2 = prompt_embeds_2.unsqueeze(1)
+                prompt_embeds_2 = prompt_embeds_2.repeat(1, world_size, 1)
+                prompt_embeds = prompt_embeds[:, rank, :]
+        # ==================make sp=====================================
+
         # 8. Denoising loop
         num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
         self._num_timesteps = len(timesteps)
@@ -561,20 +585,33 @@ class OpenSoraPipeline(DiffusionPipeline):
                     dtype=latent_model_input.dtype
                 )
 
+                # ==================prepare my shape=====================================
                 # predict the noise residual
-                attention_mask = torch.ones_like(latent_model_input)[:, 0]
                 if prompt_embeds.ndim == 3:
                     prompt_embeds = prompt_embeds.unsqueeze(1)  # b l d -> b 1 l d
                 if prompt_attention_mask.ndim == 2:
                     prompt_attention_mask = prompt_attention_mask.unsqueeze(1)  # b l -> b 1 l
+                if prompt_embeds_2 is not None and prompt_embeds_2.ndim == 2:
+                    prompt_embeds = prompt_embeds.unsqueeze(1)  # b d -> b 1 d
                 
+                attention_mask = torch.ones_like(latent_model_input)[:, 0].to(device=device)
+                motion_score_tensor = None
+                if motion_score is not None:
+                    motion_score_tensor = torch.tensor([motion_score] * latent_model_input.shape[0]).to(device=device)
+                # ==================prepare my shape=====================================
+
+                # ==================make sp=====================================
+                if get_sequence_parallel_state():
+                    attention_mask = attention_mask.repeat(1, world_size, 1, 1)
+                # ==================make sp=====================================
+
                 noise_pred = self.transformer(
                     latent_model_input,
                     attention_mask=attention_mask, 
                     encoder_hidden_states=prompt_embeds,
                     encoder_attention_mask=prompt_attention_mask,
                     timestep=t_expand,
-                    motion_score=motion_score, 
+                    motion_score=motion_score_tensor, 
                     pooled_projections=prompt_embeds_2,
                     return_dict=False,
                 )[0]
@@ -608,6 +645,15 @@ class OpenSoraPipeline(DiffusionPipeline):
                 if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
                     progress_bar.update()
 
+        # ==================make sp=====================================
+        if get_sequence_parallel_state():
+            latents_shape = list(latents.shape)
+            full_shape = [latents_shape[0] * world_size] + latents_shape[1:]
+            all_latents = torch.zeros(full_shape, dtype=latents.dtype, device=latents.device)
+            torch.distributed.all_gather_into_tensor(all_latents, latents)
+            latents_list = list(all_latents.chunk(world_size, dim=0))
+            latents = torch.cat(latents_list, dim=2)
+        # ==================make sp=====================================
 
         if not output_type == "latent":
             videos = self.decode_latents(latents)

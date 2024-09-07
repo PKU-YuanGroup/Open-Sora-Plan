@@ -179,9 +179,9 @@ class Collate:
 
         input_ids_1 = torch.stack(input_ids_1)  # b 1 l
         cond_mask_1 = torch.stack(cond_mask_1)  # b 1 l
-        input_ids_2 = torch.cat(input_ids_2) if input_ids_2 is not None else input_ids_2  # b l
-        cond_mask_2 = torch.cat(cond_mask_2) if cond_mask_2 is not None else cond_mask_2  # b l
-        motion_score = torch.tensor(motion_score) if motion_score is not None else motion_score # b
+        input_ids_2 = torch.stack(input_ids_2) if input_ids_2 is not None else input_ids_2  # b 1 l
+        cond_mask_2 = torch.stack(cond_mask_2) if cond_mask_2 is not None else cond_mask_2  # b 1 l
+        motion_score = torch.tensor(motion_score).unsqueeze(-1) if motion_score is not None else motion_score # b 1
 
         return pad_batch_tubes, attention_mask, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2, motion_score
 

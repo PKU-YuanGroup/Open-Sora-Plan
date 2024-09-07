@@ -132,9 +132,9 @@ def prepare_parallel_data(
         attention_mask = _single_all_to_all(attention_mask, scatter_dim=1, gather_dim=0, enable_HCCL=True)
         encoder_attention_mask = _single_all_to_all(encoder_attention_mask, scatter_dim=1, gather_dim=0, enable_HCCL=True)
         if motion_score is not None:
-            raise NotImplementedError
+            motion_score = _single_all_to_all(motion_score, scatter_dim=1, gather_dim=0, enable_HCCL=True)
         if pooled_projections is not None:
-            raise NotImplementedError
+            pooled_projections = _single_all_to_all(pooled_projections, scatter_dim=1, gather_dim=0, enable_HCCL=True)
 
         return hidden_states, encoder_hidden_states, attention_mask, encoder_attention_mask, motion_score, pooled_projections
 
@@ -151,8 +151,8 @@ def prepare_parallel_data(
         encoder_hidden_states, 
         attention_mask.repeat(1, sp_size, 1, 1), 
         encoder_attention_mask.repeat(1, sp_size, 1), 
-        motion_score, 
-        pooled_projections
+        motion_score.repeat(1, sp_size), 
+        pooled_projections.repeat(1, sp_size, 1)
         )
 
     return hidden_states, encoder_hidden_states, attention_mask, encoder_attention_mask, motion_score, pooled_projections

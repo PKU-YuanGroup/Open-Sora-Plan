@@ -756,8 +756,8 @@ def main(args):
         attn_mask = attn_mask.to(accelerator.device)  # B T H W
         input_ids_1 = input_ids_1.to(accelerator.device)  # B 1 L
         cond_mask_1 = cond_mask_1.to(accelerator.device)  # B 1 L
-        input_ids_2 = input_ids_2.to(accelerator.device) if input_ids_2 is not None else input_ids_2 # B L
-        cond_mask_2 = cond_mask_2.to(accelerator.device) if cond_mask_2 is not None else cond_mask_2 # B L
+        input_ids_2 = input_ids_2.to(accelerator.device) if input_ids_2 is not None else input_ids_2 # B 1 L
+        cond_mask_2 = cond_mask_2.to(accelerator.device) if cond_mask_2 is not None else cond_mask_2 # B 1 L
         motion_score = motion_score.to(accelerator.device) if motion_score is not None else motion_score # B 1
 
         with torch.no_grad():
@@ -765,11 +765,14 @@ def main(args):
             # use batch inference
             input_ids_1 = input_ids_1.reshape(-1, L)
             cond_mask_1 = cond_mask_1.reshape(-1, L)
-            cond_1 = text_enc_1(input_ids_1, cond_mask_1)  # B 1 L D
+            cond_1 = text_enc_1(input_ids_1, cond_mask_1)  # B L D
             cond_1 = cond_1.reshape(B, N, L, -1)
             cond_mask_1 = cond_mask_1.reshape(B, N, L)
             if text_enc_2 is not None:
+                B_, N_, L_ = input_ids_2.shape  # B 1 L
+                input_ids_2 = input_ids_2.reshape(-1, L_)
                 cond_2 = text_enc_2(input_ids_2, cond_mask_2)  # B D
+                cond_2 = cond_2.reshape(B_, 1, -1)  # B 1 D
             else:
                 cond_2 = None
 

@@ -367,7 +367,7 @@ if __name__ == '__main__':
     attn_mask = torch.randint(0, 2, (b, 1+(args.num_frames-1)//ae_stride_t, args.max_height//ae_stride_h, args.max_width//ae_stride_w)).to(device)  # B L or B 1+num_images L
     cond_mask = torch.randint(0, 2, (b, 1, args.model_max_length)).to(device)  # B L or B 1+num_images L
     timestep = torch.randint(0, 1000, (b,), device=device)
-    motion_score = torch.LongTensor([1]*b).to(device)
+    motion_score = torch.FloatTensor([1]*b).unsqueeze(1).to(device)
     model_kwargs = dict(
         hidden_states=x, encoder_hidden_states=cond, attention_mask=attn_mask, 
         motion_score=motion_score, encoder_attention_mask=cond_mask, timestep=timestep

@@ -290,32 +290,6 @@ def setup_distributed(backend="nccl", port=None):
 
 
 #################################################################################
-#                             Testing  Utils                                    #
-#################################################################################
-
-def save_video_grid(video, nrow=None):
-    b, t, h, w, c = video.shape
-
-    if nrow is None:
-        nrow = math.ceil(math.sqrt(b))
-    ncol = math.ceil(b / nrow)
-    padding = 1
-    video_grid = torch.zeros((t, (padding + h) * nrow + padding,
-                              (padding + w) * ncol + padding, c), dtype=torch.uint8)
-
-    print('save_video_grid video_grid.shape', video_grid.shape)
-    for i in range(b):
-        print('i', i)
-        r = i // ncol
-        c = i % ncol
-        start_r = (padding + h) * r
-        start_c = (padding + w) * c
-        video_grid[:, start_r:start_r + h, start_c:start_c + w] = video[i]
-
-    return video_grid
-
-
-#################################################################################
 #                             MMCV  Utils                                    #
 #################################################################################
 
