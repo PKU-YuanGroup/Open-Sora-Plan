@@ -806,23 +806,31 @@ def main(args):
             else:
                 set_sequence_parallel_state(True)
         if get_sequence_parallel_state():
-            x, cond_1, attn_mask, cond_mask_1, use_image_num = prepare_parallel_data(x, cond_1, attn_mask, cond_mask_1,
-                                                                                 args.use_image_num)
+            x, cond_1, attn_mask, cond_mask_1 = prepare_parallel_data(
+                x, cond_1, attn_mask, cond_mask_1, motion_score, cond_2
+                )
             for iter in range(args.train_batch_size * args.sp_size // args.train_sp_batch_size):
                 with accelerator.accumulate(model):
                     st_idx = iter * args.train_sp_batch_size
                     ed_idx = (iter + 1) * args.train_sp_batch_size
-                    model_kwargs = dict(encoder_hidden_states=cond_1[st_idx: ed_idx],
-                                        attention_mask=attn_mask[st_idx: ed_idx],
-                                        encoder_attention_mask=cond_mask_1[st_idx: ed_idx], use_image_num=use_image_num)
+                    model_kwargs = dict(
+                        encoder_hidden_states=cond_1[st_idx: ed_idx],
+                        attention_mask=attn_mask[st_idx: ed_idx],
+                        encoder_attention_mask=cond_mask_1[st_idx: ed_idx], 
+                        motion_score=motion_score[st_idx: ed_idx] if motion_score is not None else None, 
+                        pooled_projections=cond_2[st_idx: ed_idx] if cond_2 is not None else None, 
+                        )
                     run(x[st_idx: ed_idx], model_kwargs, prof_)
 
         else:
             with accelerator.accumulate(model):
                 assert not torch.any(torch.isnan(x)), 'after vae'
                 x = x.to(weight_dtype)
-                model_kwargs = dict(encoder_hidden_states=cond_1, attention_mask=attn_mask, motion_score=motion_score, 
-                                    encoder_attention_mask=cond_mask_1, pooled_projections=cond_2)
+                model_kwargs = dict(
+                    encoder_hidden_states=cond_1, attention_mask=attn_mask, 
+                    motion_score=motion_score, encoder_attention_mask=cond_mask_1, 
+                    pooled_projections=cond_2
+                    )
                 run(x, model_kwargs, prof_)
 
         set_sequence_parallel_state(current_step_sp_state)  # in case the next step use sp, which need broadcast(timesteps)
@@ -859,8 +867,9 @@ def main(args):
                 record_shapes=True,
                 profile_memory=True,
                 experimental_config=experimental_config,
-                schedule=torch_npu.profiler.schedule(wait=npu_config.profiling_step, warmup=0, active=1, repeat=1,
-                                                     skip_first=0),
+                schedule=torch_npu.profiler.schedule(
+                    wait=npu_config.profiling_step, warmup=0, active=1, repeat=1, skip_first=0
+                    ),
                 on_trace_ready=torch_npu.profiler.tensorboard_trace_handler(f"{profile_output_path}/")
         ) as prof:
             train_one_epoch(prof)

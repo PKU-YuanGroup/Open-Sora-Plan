@@ -145,7 +145,7 @@ class OpenSoraT2V_v1_2(ModelMixin, ConfigMixin):
             #   (1 = keep,      0 = discard)
             # convert mask into a bias that can be added to attention scores:
             #   (keep = +0,     discard = -10000.0)
-            # b, frame, h, w -> a video with images
+            # b, frame, h, w -> a video
             # b, 1, h, w -> only images
             attention_mask = attention_mask.to(self.dtype)
             if get_sequence_parallel_state():
@@ -168,7 +168,7 @@ class OpenSoraT2V_v1_2(ModelMixin, ConfigMixin):
 
         # convert encoder_attention_mask to a bias the same way we do for attention_mask
         if encoder_attention_mask is not None and encoder_attention_mask.ndim == 3:  
-            # b, 1, l -> only images
+            # b, 1, l
             encoder_attention_mask = (1 - encoder_attention_mask.to(self.dtype)) * -10000.0
 
 

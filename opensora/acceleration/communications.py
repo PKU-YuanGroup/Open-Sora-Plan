@@ -111,23 +111,48 @@ def all_to_all_BSND(
     return _AllToAll.apply(input_, scatter_dim, gather_dim, _all_to_all)
 
 
-def prepare_parallel_data(hidden_states, encoder_hidden_states, attention_mask, encoder_attention_mask, use_image_num):
-    def all_to_all(hidden_states, encoder_hidden_states, attention_mask, encoder_attention_mask):
+def prepare_parallel_data(
+        hidden_states, 
+        encoder_hidden_states, 
+        attention_mask, 
+        encoder_attention_mask, 
+        motion_score=None, 
+        pooled_projections=None, 
+        ):
+    def all_to_all(
+            hidden_states, 
+            encoder_hidden_states, 
+            attention_mask, 
+            encoder_attention_mask, 
+            motion_score, 
+            pooled_projections, 
+            ):
         hidden_states = _single_all_to_all(hidden_states, scatter_dim=2, gather_dim=0, enable_HCCL=True)
         encoder_hidden_states = _single_all_to_all(encoder_hidden_states, scatter_dim=1, gather_dim=0, enable_HCCL=True)
         attention_mask = _single_all_to_all(attention_mask, scatter_dim=1, gather_dim=0, enable_HCCL=True)
         encoder_attention_mask = _single_all_to_all(encoder_attention_mask, scatter_dim=1, gather_dim=0, enable_HCCL=True)
-        return hidden_states, encoder_hidden_states, attention_mask, encoder_attention_mask
+        if motion_score is not None:
+            raise NotImplementedError
+        if pooled_projections is not None:
+            raise NotImplementedError
+
+        return hidden_states, encoder_hidden_states, attention_mask, encoder_attention_mask, motion_score, pooled_projections
 
     sp_size = hccl_info.world_size
     frame = hidden_states.shape[2]
     assert frame % sp_size == 0, "frame should be a multiple of sp_size"
 
-    encoder_hidden_states = rearrange(encoder_hidden_states, 'b 1 (n x) h -> b n x h',
-                                     n=sp_size, x=encoder_hidden_states.shape[2]//sp_size).contiguous()
-    hidden_states, encoder_hidden_states, attention_mask, encoder_attention_mask = all_to_all(hidden_states,
-                                                                                            encoder_hidden_states,
-                                                                                            attention_mask.repeat(1, sp_size, 1, 1),
-                                                                                            encoder_attention_mask.repeat(1, sp_size, 1))
+    encoder_hidden_states = rearrange(
+        encoder_hidden_states, 'b 1 (n x) h -> b n x h',
+        n=sp_size, x=encoder_hidden_states.shape[2]//sp_size
+        ).contiguous()
+    hidden_states, encoder_hidden_states, attention_mask, encoder_attention_mask = all_to_all(
+        hidden_states, 
+        encoder_hidden_states, 
+        attention_mask.repeat(1, sp_size, 1, 1), 
+        encoder_attention_mask.repeat(1, sp_size, 1), 
+        motion_score, 
+        pooled_projections
+        )
 
-    return hidden_states, encoder_hidden_states, attention_mask, encoder_attention_mask, use_image_num
+    return hidden_states, encoder_hidden_states, attention_mask, encoder_attention_mask, motion_score, pooled_projections

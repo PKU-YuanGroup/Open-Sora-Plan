@@ -34,10 +34,8 @@ accelerate launch \
     --ae_path "/storage/lcm/Causal-Video-VAE/results/WFVAE_DISTILL_FORMAL" \
     --sample_rate 1 \
     --num_frames 93 \
-    --max_height 640 \
+    --max_height 480 \
     --max_width 640 \
-    --max_height_for_img 1280 \
-    --max_width_for_img 1280 \
     --interpolation_scale_t 1.0 \
     --interpolation_scale_h 1.0 \
     --interpolation_scale_w 1.0 \
@@ -76,4 +74,5 @@ accelerate launch \
     --rescale_betas_zero_snr \
     --output_dir="debug" \
     --vae_fp32 \
-    --ood_img_ratio 0.5
+    --ood_img_ratio 0.5 \
+    --force_resolution

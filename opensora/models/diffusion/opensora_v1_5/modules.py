@@ -95,6 +95,7 @@ class Attention(Attention_):
 
         current_length: int = attention_mask.shape[-1]
         if current_length != target_length:
+            print(f'attention_mask.shape, {attention_mask.shape}, current_length, {current_length}, target_length, {target_length}')
             attention_mask = F.pad(attention_mask, (0, target_length), value=0.0)
 
         if out_dim == 3:
@@ -325,12 +326,13 @@ class OpenSoraAttnProcessor2_0:
 
         if attention_mask is not None:
             if npu_config is None:
-                attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length * nccl_info.world_size, batch_size)
                 # scaled_dot_product_attention expects attention_mask shape to be
                 # (batch, heads, source_length, target_length)
                 if get_sequence_parallel_state():
+                    attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length * nccl_info.world_size, batch_size)
                     attention_mask = attention_mask.view(batch_size, attn.heads // nccl_info.world_size, -1, attention_mask.shape[-1])
                 else:
+                    attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length, batch_size)
                     attention_mask = attention_mask.view(batch_size, attn.heads, -1, attention_mask.shape[-1])
 
         query = attn.to_q(hidden_states)
