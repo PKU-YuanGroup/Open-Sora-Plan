@@ -153,6 +153,7 @@ class T2V_dataset(Dataset):
         self.force_resolution = args.force_resolution
         self.use_motion = args.use_motion
         self.ood_img_ratio = args.ood_img_ratio
+        self.sp_size = args.sp_size
         assert self.speed_factor >= 1
         self.video_reader = 'decord' if args.use_decord else 'opencv'
         self.seed = 42
@@ -366,32 +367,25 @@ class T2V_dataset(Dataset):
             folder_anno = [i.strip().split(',') for i in f.readlines() if len(i.strip()) > 0]
         for sub_root, anno in tqdm(folder_anno):
             logger.info(f'Building {anno}...')
-            if anno.endswith('.json'):
-                with open(anno, 'r') as f:
-                    sub_list = json.load(f)
-            elif anno.endswith('.pkl'):
-                with open(anno, 'rb') as f:
-                    sub_list = pickle.load(f)
-            elif anno.endswith('.parquet'):
-                sub_list = read_parquet(anno)
-            else:
-                raise NotImplementedError
-            # with jsonlines.open(anno) as sub_list:
+            with open(anno, 'r') as f:
+                sub_list = json.load(f)
             for i in tqdm(sub_list):
                 cnt += 1
                 path = os.path.join(sub_root, i['path'])
                 i['path'] = path
-                cap = i.get('cap', None)
 
+                # ======no aesthetic=====
                 if i.get('aesthetic', None) is None:
                     cnt_no_aesthetic += 1
                 else:
                     aesthetic_score.append(i['aesthetic'])
 
                 # ======no caption=====
+                cap = i.get('cap', None)
                 if cap is None:
                     cnt_no_cap += 1
                     continue
+
                 # ======no motion=====
                 if self.use_motion:
                     if '.mp4' in path and i.get('motion_average', None) is None and i.get('motion', None) is None:
@@ -476,7 +470,9 @@ class T2V_dataset(Dataset):
                         frame_indices = frame_indices[begin_index: end_index]
                         # frame_indices = frame_indices[:self.num_frames]  # head crop
                     # to find a suitable end_frame_idx, to ensure we do not need pad video
-                    end_frame_idx = find_closest_y(len(frame_indices), vae_stride_t=4, model_ds_t=4)
+                    end_frame_idx = find_closest_y(
+                        len(frame_indices), vae_stride_t=4, model_ds_t=8 if self.sp_size == 8 else 4
+                        )
                     if end_frame_idx == -1:  # too short that can not be encoded exactly by videovae
                         cnt_too_short += 1
                         continue
@@ -586,7 +582,9 @@ class T2V_dataset(Dataset):
             # frame_indices = frame_indices[:self.num_frames]  # head crop
 
         # to find a suitable end_frame_idx, to ensure we do not need pad video
-        end_frame_idx = find_closest_y(len(frame_indices), vae_stride_t=4, model_ds_t=4)
+        end_frame_idx = find_closest_y(
+            len(frame_indices), vae_stride_t=4, model_ds_t=8 if self.sp_size == 8 else 4
+            )
         if end_frame_idx == -1:  # too short that can not be encoded exactly by videovae
             raise IndexError(f'video ({path}) has {total_frames} frames, but need to sample {len(frame_indices)} frames ({frame_indices})')
         frame_indices = frame_indices[:end_frame_idx]

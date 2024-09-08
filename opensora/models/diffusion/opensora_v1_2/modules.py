@@ -140,9 +140,9 @@ class Attention(Attention_):
         """
         head_size = self.heads
         if get_sequence_parallel_state():
-            head_size = head_size // nccl_info.world_size
+            head_size = head_size // nccl_info.world_size  # e.g, 24 // 8
         
-        if attention_mask is None:  # b 1 t*h*w in sa, b 1 l in ca, target_length 0
+        if attention_mask is None:  # b 1 t*h*w in sa, b 1 l in ca
             return attention_mask
 
         current_length: int = attention_mask.shape[-1]
@@ -361,14 +361,9 @@ class OpenSoraAttnProcessor2_0:
         residual = hidden_states
         
         if get_sequence_parallel_state():
-            if npu_config is not None:
-                sequence_length, batch_size, _ = (
-                    hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
-                )
-            else:
-                sequence_length, batch_size, _ = (
-                    hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
-                )
+            sequence_length, batch_size, _ = (
+                hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
+            )
         else:
             batch_size, sequence_length, _ = (
                 hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
@@ -379,6 +374,9 @@ class OpenSoraAttnProcessor2_0:
                 # scaled_dot_product_attention expects attention_mask shape to be
                 # (batch, heads, source_length, target_length)
                 if get_sequence_parallel_state():
+                    # sequence_length has been split, so we need sequence_length * nccl_info.world_size
+                    # (sp*b 1 s), where s has not been split
+                    # (sp*b 1 s) -prepare-> (sp*b*head 1 s) -> (sp*b head 1 s), where head has been split (e.g, 24 // 8)
                     attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length * nccl_info.world_size, batch_size)
                     attention_mask = attention_mask.view(batch_size, attn.heads // nccl_info.world_size, -1, attention_mask.shape[-1])
                 else:

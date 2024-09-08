@@ -5,6 +5,7 @@ from diffusers.schedulers import (
     DEISMultistepScheduler, KDPM2AncestralDiscreteScheduler, 
     DPMSolverSinglestepScheduler
     )
+from einops import rearrange
 import torch
 import os
 import torch.distributed as dist
@@ -29,12 +30,15 @@ from opensora.models.diffusion.opensora_v1_2.modeling_opensora import OpenSoraT2
 from transformers import T5EncoderModel, T5Tokenizer, AutoTokenizer, MT5EncoderModel
 
 def get_scheduler(args):
-    if args.sample_method == 'DDIM':  #########
+    kwargs = {}
+    if args.sample_method == 'DDIM':  
         scheduler_cls = DDIMScheduler
+        kwargs['clip_sample'] = False
     elif args.sample_method == 'EulerDiscrete':
         scheduler_cls = EulerDiscreteScheduler
-    elif args.sample_method == 'DDPM':  #############
+    elif args.sample_method == 'DDPM':  
         scheduler_cls = DDPMScheduler
+        kwargs['clip_sample'] = False
     elif args.sample_method == 'DPMSolverMultistep':
         scheduler_cls = DPMSolverMultistepScheduler
     elif args.sample_method == 'DPMSolverSinglestep':
@@ -52,7 +56,8 @@ def get_scheduler(args):
     scheduler = scheduler_cls(
         prediction_type=args.prediction_type, 
         rescale_betas_zero_snr=args.rescale_betas_zero_snr, 
-        timestep_spacing="trailing" if args.rescale_betas_zero_snr else 'leading'
+        timestep_spacing="trailing" if args.rescale_betas_zero_snr else 'leading', 
+        **kwargs, 
         )
     return scheduler
 
@@ -67,8 +72,8 @@ def prepare_pipeline(args, device):
         vae.vae.enable_tiling()
 
     text_encoder_1 = MT5EncoderModel.from_pretrained(
-        args.text_encoder_name_1, cache_dir=args.cache_dir, low_cpu_mem_usage=True, 
-        torch_dtype=weight_dtype
+        args.text_encoder_name_1, cache_dir=args.cache_dir, 
+        low_cpu_mem_usage=True, torch_dtype=weight_dtype
         ).to(device).eval()
     tokenizer_1 = AutoTokenizer.from_pretrained(
         args.text_encoder_name_1, cache_dir=args.cache_dir
@@ -76,8 +81,8 @@ def prepare_pipeline(args, device):
 
     if args.text_encoder_name_2 is not None:
         text_encoder_2 = MT5EncoderModel.from_pretrained(
-            args.text_encoder_name_2, cache_dir=args.cache_dir, low_cpu_mem_usage=True, 
-            torch_dtype=weight_dtype
+            args.text_encoder_name_2, cache_dir=args.cache_dir, 
+            low_cpu_mem_usage=True, orch_dtype=weight_dtype
             ).to(device).eval()
         tokenizer_2 = AutoTokenizer.from_pretrained(
             args.text_encoder_name_2, cache_dir=args.cache_dir
@@ -86,13 +91,17 @@ def prepare_pipeline(args, device):
         text_encoder_2, tokenizer_2 = None, None
 
     if args.version == 'v1_2':
-        transformer_model = OpenSoraT2V_v1_2.from_pretrained(args.model_path, cache_dir=args.cache_dir,
-                                                        low_cpu_mem_usage=False, device_map=None,
-                                                        torch_dtype=weight_dtype).eval()
+        transformer_model = OpenSoraT2V_v1_2.from_pretrained(
+            args.model_path, cache_dir=args.cache_dir,
+            low_cpu_mem_usage=False, device_map=None,
+            torch_dtype=weight_dtype
+            ).eval()
     elif args.version == 'v1_5':
-        transformer_model = OpenSoraT2V_v1_5.from_pretrained(args.model_path, cache_dir=args.cache_dir,
-                                                        low_cpu_mem_usage=False, device_map=None,
-                                                        torch_dtype=weight_dtype).eval()
+        transformer_model = OpenSoraT2V_v1_5.from_pretrained(
+            args.model_path, cache_dir=args.cache_dir,
+            ow_cpu_mem_usage=False, device_map=None,
+            torch_dtype=weight_dtype
+            ).eval()
     
     scheduler = get_scheduler(args)
 
@@ -118,7 +127,10 @@ def init_gpu_env(args):
     args.local_rank = local_rank
     args.world_size = world_size
     torch.cuda.set_device(local_rank)
-    dist.init_process_group(backend='nccl', init_method='env://', world_size=world_size, rank=local_rank)
+    dist.init_process_group(
+        backend='nccl', init_method='env://', 
+        world_size=world_size, rank=local_rank
+        )
     if args.sp:
         initialize_sequence_parallel_state(world_size)
     return args
@@ -129,7 +141,10 @@ def init_npu_env(args):
     args.local_rank = local_rank
     args.world_size = world_size
     torch_npu.npu.set_device(local_rank)
-    dist.init_process_group(backend='hccl', init_method='env://', world_size=world_size, rank=local_rank)
+    dist.init_process_group(
+        backend='hccl', init_method='env://', 
+        world_size=world_size, rank=local_rank
+        )
     if args.sp:
         initialize_sequence_parallel_state(world_size)
     return args
@@ -142,8 +157,15 @@ def save_video_grid(video, nrow=None):
         nrow = math.ceil(math.sqrt(b))
     ncol = math.ceil(b / nrow)
     padding = 1
-    video_grid = torch.zeros((t, (padding + h) * nrow + padding,
-                              (padding + w) * ncol + padding, c), dtype=torch.uint8)
+    video_grid = torch.zeros(
+        (
+            t, 
+            (padding + h) * nrow + padding, 
+            (padding + w) * ncol + padding, 
+            c
+        ), 
+        dtype=torch.uint8
+        )
 
     for i in range(b):
         r = i // ncol
@@ -176,7 +198,7 @@ def run_model_and_save_samples(args, pipeline):
 
     for index, prompt in enumerate(args.text_prompt):
         if not args.sp and args.local_rank != -1 and index % args.world_size != args.local_rank:
-            continue  # skip when only ddp
+            continue  # skip when ddp
         input_prompt = positive_prompt.format(prompt)
         videos = pipeline(
             input_prompt, 
@@ -192,18 +214,29 @@ def run_model_and_save_samples(args, pipeline):
             ).videos
         if (not args.sp) or (args.sp and args.local_rank <= 0):
             if args.num_frames == 1:
-                videos = videos[:, 0].permute(0, 3, 1, 2)  # b t h w c -> b c h w
+                videos = rearrange(videos, 'b t h w c -> (b t) c h w')
+                if args.num_samples_per_prompt != 1:
+                    for i, image in enumerate(videos):
+                        save_image(
+                            image / 255.0, 
+                            os.path.join(
+                                args.save_img_path, 
+                                f'{args.sample_method}_{index}_gs{args.guidance_scale}_s{args.num_sampling_steps}_i{i}.jpg'
+                                ),
+                            nrow=math.ceil(math.sqrt(videos.shape[0])), 
+                            normalize=True, 
+                            value_range=(0, 1)
+                            )  # b c h w
                 save_image(
                     videos / 255.0, 
                     os.path.join(
                         args.save_img_path, 
                         f'{args.sample_method}_{index}_gs{args.guidance_scale}_s{args.num_sampling_steps}.jpg'
                         ),
-                    nrow=1, 
+                    nrow=math.ceil(math.sqrt(videos.shape[0])), 
                     normalize=True, 
                     value_range=(0, 1)
-                    )  # t c h w
-                
+                    )  # b c h w
             else:
                 if args.num_samples_per_prompt == 1:
                     imageio.mimwrite(
@@ -222,7 +255,9 @@ def run_model_and_save_samples(args, pipeline):
                                 args.save_img_path,
                                 f'{args.sample_method}_{index}_gs{args.guidance_scale}_s{args.num_sampling_steps}_i{i}.mp4'
                             ), videos[i],
-                            fps=args.fps, quality=6)  # highest quality is 10, lowest is 0
+                            fps=args.fps, 
+                            quality=6
+                            )  # highest quality is 10, lowest is 0
                         
                     videos = save_video_grid(videos)
                     imageio.mimwrite(
@@ -234,27 +269,23 @@ def run_model_and_save_samples(args, pipeline):
                         fps=args.fps, 
                         quality=6
                         )  # highest quality is 10, lowest is 0)
-
+                    videos = videos.unsqueeze(0) # 1 t h w c
             video_grids.append(videos)
 
-    
-    if not args.sp and args.local_rank != -1:
-        dist.barrier()
-        video_grids = torch.cat(video_grids, dim=0).cuda()
-        shape = list(video_grids.shape)
-        shape[0] *= args.world_size
-        gathered_tensor = torch.zeros(shape, dtype=video_grids.dtype).cuda()
-        dist.all_gather_into_tensor(gathered_tensor, video_grids.contiguous())
-        video_grids = gathered_tensor.cpu()
-        dist.barrier()
-    elif not args.sp:
-        video_grids = torch.cat(video_grids, dim=0)
+    if not args.sp:
+        if args.local_rank != -1:
+            dist.barrier()
+            video_grids = torch.cat(video_grids, dim=0).cuda()
+            shape = list(video_grids.shape)
+            shape[0] *= args.world_size
+            gathered_tensor = torch.zeros(shape, dtype=video_grids.dtype).cuda()
+            dist.all_gather_into_tensor(gathered_tensor, video_grids.contiguous())
+            video_grids = gathered_tensor.cpu()
+            dist.barrier()
+        else:
+            video_grids = torch.cat(video_grids, dim=0)
     elif args.sp and args.local_rank <= 0:
-        print('len(video_grids), video_grids[0].shape', len(video_grids), video_grids[0].shape)
-        video_grids = torch.stack(video_grids)
-    # else:
-    #     raise NotImplementedError
-
+        video_grids = torch.cat(video_grids)
     
     if args.local_rank <= 0:
         if args.num_frames == 1:
@@ -269,9 +300,7 @@ def run_model_and_save_samples(args, pipeline):
                 value_range=(0, 1)
                 )
         else:
-            print('before grid', video_grids.shape)
             video_grids = save_video_grid(video_grids)
-            print('after grid', video_grids.shape)
             imageio.mimwrite(
                 os.path.join(
                     args.save_img_path,
@@ -281,7 +310,7 @@ def run_model_and_save_samples(args, pipeline):
                 fps=args.fps, 
                 quality=6
                 )
-    print('save path {}'.format(args.save_img_path))
+        print('save path {}'.format(args.save_img_path))
 
 
 def run_model_and_save_samples_npu(args, pipeline):
@@ -293,13 +322,17 @@ def run_model_and_save_samples_npu(args, pipeline):
     profile_output_path = "./npu_profiling_t2v"
     os.makedirs(profile_output_path, exist_ok=True)
     with torch_npu.profiler.profile(
-            activities=[torch_npu.profiler.ProfilerActivity.NPU, torch_npu.profiler.ProfilerActivity.CPU],
+            activities=[
+                torch_npu.profiler.ProfilerActivity.NPU, 
+                torch_npu.profiler.ProfilerActivity.CPU
+                ],
             with_stack=True,
             record_shapes=True,
             profile_memory=True,
             experimental_config=experimental_config,
-            schedule=torch_npu.profiler.schedule(wait=10000, warmup=0, active=1, repeat=1,
-                                                    skip_first=0),
+            schedule=torch_npu.profiler.schedule(
+                wait=10000, warmup=0, active=1, repeat=1, skip_first=0
+                ),
             on_trace_ready=torch_npu.profiler.tensorboard_trace_handler(f"{profile_output_path}/")
     ) as prof:
         run_model_and_save_samples(args, pipeline)

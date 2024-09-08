@@ -148,13 +148,6 @@ class OpenSoraT2V_v1_2(ModelMixin, ConfigMixin):
             # b, frame, h, w -> a video
             # b, 1, h, w -> only images
             attention_mask = attention_mask.to(self.dtype)
-            if get_sequence_parallel_state():
-                if npu_config is not None:
-                    attention_mask = attention_mask[:, :frame * hccl_info.world_size]  # b, frame, h, w
-                else:
-                    attention_mask = attention_mask[:, :frame * nccl_info.world_size]  # b, frame, h, w
-            else:
-                attention_mask = attention_mask[:, :frame]  # b, frame, h, w
 
             attention_mask = attention_mask.unsqueeze(1)  # b 1 t h w
             attention_mask = F.max_pool3d(
@@ -181,6 +174,8 @@ class OpenSoraT2V_v1_2(ModelMixin, ConfigMixin):
             hidden_states, encoder_hidden_states, timestep, motion_score, batch_size, frame
         )
         if get_sequence_parallel_state():
+            # x            (sp_bs*b t//sp*h*w d)
+            # cond_1       (sp_bs*b l/sp d)
             hidden_states = rearrange(hidden_states, 'b s h -> s b h', b=batch_size).contiguous()
             encoder_hidden_states = rearrange(encoder_hidden_states, 'b s h -> s b h', b=batch_size).contiguous()
             timestep = timestep.view(batch_size, 6, -1).transpose(0, 1).contiguous()
@@ -225,6 +220,7 @@ class OpenSoraT2V_v1_2(ModelMixin, ConfigMixin):
                 )
 
         if get_sequence_parallel_state():
+            # (t//sp*h*w, sp*b, h)
             hidden_states = rearrange(hidden_states, 's b h -> b s h', b=batch_size).contiguous()
 
         # 3. Output

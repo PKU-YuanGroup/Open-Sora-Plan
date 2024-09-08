@@ -199,13 +199,6 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
             # b, frame, h, w -> a video with images
             # b, 1, h, w -> only images
             attention_mask = attention_mask.to(self.dtype)
-            if get_sequence_parallel_state():
-                if npu_config is not None:
-                    attention_mask = attention_mask[:, :frame * hccl_info.world_size]  # b, frame, h, w
-                else:
-                    attention_mask = attention_mask[:, :frame * nccl_info.world_size]  # b, frame, h, w
-            else:
-                attention_mask = attention_mask[:, :frame]  # b, frame, h, w
 
             attention_mask = attention_mask.unsqueeze(1)  # b 1 t h w
             attention_mask = F.max_pool3d(
@@ -232,9 +225,10 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
             hidden_states, encoder_hidden_states, timestep, pooled_projections
         )
         if get_sequence_parallel_state():
+            # x            (sp_bs*b t//sp*h*w d)
+            # cond_1       (sp_bs*b l/sp d)
             hidden_states = rearrange(hidden_states, 'b s h -> s b h', b=batch_size).contiguous()
             encoder_hidden_states = rearrange(encoder_hidden_states, 'b s h -> s b h', b=batch_size).contiguous()
-            embedded_timestep = embedded_timestep.transpose(0, 1).contiguous()
 
         # 2. Blocks
         hidden_states, skip_connections = self._operate_on_enc(
@@ -256,6 +250,7 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
             )
 
         if get_sequence_parallel_state():
+            # (t//sp*h*w, sp*b, h)
             hidden_states = rearrange(hidden_states, 's b h -> b s h', b=batch_size).contiguous()
 
         # 3. Output
@@ -400,8 +395,6 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
         self, hidden_states, embedded_timestep, num_frames, height, width
     ):  
         # Modulation
-        if get_sequence_parallel_state():
-            embedded_timestep = embedded_timestep.transpose(0, 1).contiguous()
         hidden_states = self.norm_out(hidden_states, temb=embedded_timestep)
         # unpatchify
         hidden_states = self.proj_out(hidden_states)
@@ -424,7 +417,7 @@ def OpenSoraT2V_v1_5_5B_122(**kwargs):
         kwargs.pop('sparse_n')
     return OpenSoraT2V_v1_5(
         # num_layers=[2, 4, 6, 8, 6, 4, 2], sparse_n=[1, 4, 16, 64, 16, 4, 1], 
-        num_layers=[2, 4, 6, 8, 6, 4, 2], sparse_n=[1, 2, 4, 16, 4, 2, 1], 
+        num_layers=[2, 4, 6, 8, 6, 4, 2], sparse_n=[1, 2, 4, 8, 4, 2, 1], 
         attention_head_dim=96, num_attention_heads=32, cross_attention_dim=3072, 
         timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
         caption_channels=4096, pooled_projection_dim=1280, **kwargs

@@ -127,6 +127,12 @@ def prepare_parallel_data(
             motion_score, 
             pooled_projections, 
             ):
+        # hidden_states          (b c t h w)   -gather0-> (sp*b c t h w)   -scatter2-> (sp*b c t//sp h w)
+        # encoder_hidden_states  (b sp l/sp d) -gather0-> (sp*b sp l/sp d) -scatter1-> (sp*b 1 l/sp d)
+        # attention_mask         (b t*sp h w)  -gather0-> (sp*b t*sp h w)  -scatter1-> (sp*b t h w)
+        # encoder_attention_mask (b sp l)      -gather0-> (sp*b sp l)      -scatter1-> (sp*b 1 l)
+        # motion_score           (b sp)        -gather0-> (sp*b sp)        -scatter1-> (sp*b 1)
+        # pooled_projections     (b sp d)      -gather0-> (sp*b sp d)      -scatter1-> (sp*b 1 d)
         hidden_states = _single_all_to_all(hidden_states, scatter_dim=2, gather_dim=0, enable_HCCL=True)
         encoder_hidden_states = _single_all_to_all(encoder_hidden_states, scatter_dim=1, gather_dim=0, enable_HCCL=True)
         attention_mask = _single_all_to_all(attention_mask, scatter_dim=1, gather_dim=0, enable_HCCL=True)
@@ -146,7 +152,7 @@ def prepare_parallel_data(
         encoder_hidden_states, 'b 1 (n x) h -> b n x h',
         n=sp_size, x=encoder_hidden_states.shape[2]//sp_size
         ).contiguous()
-    hidden_states, encoder_hidden_states, attention_mask, encoder_attention_mask = all_to_all(
+    hidden_states, encoder_hidden_states, attention_mask, encoder_attention_mask, motion_score, pooled_projections = all_to_all(
         hidden_states, 
         encoder_hidden_states, 
         attention_mask.repeat(1, sp_size, 1, 1), 

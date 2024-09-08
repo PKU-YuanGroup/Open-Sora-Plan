@@ -75,4 +75,6 @@ accelerate launch \
     --output_dir="debug" \
     --vae_fp32 \
     --ood_img_ratio 0.5 \
-    --force_resolution
+    --force_resolution \
+    --sp_size 8 \
+    --train_sp_batch_size 4

@@ -561,11 +561,6 @@ class OpenSoraPipeline(DiffusionPipeline):
                 ).contiguous()
             rank = hccl_info.rank if torch_npu is not None else nccl_info.rank
             prompt_embeds = prompt_embeds[:, rank, :, :]
-            if prompt_embeds_2 is not None:
-                if prompt_embeds_2.ndim == 2:
-                    prompt_embeds_2 = prompt_embeds_2.unsqueeze(1)
-                prompt_embeds_2 = prompt_embeds_2.repeat(1, world_size, 1)
-                prompt_embeds = prompt_embeds[:, rank, :]
         # ==================make sp=====================================
 
         # 8. Denoising loop
@@ -647,8 +642,8 @@ class OpenSoraPipeline(DiffusionPipeline):
 
         # ==================make sp=====================================
         if get_sequence_parallel_state():
-            latents_shape = list(latents.shape)
-            full_shape = [latents_shape[0] * world_size] + latents_shape[1:]
+            latents_shape = list(latents.shape)  # b c t//sp h w
+            full_shape = [latents_shape[0] * world_size] + latents_shape[1:]  # # b*sp c t//sp h w
             all_latents = torch.zeros(full_shape, dtype=latents.dtype, device=latents.device)
             torch.distributed.all_gather_into_tensor(all_latents, latents)
             latents_list = list(all_latents.chunk(world_size, dim=0))
@@ -675,5 +670,4 @@ class OpenSoraPipeline(DiffusionPipeline):
         video = self.vae.decode(latents.to(self.vae.vae.dtype))
         # print(f'after vae decode {latents.shape}', torch.max(video).item(), torch.min(video).item(), torch.mean(video).item(), torch.std(video).item())
         video = ((video / 2.0 + 0.5).clamp(0, 1) * 255).to(dtype=torch.uint8).cpu().permute(0, 1, 3, 4, 2).contiguous() # b t h w c
-        # we always cast to float32 as this does not cause significant overhead and is compatible with bfloa16
         return video

@@ -311,14 +311,9 @@ class OpenSoraAttnProcessor2_0:
         residual = hidden_states
         
         if get_sequence_parallel_state():
-            if npu_config is not None:
-                sequence_length, batch_size, _ = (
-                    hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
-                )
-            else:
-                sequence_length, batch_size, _ = (
-                    hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
-                )
+            sequence_length, batch_size, _ = (
+                hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
+            )
         else:
             batch_size, sequence_length, _ = (
                 hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
@@ -329,6 +324,9 @@ class OpenSoraAttnProcessor2_0:
                 # scaled_dot_product_attention expects attention_mask shape to be
                 # (batch, heads, source_length, target_length)
                 if get_sequence_parallel_state():
+                    # sequence_length has been split, so we need sequence_length * nccl_info.world_size
+                    # (sp*b 1 s), where s has not been split
+                    # (sp*b 1 s) -prepare-> (sp*b*head 1 s) -> (sp*b head 1 s), where head has been split (e.g, 24 // 8)
                     attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length * nccl_info.world_size, batch_size)
                     attention_mask = attention_mask.view(batch_size, attn.heads // nccl_info.world_size, -1, attention_mask.shape[-1])
                 else:
@@ -628,7 +626,6 @@ class OpenSoraLayerNormZero(nn.Module):
         self, hidden_states: torch.Tensor, encoder_hidden_states: torch.Tensor, temb: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         if get_sequence_parallel_state():
-            temb = temb.transpose(0, 1).contiguous()
             shift, scale, gate, enc_shift, enc_scale, enc_gate = self.linear(self.silu(temb)).chunk(6, dim=1)
             hidden_states = self.norm(hidden_states) * (1 + scale)[None, :, :] + shift[None, :, :]
             encoder_hidden_states = self.norm_enc(encoder_hidden_states) * (1 + enc_scale)[None, :, :] + enc_shift[None, :, :]

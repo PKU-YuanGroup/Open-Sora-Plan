@@ -617,18 +617,11 @@ def main(args):
                                                      device=model_input.device)
 
         bsz = model_input.shape[0]
-        current_step_frame = model_input.shape[2]
         # Sample a random timestep for each image without bias.
         timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=model_input.device)
         # print('accelerator.process_index, timesteps', accelerator.process_index, timesteps)
-        if current_step_frame != 1 and get_sequence_parallel_state():  # image do not need sp
+        if get_sequence_parallel_state():  # image do not need sp, disable when image batch
             broadcast(timesteps)
-            motion_score = model_kwargs.pop('motion_score', None)
-            if motion_score is not None:
-                raise NotImplementedError 
-            pooled_projections = model_kwargs.pop('pooled_projections', None)
-            if pooled_projections is not None:
-                raise NotImplementedError 
 
         # Add noise to the model input according to the noise magnitude at each timestep
         # (this is the forward diffusion process)
@@ -660,6 +653,7 @@ def main(args):
         if torch.all(mask.bool()):
             mask = None
         if get_sequence_parallel_state():
+            # mask    (sp_bs*b t h w)
             assert mask is None
         b, c, _, _, _ = model_pred.shape
         if mask is not None:
@@ -741,7 +735,7 @@ def main(args):
     def train_one_step(step_, data_item_, prof_=None):
         train_loss = 0.0
         x, attn_mask, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2, motion_score = data_item_
-        print(f'step: {step_}, rank: {accelerator.process_index}, x: {x.shape}')
+        # print(f'step: {step_}, rank: {accelerator.process_index}, x: {x.shape}')
         assert not torch.any(torch.isnan(x)), 'torch.any(torch.isnan(x))'
 
         if args.extra_save_mem:
@@ -809,11 +803,23 @@ def main(args):
             else:
                 set_sequence_parallel_state(True)
         if get_sequence_parallel_state():
-            x, cond_1, attn_mask, cond_mask_1 = prepare_parallel_data(
+            x, cond_1, attn_mask, cond_mask_1, motion_score, cond_2 = prepare_parallel_data(
                 x, cond_1, attn_mask, cond_mask_1, motion_score, cond_2
-                )
+                )        
+            # x            (b c t h w)   -gather0-> (sp*b c t h w)   -scatter2-> (sp*b c t//sp h w)
+            # cond_1       (b sp l/sp d) -gather0-> (sp*b sp l/sp d) -scatter1-> (sp*b 1 l/sp d)
+            # attn_mask    (b t*sp h w)  -gather0-> (sp*b t*sp h w)  -scatter1-> (sp*b t h w)
+            # cond_mask_1  (b sp l)      -gather0-> (sp*b sp l)      -scatter1-> (sp*b 1 l)
+            # motion_score (b sp)        -gather0-> (sp*b sp)        -scatter1-> (sp*b 1)
+            # cond_2       (b sp d)      -gather0-> (sp*b sp d)      -scatter1-> (sp*b 1 d)
             for iter in range(args.train_batch_size * args.sp_size // args.train_sp_batch_size):
                 with accelerator.accumulate(model):
+                    # x            (sp_bs*b c t//sp h w)
+                    # cond_1       (sp_bs*b 1 l/sp d)
+                    # attn_mask    (sp_bs*b t h w)
+                    # cond_mask_1  (sp_bs*b 1 l)
+                    # motion_score (sp_bs*b 1)
+                    # cond_2       (sp_bs*b 1 d)
                     st_idx = iter * args.train_sp_batch_size
                     ed_idx = (iter + 1) * args.train_sp_batch_size
                     model_kwargs = dict(
