@@ -12,13 +12,18 @@ from mindspeed_mm.models.common.communications import (
 class VideoAutoencoderKL(nn.Module):
 
     def __init__(
-        self, config, micro_batch_size=None, enable_sequence_parallelism=False
+        self, 
+        from_pretrained, 
+        micro_batch_size=None, 
+        patch_size=(1, 8, 8),
+        enable_sequence_parallelism=False,
+        **kwargs,
     ):
         super().__init__()
-        self.module = AutoencoderKL.from_pretrained(config.from_pretrained)
+        self.module = AutoencoderKL.from_pretrained(from_pretrained)
         self.out_channels = self.module.config.latent_channels
         self.micro_batch_size = micro_batch_size
-        self.patch_size = (1, 8, 8)
+        self.patch_size = patch_size
         self.sp_size = mpu.get_context_parallel_world_size()
         self.enable_sequence_parallelism = (
             enable_sequence_parallelism and self.sp_size > 1 and self.patch_size[0] == 1

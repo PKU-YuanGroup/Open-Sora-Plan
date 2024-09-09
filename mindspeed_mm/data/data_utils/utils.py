@@ -43,7 +43,7 @@ class DataFileReader:
 
     def __call__(self, data_path):
         if self.data_storage_mode == "standard":
-            return self.get_datasamples()
+            return self.get_datasamples(data_path)
         elif self.data_storage_mode == "combine":
             return self.get_cap_list(data_path)
         else:

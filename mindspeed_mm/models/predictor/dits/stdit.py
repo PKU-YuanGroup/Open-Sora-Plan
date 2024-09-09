@@ -90,6 +90,7 @@ class STDiTBlock(nn.Module):
         )
 
     def forward(self, x, y, t, mask=None, tpe=None):
+        mask = mask.tolist()
         B, N, C = x.shape
 
         shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (

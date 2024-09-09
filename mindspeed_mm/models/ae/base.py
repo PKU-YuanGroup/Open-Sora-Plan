@@ -25,7 +25,7 @@ class AEModel(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.config = config
-        self.model = AE_MODEL_MAPPINGS[config.model_id](config)
+        self.model = AE_MODEL_MAPPINGS[config.model_id](**config.to_dict())
 
     def get_model(self):
         return self.model
