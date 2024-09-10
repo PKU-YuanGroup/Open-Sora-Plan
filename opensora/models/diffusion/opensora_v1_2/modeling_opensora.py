@@ -173,12 +173,13 @@ class OpenSoraT2V_v1_2(ModelMixin, ConfigMixin):
         hidden_states, encoder_hidden_states, timestep, embedded_timestep = self._operate_on_patched_inputs(
             hidden_states, encoder_hidden_states, timestep, motion_score, batch_size, frame
         )
-        if get_sequence_parallel_state():
-            # x            (sp_bs*b t//sp*h*w d)
-            # cond_1       (sp_bs*b l/sp d)
-            hidden_states = rearrange(hidden_states, 'b s h -> s b h', b=batch_size).contiguous()
-            encoder_hidden_states = rearrange(encoder_hidden_states, 'b s h -> s b h', b=batch_size).contiguous()
-            timestep = timestep.view(batch_size, 6, -1).transpose(0, 1).contiguous()
+
+        # To
+        # x            (t*h*w b d) or (t//sp*h*w b d)
+        # cond_1       (l b d) or (l//sp b d)
+        hidden_states = rearrange(hidden_states, 'b s h -> s b h', b=batch_size).contiguous()
+        encoder_hidden_states = rearrange(encoder_hidden_states, 'b s h -> s b h', b=batch_size).contiguous()
+        timestep = timestep.view(batch_size, 6, -1).transpose(0, 1).contiguous()
 
         # 2. Blocks
         for block in self.transformer_blocks:
@@ -219,9 +220,8 @@ class OpenSoraT2V_v1_2(ModelMixin, ConfigMixin):
                     width=width, 
                 )
 
-        if get_sequence_parallel_state():
-            # (t//sp*h*w, sp*b, h)
-            hidden_states = rearrange(hidden_states, 's b h -> b s h', b=batch_size).contiguous()
+        # To (b, t*h*w, h) or (b, t//sp*h*w, h)
+        hidden_states = rearrange(hidden_states, 's b h -> b s h', b=batch_size).contiguous()
 
         # 3. Output
         output = self._get_output_for_patched_inputs(

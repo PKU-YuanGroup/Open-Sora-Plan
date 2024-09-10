@@ -184,10 +184,10 @@ class OpenSoraAttnProcessor2_0:
     
     def _sparse_1d(self, x, attention_mask, frame, height, width):
         """
-        require the shape of (batch_size x nheads x ntokens x dim)
-        attention_mask: b nheads 1 thw
+        require the shape of (ntokens x batch_size x dim)
+        attention_mask: b nheads 1 thw(gpu) or b 1 thw thw(npu)
         """
-        l = x.shape[-2]
+        l = x.shape[0]
         assert l == frame*height*width
         if torch_npu is not None and attention_mask is not None:
             assert attention_mask.ndim == 3 and attention_mask.shape[1] == 1
@@ -197,88 +197,39 @@ class OpenSoraAttnProcessor2_0:
         if l % (self.sparse_n * self.sparse_n) != 0:
             pad_len = self.sparse_n * self.sparse_n - l % (self.sparse_n * self.sparse_n)
         if pad_len != 0:
-            x = F.pad(x, (0, 0, 0, pad_len))
+            x = F.pad(x, (0, 0, 0, 0, 0, 0, 0, pad_len))
             if attention_mask is not None and not self.is_cross_attn:
                 attention_mask = F.pad(attention_mask, (0, pad_len, 0, 0), value=-9980.0)
         if not self.sparse_group:
-            x = rearrange(x, 'b h (g k) d -> (k b) h g d', k=self.sparse_n)
+            x = rearrange(x, '(g k) b d -> g (k b) d', k=self.sparse_n)
             if attention_mask is not None and not self.is_cross_attn:
                 attention_mask = rearrange(attention_mask, 'b h 1 (g k) -> (k b) h 1 g', k=self.sparse_n).contiguous()
         else:
-            x = rearrange(x, 'b h (n m k) d -> (m b) h (n k) d', m=self.sparse_n, k=self.sparse_n)
+            x = rearrange(x, '(n m k) b d -> (n k) (m b) d', m=self.sparse_n, k=self.sparse_n)
             if attention_mask is not None and not self.is_cross_attn:
                 attention_mask = rearrange(attention_mask, 'b h 1 (n m k) -> (m b) h 1 (n k)', m=self.sparse_n, k=self.sparse_n)
         if self.is_cross_attn:
             attention_mask = attention_mask.repeat(self.sparse_n, 1, 1, 1)
         return x, attention_mask, pad_len
-
-    def _sparse_1d_on_npu(self, x, attention_mask, frame, height, width):
-        """
-        require the shape of (batch_size x ntokens x nheads x dim)
-        attention_mask: b nheads 1 thw
-        """
-        l = x.shape[1]
-        assert l == frame*height*width
-        if torch_npu is not None and attention_mask is not None:
-            assert attention_mask.ndim == 3 and attention_mask.shape[1] == 1
-            attention_mask = attention_mask.unsqueeze(1)
-        assert attention_mask is None or attention_mask.shape[2] == 1
-        pad_len = 0
-        if l % (self.sparse_n * self.sparse_n) != 0:
-            pad_len = self.sparse_n * self.sparse_n - l % (self.sparse_n * self.sparse_n)
-        if pad_len != 0:
-            x = F.pad(x, (0, 0, 0, 0, 0, pad_len))
-            if attention_mask is not None and not self.is_cross_attn:
-                attention_mask = F.pad(attention_mask, (0, pad_len, 0, 0), value=-9980.0)
-        if not self.sparse_group:
-            x = rearrange(x, 'b (g k) h d -> (b k) g h d', k=self.sparse_n)
-            if attention_mask is not None and not self.is_cross_attn:
-                attention_mask = rearrange(attention_mask, 'b h 1 (g k) -> (b k) h 1 g', k=self.sparse_n).contiguous()
-        else:
-            x = rearrange(x, 'b (n m k) h d -> (b m) (n k) h d', m=self.sparse_n, k=self.sparse_n)
-            if attention_mask is not None and not self.is_cross_attn:
-                attention_mask = rearrange(attention_mask, 'b h 1 (n m k) -> (b m) h 1 (n k)', m=self.sparse_n, k=self.sparse_n)
-        if self.is_cross_attn:
-            attention_mask = repeat(attention_mask, 'b h 1 s -> (b k) h 1 s', k=self.sparse_n)
-        return x, attention_mask, pad_len
     
     def _reverse_sparse_1d(self, x, frame, height, width, pad_len):
         """
-        require the shape of (batch_size x nheads x ntokens x dim)
+        require the shape of (ntokens x batch_size x dim)
         """
         # import ipdb;ipdb.set_trace()
-        assert x.shape[2] == (frame*height*width+pad_len) // self.sparse_n
+        assert x.shape[0] == (frame*height*width+pad_len) // self.sparse_n
         if not self.sparse_group:
-            x = rearrange(x, '(k b) h g d -> b h (g k) d', k=self.sparse_n)
+            x = rearrange(x, 'g (k b) d -> (g k) b d', k=self.sparse_n)
         else:
-            x = rearrange(x, '(m b) h (n k) d -> b h (n m k) d', m=self.sparse_n, k=self.sparse_n)
-        x = x[:, :, :frame*height*width, :]
-        return x
-
-    def _reverse_sparse_1d_on_npu(self, x, frame, height, width, pad_len):
-        """
-        require the shape of (batch_size x ntokens x nheads x dim)
-        """
-        assert x.shape[1] == (frame * height * width + pad_len) // self.sparse_n
-        if not self.sparse_group:
-            x = rearrange(x, '(b k) g h d -> b (g k) h d', k=self.sparse_n)
-        else:
-            x = rearrange(x, '(b m) (n k) h d -> b (n m k) h d', m=self.sparse_n, k=self.sparse_n)
-        x = x[:, :frame*height*width, :, :]
+            x = rearrange(x, '(n k) (m b) d -> (n m k) b d', m=self.sparse_n, k=self.sparse_n)
+        x = x[:frame*height*width, :, :]
         return x
     
     def _sparse_1d_kv(self, x):
         """
-        require the shape of (batch_size x nheads x ntokens x dim)
+        require the shape of (ntokens x batch_size x dim)
         """
-        x = repeat(x, 'b h s d -> (k b) h s d', k=self.sparse_n)
-        return x
-
-    def _sparse_1d_kv_on_npu(self, x):
-        """
-        require the shape of (batch_size x ntokens x nheads x dim)
-        """
-        x = repeat(x, 'b h s d -> (b k) h s d', k=self.sparse_n)
+        x = repeat(x, 's b d -> s (k b) d', k=self.sparse_n)
         return x
     
     def _sparse_2d(self, x, attention_mask, frame, height, width):
@@ -359,15 +310,10 @@ class OpenSoraAttnProcessor2_0:
     ) -> torch.FloatTensor:
 
         residual = hidden_states
-        
-        if get_sequence_parallel_state():
-            sequence_length, batch_size, _ = (
-                hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
-            )
-        else:
-            batch_size, sequence_length, _ = (
-                hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
-            )
+
+        sequence_length, batch_size, _ = (
+            hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
+        )
 
         if attention_mask is not None:
             if npu_config is None:
@@ -382,6 +328,8 @@ class OpenSoraAttnProcessor2_0:
                 else:
                     attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length, batch_size)
                     attention_mask = attention_mask.view(batch_size, attn.heads, -1, attention_mask.shape[-1])
+            # else:
+            #     attention_mask = attention_mask.view(batch_size, 1, -1, attention_mask.shape[-1])
 
         query = attn.to_q(hidden_states)
 
@@ -393,227 +341,90 @@ class OpenSoraAttnProcessor2_0:
 
         inner_dim = key.shape[-1]
         head_dim = inner_dim // attn.heads
-        
-        if npu_config is not None and npu_config.on_npu:
-            if get_sequence_parallel_state():
-                query = query.view(-1, attn.heads, head_dim)  # [s // sp, b, h * d] -> [s // sp * b, h, d]
-                key = key.view(-1, attn.heads, head_dim)
-                value = value.view(-1, attn.heads, head_dim)
-                
-                h_size = attn.heads * head_dim
-                sp_size = hccl_info.world_size
-                h_size_sp = h_size // sp_size
-                # apply all_to_all to gather sequence and split attention heads [s // sp * b, h, d] -> [s * b, h // sp, d]
-                query = all_to_all_SBH(query, scatter_dim=1, gather_dim=0).view(-1, batch_size, h_size_sp)
-                key = all_to_all_SBH(key, scatter_dim=1, gather_dim=0).view(-1, batch_size, h_size_sp)
-                value = all_to_all_SBH(value, scatter_dim=1, gather_dim=0).view(-1, batch_size, h_size_sp)
-                
-                query = query.view(-1, batch_size, attn.heads // sp_size, head_dim)
-                key = key.view(-1, batch_size, attn.heads // sp_size, head_dim)
+        FA_head_num = attn.heads
+        total_frame = frame
 
-                if not self.is_cross_attn:
-                    # require the shape of (batch_size x nheads x ntokens x dim)
-                    pos_thw = self.position_getter(batch_size, t=frame * sp_size, h=height, w=width, device=query.device)
-                    query = self.rope(query, pos_thw)
-                    key = self.rope(key, pos_thw)
+        if get_sequence_parallel_state():
+            sp_size = hccl_info.world_size
+            FA_head_num = attn.heads // sp_size
+            total_frame = frame * sp_size
+            # apply all_to_all to gather sequence and split attention heads [s // sp * b, h, d] -> [s * b, h // sp, d]
+            query = all_to_all_SBH(query.view(-1, attn.heads, head_dim), scatter_dim=1, gather_dim=0)
+            key = all_to_all_SBH(key.view(-1, attn.heads, head_dim), scatter_dim=1, gather_dim=0)
+            value = all_to_all_SBH(value.view(-1, attn.heads, head_dim), scatter_dim=1, gather_dim=0)
+        query = query.view(-1, batch_size, FA_head_num, head_dim)
+        key = key.view(-1, batch_size, FA_head_num, head_dim)
 
-                query = query.view(-1, batch_size, h_size_sp)
-                key = key.view(-1, batch_size, h_size_sp)
-                value = value.view(-1, batch_size, h_size_sp)
-                hidden_states = npu_config.run_attention(query, key, value, attention_mask, "SBH",
-                                                         head_dim, attn.heads // sp_size)
+        if not self.is_cross_attn:
+            # require the shape of (ntokens x batch_size x nheads x dim)
+            pos_thw = self.position_getter(batch_size, t=total_frame, h=height, w=width, device=query.device)
+            query = self.rope(query, pos_thw)
+            key = self.rope(key, pos_thw)
 
-                hidden_states = hidden_states.view(-1, attn.heads // sp_size, head_dim)
+        query = query.view(-1, batch_size, FA_head_num * head_dim)
+        key = key.view(-1, batch_size, FA_head_num * head_dim)
+        value = value.view(-1, batch_size, FA_head_num * head_dim)
 
-                # [s * b, h // sp, d] -> [s // sp * b, h, d] -> [s // sp, b, h * d]
-                hidden_states = all_to_all_SBH(hidden_states, scatter_dim=0, gather_dim=1).view(-1, batch_size, h_size)
+        if self.sparse1d:
+            query, attention_mask, pad_len = self._sparse_1d(query, attention_mask, total_frame, height, width)
+            if self.is_cross_attn:
+                key = self._sparse_1d_kv(key)
+                value = self._sparse_1d_kv(value)
             else:
-                if npu_config.enable_FA and query.dtype == torch.float32:
-                    dtype = torch.bfloat16
+                key, _, pad_len = self._sparse_1d(key, None, total_frame, height, width)
+                value, _, pad_len = self._sparse_1d(value, None, total_frame, height, width)
+
+        elif self.sparse2d:
+            query, attention_mask, pad_height, pad_width = self._sparse_2d(query, attention_mask,
+                                                                           frame * sp_size, height, width)
+            if self.is_cross_attn:
+                key = self._sparse_2d_kv(key)
+                value = self._sparse_2d_kv(value)
+            else:
+                key, _, pad_height, pad_width = self._sparse_2d(key, None, frame * sp_size, height, width)
+                value, _, pad_height, pad_width = self._sparse_2d(value, None, frame * sp_size, height, width)
+
+        if npu_config is not None:
+            if attention_mask is not None:
+                if self.sparse1d or self.sparse2d:
+                    assert attention_mask.shape[1] == 1 and attention_mask.shape[2] == 1 and attention_mask.ndim == 4
+                    attention_mask = attention_mask.squeeze(1)  # b 1 l
                 else:
-                    dtype = None
+                    assert attention_mask.shape[1] == 1
+                if self.is_cross_attn:
+                    attention_mask = npu_config.get_attention_mask(attention_mask, query.shape[0])
+                    attention_mask = attention_mask.reshape(attention_mask.shape[0], 1, -1, attention_mask.shape[-1])
+                else:
+                    attention_mask = npu_config.get_attention_mask(attention_mask, attention_mask.shape[-1])
+                    attention_mask = attention_mask.reshape(attention_mask.shape[0], 1, -1, attention_mask.shape[-1])
 
-                query = query.reshape(batch_size, -1, attn.heads, head_dim)
-                key = key.reshape(batch_size, -1, attn.heads, head_dim)
-
-                if not self.is_cross_attn:
-                    # require the shape of (batch_size x ntokens x nheads x dim)
-                    pos_thw = self.position_getter(batch_size, t=frame, h=height, w=width, device=query.device)
-                    query = self.rope(query, pos_thw)
-                    key = self.rope(key, pos_thw)
-
-                value = value.reshape(batch_size, -1, attn.heads, head_dim)
-                
-                if self.sparse1d:
-                    query, attention_mask, pad_len = self._sparse_1d_on_npu(query, attention_mask, frame, height, width)
-                    
-                    if self.is_cross_attn:
-                        key = self._sparse_1d_kv_on_npu(key)
-                        value = self._sparse_1d_kv_on_npu(value)
-                    else:
-                        key, _, pad_len = self._sparse_1d_on_npu(key, None, frame, height, width)
-                        value, _, pad_len = self._sparse_1d_on_npu(value, None, frame, height, width)
-
-                elif self.sparse2d:
-                    
-                    query, attention_mask, pad_height, pad_width = self._sparse_2d(query, attention_mask, frame, height, width)
-                    if self.is_cross_attn:
-                        key = self._sparse_2d_kv(key)
-                        value = self._sparse_2d_kv(value)
-                    else:
-                        key, _, pad_height, pad_width = self._sparse_2d(key, None, frame, height, width)
-                        value, _, pad_height, pad_width = self._sparse_2d(value, None, frame, height, width)
-
-                query = query.reshape(query.shape[0], query.shape[1], -1)
-                key = key.reshape(key.shape[0], key.shape[1], -1)
-                value = value.reshape(value.shape[0], value.shape[1], -1)
-
-                if npu_config is not None and attention_mask is not None:
-                    if self.sparse1d or self.sparse2d:
-                        assert attention_mask.shape[1] == 1 and attention_mask.shape[2] == 1 and attention_mask.ndim == 4
-                        attention_mask = attention_mask.squeeze(1) #  b 1 l
-                    else:
-                        assert attention_mask.shape[1] == 1 and attention_mask.ndim == 3
-                    if self.is_cross_attn:
-                        attention_mask = npu_config.get_attention_mask(attention_mask, query.shape[1])
-                        attention_mask = attention_mask.reshape(attention_mask.shape[0], 1, -1, attention_mask.shape[-1])
-                    else:
-                        attention_mask = npu_config.get_attention_mask(attention_mask, attention_mask.shape[-1])
-                        attention_mask = attention_mask.reshape(attention_mask.shape[0], 1, -1, attention_mask.shape[-1])
-                with set_run_dtype(query, dtype):
-                    query, key, value = npu_config.set_current_run_dtype([query, key, value])
-                    hidden_states = npu_config.run_attention(query, key, value, attention_mask, "BSH",
-                                                             head_dim, attn.heads)
-
-                    hidden_states = npu_config.restore_dtype(hidden_states)
-
-                hidden_states = hidden_states.reshape(hidden_states.shape[0], -1, attn.heads, head_dim)
-                if self.sparse1d:
-                    hidden_states = self._reverse_sparse_1d_on_npu(hidden_states, frame, height, width, pad_len)
-                elif self.sparse2d:
-                    hidden_states = self._reverse_sparse_2d(hidden_states, frame, height, width, pad_height, pad_width)
-
-                hidden_states = hidden_states.reshape(batch_size, -1, attn.heads * head_dim)
-
+            hidden_states = npu_config.run_attention(query, key, value, attention_mask, "SBH", head_dim, FA_head_num)
         else:
-            if get_sequence_parallel_state():
-                query = query.reshape(-1, attn.heads, head_dim)  # [s // sp, b, h * d] -> [s // sp * b, h, d]
-                key = key.reshape(-1, attn.heads, head_dim)
-                value = value.reshape(-1, attn.heads, head_dim)
-                
-                h_size = attn.heads * head_dim
-                sp_size = nccl_info.world_size
-                h_size_sp = h_size // sp_size
-                # apply all_to_all to gather sequence and split attention heads [s // sp * b, h, d] -> [s * b, h // sp, d]
-                query = all_to_all_SBH(query, scatter_dim=1, gather_dim=0).reshape(-1, batch_size, h_size_sp)
-                key = all_to_all_SBH(key, scatter_dim=1, gather_dim=0).reshape(-1, batch_size, h_size_sp)
-                value = all_to_all_SBH(value, scatter_dim=1, gather_dim=0).reshape(-1, batch_size, h_size_sp)
-                query = query.reshape(-1, batch_size, attn.heads // sp_size, head_dim)
-                key = key.reshape(-1, batch_size, attn.heads // sp_size, head_dim)
-                value = value.reshape(-1, batch_size, attn.heads // sp_size, head_dim)
+            query = rearrange(query, 's b (h d) -> b h s d', h=FA_head_num)
+            key = rearrange(key, 's b (h d) -> b h s d', h=FA_head_num)
+            value = rearrange(value, 's b (h d) -> b h s d', h=FA_head_num)
+            # 0, -10000 ->(bool) False, True ->(any) True ->(not) False
+            # 0, 0 ->(bool) False, False ->(any) False ->(not) True
+            if attention_mask is None or not torch.any(attention_mask.bool()):  # 0 mean visible
+                attention_mask = None
+            # the output of sdp = (batch, num_heads, seq_len, head_dim)
+            # TODO: add support for attn.scale when we move to Torch 2.1
+            with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=False, enable_mem_efficient=True):
+                hidden_states = F.scaled_dot_product_attention(
+                    query, key, value, attn_mask=attention_mask, dropout_p=0.0, is_causal=False
+                )
+            hidden_states = rearrange(hidden_states, 'b h s d -> s b (h d)', h=FA_head_num)
 
-                if not self.is_cross_attn:
-                    # require the shape of (batch_size x nheads x ntokens x dim)
-                    pos_thw = self.position_getter(batch_size, t=frame * sp_size, h=height, w=width, device=query.device)
-                    query = self.rope(query, pos_thw)
-                    key = self.rope(key, pos_thw)
+        if self.sparse1d:
+            hidden_states = self._reverse_sparse_1d(hidden_states, total_frame, height, width, pad_len)
+        elif self.sparse2d:
+            hidden_states = self._reverse_sparse_2d(hidden_states, frame * sp_size, height, width, pad_height, pad_width)
 
-                query = rearrange(query, 's b h d -> b h s d')
-                key = rearrange(key, 's b h d -> b h s d')
-                value = rearrange(value, 's b h d -> b h s d')
+        # [s, b, h // sp * d] -> [s // sp * b, h, d] -> [s // sp, b, h * d]
+        if get_sequence_parallel_state():
+            hidden_states = all_to_all_SBH(hidden_states.view(-1, FA_head_num, head_dim), scatter_dim=0, gather_dim=1)
+            hidden_states = hidden_states.view(-1, batch_size, inner_dim)
 
-
-                if self.sparse1d:
-                    query, attention_mask, pad_len = self._sparse_1d(query, attention_mask, frame * sp_size, height, width)
-                    
-                    if self.is_cross_attn:
-                        key = self._sparse_1d_kv(key)
-                        value = self._sparse_1d_kv(value)
-                    else:
-                        key, _, pad_len = self._sparse_1d(key, None, frame * sp_size, height, width)
-                        value, _, pad_len = self._sparse_1d(value, None, frame * sp_size, height, width)
-
-                elif self.sparse2d:
-                    query, attention_mask, pad_height, pad_width = self._sparse_2d(query, attention_mask, frame * sp_size, height, width)
-                    if self.is_cross_attn:
-                        key = self._sparse_2d_kv(key)
-                        value = self._sparse_2d_kv(value)
-                    else:
-                        key, _, pad_height, pad_width = self._sparse_2d(key, None, frame * sp_size, height, width)
-                        value, _, pad_height, pad_width = self._sparse_2d(value, None, frame * sp_size, height, width)
-                
-
-                # 0, -10000 ->(bool) False, True ->(any) True ->(not) False
-                # 0, 0 ->(bool) False, False ->(any) False ->(not) True
-                if attention_mask is None or not torch.any(attention_mask.bool()):  # 0 mean visible
-                    attention_mask = None
-                # the output of sdp = (batch, num_heads, seq_len, head_dim)
-                # TODO: add support for attn.scale when we move to Torch 2.1
-                with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=False, enable_mem_efficient=True):
-                    hidden_states = F.scaled_dot_product_attention(
-                        query, key, value, attn_mask=attention_mask, dropout_p=0.0, is_causal=False
-                    )
-                if self.sparse1d:
-                    hidden_states = self._reverse_sparse_1d(hidden_states, frame * sp_size, height, width, pad_len)
-                elif self.sparse2d:
-                    hidden_states = self._reverse_sparse_2d(hidden_states, frame * sp_size, height, width, pad_height, pad_width)
-                
-                hidden_states = rearrange(hidden_states, 'b h s d -> s b h d')
-
-                hidden_states = hidden_states.reshape(-1, attn.heads // sp_size, head_dim)
-                hidden_states = hidden_states.contiguous()
-                # [s * b, h // sp, d] -> [s // sp * b, h, d] -> [s // sp, b, h * d]
-                hidden_states = all_to_all_SBH(hidden_states, scatter_dim=0, gather_dim=1).reshape(-1, batch_size, h_size)
-            else:
-                query = query.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
-                key = key.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
-                
-                # qk norm
-                # query = attn.q_norm(query)
-                # key = attn.k_norm(key)
-
-                if not self.is_cross_attn:
-                    # require the shape of (batch_size x nheads x ntokens x dim)
-                    pos_thw = self.position_getter(batch_size, t=frame, h=height, w=width, device=query.device)
-                    query = self.rope(query, pos_thw)
-                    key = self.rope(key, pos_thw)
-                
-                value = value.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
-                
-                if self.sparse1d:
-                    query, attention_mask, pad_len = self._sparse_1d(query, attention_mask, frame, height, width)
-                    
-                    if self.is_cross_attn:
-                        key = self._sparse_1d_kv(key)
-                        value = self._sparse_1d_kv(value)
-                    else:
-                        key, _, pad_len = self._sparse_1d(key, None, frame, height, width)
-                        value, _, pad_len = self._sparse_1d(value, None, frame, height, width)
-
-                elif self.sparse2d:
-                    query, attention_mask, pad_height, pad_width = self._sparse_2d(query, attention_mask, frame, height, width)
-                    if self.is_cross_attn:
-                        key = self._sparse_2d_kv(key)
-                        value = self._sparse_2d_kv(value)
-                    else:
-                        key, _, pad_height, pad_width = self._sparse_2d(key, None, frame, height, width)
-                        value, _, pad_height, pad_width = self._sparse_2d(value, None, frame, height, width)
-                # 0, -10000 ->(bool) False, True ->(any) True ->(not) False
-                # 0, 0 ->(bool) False, False ->(any) False ->(not) True
-                if attention_mask is None or not torch.any(attention_mask.bool()):  # 0 mean visible
-                    attention_mask = None
-                # the output of sdp = (batch, num_heads, seq_len, head_dim)
-                # TODO: add support for attn.scale when we move to Torch 2.1
-                with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=False, enable_mem_efficient=True):
-                    hidden_states = F.scaled_dot_product_attention(
-                        query, key, value, attn_mask=attention_mask, dropout_p=0.0, is_causal=False
-                    )
-                if self.sparse1d:
-                    hidden_states = self._reverse_sparse_1d(hidden_states, frame, height, width, pad_len)
-                elif self.sparse2d:
-                    hidden_states = self._reverse_sparse_2d(hidden_states, frame, height, width, pad_height, pad_width)
-
-                hidden_states = hidden_states.transpose(1, 2).reshape(batch_size, -1, attn.heads * head_dim)
         hidden_states = hidden_states.to(query.dtype)
 
         # linear proj
@@ -726,17 +537,10 @@ class BasicTransformerBlock(nn.Module):
     ) -> torch.FloatTensor:
         
         # 0. Self-Attention
-        batch_size = hidden_states.shape[0]
-
-        if get_sequence_parallel_state():
-            batch_size = hidden_states.shape[1]
-            shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
-                    self.scale_shift_table[:, None] + timestep.reshape(6, batch_size, -1)
-            ).chunk(6, dim=0)
-        else:
-            shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
-                    self.scale_shift_table[None] + timestep.reshape(batch_size, 6, -1)
-            ).chunk(6, dim=1)
+        batch_size = hidden_states.shape[1]
+        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
+                self.scale_shift_table[:, None] + timestep.reshape(6, batch_size, -1)
+        ).chunk(6, dim=0)
 
         norm_hidden_states = self.norm1(hidden_states)
 

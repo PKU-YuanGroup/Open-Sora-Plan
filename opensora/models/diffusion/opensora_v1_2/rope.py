@@ -2,11 +2,9 @@ import torch
 try:
     import torch_npu
     from opensora.npu_config import npu_config, set_run_dtype
-    from opensora.acceleration.parallel_states import get_sequence_parallel_state
 except:
     torch_npu = None
     npu_config = None
-    from opensora.utils.parallel_states import get_sequence_parallel_state
 
 class PositionGetter3D(object):
     """ return positions of patches """
@@ -20,11 +18,8 @@ class PositionGetter3D(object):
             y = torch.arange(h, device=device)
             z = torch.arange(t, device=device)
             pos = torch.cartesian_prod(z, y, x)
-            if get_sequence_parallel_state():
-                # print('PositionGetter3D', PositionGetter3D)
-                pos = pos.reshape(t * h * w, 3).transpose(0, 1).reshape(3, -1, 1).contiguous().expand(3, -1, b).clone()
-            else:
-                pos = pos.reshape(t * h * w, 3).transpose(0, 1).reshape(3, 1, -1).contiguous().expand(3, b, -1).clone()
+            # print('PositionGetter3D', PositionGetter3D)
+            pos = pos.reshape(t * h * w, 3).transpose(0, 1).reshape(3, -1, 1).contiguous().expand(3, -1, b).clone()
             poses = (pos[0].contiguous(), pos[1].contiguous(), pos[2].contiguous())
             max_poses = (int(poses[0].max()), int(poses[1].max()), int(poses[2].max()))
 
@@ -63,24 +58,19 @@ class RoPE3D(torch.nn.Module):
 
     def apply_rope1d(self, tokens, pos1d, cos, sin):
         assert pos1d.ndim == 2
-        if torch_npu is None and not get_sequence_parallel_state():
-            # for (batch_size x nheads x ntokens x dim)
-            cos = torch.nn.functional.embedding(pos1d, cos)[:, None, :, :]
-            sin = torch.nn.functional.embedding(pos1d, sin)[:, None, :, :]
-        else:
-            # for (batch_size x ntokens x nheads x dim) or (ntokens x batch_size x nheads x dim)
-            cos = torch.nn.functional.embedding(pos1d, cos)[:, :, None, :]
-            sin = torch.nn.functional.embedding(pos1d, sin)[:, :, None, :]
+        # for (ntokens x batch_size x nheads x dim)
+        cos = torch.nn.functional.embedding(pos1d, cos)[:, :, None, :]
+        sin = torch.nn.functional.embedding(pos1d, sin)[:, :, None, :]
 
         return (tokens * cos) + (self.rotate_half(tokens) * sin)
 
     def forward(self, tokens, positions):
         """
         input:
-            * tokens: batch_size x nheads x ntokens x dim
+            * tokens: ntokens x batch_size x nheads x dim
             * positions: batch_size x ntokens x 3 (t, y and x position of each token)
         output:
-            * tokens after appplying RoPE3D (batch_size x nheads x ntokens x x dim)
+            * tokens after appplying RoPE3D (ntokens x batch_size x nheads x dim)
         """
         assert tokens.size(3) % 3 == 0, "number of dimensions should be a multiple of three"
         D = tokens.size(3) // 3
