@@ -14,7 +14,6 @@ from opensora.utils.sample_utils import (
 
 if __name__ == "__main__":
     args = get_args()
-    torch.manual_seed(args.seed)
     if torch_npu is not None:
         npu_config.print_msg(args)
         npu_config.conv_dtype = torch.bfloat16

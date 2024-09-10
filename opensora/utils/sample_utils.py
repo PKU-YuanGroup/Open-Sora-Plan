@@ -3,7 +3,7 @@ from diffusers.schedulers import (
     EulerDiscreteScheduler, DPMSolverMultistepScheduler,
     HeunDiscreteScheduler, EulerAncestralDiscreteScheduler,
     DEISMultistepScheduler, KDPM2AncestralDiscreteScheduler, 
-    DPMSolverSinglestepScheduler
+    DPMSolverSinglestepScheduler, CogVideoXDDIMScheduler
     )
 from einops import rearrange
 import torch
@@ -115,6 +115,13 @@ def prepare_pipeline(args, device):
         tokenizer_2=tokenizer_2,
     ).to(device)
 
+    if args.save_memory:
+        pipeline.enable_model_cpu_offload()
+        pipeline.enable_sequential_cpu_offload()
+        # torch.cuda.empty_cache()
+        # input('input')
+        vae.vae.enable_tiling()
+        
     if args.compile:
         pipeline.transformer = torch.compile(pipeline.transformer)
 
@@ -177,6 +184,10 @@ def save_video_grid(video, nrow=None):
     return video_grid
 
 def run_model_and_save_samples(args, pipeline):
+    if args.seed is not None:
+        torch.manual_seed(args.seed)
+    if args.local_rank >= 0:
+        torch.manual_seed(args.seed + args.local_rank)
     if not os.path.exists(args.save_img_path):
         os.makedirs(args.save_img_path, exist_ok=True)
 
