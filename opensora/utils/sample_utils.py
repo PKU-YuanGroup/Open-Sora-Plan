@@ -27,7 +27,7 @@ except:
 from opensora.models.causalvideovae import ae_stride_config, ae_wrapper
 from opensora.sample.pipeline_opensora import OpenSoraPipeline
 from opensora.models.diffusion.opensora_v1_2.modeling_opensora import OpenSoraT2V_v1_2
-from transformers import T5EncoderModel, T5Tokenizer, AutoTokenizer, MT5EncoderModel
+from transformers import T5EncoderModel, T5Tokenizer, AutoTokenizer, MT5EncoderModel, CLIPTextModelWithProjection
 
 def get_scheduler(args):
     kwargs = {}
@@ -73,16 +73,16 @@ def prepare_pipeline(args, device):
 
     text_encoder_1 = MT5EncoderModel.from_pretrained(
         args.text_encoder_name_1, cache_dir=args.cache_dir, 
-        low_cpu_mem_usage=True, torch_dtype=weight_dtype
+        torch_dtype=weight_dtype
         ).to(device).eval()
     tokenizer_1 = AutoTokenizer.from_pretrained(
         args.text_encoder_name_1, cache_dir=args.cache_dir
         )
 
     if args.text_encoder_name_2 is not None:
-        text_encoder_2 = MT5EncoderModel.from_pretrained(
+        text_encoder_2 = CLIPTextModelWithProjection.from_pretrained(
             args.text_encoder_name_2, cache_dir=args.cache_dir, 
-            low_cpu_mem_usage=True, orch_dtype=weight_dtype
+            torch_dtype=weight_dtype
             ).to(device).eval()
         tokenizer_2 = AutoTokenizer.from_pretrained(
             args.text_encoder_name_2, cache_dir=args.cache_dir
@@ -93,14 +93,13 @@ def prepare_pipeline(args, device):
     if args.version == 'v1_2':
         transformer_model = OpenSoraT2V_v1_2.from_pretrained(
             args.model_path, cache_dir=args.cache_dir,
-            low_cpu_mem_usage=False, device_map=None,
-            torch_dtype=weight_dtype
+            device_map=None, torch_dtype=weight_dtype
             ).eval()
     elif args.version == 'v1_5':
+        from opensora.models.diffusion.opensora_v1_5.modeling_opensora import OpenSoraT2V_v1_5
         transformer_model = OpenSoraT2V_v1_5.from_pretrained(
-            args.model_path, cache_dir=args.cache_dir,
-            ow_cpu_mem_usage=False, device_map=None,
-            torch_dtype=weight_dtype
+            args.model_path, cache_dir=args.cache_dir, 
+            device_map=None, torch_dtype=weight_dtype
             ).eval()
     
     scheduler = get_scheduler(args)

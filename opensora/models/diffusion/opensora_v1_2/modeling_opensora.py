@@ -11,16 +11,9 @@ from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.models.modeling_utils import ModelMixin
 from diffusers.models.normalization import AdaLayerNormSingle
 from diffusers.models.embeddings import PixArtAlphaTextProjection
-from opensora.models.diffusion.opensora_v1_2.modules import MotionAdaLayerNormSingle, PatchEmbed2D, BasicTransformerBlock
+from opensora.models.diffusion.opensora_v1_2.modules import MotionAdaLayerNormSingle, BasicTransformerBlock
+from opensora.models.diffusion.common import PatchEmbed2D
 from opensora.utils.utils import to_2tuple
-try:
-    import torch_npu
-    from opensora.npu_config import npu_config
-    from opensora.acceleration.parallel_states import get_sequence_parallel_state, hccl_info
-except:
-    torch_npu = None
-    npu_config = None
-    from opensora.utils.parallel_states import get_sequence_parallel_state, nccl_info
 
 class OpenSoraT2V_v1_2(ModelMixin, ConfigMixin):
     _supports_gradient_checkpointing = True
@@ -51,9 +44,7 @@ class OpenSoraT2V_v1_2(ModelMixin, ConfigMixin):
         interpolation_scale_w: float = 1.0,
         interpolation_scale_t: float = 1.0,
         sparse1d: bool = False,
-        sparse2d: bool = False,
         sparse_n: int = 2,
-        **kwarg, 
     ):
         super().__init__()
         # Set some common variables used across the board.
@@ -99,7 +90,6 @@ class OpenSoraT2V_v1_2(ModelMixin, ConfigMixin):
                     norm_eps=self.config.norm_eps,
                     interpolation_scale_thw=interpolation_scale_thw, 
                     sparse1d=self.config.sparse1d if i > 1 and i < 30 else False, 
-                    sparse2d=self.config.sparse2d if i > 1 and i < 30 else False, 
                     sparse_n=self.config.sparse_n, 
                     sparse_group=i % 2 == 1, 
                 )
@@ -311,7 +301,6 @@ if __name__ == '__main__':
         'interpolation_scale_h': 1,
         'interpolation_scale_w': 1,
         "sparse1d": True, 
-        "sparse2d": False, 
         "sparse_n": 4, 
         "rank": 64, 
     }
@@ -341,7 +330,6 @@ if __name__ == '__main__':
         interpolation_scale_h=args.interpolation_scale_h, 
         interpolation_scale_w=args.interpolation_scale_w, 
         sparse1d=args.sparse1d, 
-        sparse2d=args.sparse2d, 
         sparse_n=args.sparse_n
     )
     

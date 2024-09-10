@@ -11,7 +11,7 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun --nnodes=1 --nproc_per_node 8 --ma
     --text_prompt examples/sora_refine.txt \
     --ae WFVAEModel_D8_4x8x8 \
     --ae_path "/storage/lcm/Causal-Video-VAE/results/WFVAE_DISTILL_FORMAL" \
-    --save_img_path "./test_sample_snr_3" \
+    --save_img_path "./test_sample_sp" \
     --fps 18 \
     --guidance_scale 7.5 \
     --num_sampling_steps 100 \
@@ -19,7 +19,8 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun --nnodes=1 --nproc_per_node 8 --ma
     --sample_method EulerAncestralDiscrete \
     --motion_score 0.9 \
     --seed 1234 \
-    --num_samples_per_prompt 2 \
+    --num_samples_per_prompt 1 \
     --prediction_type "v_prediction" \
     --rescale_betas_zero_snr \
-    --enable_tiling
+    --enable_tiling \
+    --sp

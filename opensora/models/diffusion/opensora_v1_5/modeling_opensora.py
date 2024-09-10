@@ -11,8 +11,9 @@ from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.models.modeling_utils import ModelMixin
 from diffusers.models.normalization import AdaLayerNorm
 from diffusers.models.embeddings import PixArtAlphaTextProjection
-from opensora.models.diffusion.opensora_v1_5.modules import CombinedTimestepTextProjEmbeddings, PatchEmbed2D, BasicTransformerBlock
+from opensora.models.diffusion.opensora_v1_5.modules import CombinedTimestepTextProjEmbeddings, BasicTransformerBlock
 from opensora.utils.utils import to_2tuple
+from opensora.models.diffusion.common import PatchEmbed2D
 try:
     import torch_npu
     from opensora.npu_config import npu_config
@@ -66,10 +67,8 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
         interpolation_scale_w: float = 1.0,
         interpolation_scale_t: float = 1.0,
         sparse1d: bool = False,
-        sparse2d: bool = False,
         pooled_projection_dim: int = 1024, 
         timestep_embed_dim: int = 512,
-        **kwarg, 
     ):
         super().__init__()
         # Set some common variables used across the board.
@@ -141,7 +140,6 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
                         norm_eps=self.config.norm_eps,
                         interpolation_scale_thw=interpolation_scale_thw, 
                         sparse1d=self.config.sparse1d if sparse_n > 1 else False, 
-                        sparse2d=self.config.sparse2d if sparse_n > 1 else False, 
                         sparse_n=sparse_n, 
                         sparse_group=i % 2 == 1 if sparse_n > 1 else False, 
                     )
@@ -224,11 +222,11 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
         hidden_states, encoder_hidden_states, embedded_timestep = self._operate_on_patched_inputs(
             hidden_states, encoder_hidden_states, timestep, pooled_projections
         )
-        if get_sequence_parallel_state():
-            # x            (sp_bs*b t//sp*h*w d)
-            # cond_1       (sp_bs*b l/sp d)
-            hidden_states = rearrange(hidden_states, 'b s h -> s b h', b=batch_size).contiguous()
-            encoder_hidden_states = rearrange(encoder_hidden_states, 'b s h -> s b h', b=batch_size).contiguous()
+        # To
+        # x            (t*h*w b d) or (t//sp*h*w b d)
+        # cond_1       (l b d) or (l//sp b d)
+        hidden_states = rearrange(hidden_states, 'b s h -> s b h', b=batch_size).contiguous()
+        encoder_hidden_states = rearrange(encoder_hidden_states, 'b s h -> s b h', b=batch_size).contiguous()
 
         # 2. Blocks
         hidden_states, skip_connections = self._operate_on_enc(
@@ -249,9 +247,8 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
             embedded_timestep, frame, height, width
             )
 
-        if get_sequence_parallel_state():
-            # (t//sp*h*w, sp*b, h)
-            hidden_states = rearrange(hidden_states, 's b h -> b s h', b=batch_size).contiguous()
+        # To (b, t*h*w, h) or (b, t//sp*h*w, h)
+        hidden_states = rearrange(hidden_states, 's b h -> b s h', b=batch_size).contiguous()
 
         # 3. Output
         output = self._get_output_for_patched_inputs(
@@ -272,8 +269,6 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
         skip_connections = []
         for idx, stage_block in enumerate(self.transformer_blocks[:len(self.config.num_layers)//2]):
             for idx_, block in enumerate(stage_block):
-                # print(f'enc stage_block_{idx}, block_{idx_}', 
-                #       f'sparse1d {block.sparse1d}, sparse2d {block.sparse2d}, sparse_n {block.sparse_n}, sparse_group {block.sparse_group}')
                 if self.training and self.gradient_checkpointing:
                     hidden_states = torch.utils.checkpoint.checkpoint(
                         create_custom_forward(block),
@@ -309,8 +304,6 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
         ):
         
         for idx_, block in enumerate(self.transformer_blocks[len(self.config.num_layers)//2]):
-            # print(f'mid block_{idx_}', 
-            #       f'sparse1d {block.sparse1d}, sparse2d {block.sparse2d}, sparse_n {block.sparse_n}, sparse_group {block.sparse_group}')
             if self.training and self.gradient_checkpointing:
                 hidden_states = torch.utils.checkpoint.checkpoint(
                     create_custom_forward(block),
@@ -349,8 +342,6 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
             hidden_states = torch.cat([hidden_states, skip_hidden_states], dim=-1)
             hidden_states = self.skip_norm_linear[idx](hidden_states)
             for idx_, block in enumerate(stage_block):
-                # print(f'dec stage_block_{idx}, block_{idx_}', 
-                #       f'sparse1d {block.sparse1d}, sparse2d {block.sparse2d}, sparse_n {block.sparse_n}, sparse_group {block.sparse_group}')
                 if self.training and self.gradient_checkpointing:
                     hidden_states = torch.utils.checkpoint.checkpoint(
                         create_custom_forward(block),
@@ -415,6 +406,8 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
 def OpenSoraT2V_v1_5_5B_122(**kwargs):
     if kwargs.get('sparse_n', None) is not None:
         kwargs.pop('sparse_n')
+    if kwargs.get('use_motion', None) is not None:
+        kwargs.pop('use_motion')
     return OpenSoraT2V_v1_5(
         # num_layers=[2, 4, 6, 8, 6, 4, 2], sparse_n=[1, 4, 16, 64, 16, 4, 1], 
         num_layers=[2, 4, 6, 8, 6, 4, 2], sparse_n=[1, 2, 4, 8, 4, 2, 1], 
@@ -435,7 +428,8 @@ if __name__ == '__main__':
     from opensora.models.causalvideovae import ae_stride_config, ae_channel_config
     from opensora.models.causalvideovae import ae_norm, ae_denorm
     from opensora.models import CausalVAEModelWrapper
-
+    import ipdb;ipdb.set_trace()
+    model = OpenSoraT2V_v1_5.from_pretrained("/storage/ongoing/9.4/Open-Sora-Plan/test_v1_5")
     args = type('args', (), 
     {
         'ae': 'WFVAEModel_D8_4x8x8', 
@@ -448,7 +442,6 @@ if __name__ == '__main__':
         'interpolation_scale_h': 1,
         'interpolation_scale_w': 1,
         "sparse1d": True, 
-        "sparse2d": False, 
         "rank": 64, 
     }
     )
@@ -480,7 +473,6 @@ if __name__ == '__main__':
         interpolation_scale_h=args.interpolation_scale_h, 
         interpolation_scale_w=args.interpolation_scale_w, 
         sparse1d=args.sparse1d, 
-        sparse2d=args.sparse2d, 
         ).to(device)
     
     try:
@@ -504,4 +496,5 @@ if __name__ == '__main__':
     with torch.no_grad():
         output = model(**model_kwargs)
     print(output[0].shape)
+    model.save_pretrained('./test_v1_5')
 

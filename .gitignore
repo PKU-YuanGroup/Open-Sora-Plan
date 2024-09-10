@@ -87,3 +87,4 @@ filter_json_aes_m*
 json2json*
 makenpu_json*
 make_small_json*
+schedule_noise*

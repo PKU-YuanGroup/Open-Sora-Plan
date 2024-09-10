@@ -255,7 +255,6 @@ def main(args):
         sample_size=latent_size,
         sample_size_t=latent_size_t,
         activation_fn="gelu-approximate",
-        use_linear_projection=False,
         only_cross_attention=False,
         double_self_attention=False,
         upcast_attention=False,
@@ -265,7 +264,6 @@ def main(args):
         interpolation_scale_w=args.interpolation_scale_w,
         interpolation_scale_t=args.interpolation_scale_t,
         sparse1d=args.sparse1d, 
-        sparse2d=args.sparse2d, 
         sparse_n=args.sparse_n, 
         use_motion=args.use_motion
     )
@@ -309,10 +307,9 @@ def main(args):
     noise_scheduler = DDPMScheduler(rescale_betas_zero_snr=args.rescale_betas_zero_snr)
     # Move unet, vae and text_encoder to device and cast to weight_dtype
     # The VAE is in float32 to avoid NaN losses.
+    ae.vae.to(accelerator.device, dtype=torch.float32 if args.vae_fp32 else weight_dtype)
+    text_enc_1.to(accelerator.device, dtype=weight_dtype)
     if not args.extra_save_mem:
-        ae.vae.to(accelerator.device, dtype=torch.float32 if args.vae_fp32 else weight_dtype)
-        # ae.vae.to(accelerator.device, dtype=weight_dtype)
-        text_enc_1.to(accelerator.device, dtype=weight_dtype)
         if text_enc_2 is not None:
             text_enc_2.to(accelerator.device, dtype=weight_dtype)
 
@@ -740,9 +737,8 @@ def main(args):
 
         if args.extra_save_mem:
             torch.cuda.empty_cache()
-            ae.vae.to(accelerator.device, dtype=torch.float32 if args.vae_fp32 else weight_dtype)
-            # ae.vae.to(accelerator.device, dtype=weight_dtype)
-            text_enc_1.to(accelerator.device, dtype=weight_dtype)
+            # ae.vae.to(accelerator.device, dtype=torch.float32 if args.vae_fp32 else weight_dtype)
+            # text_enc_1.to(accelerator.device, dtype=weight_dtype)
             if text_enc_2 is not None:
                 text_enc_2.to(accelerator.device, dtype=weight_dtype)
 
@@ -788,9 +784,8 @@ def main(args):
             # import sys;sys.exit()
         
         if args.extra_save_mem:
-            ae.vae.to('cpu')
-            # ae.vae.to(accelerator.device, dtype=weight_dtype)
-            text_enc_1.to('cpu')
+            # ae.vae.to('cpu')
+            # text_enc_1.to('cpu')
             if text_enc_2 is not None:
                 text_enc_2.to('cpu')
             torch.cuda.empty_cache()
@@ -936,7 +931,6 @@ if __name__ == "__main__":
     parser.add_argument("--cache_dir", type=str, default='./cache_dir')
     parser.add_argument("--pretrained", type=str, default=None)
     parser.add_argument('--sparse1d', action='store_true')
-    parser.add_argument('--sparse2d', action='store_true')
     parser.add_argument('--sparse_n', type=int, default=2)
     parser.add_argument('--tile_sample_min_size', type=int, default=512)
     parser.add_argument('--tile_sample_min_size_t', type=int, default=33)

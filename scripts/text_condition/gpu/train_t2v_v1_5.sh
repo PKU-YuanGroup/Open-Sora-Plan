@@ -76,4 +76,5 @@ accelerate launch \
     --vae_fp32 \
     --ood_img_ratio 0.5 \
     --force_resolution \
-    --enable_tiling
+    --enable_tiling \
+    --extra_save_mem
