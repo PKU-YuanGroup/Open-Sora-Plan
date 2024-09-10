@@ -2,7 +2,7 @@
 # 网络名称,同目录名称,需要模型审视修改
 Network="sdxl"
 
-scripts_path="./sdxl_train"
+scripts_path="./sdxl"
 
 # 预训练模型
 model_name="stabilityai/stable-diffusion-xl-base-1.0"
@@ -34,15 +34,6 @@ for para in $*; do
   fi
 done
 
-if [ -d "./sdxl_train"];then
-    echo "using local scripts"
-else
-    echo "downloading scripts"
-    mkdir -p ${scripts_path}
-    wget -P ${scripts_path} https://raw.githubusercontent.com/huggingface/diffusers/main/examples/test_to_image/train_text_to_image_sdxl.py --no-check-certificate
-    wait
-fi
-
 # cd到与test文件夹同层级目录下执行脚本，提高兼容性；test_path_dir为包含test文件夹的路径
 cur_path=$(pwd)
 cur_path_last_dirname=${cur_path##*/}
@@ -66,7 +57,7 @@ start_time=$(date +%s)
 echo "start_time: ${start_time}"
 
 accelerate launch --config_file ${config_file} \
-  ${scripts_path}/train_text_to_image_sdxl.py \
+  ./MindSpeed-MM/diffusers/examples/text_to_image/train_text_to_image_sdxl.py \
   --pretrained_model_name_or_path=$model_name \
   --pretrained_vae_model_name_or_path=$vae_name \
   --dataset_name=$dataset_name --caption_column="text" \
@@ -80,7 +71,7 @@ accelerate launch --config_file ${config_file} \
   --enable_npu_flash_attention \
   --mixed_precision=$mixed_precision \
   --checkpointing_steps=500 \
-  --output_dir=${output_path} > ${output_path}train_${mixed_precision}_train.log 2>&1 &
+  --output_dir=${output_path} > ${output_path}train_${mixed_precision}.log 2>&1 &
 wait
 
 #训练结束时间，不需要修改
@@ -91,7 +82,7 @@ e2e_time=$(($end_time - $start_time))
 echo "------------------ Final result ------------------"
 
 #输出性能FPS，需要模型审视修改
-FPS=$(grep "FPS: " ${output_path}/train_${mixed_precision}_train.log | awk '{print $NF}' | sed -n '100,199p' | awk '{a+=$1}END{print a/NR}')
+FPS=$(grep "FPS: " ${output_path}/train_${mixed_precision}.log | awk '{print $NF}' | sed -n '100,199p' | awk '{a+=$1}END{print a/NR}')
 
 #获取性能数据，不需要修改
 # - 吞吐量
@@ -101,7 +92,7 @@ ActualFPS=$(awk 'BEGIN{printf "%.2f\n", '${FPS}'}')
 echo "Final Performance images/sec : $ActualFPS"
 
 # - loss值，不需要修改
-ActualLoss=$(grep -o "step_loss=[0-9.]*" ${output_path}/train_${mixed_precision}_train.log | awk 'END {print $NF}')
+ActualLoss=$(grep -o "step_loss=[0-9.]*" ${output_path}/train_${mixed_precision}.log | awk 'END {print $NF}')
 
 # - 打印，不需要修改
 echo "Final Train Loss : ${ActualLoss}"

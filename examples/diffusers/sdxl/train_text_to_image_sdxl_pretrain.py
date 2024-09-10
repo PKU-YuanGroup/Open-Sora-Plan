@@ -629,6 +629,10 @@ def main(args):
         project_config=accelerator_project_config,
     )
 
+    # Disable AMP for MPS
+    if torch.backends.mps.is_available():
+        accelerator.native_amp = False
+
     if args.report_to == "wandb":
         if not is_wandb_available():
             raise ImportError(
@@ -727,6 +731,8 @@ def main(args):
 
     # Freeze vae and text encoders.
     vae.requires_grad_(False)
+    text_encoder_one.requires_grad_(False)
+    text_encoder_two.requires_grad_(False)
 
     # Set unet as trainable.
 
@@ -747,8 +753,8 @@ def main(args):
     else:
         vae.to(accelerator.device, dtype=torch.float32)
         image_dtype = torch.float32
-    # text_encoder_one.to(accelerator.device, dtype=weight_dtype)
-    # text_encoder_two.to(accelerator.device, dtype=weight_dtype)
+    text_encoder_one.to(accelerator.device, dtype=weight_dtype)
+    text_encoder_two.to(accelerator.device, dtype=weight_dtype)
 
     if args.enable_npu_flash_attention:
         if is_torch_npu_available():

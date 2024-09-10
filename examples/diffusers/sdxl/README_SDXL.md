@@ -8,6 +8,7 @@
   - [模型介绍](#模型介绍)
   - [预训练](#预训练)
     - [环境搭建](#环境搭建)
+    - [训练与预训练](#训练与预训练)
     - [性能](#性能)
   - [微调](#微调)
     - [环境搭建](#环境搭建)
@@ -33,6 +34,8 @@
   commit_id=eda36c4c286d281f216dfeb79e64adad3f85d37a
   ```
 
+## 预训练
+
 ## 环境搭建
 
 1. 软件与驱动安装
@@ -54,12 +57,6 @@
 2. 克隆仓库到本地服务器
 
     ```shell
-    git clone https://gitee.com/ascend/MindSpeed-MM.git
-    cd MindSpeed-MM
-    mkdir logs
-    mkdir dataset
-    mkdir ckpt
-
     # 安装加速库
     git clone https://gitee.com/ascend/MindSpeed.git
     cd MindSpeed
@@ -67,16 +64,22 @@
     pip install -r requirements.txt
     pip3 install -e .
     cd ..
+
+    # 克隆仓库
+    git clone https://gitee.com/ascend/MindSpeed-MM.git
     ```
 
 3. 模型搭建
 
-    3.1 【下载 SDXL [GitHub参考实现](https://github.com/huggingface/diffusers)】
+    3.1 【下载 SDXL [GitHub参考实现](https://github.com/huggingface/diffusers)】或 [适配昇腾AI处理器的实现](https://gitee.com/ascend/ModelZoo-PyTorch.git) 或 在模型根目录下执行以下命令，安装模型对应PyTorch版本需要的依赖】
 
     ```shell
     git clone https://github.com/huggingface/diffusers.git -b v0.30.0
     git reset --hard eda36c4c286d281f216dfeb79e64adad3f85d37a
+    cp -r MindSpeed-MM/examples/diffusers/sdxl diffusers/sdxl
     ```
+
+    【主要代码路径】
 
     ```
     code_path=examples/text_to_image/
@@ -86,37 +89,79 @@
 
     转移 `collect_dataset.py` 与 `pretrain_model.py` 与 `train_text_to_image_sdxl_pretrain.py` 到 `examples/text_to_image/` 路径
 
+    ```shell
+    # Example, 需要修改.py名字进行三次任务
+    cp diffusers/sdxl/train_text_to_image_sdxl_pretrain.py diffusers/examples/text_to_image/
+    ```
+
     3.3【安装其余依赖库】
 
     ```shell
     cd diffusers
     pip install e .
+    vim examples/text_to_image/requirements_sdxl.txt #修改torchvision版本：torchvision==0.16.0, torch==2.1.0
     pip install -r examples/text_to_image/requirements_sdxl.txt # 安装diffusers原仓对应依赖
-    pip install -r MindSpeed-MM/examples/diffusers/sdxl/requirements_sdxl_extra.txt #安装sdxl对应依赖
-    cd ..
+    pip install -r sdxl/requirements_sdxl_extra.txt #安装sdxl对应依赖
     ```
 
-4. 训练与预训练
+## 训练与预训练
 
-    4.1 【准备预训练数据集】
+1. 【准备预训练数据集】
 
-    用户需自行获取并解压LAION_5B数据集（目前数据集暂已下架，可选其他数据集），并在以下启动shell脚本中将`dataset_name`参数设置为本地数据集的绝对路径
+    用户需自行获取并解压laion_sx数据集（目前数据集暂已下架，可选其他数据集）与[pokemon-blip-captions](https://gitee.com/hf-datasets/pokemon-blip-captions)数据集，并在以下启动shell脚本中将`dataset_name`参数设置为本地数据集的绝对路径
+
+    修改`pretrain_sdxl_deepspeed_**16.sh`的dataset_name为`laion_sx`的绝对路径
 
     ```shell
-    dataset_name="laion5b" # 数据集 路径
+    vim sdxl/pretrain_sdxl_deepspeed_**16.sh
     ```
 
-    4.2 【配置 SDXL 预训练脚本】
+    修改`train_sdxl_deepspeed_**16.sh`的dataset_name为`pokemon-blip-captions`的绝对路径
 
-    联网情况下，预训练模型会自动下载。无网络时，用户可访问huggingface官网自行下载
+    ```shell
+    vim sdxl/train_sdxl_deepspeed_**16.sh
+    ```
+
+    laion_sx数据集格式如下:
+
+    ```
+    laion_sx数据集格式如下
+    ├── 000000000.jpg
+    ├── 000000000.json
+    ├── 000000000.txt
+    ```
+
+    pokemon-blip-captions数据集格式如下:
+
+    ```
+    pokemon-blip-captions
+    ├── dataset_infos.json
+    ├── README.MD
+    └── data
+          ├── dataset_infos.json
+          └── train-001.parquet
+    ```
+
+    > **说明：**
+    >该数据集的训练过程脚本只作为一种参考示例。
+    >
+  
+2. 【配置 SDXL 预训练脚本与预训练模型】
+
+    联网情况下，预训练模型可通过以下步骤下载。无网络时，用户可访问huggingface官网自行下载[sdxl-base模型](https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0) `model_name`模型与[sdxl-vae模型](https://huggingface.co/madebyollin/sdxl-vae-fp16-fix) `vae_name`
+
+    ```bash
+    export model_name="stabilityai/stable-diffusion-xl-base-1.0" # 预训练模型路径
+    export vae_name="madebyollin/sdxl-vae-fp16-fix" # vae模型路径
+    ```
 
     获取对应的预训练模型后，在以下shell启动脚本中将`model_name`参数设置为本地预训练模型绝对路径，将`vae_name`参数设置为本地`vae`模型绝对路径
 
-    ```shell
-    scripts_path="./sdxl_pretrain" # 模型根目录（模型文件夹名称）
-    model_name="stabilityai/stable-diffusion-xl-base-1.0" # 预训练模型
-    vae_name="madebyollin/sdxl-vae-fp16-fix" #vae模型
-    dataset_name="laion5b" 
+    ```bash
+    scripts_path="./sdxl" # 模型根目录（模型文件夹名称）
+    model_name="stabilityai/stable-diffusion-xl-base-1.0" # 预训练模型路径
+    vae_name="madebyollin/sdxl-vae-fp16-fix" # vae模型路径
+    dataset_name="laion_sx" # 数据集路径
     batch_size=4
     max_train_steps=2000
     mixed_precision="bf16" # 混精
@@ -124,14 +169,20 @@
     config_file="${scripts_path}/pretrain_${mixed_precision}_accelerate_config.yaml"
     ```
 
-    模型根目录修改：找到目录`diffusers/examples/text_to_image/`
+    修改bash文件中`accelerate`配置下`train_text_to_image_sdxl_pretrain.py`的路径（默认路径在diffusers/sdxl/）
 
-    ```shell
-    # 修改 scripts_path
-     scripts_path="./diffusers/examples/text_to_image/"
+    ```bash
+    accelerate launch --config_file ${config_file} \
+      ${scripts_path}/train_text_to_image_sdxl_pretrain.py \  #如模型根目录为sdxl则无需修改
     ```
 
-    4.3 【启动 SDXL 预训练脚本】
+    修改`pretrain_fp16_accelerate_config.yaml`的`deepspeed_config_file`的路径:
+
+    ```bash
+    deepspeed_config_file: ./sdxl/deepspeed_fp16.json # deepspeed JSON文件路径
+    ```
+
+3. 【启动 SDXL 预训练脚本】
 
     本任务主要提供**混精fp16**和**混精bf16**两种**8卡**训练脚本，默认使用**deepspeed**分布式训练。
 
@@ -139,108 +190,59 @@
     **train**模型主要来承担第一阶段的文生图的训练功能
 
     ```shell
-    cd /MindSpeed-MM/examples/diffusers
-    ```
-
-    ```shell
     sdxl/pretrain_sdxl_deepspeed_**16.sh
     sdxl/train_sdxl_deepspeed_**16.sh
     ```
 
-## 性能
+### 性能
 
-### 吞吐
+#### 吞吐
 
 SDXL 在 **昇腾芯片** 和 **参考芯片** 上的性能对比：
 
-| 设备   | 模型        | 迭代数  | 样本吞吐 (f/p/s) | token吞吐 (tokens/p/s) | 单步迭代时间 (s/step) | 浮点计算数 (TFLOPs/s) |
-|------|-----------|------|--------------------|----------------------|-----------------|------------------|
-| NPUs | SDXL_pretrain_bf16  | * | .               | .                 | .            | .            |
-| 参考 | SDXL_pretrain_bf16  | * | .               | .                 | .            | .            |
-| NPUs | SDXL_pretrain_fp16 | * | .               | .                 | .            | .           |
-| 参考 | SDXL_pretrain_fp16 | * | .               | .                 | .           | .           |
-| NPUs | SDXL_train_bf16  | * | .               | .                 | .            | .            |
-| 参考 | SDXL_train_bf16  | * | .               | .                 | .            | .            |
-| NPUs | SDXL_train_fp16 | * | .               | .                 | .            | .           |
-| 参考 | SDXL_train_fp16 | * | .               | .                 | .           | .           |
+| 芯片 | 卡数 |     任务     |  FPS  | batch_size | AMP_Type | Torch_Version | deepspeed |
+|:---:|:---:|:----------:|:-----:|:----------:|:---:|:---:|:---:|
+| 竞品A | 8p | SDXL_pretrain_bf16  |  21.14 |     4      | bf16 | 2.1 | ✔ |
+| Atlas 900 A2 PODc | 8p | SDXL_pretrain_bf16  | 15.71 |     4      | bf16 | 2.1 | ✔ |
+| 竞品A | 8p | SDXL_pretrain_fp16 |  20.77 |     4      | fp16 | 2.1 | ✔ |
+| Atlas 900 A2 PODc | 8p | SDXL_pretrain_fp16 | 15.51 |     4      | fp16 | 2.1 | ✔ |
+| 竞品A | 8p | SDXL_train_bf16  |  30.65 |     4      | bf16 | 2.1 | ✔ |
+| Atlas 900 A2 PODc | 8p | SDXL_train_bf16  | 24.7 |     4      | bf16 | 2.1 | ✔ |
+| 竞品A | 8p | SDXL_train_fp16 |  30.23 |     4      | fp16 | 2.1 | ✔ |
+| Atlas 900 A2 PODc | 8p | SDXL_train_fp16 | 23.24 |     4      | fp16 | 2.1 | ✔ |
 
 ## 微调
 
-### 环境搭建
+### 准备数据集
 
-1、软件与驱动安装
-
-```
-    # python3.10
-    conda create -n SDXL python=3.10
-    conda activate SDXL
-
-    # 安装 torch 和 torch_npu
-    pip install torch-2.1.0-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl
-    pip install torch_npu-2.1.0.post6.dev20240716-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl
-
-
-    # 修改 ascend-toolkit 路径
-    source /usr/local/Ascend/ascend-toolkit/set_env.sh
-```
-
-2、克隆仓库到本地服务器
-
-```
-    git clone https://gitee.com/ascend/MindSpeed-MM.git
-    git clone https://github.com/huggingface/diffusers.git
-    cp -r MindSpeed-MM/examples/diffusers/SDXL diffusers/examples
-```
-
-3、安装加速库和torch依赖包
-
-```
-    # 安装加速库
-    cd diffusers
-    pip install -e .
-    vim examples/text_to_imge/requirements_sdxl.txt #修改torchvision版本：torchvision==0.16.0
-    pip install -r examples/text_to_image/requirements_sdxl.txt
-    
-    # 安装torch依赖包
-    pip install deepspeed
-    pip install decorator==4.4.2
-    pip install scipy=1.10.1
-```
-
-### 微调
-
-#### 准备数据集
-
-##### LORA微调
-
-   1. 联网情况下，数据集会自动下载。
-   2. 无网络情况下，用户需自行获取pokemon-blip-captions数据集，并在以下启动shell脚本中将`dataset_name`参数设置为本地数据集的绝对路径。
-
-   ```shell
-   examples/SDXL/finetune_sdxl_lora_deepspeed_fp16.sh
-   ```
-
-   pokemon-blip-captions数据集格式如下:
-
-   ```
-   pokemon-blip-captions
-   ├── dataset_infos.json
-   ├── README.MD
-   └── data
-        ├── dataset_infos.json
-        └── train-001.parquet
-   ```
+#### LORA微调
 
    > **说明：**
-   >该数据集的训练过程脚本只作为一种参考示例。
+   > 数据集同预训练的`pokemon-blip-captions`，请参考预训练章节。
    >
-##### Controlnet微调
+
+  ```shell
+  sdxl/finetune_sdxl_lora_deepspeed_fp16.sh
+  ```
+
+#### Controlnet微调
 
    1. 联网情况下，数据集会自动下载。
    2. 无网络情况下，用户需自行获取fill50k数据集，并在以下启动shell脚本中将`dataset_name`参数设置为本地数据集的绝对路径，以及需要修改里面fill50k.py文件。
 
    ```shell
-   examples/SDXL/finetune_sdxl_controlnet_deepspeed_fp16.sh
+   sdxl/finetune_sdxl_controlnet_deepspeed_fp16.sh
+   ```
+
+   3. 参考如下修改controlnet/train_controlnet_sdxl.py, 追加trust_remote_code=True
+
+   ```shell
+   dataset = load_dataset(
+            args.dataset_name,
+            args.dataset_config_name,
+            cache_dir=args.cache_dir,
+            trust_remote_code=True
+          )
    ```
 
    > **注意：**
@@ -265,97 +267,77 @@ SDXL 在 **昇腾芯片** 和 **参考芯片** 上的性能对比：
    > **说明：**
    >该数据集的训练过程脚本只作为一种参考示例。
 
-##### 全参微调
+#### 全参微调
 
    > **说明：**
-   >数据集同Lora微调，请参考Lora章节。
+   > 数据集同Lora微调，请参考Lora章节。
    >
-#### 获取预训练模型
+  【获取预训练模型】
 
-1. 联网情况下，预训练模型会自动下载。
-
-2. 无网络时，用户可访问huggingface官网自行下载，文件namespace如下：
-
-   ```
-   stabilityai/stable-diffusion-xl-base-1.0 #预训练模型
-   madebyollin/sdxl-vae-fp16-fix #vae模型
-   ```
-
-3. 获取对应的预训练模型后，在以下shell启动脚本中将`model_name`参数设置为本地预训练模型绝对路径，将`vae_name`参数设置为本地`vae`模型绝对路径。
+   获取[sdxl-base模型](https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0) `model_name`模型与[sdxl-vae模型](https://huggingface.co/madebyollin/sdxl-vae-fp16-fix) `vae_name`。
+  
+   获取对应的预训练模型后，在以下shell启动脚本中将`model_name`参数设置为本地预训练模型绝对路径，将`vae_name`参数设置为本地`vae`模型绝对路径。
 
    ```shell
-   examples/SDXL/finetune_sdxl_deepspeed_fp16.sh
+   sdxl/finetune_sdxl_deepspeed_fp16.sh
    ```
 
-#### 开始训练
+   > **说明：**
+   > 预训练模型同预训练，请参考预训练章节。
+   >
 
-1. 进入微调脚本目录
+### 进行微调
 
+   【运行微调的脚本】
+
+    ```shell
+    # 单机八卡微调
+    bash sdxl/finetune_sdxl_controlnet_deepspeed_fp16.sh      #8卡deepspeed训练 sdxl_controlnet fp16
+    bash sdxl/finetune_sdxl_lora_deepspeed_fp16.sh            #8卡deepspeed训练 sdxl_lora fp16
+    bash sdxl/finetune_sdxl_deepspeed_fp16.sh        #8卡deepspeed训练 sdxl_finetune fp16
     ```
-   cd diffusers/examples/SDXL
-   ```
 
-2. 运行训练的脚本。
-
-- 单机八卡微调
-
-  ```shell
-  bash finetune_sdxl_controlnet_deepspeed_fp16.sh      #8卡deepspeed训练 sdxl_controlnet fp16
-  bash finetune_sdxl_lora_deepspeed_fp16.sh            #8卡deepspeed训练 sdxl_lora fp16
-  bash finetune_sdxl_deepspeed_fp16.sh        #8卡deepspeed训练 sdxl_finetune fp16
-  ```
-
- ```
 ### 性能
+
 | 芯片 | 卡数 |     任务     |  FPS  | batch_size | AMP_Type | Torch_Version | deepspeed |
 |:---:|:---:|:----------:|:-----:|:----------:|:---:|:---:|:---:|
-| GPU | 8p |    LoRA    | 28.07 |     7      | fp16 | 2.1 | ✔ |
-| Atlas A2 |8p |    LoRA    | 31.74 |     7      | fp16 | 2.1 | ✔ |
-| GPU | 8p | Controlnet | 30.38  |     5      | fp16 | 2.1 | ✔ |
-| Atlas A2 |8p | Controlnet | 32.43 |     5      | fp16 | 2.1 | ✔ |
-| GPU | 8p |  Finetune  | 167.88 |     24     | fp16 | 2.1 | ✔ |
-| Atlas A2 |8p |  Finetune  | 164.66 |     24     | fp16 | 2.1 | ✔ |
+| 竞品A | 8p |    LoRA    | 28.07 |     7      | fp16 | 2.1 | ✔ |
+| Atlas 900 A2 PODc |8p |    LoRA    | 31.74 |     7      | fp16 | 2.1 | ✔ |
+| 竞品A | 8p | Controlnet | 30.38  |     5      | fp16 | 2.1 | ✔ |
+| Atlas 900 A2 PODc |8p | Controlnet | 32.43 |     5      | fp16 | 2.1 | ✔ |
+| 竞品A | 8p |  Finetune  | 167.88 |     24     | fp16 | 2.1 | ✔ |
+| Atlas 900 A2 PODc |8p |  Finetune  | 164.66 |     24     | fp16 | 2.1 | ✔ |
 
 ## 推理
+
 ### 环境搭建
-   同微调对应章节
-### 开始推理
-1. 进入微调脚本目录
 
-    ```
-   cd diffusers/examples/SDXL
-   ```
+  **同微调对应章节**
 
-2、运行推理的脚本。
+ 【运行推理的脚本】
 
 - 单机单卡推理
-- 推理前加载环境变量
-
-  ```shell
-  source /usr/local/Ascend/ascend-toolkit/set_env.sh
-  ```
-
 - 调用推理脚本
 
   ```shell
-  python sdxl_text2img_lora_infer.py        # 混精fp16 文生图lora微调任务推理
-  python sdxl_text2img_controlnet_infer.py  # 混精fp16 文生图controlnet微调任务推理
-  python sdxl_text2img_infer.py             # 混精fp16 文生图全参微调任务推理
-  python sdxl_img2img_infer.py              # 混精fp16 图生图微调任务推理
+  python sdxl/sdxl_text2img_lora_infer.py        # 混精fp16 文生图lora微调任务推理
+  python sdxl/sdxl_text2img_controlnet_infer.py  # 混精fp16 文生图controlnet微调任务推理
+  python sdxl/sdxl_text2img_infer.py             # 混精fp16 文生图全参微调任务推理
+  python sdxl/sdxl_img2img_infer.py              # 混精fp16 图生图微调任务推理
   ```
 
 ### 性能
 
 | 芯片 | 卡数 |     任务     |  E2E（it/s）  |  AMP_Type | Torch_Version | deepspeed |
 |:---:|:---:|:----------:|:-----:|:---:|:---:|:---:|
-| GPU | 8p |    文生图lora    | 2.65 |  fp16 | 2.1 | ✔ |
-| Atlas A2 |8p |    文生图lora    | 1.45 |  fp16 | 2.1 | ✔ |
-| GPU | 8p | 文生图controlnet | 2.33  |  fp16 | 2.1 | ✔ |
-| Atlas A2 |8p | 文生图controlnet | 1.41 |  fp16 | 2.1 | ✔ |
-| GPU | 8p |  文生图全参  | 3.04 | fp16 | 2.1 | ✔ |
-| Atlas A2 |8p |  文生图全参  | 1.55 | fp16 | 2.1 | ✔ |
-| GPU | 8p |  图生图  | 3.02 | fp16 | 2.1 | ✔ |
-| Atlas A2 |8p |  图生图  | 3.56 | fp16 | 2.1 | ✔ |
+| 竞品A | 8p |    文生图lora    | 1.45 |  fp16 | 2.1 | ✔ |
+| Atlas 900 A2 PODc |8p |    文生图lora    | 2.65 |  fp16 | 2.1 | ✔ |
+| 竞品A | 8p | 文生图controlnet | 1.41  |  fp16 | 2.1 | ✔ |
+| Atlas 900 A2 PODc |8p | 文生图controlnet | 2.33 |  fp16 | 2.1 | ✔ |
+| 竞品A | 8p |  文生图全参  | 1.55 | fp16 | 2.1 | ✔ |
+| Atlas 900 A2 PODc |8p |  文生图全参  | 3.04 | fp16 | 2.1 | ✔ |
+| 竞品A | 8p |  图生图  | 3.56 | fp16 | 2.1 | ✔ |
+| Atlas 900 A2 PODc |8p |  图生图  | 3.02 | fp16 | 2.1 | ✔ |
 
 ## 引用
 

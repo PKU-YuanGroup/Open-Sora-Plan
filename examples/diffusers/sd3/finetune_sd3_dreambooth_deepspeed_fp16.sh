@@ -6,7 +6,7 @@ scripts_path="./sd3"
 
 # 预训练模型
 model_name="stabilityai/stable-diffusion-3-medium-diffusers"
-dataset_name="laion5b"
+dataset_name="pokemon-blip-captions"
 # input_dir="dog"
 batch_size=4
 max_train_steps=2000
@@ -14,6 +14,7 @@ mixed_precision="fp16"
 resolution=1024
 config_file="${scripts_path}/${mixed_precision}_accelerate_config.yaml"
 
+#如果使用 input_dir="dog"，请修改dataset_name为input_dir
 for para in $*; do
   if [[ $para == --model_name* ]]; then
     model_name=$(echo ${para#*=})
@@ -31,15 +32,6 @@ for para in $*; do
     config_file=$(echo ${para#*=})
   fi
 done
-
-if [ -d "./sdxl_train"];then
-    echo "using local scripts"
-else
-    echo "downloading scripts"
-    mkdir -p ${scripts_path}
-    wget -P ${scripts_path} https://raw.githubusercontent.com/huggingface/diffusers/main/examples/dreambooth/train_dreambooth_sd3.py --no-check-certificate
-    wait
-fi
 
 # cd到与test文件夹同层级目录下执行脚本，提高兼容性；test_path_dir为包含test文件夹的路径
 cur_path=$(pwd)
@@ -63,8 +55,9 @@ mkdir -p ${output_path}
 start_time=$(date +%s)
 echo "start_time: ${start_time}"
 
+#如果数据集为pokemon或其他，需要把 sks dog 修改为pokemon或其他
 accelerate launch --config_file ${config_file} \
-  ${scripts_path}/train_dreambooth_sd3.py \
+  .MindSpeed-MM/diffusers/examples/dreambooth/train_dreambooth_sd3.py \
   --pretrained_model_name_or_path=$model_name \
   --dataset_name=$dataset_name --caption_column="text" \
   --instance_prompt="A photo of sks dog" \
@@ -90,7 +83,7 @@ e2e_time=$(($end_time - $start_time))
 echo "------------------ Final result ------------------"
 
 #输出性能FPS，需要模型审视修改
-FPS=$(grep "FPS: " ${output_path}/train_${mixed_precision}_.log | awk '{print $NF}' | sed -n '100,199p' | awk '{a+=$1}END{print a/NR}')
+FPS=$(grep "FPS: " ${output_path}/train_${mixed_precision}_sd3_dreambooth.log | awk '{print $NF}' | sed -n '100,199p' | awk '{a+=$1}END{print a/NR}')
 
 #获取性能数据，不需要修改
 # - 吞吐量
@@ -100,7 +93,7 @@ ActualFPS=$(awk 'BEGIN{printf "%.2f\n", '${FPS}'}')
 echo "Final Performance images/sec : $ActualFPS"
 
 # - loss值，不需要修改
-ActualLoss=$(grep -o "step_loss=[0-9.]*" ${output_path}/train_${mixed_precision}.log | awk 'END {print $NF}')
+ActualLoss=$(grep -o "loss=[0-9.]*" ${output_path}/train_${mixed_precision}_sd3_dreambooth.log | awk 'END {print $NF}')
 
 # - 打印，不需要修改
 echo "Final Train Loss : ${ActualLoss}"

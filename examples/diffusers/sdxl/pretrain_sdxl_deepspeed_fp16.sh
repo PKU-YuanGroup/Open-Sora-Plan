@@ -2,7 +2,7 @@
 # 网络名称,同目录名称,需要模型审视修改
 Network="sdxl_pretrain"
 
-scripts_path="./sdxl_pretrain"
+scripts_path="./sdxl"
 model_name="stabilityai/stable-diffusion-xl-base-1.0" # 预训练模型
 vae_name="madebyollin/sdxl-vae-fp16-fix" # vae模型
 dataset_name="laion5b"

@@ -64,7 +64,7 @@ ActualFPS=$(awk 'BEGIN{printf "%.2f\n", '${FPS}'}')
 echo "Final Performance images/sec : $ActualFPS"
 
 #loss值，不需要修改
-ActualLoss=$(grep -o "step_loss=[0-9.]*" ${output_path}/train_${mixed_precision}_sd3_dreambooth.log | awk 'END {print $NF}')
+ActualLoss=$(grep -o "loss=[0-9.]*" ${output_path}/train_${mixed_precision}_sd3_dreambooth.log | awk 'END {print $NF}')
 
 #打印，不需要修改
 echo "Final Train Loss : ${ActualLoss}"
