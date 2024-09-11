@@ -15,4 +15,4 @@ CUDA_VISIBLE_DEVICES=7 python -m opensora.sample.sample_inpaint \
     --num_sampling_steps 100 \
     --enable_tiling \
     --max_sequence_length 512 \
-    --sample_method PDNM \
+    --sample_method PNDM \
