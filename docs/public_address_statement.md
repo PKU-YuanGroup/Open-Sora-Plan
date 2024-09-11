@@ -23,3 +23,6 @@
 |	开源引入	|	https://raw.githubusercontent.com/huggingface/diffusers/main/examples/test_to_image/train_text_to_image_sdxl.py	|			./train_text_to_image_sdxl.py		|https://github.com/huggingface/diffusers	|开源代码参考指引	|
 |	开发引入	| https://raw.githubusercontent.com/huggingface/diffusers/main/examples/dreambooth/train_dreambooth_sd3.py  |	./train_dreambooth_sd3.py	|	https://github.com/huggingface/diffusers				|	开源代码参考指引	|
 |	开发引入	| https://github.com/PKU-YuanGroup/Open-Sora-Plan/blob/main/opensora/sample/pipeline_opensora.py  |	mindspeed_mm/tasks/inference/pipeline/opensoraplan_pipeline.py	|	https://arxiv.org/abs/2010.02502				|	开源代码参考指引	|
+|	开发引入	| / |	mindspeed_mm/models/diffusion/diffusers_scheduler.py	|	https://arxiv.org/pdf/2205.11487.pdf	|	参考论文地址	|
+|	开发引入	| / |	mindspeed_mm/models/diffusion/diffusers_scheduler.py	|	https://arxiv.org/abs/2303.09556	|	参考论文地址	|
+|	开发引入	| / |	mindspeed_mm/models/diffusion/diffusers_scheduler.py	|	https://www.crosslabs.org//blog/diffusion-with-offset-noise	|	参考博客地址	|

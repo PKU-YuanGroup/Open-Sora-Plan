@@ -236,7 +236,7 @@ License: Apache License 2.0
 For the full text of the license, please go to the above.
 
 Copyright Notice included in the software: 
-Copyright 2022- The HuggingFace Team. All rights reserved.
+Copyright 2024 HPC-AI Technology Inc. All rights reserved.
 
 
 Software Notice

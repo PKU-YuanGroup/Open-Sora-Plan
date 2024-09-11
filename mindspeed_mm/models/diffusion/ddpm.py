@@ -566,4 +566,4 @@ class DDPM:
         else:
             raise NotImplementedError(self.loss_type)
 
-        return terms
+        return terms["loss"]

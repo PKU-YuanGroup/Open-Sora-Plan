@@ -100,6 +100,9 @@ def pretrain(
 
     if args.log_progress:
         append_to_progress_log("Starting job")
+    
+    torch.backends.cuda.matmul.allow_tf32 = args.mm.model.allow_tf32
+    torch.npu.config.allow_internal_format = args.mm.model.allow_internal_format
 
     # Set pytorch JIT layer fusion options and warmup JIT functions.
     set_jit_fusion_options()

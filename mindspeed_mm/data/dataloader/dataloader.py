@@ -117,6 +117,15 @@ def prepare_sampler_dataloader(
             else None
         )
 
+        if sampler is None:
+            process_group = process_group or _get_default_group()
+            sampler = StatefulDistributedSampler(
+                dataset,
+                num_replicas=process_group.size(),
+                rank=process_group.rank(),
+                shuffle=shuffle,
+            )
+
         collate_param = kwargs.get("collate_param", None)
         if collate_param is None:
             raise ValueError("collate_param must be provided.")
@@ -124,12 +133,11 @@ def prepare_sampler_dataloader(
 
         return DataLoader(
             dataset,
-            shuffle=shuffle,
             pin_memory=pin_memory,
             collate_fn=collate_fn,
             batch_size=batch_size,
             num_workers=num_workers,
-            sampler=sampler if (group_frame or group_resolution) else None,
+            sampler=sampler if sampler is not None else None,
             drop_last=drop_last,
         )
     else:

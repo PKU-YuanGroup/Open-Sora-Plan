@@ -4,7 +4,7 @@
         "from_pretrained": "sd-vae-ft-ema",
         "dtype": "fp16",
         "enable_sp": true,
-        "micro_batch_size":2
+        "micro_batch_size": 2
     },
     "text_encoder": {
         "hub_backend": "hf",
@@ -37,8 +37,8 @@
     "diffusion": {
         "timestep_respacing": "",
         "model_id": "iddpm",
-        "num_inference_steps":100,
-        "scale":7
+        "num_inference_steps": 100,
+        "scale": 7
     },
     "num_frames": 16,
     "frame_interval": 3,
@@ -46,9 +46,11 @@
     "input_size": [16, 512, 512],
     "micro_batch_size": 1,
     "model_max_length": 120,
-    "save_path":"./opensora_samples/samples/",
-    "fps":24,
-    "prompt":"examples/opensora/samples_prompts.txt",
+    "save_path": "./opensora_samples/samples/",
+    "fps": 24,
+    "prompt": "examples/opensora/samples_prompts.txt",
     "dtype": "fp16",
-    "device":"npu"
+    "device": "npu",
+    "allow_tf32": false,
+    "allow_internal_format": false
 }

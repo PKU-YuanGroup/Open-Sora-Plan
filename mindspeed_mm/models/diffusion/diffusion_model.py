@@ -31,7 +31,7 @@ class DiffusionModel:
             model_cls = DIFFUSION_MODEL_MAPPINGS[config.model_id]
             self.diffusion = model_cls(**config.to_dict())
         else:
-            self.diffusion = DiffusersScheduler(config)
+            self.diffusion = DiffusersScheduler(config.to_dict())
 
     def get_model(self):
         return self.diffusion

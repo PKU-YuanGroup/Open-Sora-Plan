@@ -17,12 +17,11 @@ class TestIDDPM:
     def test_init_from_diffusers(self):
         config = {
             "model_id": "PNDM",
-            "num_train_timesteps": 1000,
+            "num_train_steps": 1000,
             "num_inference_steps": 100,
             "beta_start": 0.0001,
             "beta_end": 0.02,
             "guidance_scale": 4.5,
-            "device": "npu",
         }
         diffusion = DiffusersScheduler(config).diffusion
         judge_expression(isinstance(diffusion, PNDMScheduler))

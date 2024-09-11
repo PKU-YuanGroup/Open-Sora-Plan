@@ -81,8 +81,6 @@ class MultiHeadAttentionBSH(nn.Module):
             mask: The attention mask to use.
             **kwargs: Additional keyword arguments to pass along
         """
-        if query.dtype not in (torch.float16, torch.bfloat16):
-            raise AssertionError("FlashAttention only support fp16 or bf16")
         input_ndim = query.ndim
         if input_ndim == 4:
             b, c, h, w = query.shape
@@ -196,9 +194,6 @@ class ParallelMultiHeadAttentionSBH(nn.Module):
             height: The height of the frame
             width: The width of the frame
         """
-        if query.dtype not in (torch.float16, torch.bfloat16):
-            raise AssertionError("FlashAttention only support fp16 or bf16")
-
         if len(query.shape) != 3:
             raise AssertionError("Parallel attention only support SBH.")
 

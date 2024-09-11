@@ -44,8 +44,9 @@ class SoRAModel(nn.Module):
         self.load_video_features = config.load_video_features
         self.load_text_features = config.load_text_features
         if not self.load_video_features:
-            self.ae = AEModel(config.ae)
+            self.ae = AEModel(config.ae).eval()
             self.ae.requires_grad_(False)
+            self.ae_dtype = config.ae.dtype
         if not self.load_text_features:
             # TODO: t5固定输入权重情况下如何获取固定输出
             self.text_encoder = TextEncoder(config.text_encoder).eval()
@@ -69,6 +70,8 @@ class SoRAModel(nn.Module):
             if self.load_video_features:
                 latents = video
             else:
+                if self.ae_dtype is not None:
+                    self.ae.to(self.config.ae.dtype)
                 latents = self.ae.encode(video)
             # Text Encode
             if self.load_text_features:
@@ -81,7 +84,7 @@ class SoRAModel(nn.Module):
                 prompt = hidden_states["last_hidden_state"].view(B, N, L, -1)
 
         timesteps = torch.randint(
-            0, self.diffusion.num_timesteps, (latents.shape[0],), device=latents.device
+            0, self.diffusion.num_train_steps, (latents.shape[0],), device=latents.device
         )
         noise = torch.randn_like(latents)
         noised_latents = self.diffusion.q_sample(latents, timesteps, noise)

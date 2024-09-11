@@ -10,7 +10,7 @@ from torch.nn import functional as F
 from torch.utils.data import DataLoader, Dataset, Sampler
 from torch.utils.data.distributed import DistributedSampler
 
-from mindspeed_mm.data.data_utils.constants import PROMPT_IDS, PROMPT_MASK, VIDEO
+from mindspeed_mm.data.data_utils.constants import PROMPT_IDS, PROMPT_MASK, VIDEO, VIDEO_MASK
 from mindspeed_mm.data.datasets.t2v_dataset import VariableT2VDataset
 
 
@@ -81,7 +81,12 @@ class Collate:
         )
         if torch.any(torch.isnan(pad_batch_tubes)):
             raise AssertionError("after pad_batch_tubes.")
-        return pad_batch_tubes, attention_mask, input_ids, cond_mask
+        return {
+            VIDEO: pad_batch_tubes,
+            PROMPT_IDS: input_ids,
+            VIDEO_MASK: attention_mask,
+            PROMPT_MASK: cond_mask
+        }
 
     def process(
         self,

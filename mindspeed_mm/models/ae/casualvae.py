@@ -1,5 +1,6 @@
 from typing import Tuple
 
+from einops import rearrange
 import numpy as np
 import torch
 from torch import nn
@@ -10,6 +11,7 @@ from ..common.attention import CausalConv3dAttnBlock
 from ..common.resnet_block import ResnetBlock2D, ResnetBlock3D
 from ..common.updownsample import SpatialDownsample2x, TimeDownsample2x, SpatialUpsample2x, TimeUpsample2x, \
                                     TimeUpsampleRes2x, Downsample, Spatial2xTime2x3DDownsample, Spatial2xTime2x3DUpsample
+from ..common.checkpoint import load_checkpoint
 
 
 CASUALVAE_MODULE_MAPPINGS = {
@@ -39,6 +41,7 @@ def model_name_to_cls(model_name):
 class CausalVAE(MultiModalModule):
     def __init__(
         self,
+        from_pretrained: str = None,
         hidden_size: int = 128,
         z_channels: int = 4,
         hidden_size_mult: Tuple[int] = (1, 2, 4, 4),
@@ -93,7 +96,8 @@ class CausalVAE(MultiModalModule):
         tile_latent_min_size_t: int = 16,
         tile_overlap_factor: int = 0.125,
         use_tiling: bool = False,
-        use_quant_layer: bool = True
+        use_quant_layer: bool = True,
+        **kwargs
     ) -> None:
         super().__init__(config=None)
         self.tile_sample_min_size = tile_sample_min_size
@@ -143,6 +147,8 @@ class CausalVAE(MultiModalModule):
             quant_conv_cls = model_name_to_cls(q_conv)
             self.quant_conv = quant_conv_cls(2 * z_channels, 2 * embed_dim, 1)
             self.post_quant_conv = quant_conv_cls(embed_dim, z_channels, 1)
+        if from_pretrained is not None:
+            load_checkpoint(self, from_pretrained)
 
     def get_encoder(self):
         if self.use_quant_layer:
@@ -159,22 +165,27 @@ class CausalVAE(MultiModalModule):
             if (x.shape[-1] > self.tile_sample_min_size
                 or x.shape[-2] > self.tile_sample_min_size
                 or x.shape[-3] > self.tile_sample_min_size_t):
-                return self.tiled_encode(x)
-        h = self.encoder(x)
-        if self.use_quant_layer:
-            h = self.quant_conv(h)
-        posterior = DiagonalGaussianDistribution(h)
-        return posterior
+                posterior = self.tiled_encode(x)
+        else:
+            h = self.encoder(x)
+            if self.use_quant_layer:
+                h = self.quant_conv(h)
+            posterior = DiagonalGaussianDistribution(h)
+        res = posterior.sample().mul_(0.18215)
+        return res
 
     def decode(self, z):
+        z = z / 0.18215
         if self.use_tiling:
             if (z.shape[-1] > self.tile_latent_min_size
                 or z.shape[-2] > self.tile_latent_min_size
                 or z.shape[-3] > self.tile_latent_min_size_t):
-                return self.tiled_decode(z)
-        if self.use_quant_layer:
-            z = self.post_quant_conv(z)
-        dec = self.decoder(z)
+                dec = self.tiled_decode(z)
+        else:
+            if self.use_quant_layer:
+                z = self.post_quant_conv(z)
+            dec = self.decoder(z)
+        dec = rearrange(dec, "b c t h w -> b t c h w").contiguous()
         return dec
 
     def forward(self, x, sample_posterior=True):

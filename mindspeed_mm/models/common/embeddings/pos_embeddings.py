@@ -1,9 +1,3 @@
-# Copyright 2024 The HuggingFace Team. All rights reserved.
-# Copyright 2024 HPC-AI Technology Inc. All rights reserved.
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
-
-
 import numpy as np
 
 
@@ -27,9 +21,9 @@ def get_3d_sincos_pos_embed(
     grid_h = np.arange(grid_size[1], dtype=np.float32) / interpolation_scale[1]
     grid_w = np.arange(grid_size[2], dtype=np.float32) / interpolation_scale[2]
     if base_size is not None:
-        grid_t *= base_size / grid_size[0]
-        grid_h *= base_size / grid_size[1]
-        grid_w *= base_size / grid_size[2]
+        grid_t *= base_size[0] / grid_size[0]
+        grid_h *= base_size[1] / grid_size[1]
+        grid_w *= base_size[2] / grid_size[2]
     grid = np.meshgrid(grid_w, grid_h, grid_t)  # here w goes first
     grid = np.stack(grid, axis=0)
 
@@ -76,8 +70,8 @@ def get_2d_sincos_pos_embed(
     grid_h = np.arange(grid_size[0], dtype=np.float32) / interpolation_scale[0]
     grid_w = np.arange(grid_size[1], dtype=np.float32) / interpolation_scale[1]
     if base_size is not None:
-        grid_h *= base_size / grid_size[0]
-        grid_w *= base_size / grid_size[1]
+        grid_h *= base_size[0] / grid_size[0]
+        grid_w *= base_size[1] / grid_size[1]
 
     grid = np.meshgrid(grid_w, grid_h)  # here w goes first
     grid = np.stack(grid, axis=0)

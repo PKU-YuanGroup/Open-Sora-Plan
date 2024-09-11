@@ -5,7 +5,7 @@ from ..common.checkpoint import load_checkpoint
 from .dits import VideoDiT, Latte, STDiT
 
 PREDICTOR_MODEL_MAPPINGS = {
-    "dit": VideoDiT,
+    "videodit": VideoDiT,
     "latte": Latte,
     "stdit": STDiT,
 }
