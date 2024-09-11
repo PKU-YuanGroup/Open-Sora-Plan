@@ -131,8 +131,8 @@ class DiffusersScheduler:
     def q_sample(
         self,
         x_start: Tensor,
-        t: Tensor,
-        noise: Tensor,
+        t: Tensor = None,
+        noise: Tensor = None,
     ) -> Tensor:
         """
         Diffuse the data for a given number of diffusion steps.
@@ -153,7 +153,7 @@ class DiffusersScheduler:
             # https://www.crosslabs.org//blog/diffusion-with-offset-noise
             noise += self.noise_offset * torch.randn((b, s, 1, 1, 1), device=x_start.device)
         x_t = self.diffusion.add_noise(x_start, noise, t)
-        return x_t
+        return x_t, noise, t
 
     def sample(
         self,

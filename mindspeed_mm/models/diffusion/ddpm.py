@@ -50,8 +50,9 @@ class DDPM:
         device: str = "npu",
         **kwargs
     ):
+        self.num_train_steps = num_train_steps
         self.device = get_device(device)
-        self.betas = get_beta_schedule(noise_schedule, num_train_steps).to(self.device)
+        self.betas = get_beta_schedule(noise_schedule, self.num_train_steps).to(self.device)
         # init loss_type
         if use_kl:
             self.loss_type = LossType.RESCALED_KL
@@ -74,8 +75,8 @@ class DDPM:
         if num_inference_steps is not None and timestep_respacing is not None:
             timestep_respacing = str(num_inference_steps)
         elif timestep_respacing is None or timestep_respacing == "":
-            timestep_respacing = [num_train_steps]
-        use_timesteps = set(space_timesteps(num_train_steps, timestep_respacing))
+            timestep_respacing = [self.num_train_steps]
+        use_timesteps = set(space_timesteps(self.num_train_steps, timestep_respacing))
 
         # init new_betas 
         alphas = 1.0 - self.betas
@@ -129,7 +130,7 @@ class DDPM:
         log_variance = extract_into_tensor(self.log_one_minus_alphas_cumprod, t, x_start.shape)
         return mean, variance, log_variance
 
-    def q_sample(self, x_start: Tensor, t: Tensor, noise: Tensor = None) -> Tensor:
+    def q_sample(self, x_start: Tensor, t: Tensor = None, noise: Tensor = None) -> Tensor:
         """
         Diffuse the data for a given number of diffusion steps.
         In other words, sample from q(x_t | x_0).
@@ -138,14 +139,18 @@ class DDPM:
         :param noise: if specified, the split-out normal noise.
         :return: A noisy version of x_start.
         """
+        b, s, z = x_start.shape
         if noise is None:
             noise = torch.randn_like(x_start)
-        if noise.shape != x_start.shape:
+        if noise.shape != (b, s, z):
             raise ValueError("the shape of noise and x_start must equal")
-        return (
+        if t is None:
+            t = torch.randint(0, self.num_train_steps, (b, s, z), device=x_start.device)
+        x_t = (
             extract_into_tensor(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start
             + extract_into_tensor(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * noise
         )
+        return x_t, noise, t
 
     def q_posterior_mean_variance(self, x_start: Tensor, x_t: Tensor, t: Tensor) -> Tensor:
         """Compute the mean and variance of the diffusion posterior: q(x_{t-1} | x_t, x_0)"""

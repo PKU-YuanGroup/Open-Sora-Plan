@@ -83,11 +83,7 @@ class SoRAModel(nn.Module):
                 hidden_states = self.text_encoder.encode(prompt_ids, prompt_mask)
                 prompt = hidden_states["last_hidden_state"].view(B, N, L, -1)
 
-        timesteps = torch.randint(
-            0, self.diffusion.num_train_steps, (latents.shape[0],), device=latents.device
-        )
-        noise = torch.randn_like(latents)
-        noised_latents = self.diffusion.q_sample(latents, timesteps, noise)
+        noised_latents, noise, timesteps = self.diffusion.q_sample(latents)
 
         model_output = self.predictor(
             video=noised_latents,
