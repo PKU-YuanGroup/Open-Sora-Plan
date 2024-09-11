@@ -6,7 +6,7 @@ import torch
 import torch_npu
 from torch_npu.contrib import transfer_to_npu
 import numpy as np
-from PIL import Image
+import PIL.Image as Image
 
 from transformers import DPTFeatureExtractor, DPTForDepthEstimation
 from diffusers import ControlNetModel, StableDiffusionXLControlNetImg2ImgPipeline, AutoencoderKL
@@ -54,7 +54,7 @@ def get_depth_map(image):
     depth_map = (depth_map - depth_min) / (depth_max - depth_min)
     image = torch.cat([depth_map] * 3, dim=1)
     image = image.permute(0, 2, 3, 1).cpu().numpy()[0]
-    image = image.fromarray((image * 255.0).clip(0, 255).astype(np.uint8))
+    image = Image.fromarray((image * 255.0).clip(0, 255).astype(np.uint8))
     return image
 
 
