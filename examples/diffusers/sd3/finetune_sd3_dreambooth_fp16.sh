@@ -29,7 +29,7 @@ start_time=$(date +%s)
 echo "start_time: ${start_time}"
 
 
-accelerate launch train_dreambooth_sd3.py \
+accelerate launch ./examples/dreambooth/train_dreambooth_sd3.py \
   --pretrained_model_name_or_path=$model_name  \
   --instance_data_dir=$input_dir \
   --output_dir=$output_path \

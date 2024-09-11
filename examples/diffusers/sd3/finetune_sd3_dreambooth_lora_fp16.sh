@@ -30,7 +30,7 @@ start_time=$(date +%s)
 echo "start_time: ${start_time}"
 
 
-accelerate train_dreambooth_lora_sd3.py \
+accelerate launch ./examples/dreambooth/train_dreambooth_lora_sd3.py \
   --pretrained_model_name_or_path=$model_name  \
   --instance_data_dir=$input_dir \
   --output_dir=$output_path \
@@ -43,7 +43,7 @@ accelerate train_dreambooth_lora_sd3.py \
   --lr_scheduler="constant" \
   --lr_warmup_steps=0 \
   --max_train_steps=$max_train_steps \
-  --seed="0" > ${output_path}/train_${mixed_precision}_sd3_dreambooth.log 2>&1 &
+  --seed="0" > ${output_path}/train_${mixed_precision}_sd3_dreambooth_lora.log 2>&1 &
 wait
 
 #训练结束时间，不需要修改
@@ -54,7 +54,7 @@ e2e_time=$(($end_time - $start_time))
 echo "------------------ Final result ------------------"
 
 #输出性能FPS，需要模型审视修改
-FPS=$(grep "FPS: " ${output_path}/train_${mixed_precision}_sd3_dreambooth.log | awk '{print $NF}' | sed -n '100,199p' | awk '{a+=$1}END{print a/NR}')
+FPS=$(grep "FPS: " ${output_path}/train_${mixed_precision}_sd3_dreambooth_lora.log | awk '{print $NF}' | sed -n '100,199p' | awk '{a+=$1}END{print a/NR}')
 
 #获取性能数据，不需要修改
 #吞吐量
@@ -64,7 +64,7 @@ ActualFPS=$(awk 'BEGIN{printf "%.2f\n", '${FPS}'}')
 echo "Final Performance images/sec : $ActualFPS"
 
 #loss值，不需要修改
-ActualLoss=$(grep -o "loss=[0-9.]*" ${output_path}/train_${mixed_precision}_sd3_dreambooth.log | awk 'END {print $NF}')
+ActualLoss=$(grep -o "loss=[0-9.]*" ${output_path}/train_${mixed_precision}_sd3_dreambooth_lora.log | awk 'END {print $NF}')
 
 #打印，不需要修改
 echo "Final Train Loss : ${ActualLoss}"

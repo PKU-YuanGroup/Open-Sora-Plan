@@ -4,7 +4,7 @@
         <b>简体中文</b> |
 </p>
 
-- [SD3](#StableDiffusionXL)
+- [SD3](#StableDiffusion3)
   - [模型介绍](#模型介绍)
   - [微调](#微调)
     - [环境搭建](#环境搭建)
@@ -13,7 +13,6 @@
   - [推理](#推理)
     - [环境搭建](#环境搭建)
     - [推理](#推理)
-    - [性能](#性能)
 - [引用](#引用)
   - [公网地址说明](#公网地址说明)
 
@@ -134,7 +133,7 @@
 
 2. 【配置 SD3 微调脚本】
 
-    联网情况下，微调模型可通过以下步骤下载。无网络时，用户可访问huggingface官网自行下载[sdxl-base模型](https://huggingface.co/stabilityai/stable-diffusion-3-medium-diffusers) `model_name`模型
+    联网情况下，微调模型可通过以下步骤下载。无网络时，用户可访问huggingface官网自行下载[sd3-medium模型](https://huggingface.co/stabilityai/stable-diffusion-3-medium-diffusers) `model_name`模型
 
     ```bash
     export model_name="stabilityai/stable-diffusion-3-medium-diffusers" # 预训练模型路径
@@ -172,11 +171,12 @@
 
 3. 【启动 SD3 微调脚本】
 
-    本任务主要提供**混精fp16**和**混精bf16**两种**8卡**训练脚本，使用与不使用**deepspeed**分布式训练。
+    本任务主要提供**混精fp16**和**混精bf16**dreambooth和dreambooth+lora的**8卡**训练脚本，使用与不使用**deepspeed**分布式训练。
 
     ```shell
-    sd3/finetuning_sd3_dreambooth_deepspeed_**16.sh #使用deepspeed
-    sd3/finetune_sd3_dreambooth_fp16.sh #无使用deepspeed
+    bash sd3/finetuning_sd3_dreambooth_deepspeed_**16.sh #使用deepspeed,dreambooth微调
+    bash sd3/finetune_sd3_dreambooth_fp16.sh #无使用deepspeed,dreambooth微调
+    bash sd3/finetune_sd3_dreambooth_lora_fp16.sh #无使用deepspeed,dreambooth+lora微调
     ```
 
 ### 性能
@@ -191,61 +191,26 @@ SD3 在 **昇腾芯片** 和 **参考芯片** 上的性能对比：
 | 竞品A | 8p | Dreambooth-全参微调  |  17.51 |     4      | bf16 | 2.1 | ✔ |
 | Atlas 900 A2 PODc | 8p | Dreambooth-全参微调 |  15.63 |     4      | fp16 | 2.1 | ✔ |
 | 竞品A | 8p | Dreambooth-全参微调 |   16.36 |     4      | fp16 | 2.1 | ✔ |
-| Atlas 900 A2 PODc |8p | Dreambooth-全参微调 | 1.34  | 1 | fp16 | 2.1 | ✘ |
-| 竞品A | 8p | Dreambooth-全参微调 | 1.51 | 1 | fp16 | 2.1 | ✘ |
+| Atlas 900 A2 PODc |8p | Dreambooth-全参微调 | 10.72  | 1 | fp16 | 2.1 | ✘ |
+| 竞品A | 8p | Dreambooth-全参微调 | 12.08 | 1 | fp16 | 2.1 | ✘ |
+| Atlas 900 A2 PODc |8p | DreamBooth-LoRA | 112.32 | 8 | fp16 | 2.1 | ✘ |
+| 竞品A | 8p | DreamBooth-LoRA | 120.32 | 8 | fp16 | 2.1 | ✘ |
 
 ## 推理
 
 ### 环境搭建
 
-1. 【安装与获取模型与数据集】
+  **同微调对应章节**
 
-    获取[sdxl-base模型](https://huggingface.co/stabilityai/stable-diffusion-3-medium-diffusers) 后，获取模型后在以下shell启动脚本中将`model_name`参数设置为本地预训练模型绝对路径。
-
-    ```shell
-    sd3/finetune_sd3_dreambooth_lora_fp16.sh
-    ```
-
-    > **说明：**
-    > 预训练模型同微调，请参考微调章节。
-    > 安装与步骤同微调，请参考微调章节。
-    > 数据集同微调，请参考微调章节。
-
-2. 【启动 SD3 推理脚本】
-
-    2.1 进入推理脚本目录
-
-    ```shell
-    cd sd3
-    ```
-
-    2.2 运行推理的脚本
-
-    调用推理脚本，图生图推理脚本需先准备图片到当前路径下：[下载地址](https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/cat.png)
-
-    ```shell
-    python infer_sd3_img2img_fp16.py   # 单卡推理，文生图
-    python infer_sd3_text2img_fp16.py  # 单卡推理，图生图
-    ```
-
-### 推理
-
-1. 【启动 SD3 推理脚本】
-
-    ```shell
-    sd3/finetune_sd3_dreambooth_lora_fp16.sh
-    ```
-
-### 性能
-
-#### 吞吐
-
-SD3 在 **昇腾芯片** 和 **参考芯片** 上的性能对比：
-
-| 芯片 | 卡数 | 任务 | FPS | batch_size | AMP_Type | Torch_Version | deepspeed |
-|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| Atlas 900 A2 PODc |8p | DreamBooth-LoRA | 14.04 | 8 | fp16 | 2.1 | ✘ |
-| 竞品A | 8p | DreamBooth-LoRA | 15.04 | 8 | fp16 | 2.1 | ✘ |
+ 【运行推理的脚本】
+ 
+  图生图推理脚本需先准备图片：[下载地址](https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/cat.png)
+  修改推理脚本中预训练模型路径以及图生图推理脚本中的本地图片加载路径
+  调用推理脚本
+  ```shell
+  python sd3/infer_sd3_img2img_fp16.py   # 单卡推理，文生图
+  python sd3/infer_sd3_text2img_fp16.py  # 单卡推理，图生图
+  ```
 
 ## 使用基线数据集进行评估
 

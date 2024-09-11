@@ -57,7 +57,7 @@ echo "start_time: ${start_time}"
 
 #如果数据集为pokemon或其他，需要把 sks dog 修改为pokemon或其他
 accelerate launch --config_file ${config_file} \
-  ./MindSpeed-MM/diffusers/examples/dreambooth/train_dreambooth_sd3.py \
+  ./examples/dreambooth/train_dreambooth_sd3.py \
   --pretrained_model_name_or_path=$model_name \
   --dataset_name=$dataset_name --caption_column="text" \
   --instance_prompt="A photo of sks dog" \
