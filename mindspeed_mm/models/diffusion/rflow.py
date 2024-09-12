@@ -69,7 +69,7 @@ class RFlow:
         self,
         model,
         latents,
-        device,
+        device="npu",
         additional_args=None,
         mask=None,
         guidance_scale=None,
