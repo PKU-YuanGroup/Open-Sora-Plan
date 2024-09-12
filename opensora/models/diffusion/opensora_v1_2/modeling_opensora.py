@@ -12,8 +12,16 @@ from diffusers.models.modeling_utils import ModelMixin
 from diffusers.models.normalization import AdaLayerNormSingle
 from diffusers.models.embeddings import PixArtAlphaTextProjection
 from opensora.models.diffusion.opensora_v1_2.modules import MotionAdaLayerNormSingle, BasicTransformerBlock
-from opensora.models.diffusion.common import PatchEmbed2D
+from opensora.models.diffusion.common import PatchEmbed2D, Attention
 from opensora.utils.utils import to_2tuple
+try:
+    import torch_npu
+    from opensora.npu_config import npu_config
+    from opensora.acceleration.parallel_states import get_sequence_parallel_state, hccl_info
+except:
+    torch_npu = None
+    npu_config = None
+    from opensora.utils.parallel_states import get_sequence_parallel_state, nccl_info
 
 class OpenSoraT2V_v1_2(ModelMixin, ConfigMixin):
     _supports_gradient_checkpointing = True
@@ -171,8 +179,23 @@ class OpenSoraT2V_v1_2(ModelMixin, ConfigMixin):
         encoder_hidden_states = rearrange(encoder_hidden_states, 'b s h -> s b h', b=batch_size).contiguous()
         timestep = timestep.view(batch_size, 6, -1).transpose(0, 1).contiguous()
 
+        sparse_mask = {}
+        if npu_config is None:
+            if get_sequence_parallel_state():
+                head_num = self.config.num_attention_heads // nccl_info.world_size
+            else:
+                head_num = self.config.num_attention_heads
+        else:
+            head_num = None
+        for sparse_n in [1, 4]:
+            sparse_mask[sparse_n] = Attention.prepare_sparse_mask(attention_mask, encoder_attention_mask, sparse_n, head_num)
+
         # 2. Blocks
-        for block in self.transformer_blocks:
+        for i, block in enumerate(self.transformer_blocks):
+            if i > 1 and i < 30:
+                attention_mask, encoder_attention_mask = sparse_mask[block.attn1.processor.sparse_n][block.attn1.processor.sparse_group]
+            else:
+                attention_mask, encoder_attention_mask = sparse_mask[1][block.attn1.processor.sparse_group]
             if self.training and self.gradient_checkpointing:
 
                 def create_custom_forward(module, return_dict=None):

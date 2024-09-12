@@ -324,6 +324,9 @@ class Spatial2xTime2x3DUpsample(Block):
         self.causal_cached = None
 
     def forward(self, x):
+        if npu_config is not None and npu_config.on_npu:
+            x_dtype = x.dtype
+            x = x.to(npu_config.replaced_type)
         if x.size(2) > 1:
             if self.enable_cached and self.causal_cached:
                 x = F.interpolate(x, scale_factor=(2, 1, 1), mode=self.t_interpolation)
@@ -341,6 +344,8 @@ class Spatial2xTime2x3DUpsample(Block):
             if self.enable_cached and not self.causal_cached:
                 self.causal_cached = True
             x = F.interpolate(x, scale_factor=(1, 2, 2), mode="trilinear")
+        if npu_config is not None and npu_config.on_npu:
+            x = x.to(x_dtype)
         return self.conv(x)
     
     

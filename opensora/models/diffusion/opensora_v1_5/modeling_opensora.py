@@ -13,7 +13,7 @@ from diffusers.models.normalization import AdaLayerNorm
 from diffusers.models.embeddings import PixArtAlphaTextProjection
 from opensora.models.diffusion.opensora_v1_5.modules import CombinedTimestepTextProjEmbeddings, BasicTransformerBlock
 from opensora.utils.utils import to_2tuple
-from opensora.models.diffusion.common import PatchEmbed2D
+from opensora.models.diffusion.common import PatchEmbed2D, Attention
 try:
     import torch_npu
     from opensora.npu_config import npu_config
@@ -228,6 +228,18 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
         hidden_states = rearrange(hidden_states, 'b s h -> s b h', b=batch_size).contiguous()
         encoder_hidden_states = rearrange(encoder_hidden_states, 'b s h -> s b h', b=batch_size).contiguous()
 
+        self.sparse_mask = {}
+        if npu_config is None:
+            if get_sequence_parallel_state():
+                head_num = self.config.num_attention_heads // nccl_info.world_size
+            else:
+                head_num = self.config.num_attention_heads
+        else:
+            head_num = None
+        for sparse_n in list(set(self.config.sparse_n)):
+            self.sparse_mask[sparse_n] = Attention.prepare_sparse_mask(attention_mask, encoder_attention_mask, sparse_n,
+                                                                  head_num)
+
         # 2. Blocks
         hidden_states, skip_connections = self._operate_on_enc(
             hidden_states, attention_mask, 
@@ -269,6 +281,8 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
         skip_connections = []
         for idx, stage_block in enumerate(self.transformer_blocks[:len(self.config.num_layers)//2]):
             for idx_, block in enumerate(stage_block):
+                attention_mask, encoder_attention_mask = self.sparse_mask[block.attn1.processor.sparse_n][
+                    block.attn1.processor.sparse_group]
                 if self.training and self.gradient_checkpointing:
                     hidden_states = torch.utils.checkpoint.checkpoint(
                         create_custom_forward(block),
@@ -304,6 +318,8 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
         ):
         
         for idx_, block in enumerate(self.transformer_blocks[len(self.config.num_layers)//2]):
+            attention_mask, encoder_attention_mask = self.sparse_mask[block.attn1.processor.sparse_n][
+                block.attn1.processor.sparse_group]
             if self.training and self.gradient_checkpointing:
                 hidden_states = torch.utils.checkpoint.checkpoint(
                     create_custom_forward(block),
@@ -342,6 +358,8 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
             hidden_states = torch.cat([hidden_states, skip_hidden_states], dim=-1)
             hidden_states = self.skip_norm_linear[idx](hidden_states)
             for idx_, block in enumerate(stage_block):
+                attention_mask, encoder_attention_mask = self.sparse_mask[block.attn1.processor.sparse_n][
+                    block.attn1.processor.sparse_group]
                 if self.training and self.gradient_checkpointing:
                     hidden_states = torch.utils.checkpoint.checkpoint(
                         create_custom_forward(block),

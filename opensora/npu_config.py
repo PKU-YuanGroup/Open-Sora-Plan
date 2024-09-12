@@ -164,7 +164,7 @@ class NPUConfig:
         if self.on_npu and attention_mask is not None:
             if npu_config.enable_FA:
                 attention_mask = attention_mask.to(torch.bool)
-            attention_mask = attention_mask.repeat(1, repeat_num, 1)
+            attention_mask = attention_mask.repeat_interleave(repeat_num, dim=-2)
         return attention_mask
     def set_current_run_dtype(self, variables):
         if variables[0].dtype != self.current_run_dtype and self.current_run_dtype is not None:

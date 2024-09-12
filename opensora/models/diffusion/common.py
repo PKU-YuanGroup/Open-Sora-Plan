@@ -51,7 +51,41 @@ class Attention(Attention_):
             sparse_group=sparse_group, is_cross_attn=is_cross_attn
             )
         super().__init__(processor=processor, **kwags)
-        
+
+    @staticmethod
+    def prepare_sparse_mask(attention_mask, encoder_attention_mask, sparse_n, head_num):
+        attention_mask = attention_mask.unsqueeze(1)
+        encoder_attention_mask = encoder_attention_mask.unsqueeze(1)
+        l = attention_mask.shape[-1]
+        if l % (sparse_n * sparse_n) == 0:
+            pad_len = 0
+        else:
+            pad_len = sparse_n * sparse_n - l % (sparse_n * sparse_n)
+
+        attention_mask_sparse = F.pad(attention_mask, (0, pad_len, 0, 0), value=-9980.0)
+        attention_mask_sparse_1d = rearrange(attention_mask_sparse, 'b 1 1 (g k) -> (k b) 1 1 g', k=sparse_n)
+        attention_mask_sparse_1d_group = rearrange(attention_mask_sparse, 'b 1 1 (n m k) -> (m b) 1 1 (n k)',
+                                                   m=sparse_n, k=sparse_n)
+        encoder_attention_mask_sparse = encoder_attention_mask.repeat(sparse_n, 1, 1, 1)
+        if npu_config is not None:
+            attention_mask_sparse_1d = npu_config.get_attention_mask(attention_mask_sparse_1d,
+                                                                     attention_mask_sparse_1d.shape[-1])
+            attention_mask_sparse_1d_group = npu_config.get_attention_mask(attention_mask_sparse_1d_group,
+                                                                           attention_mask_sparse_1d_group.shape[-1])
+
+            encoder_attention_mask_sparse_1d = npu_config.get_attention_mask(encoder_attention_mask_sparse,
+                                                                             attention_mask_sparse_1d.shape[-1])
+            encoder_attention_mask_sparse_1d_group = encoder_attention_mask_sparse_1d
+        else:
+            attention_mask_sparse_1d = attention_mask_sparse_1d.repeat_interleave(head_num, dim=1)
+            attention_mask_sparse_1d_group = attention_mask_sparse_1d_group.repeat_interleave(head_num, dim=1)
+
+            encoder_attention_mask_sparse_1d = encoder_attention_mask_sparse.repeat_interleave(head_num, dim=1)
+            encoder_attention_mask_sparse_1d_group = encoder_attention_mask_sparse_1d
+
+        return {False: (attention_mask_sparse_1d, encoder_attention_mask_sparse_1d),
+                True: (attention_mask_sparse_1d_group, encoder_attention_mask_sparse_1d_group)}
+
     def prepare_attention_mask(
         self, attention_mask: torch.Tensor, target_length: int, batch_size: int, out_dim: int = 3
     ) -> torch.Tensor:
@@ -113,35 +147,22 @@ class OpenSoraAttnProcessor2_0:
         self.rope = RoPE3D(interpolation_scale_thw=interpolation_scale_thw)
         self.position_getter = PositionGetter3D()
     
-    def _sparse_1d(self, x, attention_mask, frame, height, width):
+    def _sparse_1d(self, x, frame, height, width):
         """
         require the shape of (ntokens x batch_size x dim)
-        attention_mask: b nheads 1 thw(gpu) or b 1 thw thw(npu)
         """
         l = x.shape[0]
         assert l == frame*height*width
-        if torch_npu is not None and attention_mask is not None:
-            assert attention_mask.ndim == 3 and attention_mask.shape[1] == 1
-            attention_mask = attention_mask.unsqueeze(1)
-        assert attention_mask is None or attention_mask.shape[2] == 1
         pad_len = 0
         if l % (self.sparse_n * self.sparse_n) != 0:
             pad_len = self.sparse_n * self.sparse_n - l % (self.sparse_n * self.sparse_n)
         if pad_len != 0:
             x = F.pad(x, (0, 0, 0, 0, 0, 0, 0, pad_len))
-            if attention_mask is not None and not self.is_cross_attn:
-                attention_mask = F.pad(attention_mask, (0, pad_len, 0, 0), value=-9980.0)
         if not self.sparse_group:
             x = rearrange(x, '(g k) b d -> g (k b) d', k=self.sparse_n)
-            if attention_mask is not None and not self.is_cross_attn:
-                attention_mask = rearrange(attention_mask, 'b h 1 (g k) -> (k b) h 1 g', k=self.sparse_n).contiguous()
         else:
             x = rearrange(x, '(n m k) b d -> (n k) (m b) d', m=self.sparse_n, k=self.sparse_n)
-            if attention_mask is not None and not self.is_cross_attn:
-                attention_mask = rearrange(attention_mask, 'b h 1 (n m k) -> (m b) h 1 (n k)', m=self.sparse_n, k=self.sparse_n)
-        if self.is_cross_attn:
-            attention_mask = attention_mask.repeat(self.sparse_n, 1, 1, 1)
-        return x, attention_mask, pad_len
+        return x, pad_len
     
     def _reverse_sparse_1d(self, x, frame, height, width, pad_len):
         """
@@ -182,21 +203,19 @@ class OpenSoraAttnProcessor2_0:
             hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
         )
 
-        if attention_mask is not None:
-            if npu_config is None:
-                # scaled_dot_product_attention expects attention_mask shape to be
-                # (batch, heads, source_length, target_length)
-                if get_sequence_parallel_state():
-                    # sequence_length has been split, so we need sequence_length * nccl_info.world_size
-                    # (sp*b 1 s), where s has not been split
-                    # (sp*b 1 s) -prepare-> (sp*b*head 1 s) -> (sp*b head 1 s), where head has been split (e.g, 24 // 8)
-                    attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length * xccl_info.world_size, batch_size)
-                    attention_mask = attention_mask.view(batch_size, attn.heads // xccl_info.world_size, -1, attention_mask.shape[-1])
-                else:
-                    attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length, batch_size)
-                    attention_mask = attention_mask.view(batch_size, attn.heads, -1, attention_mask.shape[-1])
-            # else:
-            #     attention_mask = attention_mask.view(batch_size, 1, -1, attention_mask.shape[-1])
+        # if attention_mask is not None:
+        #     if npu_config is None:
+        #         # scaled_dot_product_attention expects attention_mask shape to be
+        #         # (batch, heads, source_length, target_length)
+        #         if get_sequence_parallel_state():
+        #             # sequence_length has been split, so we need sequence_length * nccl_info.world_size
+        #             # (sp*b 1 s), where s has not been split
+        #             # (sp*b 1 s) -prepare-> (sp*b*head 1 s) -> (sp*b head 1 s), where head has been split (e.g, 24 // 8)
+        #             attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length * xccl_info.world_size, batch_size)
+        #             attention_mask = attention_mask.view(batch_size, attn.heads // xccl_info.world_size, -1, attention_mask.shape[-1])
+        #         else:
+        #             attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length, batch_size)
+        #             attention_mask = attention_mask.view(batch_size, attn.heads, -1, attention_mask.shape[-1])
 
         query = attn.to_q(hidden_states)
 
@@ -233,28 +252,15 @@ class OpenSoraAttnProcessor2_0:
         value = value.view(-1, batch_size, FA_head_num * head_dim)
 
         if self.sparse1d:
-            query, attention_mask, pad_len = self._sparse_1d(query, attention_mask, total_frame, height, width)
+            query, pad_len = self._sparse_1d(query, total_frame, height, width)
             if self.is_cross_attn:
                 key = self._sparse_1d_kv(key)
                 value = self._sparse_1d_kv(value)
             else:
-                key, _, pad_len = self._sparse_1d(key, None, total_frame, height, width)
-                value, _, pad_len = self._sparse_1d(value, None, total_frame, height, width)
+                key, pad_len = self._sparse_1d(key, total_frame, height, width)
+                value, pad_len = self._sparse_1d(value, total_frame, height, width)
 
         if npu_config is not None:
-            if attention_mask is not None:
-                if self.sparse1d:
-                    assert attention_mask.shape[1] == 1 and attention_mask.shape[2] == 1 and attention_mask.ndim == 4
-                    attention_mask = attention_mask.squeeze(1)  # b 1 l
-                else:
-                    assert attention_mask.shape[1] == 1
-                if self.is_cross_attn:
-                    attention_mask = npu_config.get_attention_mask(attention_mask, query.shape[0])
-                    attention_mask = attention_mask.reshape(attention_mask.shape[0], 1, -1, attention_mask.shape[-1])
-                else:
-                    attention_mask = npu_config.get_attention_mask(attention_mask, attention_mask.shape[-1])
-                    attention_mask = attention_mask.reshape(attention_mask.shape[0], 1, -1, attention_mask.shape[-1])
-
             hidden_states = npu_config.run_attention(query, key, value, attention_mask, "SBH", head_dim, FA_head_num)
         else:
             query = rearrange(query, 's b (h d) -> b h s d', h=FA_head_num)
