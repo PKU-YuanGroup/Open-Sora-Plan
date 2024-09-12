@@ -132,7 +132,7 @@ class OpenSoraPipeline(DiffusionPipeline):
                 Attention mask for the negative prompt. Required when `negative_prompt_embeds` is passed directly.
             max_sequence_length (`int`, *optional*): maximum sequence length to use for the prompt.
             text_encoder_index (`int`, *optional*):
-                Index of the text encoder to use. `0` for clip and `1` for T5.
+                Index of the text encoder to use. `0` for T5 and `1` for clip.
         """
         if dtype is None:
             if self.text_encoder_2 is not None:
@@ -194,9 +194,14 @@ class OpenSoraPipeline(DiffusionPipeline):
                 attention_mask=prompt_attention_mask,
             )
             prompt_embeds = prompt_embeds[0]
+
+            if text_encoder_index == 1:
+                prompt_embeds = prompt_embeds.unsqueeze(1)  # b d -> b 1 d for clip
+
             prompt_attention_mask = prompt_attention_mask.repeat(num_samples_per_prompt, 1)
 
         prompt_embeds = prompt_embeds.to(dtype=dtype, device=device)
+
 
         bs_embed, seq_len, _ = prompt_embeds.shape
         # duplicate text embeddings for each generation per prompt, using mps friendly method
@@ -224,7 +229,7 @@ class OpenSoraPipeline(DiffusionPipeline):
             else:
                 uncond_tokens = negative_prompt
 
-            max_length = prompt_embeds.shape[1]
+            # max_length = prompt_embeds.shape[1]
             uncond_input = tokenizer(
                 uncond_tokens,
                 padding="max_length",
@@ -239,6 +244,8 @@ class OpenSoraPipeline(DiffusionPipeline):
                 attention_mask=negative_prompt_attention_mask,
             )
             negative_prompt_embeds = negative_prompt_embeds[0]
+            if text_encoder_index == 1:
+                negative_prompt_embeds = negative_prompt_embeds.unsqueeze(1)  # b d -> b 1 d for clip
             negative_prompt_attention_mask = negative_prompt_attention_mask.repeat(num_samples_per_prompt, 1)
 
         if do_classifier_free_guidance:
@@ -288,7 +295,7 @@ class OpenSoraPipeline(DiffusionPipeline):
         callback_on_step_end_tensor_inputs=None,
     ):
         if (num_frames - 1) % 4 != 0:
-            raise ValueError(f"`num_frames - 1` have to be divisible by 16 but is {num_frames}.")
+            raise ValueError(f"`num_frames - 1` have to be divisible by 4 but is {num_frames}.")
         if height % 8 != 0 or width % 8 != 0:
             raise ValueError(f"`height` and `width` have to be divisible by 8 but are {height} and {width}.")
 

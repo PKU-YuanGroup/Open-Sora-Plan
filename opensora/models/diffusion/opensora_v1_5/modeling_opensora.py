@@ -464,7 +464,7 @@ if __name__ == '__main__':
     }
     )
     b = 2
-    c = 16
+    c = 8
     cond_c = 4096
     cond_c1 = 1280
     num_timesteps = 1000

@@ -1,5 +1,5 @@
 
-CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun --nnodes=1 --nproc_per_node 8 --master_port 29512 \
+CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --nnodes=1 --nproc_per_node 4 --master_port 29512 \
     -m opensora.sample.sample_t2v \
     --model_path /storage/ongoing/9.4/Open-Sora-Plan/test_v1_5 \
     --version v1_5 \
@@ -23,5 +23,4 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun --nnodes=1 --nproc_per_node 8 --ma
     --num_samples_per_prompt 1 \
     --prediction_type "v_prediction" \
     --rescale_betas_zero_snr \
-    --enable_tiling \
-    --sp
+    --enable_profiling

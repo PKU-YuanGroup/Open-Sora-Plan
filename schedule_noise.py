@@ -114,10 +114,14 @@ init_seed = 1
 torch.manual_seed(init_seed)
 torch.cuda.manual_seed(init_seed)
 
+scheduler_cogvideox_0 = get_scheduler('cogvideox', 0.00085, 0.012, "scaled_linear", True, 0.25)
 scheduler_cogvideox_1 = get_scheduler('cogvideox', 0.00085, 0.012, "scaled_linear", True, 1.0)
-scheduler_cogvideox_2 = get_scheduler('cogvideox', 0.00085, 0.012, "scaled_linear", True, 2.0)
-scheduler_cogvideox_3 = get_scheduler('cogvideox', 0.00085, 0.012, "scaled_linear", True, 3.0)
-schedulers = [scheduler_cogvideox_1, scheduler_cogvideox_2, scheduler_cogvideox_3]
+scheduler_cogvideox_2 = get_scheduler('cogvideox', 0.00085, 0.012, "scaled_linear", True, 4.0)
+scheduler_cogvideox_3 = get_scheduler('cogvideox', 0.00085, 0.012, "scaled_linear", True, 6.0)
+scheduler_cogvideox_4 = get_scheduler('cogvideox', 0.00085, 0.012, "scaled_linear", True, 9.0)
+scheduler_cogvideox_5 = get_scheduler('cogvideox', 0.00085, 0.012, "scaled_linear", True, 24.0)
+schedulers = [scheduler_cogvideox_0, scheduler_cogvideox_1, scheduler_cogvideox_2, 
+              scheduler_cogvideox_3, scheduler_cogvideox_4, scheduler_cogvideox_5]
 path = '/storage/dataset/mixkit-a-man-aggressively-yelling-at-a-woman-42260_resize1080p.mp4'
 
 sizes = [[33, 320, 320], [33, 640, 640], [33, 960, 960]]  # snr 1 2 3
@@ -168,4 +172,4 @@ videos_size = torch.stack(videos_size)
 print(videos_size.shape)
 videos_size = save_video_grid(videos_size, nrow=len(sizes))
 print(videos_size.shape)
-imageio.mimwrite(f'snr123_addnoise_max{max(timesteps)}.mp4', videos_size, fps=int(fps), quality=6) 
+imageio.mimwrite(f'snr0.25146924_addnoise_max{max(timesteps)}.mp4', videos_size, fps=int(fps), quality=6) 

@@ -51,7 +51,7 @@ from packaging import version
 from tqdm.auto import tqdm
 
 import diffusers
-from diffusers import DDPMScheduler, PNDMScheduler, DPMSolverMultistepScheduler
+from diffusers import DDPMScheduler, PNDMScheduler, DPMSolverMultistepScheduler, CogVideoXDDIMScheduler
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel, compute_snr
 from diffusers.utils import check_min_version, is_wandb_available
@@ -218,7 +218,10 @@ def main(args):
     if args.enable_tiling:
         ae.vae.enable_tiling()
 
-    kwargs = {'load_in_8bit': args.enable_8bit_t5, 'torch_dtype': weight_dtype, 'low_cpu_mem_usage': True}
+    kwargs = {
+        'torch_dtype': weight_dtype, 
+        'low_cpu_mem_usage': True
+        }
     text_enc_1 = get_text_warpper(args.text_encoder_name_1)(args, **kwargs).eval()
 
     text_enc_2 = None
@@ -235,7 +238,7 @@ def main(args):
     args.patch_size = patch_size_h
     args.patch_size_t, args.patch_size_h, args.patch_size_w = patch_size_t, patch_size_h, patch_size_w
     assert patch_size_h == patch_size_w, f"Support only patch_size_h == patch_size_w now, but found patch_size_h ({patch_size_h}), patch_size_w ({patch_size_w})"
-    # assert args.num_frames % ae_stride_t == 0, f"Num_frames must be divisible by ae_stride_t, but found num_frames ({args.num_frames}), ae_stride_t ({ae_stride_t})."
+    assert (args.num_frames - 1) % ae_stride_t == 0, f"(Frames - 1) must be divisible by ae_stride_t, but found num_frames ({args.num_frames}), ae_stride_t ({ae_stride_t})."
     assert args.max_height % ae_stride_h == 0, f"Height must be divisible by ae_stride_h, but found Height ({args.max_height}), ae_stride_h ({ae_stride_h})."
     assert args.max_width % ae_stride_h == 0, f"Width size must be divisible by ae_stride_h, but found Width ({args.max_width}), ae_stride_h ({ae_stride_h})."
 
@@ -264,8 +267,7 @@ def main(args):
         interpolation_scale_w=args.interpolation_scale_w,
         interpolation_scale_t=args.interpolation_scale_t,
         sparse1d=args.sparse1d, 
-        sparse_n=args.sparse_n, 
-        use_motion=args.use_motion
+        sparse_n=args.sparse_n
     )
     model.gradient_checkpointing = args.gradient_checkpointing
 
@@ -303,13 +305,15 @@ def main(args):
 
     ae.vae.tile_sample_min_size = args.tile_sample_min_size
     ae.vae.tile_sample_min_size_t = args.tile_sample_min_size_t
-
-    noise_scheduler = DDPMScheduler(rescale_betas_zero_snr=args.rescale_betas_zero_snr)
+    if args.cogvideox_schedule:
+        noise_scheduler = CogVideoXDDIMScheduler(rescale_betas_zero_snr=args.rescale_betas_zero_snr)
+    else:
+        noise_scheduler = DDPMScheduler(rescale_betas_zero_snr=args.rescale_betas_zero_snr)
     # Move unet, vae and text_encoder to device and cast to weight_dtype
     # The VAE is in float32 to avoid NaN losses.
-    ae.vae.to(accelerator.device, dtype=torch.float32 if args.vae_fp32 else weight_dtype)
-    text_enc_1.to(accelerator.device, dtype=weight_dtype)
     if not args.extra_save_mem:
+        ae.vae.to(accelerator.device, dtype=torch.float32 if args.vae_fp32 else weight_dtype)
+        text_enc_1.to(accelerator.device, dtype=weight_dtype)
         if text_enc_2 is not None:
             text_enc_2.to(accelerator.device, dtype=weight_dtype)
 
@@ -358,11 +362,6 @@ def main(args):
     # cf https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices
     if args.allow_tf32:
         torch.backends.cuda.matmul.allow_tf32 = True
-
-    if args.scale_lr:
-        args.learning_rate = (
-                args.learning_rate * args.gradient_accumulation_steps * args.train_batch_size * accelerator.num_processes
-        )
 
     params_to_optimize = model.parameters()
     # Optimizer creation
@@ -647,9 +646,9 @@ def main(args):
             raise ValueError(f"Unknown prediction type {noise_scheduler.config.prediction_type}")
 
         mask = model_kwargs.get('attention_mask', None)
-        if torch.all(mask.bool()):
-            mask = None
         if get_sequence_parallel_state():
+            if torch.all(mask.bool()):
+                mask = None
             # mask    (sp_bs*b t h w)
             assert mask is None
         b, c, _, _, _ = model_pred.shape
@@ -733,12 +732,12 @@ def main(args):
         train_loss = 0.0
         x, attn_mask, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2, motion_score = data_item_
         # print(f'step: {step_}, rank: {accelerator.process_index}, x: {x.shape}')
-        assert not torch.any(torch.isnan(x)), 'torch.any(torch.isnan(x))'
+        # assert not torch.any(torch.isnan(x)), 'torch.any(torch.isnan(x))'
 
         if args.extra_save_mem:
             torch.cuda.empty_cache()
-            # ae.vae.to(accelerator.device, dtype=torch.float32 if args.vae_fp32 else weight_dtype)
-            # text_enc_1.to(accelerator.device, dtype=weight_dtype)
+            ae.vae.to(accelerator.device, dtype=torch.float32 if args.vae_fp32 else weight_dtype)
+            text_enc_1.to(accelerator.device, dtype=weight_dtype)
             if text_enc_2 is not None:
                 text_enc_2.to(accelerator.device, dtype=weight_dtype)
 
@@ -784,8 +783,8 @@ def main(args):
             # import sys;sys.exit()
         
         if args.extra_save_mem:
-            # ae.vae.to('cpu')
-            # text_enc_1.to('cpu')
+            ae.vae.to('cpu')
+            text_enc_1.to('cpu')
             if text_enc_2 is not None:
                 text_enc_2.to('cpu')
             torch.cuda.empty_cache()
@@ -828,7 +827,7 @@ def main(args):
 
         else:
             with accelerator.accumulate(model):
-                assert not torch.any(torch.isnan(x)), 'after vae'
+                # assert not torch.any(torch.isnan(x)), 'after vae'
                 x = x.to(weight_dtype)
                 model_kwargs = dict(
                     encoder_hidden_states=cond_1, attention_mask=attn_mask, 
@@ -849,7 +848,6 @@ def main(args):
         progress_info.train_loss = 0.0
         if progress_info.global_step >= args.max_train_steps:
             return True
-
         for step, data_item in enumerate(train_dataloader):
             if train_one_step(step, data_item, prof_):
                 break
@@ -878,7 +876,17 @@ def main(args):
         ) as prof:
             train_one_epoch(prof)
     else:
-        train_one_epoch()
+        if args.enable_profiling:
+            with torch.profiler.profile(
+                schedule=torch.profiler.schedule(wait=5, warmup=1, active=1, repeat=1, skip_first=0),
+                on_trace_ready=torch.profiler.tensorboard_trace_handler('./gpu_profiling_active_1_delmask_delbkmask_andvaemask'),
+                record_shapes=True,
+                profile_memory=True,
+                with_stack=True
+            ) as prof:
+                train_one_epoch(prof)
+        else:
+            train_one_epoch()
     accelerator.wait_for_everyone()
     accelerator.end_training()
     if get_sequence_parallel_state():
@@ -918,12 +926,10 @@ if __name__ == "__main__":
     parser.add_argument('--vae_fp32', action='store_true')
     parser.add_argument('--extra_save_mem', action='store_true')
     parser.add_argument("--model", type=str, choices=list(Diffusion_models.keys()), default="Latte-XL/122")
-    parser.add_argument('--enable_8bit_t5', action='store_true')
     parser.add_argument('--enable_tiling', action='store_true')
     parser.add_argument('--interpolation_scale_h', type=float, default=1.0)
     parser.add_argument('--interpolation_scale_w', type=float, default=1.0)
     parser.add_argument('--interpolation_scale_t', type=float, default=1.0)
-    parser.add_argument("--downsampler", type=str, default=None)
     parser.add_argument("--ae", type=str, default="stabilityai/sd-vae-ft-mse")
     parser.add_argument("--ae_path", type=str, default="stabilityai/sd-vae-ft-mse")
     parser.add_argument("--text_encoder_name_1", type=str, default='DeepFloyd/t5-v1_1-xxl')
@@ -935,19 +941,21 @@ if __name__ == "__main__":
     parser.add_argument('--tile_sample_min_size', type=int, default=512)
     parser.add_argument('--tile_sample_min_size_t', type=int, default=33)
     parser.add_argument('--adapt_vae', action='store_true')
+    parser.add_argument('--cogvideox_schedule', action='store_true')
     parser.add_argument('--use_motion', action='store_true')
     parser.add_argument("--gradient_checkpointing", action="store_true", help="Whether or not to use gradient checkpointing to save memory at the expense of slower backward pass.")
 
     # diffusion setting
     parser.add_argument("--snr_gamma", type=float, default=None, help="SNR weighting gamma to be used if rebalancing the loss. Recommended value is 5.0. More details here: https://arxiv.org/abs/2303.09556.")
     parser.add_argument("--use_ema", action="store_true", help="Whether to use EMA model.")
-    parser.add_argument("--ema_decay", type=float, default=0.999)
+    parser.add_argument("--ema_decay", type=float, default=0.9999)
     parser.add_argument("--ema_start_step", type=int, default=0)
     parser.add_argument("--noise_offset", type=float, default=0.0, help="The scale of noise offset.")
     parser.add_argument("--prediction_type", type=str, default=None, help="The prediction_type that shall be used for training. Choose between 'epsilon' or 'v_prediction' or leave `None`. If left to `None` the default prediction type of the scheduler: `noise_scheduler.config.prediciton_type` is chosen.")
     parser.add_argument('--rescale_betas_zero_snr', action='store_true')
 
     # validation & logs
+    parser.add_argument("--enable_profiling", action="store_true")
     parser.add_argument("--num_sampling_steps", type=int, default=20)
     parser.add_argument('--guidance_scale', type=float, default=4.5)
     parser.add_argument("--enable_tracker", action="store_true")
@@ -986,7 +994,6 @@ if __name__ == "__main__":
     parser.add_argument("--gradient_accumulation_steps", type=int, default=1, help="Number of updates steps to accumulate before performing a backward/update pass.")
     parser.add_argument("--optimizer", type=str, default="adamW", help='The optimizer type to use. Choose between ["AdamW", "prodigy"]')
     parser.add_argument("--learning_rate", type=float, default=1e-4, help="Initial learning rate (after the potential warmup period) to use.")
-    parser.add_argument("--scale_lr", action="store_true", default=False, help="Scale the learning rate by the number of GPUs, gradient accumulation steps, and batch size.")
     parser.add_argument("--lr_warmup_steps", type=int, default=500, help="Number of steps for the warmup in the lr scheduler.")
     parser.add_argument("--use_8bit_adam", action="store_true", help="Whether or not to use 8-bit Adam from bitsandbytes. Ignored if optimizer is not set to AdamW")
     parser.add_argument("--adam_beta1", type=float, default=0.9, help="The beta1 parameter for the Adam and Prodigy optimizers.")

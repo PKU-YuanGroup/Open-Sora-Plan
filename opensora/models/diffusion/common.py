@@ -268,8 +268,8 @@ class OpenSoraAttnProcessor2_0:
             value = rearrange(value, 's b (h d) -> b h s d', h=FA_head_num)
             # 0, -10000 ->(bool) False, True ->(any) True ->(not) False
             # 0, 0 ->(bool) False, False ->(any) False ->(not) True
-            if attention_mask is None or not torch.any(attention_mask.bool()):  # 0 mean visible
-                attention_mask = None
+            # if attention_mask is None or not torch.any(attention_mask.bool()):  # 0 mean visible
+            #     attention_mask = None
             # the output of sdp = (batch, num_heads, seq_len, head_dim)
             # TODO: add support for attn.scale when we move to Torch 2.1
             with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=False, enable_mem_efficient=True):

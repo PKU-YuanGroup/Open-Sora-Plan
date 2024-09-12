@@ -27,13 +27,13 @@ accelerate launch \
     --text_encoder_name_1 google/mt5-xxl \
     --cache_dir "../../cache_dir/" \
     --dataset t2v \
-    --data "scripts/train_data/merge_data_debug.txt" \
+    --data "scripts/train_data/merge_data.txt" \
     --ae WFVAEModel_D8_4x8x8 \
     --ae_path "/storage/lcm/Causal-Video-VAE/results/WFVAE_DISTILL_FORMAL" \
     --sample_rate 1 \
     --num_frames 93 \
-    --max_height 320 \
-    --max_width 320 \
+    --max_height 640 \
+    --max_width 640 \
     --interpolation_scale_t 1.0 \
     --interpolation_scale_h 1.0 \
     --interpolation_scale_w 1.0 \
@@ -47,11 +47,10 @@ accelerate launch \
     --lr_warmup_steps=0 \
     --mixed_precision="bf16" \
     --report_to="wandb" \
-    --checkpointing_steps=100000000 \
+    --checkpointing_steps=1000 \
     --allow_tf32 \
     --model_max_length 512 \
     --use_image_num 0 \
-    --snr_gamma 5.0 \
     --use_ema \
     --ema_start_step 0 \
     --cfg 0.1 \
@@ -60,7 +59,7 @@ accelerate launch \
     --speed_factor 1.0 \
     --ema_decay 0.9999 \
     --drop_short_ratio 0.0 \
-    --pretrained "/storage/ongoing/new/7.19anyres/Open-Sora-Plan/bs32x8x2_anyx93x320x320_fps16_lr2e-6_snr5_ema9999_sparse1d4_dit_l_mt5xxl_alldata100m_vpred_zerosnr/checkpoint-45100/model_ema/diffusion_pytorch_model.safetensors" \
+    --pretrained "/storage/ongoing/new/7.19anyres/Open-Sora-Plan/bs32x8x1_anyx93x640x640_fps16_lr1e-5_snr5_ema9999_sparse1d4_dit_l_mt5xxl_vpred_zerosnr/checkpoint-144000/model_ema/diffusion_pytorch_model.safetensors" \
     --hw_stride 32 \
     --sparse1d --sparse_n 4 \
     --use_motion \
@@ -71,6 +70,5 @@ accelerate launch \
     --use_decord \
     --prediction_type "v_prediction" \
     --rescale_betas_zero_snr \
-    --output_dir="debug" \
-    --sp_size 8 \
-    --train_sp_batch_size 2
+    --output_dir="test_cogvideox" \
+    --cogvideox_schedule

@@ -88,3 +88,5 @@ json2json*
 makenpu_json*
 make_small_json*
 schedule_noise*
+test*
+gpu_profiling*
