@@ -13,6 +13,7 @@ from torchvision.utils import save_image
 import imageio
 import math
 import argparse
+from transformers import AutoModelForCausalLM
 
 try:
     import torch_npu
@@ -131,6 +132,11 @@ def prepare_pipeline(args, device):
 
     return pipeline
 
+def prepare_caption_refiner(args, device):
+    tokenizer = AutoTokenizer.from_pretrained(args.caption_refiner, trust_remote_code=True)
+    model = AutoModelForCausalLM.from_pretrained(
+        args.caption_refiner, torch_dtype=torch.bfloat16, trust_remote_code=True).to(device).eval()
+    return tokenizer, model
 
 def init_gpu_env(args):
     local_rank = int(os.getenv('RANK', 0))
@@ -187,7 +193,28 @@ def save_video_grid(video, nrow=None):
 
     return video_grid
 
-def run_model_and_save_samples(args, pipeline):
+
+def get_refiner_output(model, tokenizer, prompt):
+    template = "Refine the sentence: \"{}\" to contain subject description, action, scene description. " \
+            "(Optional: camera language, light and shadow, atmosphere) and conceive some additional actions to make the sentence more dynamic. " \
+            "Make sure it is a fluent sentence, not nonsense."
+    prompt = template.format(prompt)
+    messages = [
+            {"role": "system", "content": "You are a caption refiner."},
+            {"role": "user", "content": prompt}
+    ]
+    input_ids = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+    model_inputs = tokenizer([input_ids], return_tensors="pt").to('cuda:0')
+    generated_ids = model.generate(model_inputs.input_ids, max_new_tokens=512)
+    generated_ids = [
+        output_ids[len(input_ids):] for input_ids, output_ids in zip(model_inputs.input_ids, generated_ids)
+    ]
+    response = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
+    # print('\nInput\n:', prompt)
+    # print('\nOutput\n:', response)
+    return response
+
+def run_model_and_save_samples(args, pipeline, caption_refiner_model=None, caption_refiner_tokenizer=None):
     if args.seed is not None:
         torch.manual_seed(args.seed)
     if args.local_rank >= 0:
@@ -214,6 +241,8 @@ def run_model_and_save_samples(args, pipeline):
     for index, prompt in enumerate(args.text_prompt):
         if not args.sp and args.local_rank != -1 and index % args.world_size != args.local_rank:
             continue  # skip when ddp
+        if args.caption_refiner is not None:
+            prompt = get_refiner_output(caption_refiner_model, caption_refiner_tokenizer, prompt)
         input_prompt = positive_prompt.format(prompt)
         videos = pipeline(
             input_prompt, 
@@ -328,7 +357,7 @@ def run_model_and_save_samples(args, pipeline):
         print('save path {}'.format(args.save_img_path))
 
 
-def run_model_and_save_samples_npu(args, pipeline):
+def run_model_and_save_samples_npu(args, pipeline, caption_refiner_model=None, caption_refiner_tokenizer=None):
     
     experimental_config = torch_npu.profiler._ExperimentalConfig(
         profiler_level=torch_npu.profiler.ProfilerLevel.Level1,
@@ -350,7 +379,7 @@ def run_model_and_save_samples_npu(args, pipeline):
                 ),
             on_trace_ready=torch_npu.profiler.tensorboard_trace_handler(f"{profile_output_path}/")
     ) as prof:
-        run_model_and_save_samples(args, pipeline)
+        run_model_and_save_samples(args, pipeline, caption_refiner_model, caption_refiner_tokenizer)
         prof.step()
 
 
@@ -363,6 +392,7 @@ def get_args():
     parser.add_argument("--width", type=int, default=512)
     parser.add_argument("--device", type=str, default='cuda:0')
     parser.add_argument("--cache_dir", type=str, default='./cache_dir')
+    parser.add_argument("--caption_refiner", type=str, default=None)
     parser.add_argument("--ae", type=str, default='CausalVAEModel_4x8x8')
     parser.add_argument("--ae_path", type=str, default='CausalVAEModel_4x8x8')
     parser.add_argument("--text_encoder_name_1", type=str, default='DeepFloyd/t5-v1_1-xxl')

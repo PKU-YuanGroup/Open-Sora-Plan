@@ -9,7 +9,8 @@ except:
     pass
 from opensora.utils.sample_utils import (
     init_gpu_env, init_npu_env, prepare_pipeline, get_args, 
-    run_model_and_save_samples, run_model_and_save_samples_npu
+    run_model_and_save_samples, run_model_and_save_samples_npu, 
+    prepare_caption_refiner
 )
 
 if __name__ == "__main__":
@@ -23,8 +24,12 @@ if __name__ == "__main__":
 
     device = torch.cuda.current_device()
     pipeline = prepare_pipeline(args, device)
+    if args.caption_refiner is not None:
+        caption_refiner_model, caption_refiner_tokenizer = prepare_caption_refiner(args, device)
+    else:
+        caption_refiner_model, caption_refiner_tokenizer = None, None
 
     if npu_config is not None and npu_config.on_npu and npu_config.profiling:
-        run_model_and_save_samples_npu(args, pipeline)
+        run_model_and_save_samples_npu(args, pipeline, caption_refiner_model, caption_refiner_tokenizer)
     else:
-        run_model_and_save_samples(args, pipeline)
+        run_model_and_save_samples(args, pipeline, caption_refiner_model, caption_refiner_tokenizer)

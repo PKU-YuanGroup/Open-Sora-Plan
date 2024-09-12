@@ -63,18 +63,29 @@ class Attention(Attention_):
             pad_len = sparse_n * sparse_n - l % (sparse_n * sparse_n)
 
         attention_mask_sparse = F.pad(attention_mask, (0, pad_len, 0, 0), value=-9980.0)
-        attention_mask_sparse_1d = rearrange(attention_mask_sparse, 'b 1 1 (g k) -> (k b) 1 1 g', k=sparse_n)
-        attention_mask_sparse_1d_group = rearrange(attention_mask_sparse, 'b 1 1 (n m k) -> (m b) 1 1 (n k)',
-                                                   m=sparse_n, k=sparse_n)
+        attention_mask_sparse_1d = rearrange(
+            attention_mask_sparse, 
+            'b 1 1 (g k) -> (k b) 1 1 g', 
+            k=sparse_n
+            )
+        attention_mask_sparse_1d_group = rearrange(
+            attention_mask_sparse, 
+            'b 1 1 (n m k) -> (m b) 1 1 (n k)',
+            m=sparse_n, 
+            k=sparse_n
+            )
         encoder_attention_mask_sparse = encoder_attention_mask.repeat(sparse_n, 1, 1, 1)
         if npu_config is not None:
-            attention_mask_sparse_1d = npu_config.get_attention_mask(attention_mask_sparse_1d,
-                                                                     attention_mask_sparse_1d.shape[-1])
-            attention_mask_sparse_1d_group = npu_config.get_attention_mask(attention_mask_sparse_1d_group,
-                                                                           attention_mask_sparse_1d_group.shape[-1])
-
-            encoder_attention_mask_sparse_1d = npu_config.get_attention_mask(encoder_attention_mask_sparse,
-                                                                             attention_mask_sparse_1d.shape[-1])
+            attention_mask_sparse_1d = npu_config.get_attention_mask(
+                attention_mask_sparse_1d, attention_mask_sparse_1d.shape[-1]
+                )
+            attention_mask_sparse_1d_group = npu_config.get_attention_mask(
+                attention_mask_sparse_1d_group, attention_mask_sparse_1d_group.shape[-1]
+                )
+            
+            encoder_attention_mask_sparse_1d = npu_config.get_attention_mask(
+                encoder_attention_mask_sparse, attention_mask_sparse_1d.shape[-1]
+                )
             encoder_attention_mask_sparse_1d_group = encoder_attention_mask_sparse_1d
         else:
             attention_mask_sparse_1d = attention_mask_sparse_1d.repeat_interleave(head_num, dim=1)
@@ -83,8 +94,10 @@ class Attention(Attention_):
             encoder_attention_mask_sparse_1d = encoder_attention_mask_sparse.repeat_interleave(head_num, dim=1)
             encoder_attention_mask_sparse_1d_group = encoder_attention_mask_sparse_1d
 
-        return {False: (attention_mask_sparse_1d, encoder_attention_mask_sparse_1d),
-                True: (attention_mask_sparse_1d_group, encoder_attention_mask_sparse_1d_group)}
+        return {
+                    False: (attention_mask_sparse_1d, encoder_attention_mask_sparse_1d),
+                    True: (attention_mask_sparse_1d_group, encoder_attention_mask_sparse_1d_group)
+                }
 
     def prepare_attention_mask(
         self, attention_mask: torch.Tensor, target_length: int, batch_size: int, out_dim: int = 3
