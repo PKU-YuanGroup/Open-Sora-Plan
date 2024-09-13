@@ -30,13 +30,15 @@ class cuRoPE3D_func (torch.autograd.Function):
 
 
 class cuRoPE3D(torch.nn.Module):
-    def __init__(self, freq=100.0, F0=1.0):
+    def __init__(self, freq=10000.0, F0=1.0, interpolation_scale_thw=None):
         super().__init__()
         self.base = freq 
         self.F0 = F0
 
     def forward(self, tokens, positions): 
         # tokens.transpose(1,2): B,N,H,D
-        # positions: B,N,2
+        # positions: B,N,3
+        # print('tokens.transpose(1,2).shape, positions.shape, self.base, self.F0', 
+        #       tokens.transpose(1,2).shape, positions.shape, self.base, self.F0)
         cuRoPE3D_func.apply( tokens.transpose(1,2), positions, self.base, self.F0 )
         return tokens

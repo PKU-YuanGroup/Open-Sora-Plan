@@ -189,7 +189,6 @@ class OpenSoraT2V_v1_2(ModelMixin, ConfigMixin):
             head_num = None
         for sparse_n in [1, 4]:
             sparse_mask[sparse_n] = Attention.prepare_sparse_mask(attention_mask, encoder_attention_mask, sparse_n, head_num)
-
         # 2. Blocks
         for i, block in enumerate(self.transformer_blocks):
             if i > 1 and i < 30:

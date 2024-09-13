@@ -119,7 +119,11 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
                 self.skip_norm_linear.append(
                     nn.Sequential(
                         nn.Linear(self.config.hidden_size*2, self.config.hidden_size), 
-                        nn.LayerNorm(self.config.hidden_size, elementwise_affine=self.config.norm_elementwise_affine, eps=self.config.norm_eps), 
+                        nn.LayerNorm(
+                            self.config.hidden_size, 
+                            elementwise_affine=self.config.norm_elementwise_affine, 
+                            eps=self.config.norm_eps
+                            ), 
                     )
                 )
             stage_blocks = nn.ModuleList(
@@ -237,8 +241,9 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
         else:
             head_num = None
         for sparse_n in list(set(self.config.sparse_n)):
-            self.sparse_mask[sparse_n] = Attention.prepare_sparse_mask(attention_mask, encoder_attention_mask, sparse_n,
-                                                                  head_num)
+            self.sparse_mask[sparse_n] = Attention.prepare_sparse_mask(
+                attention_mask, encoder_attention_mask, sparse_n, head_num
+                )
 
         # 2. Blocks
         hidden_states, skip_connections = self._operate_on_enc(
@@ -281,6 +286,10 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
         skip_connections = []
         for idx, stage_block in enumerate(self.transformer_blocks[:len(self.config.num_layers)//2]):
             for idx_, block in enumerate(stage_block):
+                # print(f'enc stage_block_{idx}, block_{idx_} ', 
+                #       f'sparse1d {block.sparse1d}, sparse_n {block.sparse_n}, sparse_group {block.sparse_group} '
+                #       f'sparse_mask {block.attn1.processor.sparse_n}, sparse_group {block.attn1.processor.sparse_group}')
+                assert block.sparse_group == block.attn1.processor.sparse_group
                 attention_mask, encoder_attention_mask = self.sparse_mask[block.attn1.processor.sparse_n][
                     block.attn1.processor.sparse_group]
                 if self.training and self.gradient_checkpointing:
@@ -318,6 +327,10 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
         ):
         
         for idx_, block in enumerate(self.transformer_blocks[len(self.config.num_layers)//2]):
+            # print(f'mid, block_{idx_} ', 
+            #         f'sparse1d {block.sparse1d}, sparse_n {block.sparse_n}, sparse_group {block.sparse_group} '
+            #         f'sparse_mask {block.attn1.processor.sparse_n}, sparse_group {block.attn1.processor.sparse_group}')
+            assert block.sparse_group == block.attn1.processor.sparse_group
             attention_mask, encoder_attention_mask = self.sparse_mask[block.attn1.processor.sparse_n][
                 block.attn1.processor.sparse_group]
             if self.training and self.gradient_checkpointing:
@@ -358,6 +371,10 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
             hidden_states = torch.cat([hidden_states, skip_hidden_states], dim=-1)
             hidden_states = self.skip_norm_linear[idx](hidden_states)
             for idx_, block in enumerate(stage_block):
+                # print(f'dec stage_block_{idx}, block_{idx_} ', 
+                #       f'sparse1d {block.sparse1d}, sparse_n {block.sparse_n}, sparse_group {block.sparse_group} '
+                #       f'sparse_mask {block.attn1.processor.sparse_n}, sparse_group {block.attn1.processor.sparse_group}')
+                assert block.sparse_group == block.attn1.processor.sparse_group
                 attention_mask, encoder_attention_mask = self.sparse_mask[block.attn1.processor.sparse_n][
                     block.attn1.processor.sparse_group]
                 if self.training and self.gradient_checkpointing:
@@ -446,8 +463,6 @@ if __name__ == '__main__':
     from opensora.models.causalvideovae import ae_stride_config, ae_channel_config
     from opensora.models.causalvideovae import ae_norm, ae_denorm
     from opensora.models import CausalVAEModelWrapper
-    import ipdb;ipdb.set_trace()
-    model = OpenSoraT2V_v1_5.from_pretrained("/storage/ongoing/9.4/Open-Sora-Plan/test_v1_5")
     args = type('args', (), 
     {
         'ae': 'WFVAEModel_D8_4x8x8', 
@@ -514,5 +529,5 @@ if __name__ == '__main__':
     with torch.no_grad():
         output = model(**model_kwargs)
     print(output[0].shape)
-    model.save_pretrained('./test_v1_5')
+    # model.save_pretrained('./test_v1_5')
 

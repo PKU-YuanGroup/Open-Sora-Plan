@@ -257,13 +257,24 @@ class OpenSoraAttnProcessor2_0:
         if not self.is_cross_attn:
             # require the shape of (ntokens x batch_size x nheads x dim)
             pos_thw = self.position_getter(batch_size, t=total_frame, h=height, w=width, device=query.device)
+
             query = self.rope(query, pos_thw)
             key = self.rope(key, pos_thw)
+            
+            # query = rearrange(query, 's b h d -> b h s d')
+            # key = rearrange(key, 's b h d -> b h s d')
+            # dtype = query.dtype
+
+            # query = self.rope(query.to(torch.float16), pos_thw)
+            # key = self.rope(key.to(torch.float16), pos_thw)
+
+            # query = rearrange(query, 'b h s d -> s b h d').to(dtype)
+            # key = rearrange(key, 'b h s d -> s b h d').to(dtype)
 
         query = query.view(-1, batch_size, FA_head_num * head_dim)
         key = key.view(-1, batch_size, FA_head_num * head_dim)
         value = value.view(-1, batch_size, FA_head_num * head_dim)
-
+        # print(f'q {query.shape}, k {key.shape}, v {value.shape}')
         if self.sparse1d:
             query, pad_len = self._sparse_1d(query, total_frame, height, width)
             if self.is_cross_attn:
@@ -273,6 +284,7 @@ class OpenSoraAttnProcessor2_0:
                 key, pad_len = self._sparse_1d(key, total_frame, height, width)
                 value, pad_len = self._sparse_1d(value, total_frame, height, width)
 
+        # print(f'after sparse q {query.shape}, k {key.shape}, v {value.shape}')
         if npu_config is not None:
             hidden_states = npu_config.run_attention(query, key, value, attention_mask, "SBH", head_dim, FA_head_num)
         else:
@@ -315,6 +327,32 @@ class OpenSoraAttnProcessor2_0:
         return hidden_states
 
 
+
+# try:
+#     from .curope import cuRoPE3D
+#     RoPE3D = cuRoPE3D
+
+
+    
+#     class PositionGetter3D(object):
+#         """ return positions of patches """
+
+#         def __init__(self):
+#             self.cache_positions = {}
+            
+#         def __call__(self, b, t, h, w, device):
+#             if not (t,h,w) in self.cache_positions:
+#                 x = torch.arange(w, device=device)
+#                 y = torch.arange(h, device=device)
+#                 z = torch.arange(t, device=device)
+#                 self.cache_positions[t,h,w] = torch.cartesian_prod(z, y, x) # (t, h, w, 3)
+#             pos = self.cache_positions[t,h,w].view(1, t*h*w, 3).expand(b, -1, 3).clone()
+#             return pos
+        
+# except ImportError:
+    # print('Warning, cannot find cuda-compiled version of RoPE3D, using a slow pytorch version instead')
+
+
 class PositionGetter3D(object):
     """ return positions of patches """
 
@@ -337,7 +375,6 @@ class PositionGetter3D(object):
 
         return pos
     
-
 class RoPE3D(torch.nn.Module):
 
     def __init__(self, freq=10000.0, F0=1.0, interpolation_scale_thw=(1, 1, 1)):

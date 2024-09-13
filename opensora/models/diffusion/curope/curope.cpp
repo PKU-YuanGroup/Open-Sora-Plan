@@ -47,7 +47,7 @@ void rope_3d_cpu( torch::Tensor tokens, const torch::Tensor positions, const flo
 }
 
 void rope_3d( torch::Tensor tokens,     // B,N,H,D
-        const torch::Tensor positions,  // B,N,2
+        const torch::Tensor positions,  // B,N,3
         const float base, 
         const float fwd )
 {
@@ -55,7 +55,7 @@ void rope_3d( torch::Tensor tokens,     // B,N,H,D
     TORCH_CHECK(positions.dim() == 3, "positions must have 3 dimensions");
     TORCH_CHECK(tokens.size(0) == positions.size(0), "batch size differs between tokens & positions");
     TORCH_CHECK(tokens.size(1) == positions.size(1), "seq_length differs between tokens & positions");
-    TORCH_CHECK(positions.size(2) == 2, "positions.shape[2] must be equal to 2");
+    TORCH_CHECK(positions.size(2) == 3, "positions.shape[2] must be equal to 3");
     TORCH_CHECK(tokens.is_cuda() == positions.is_cuda(), "tokens and positions are not on the same device" );
 
     if (tokens.is_cuda())

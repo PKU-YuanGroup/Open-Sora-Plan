@@ -61,7 +61,7 @@ accelerate launch \
     --skip_low_resolution \
     --speed_factor 1.0 \
     --ema_decay 0.9999 \
-    --drop_short_ratio 0.0 \
+    --drop_short_ratio 1.0 \
     --pretrained "/storage/ongoing/new/7.19anyres/Open-Sora-Plan/bs32x8x2_anyx93x320x320_fps16_lr2e-6_snr5_ema9999_sparse1d4_dit_l_mt5xxl_alldata100m_vpred_zerosnr/checkpoint-45100/model_ema/diffusion_pytorch_model.safetensors" \
     --hw_stride 32 \
     --sparse1d \
@@ -72,6 +72,7 @@ accelerate launch \
     --use_decord \
     --prediction_type "v_prediction" \
     --rescale_betas_zero_snr \
-    --output_dir="test_cogvideox" \
+    --output_dir="debug" \
     --vae_fp32 \
-    --ood_img_ratio 0.5 
+    --ood_img_ratio 0.5 \
+    --force_resolution 

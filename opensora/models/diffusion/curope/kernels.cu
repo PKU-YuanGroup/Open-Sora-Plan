@@ -38,7 +38,7 @@ __global__ void rope_3d_cuda_kernel(
 
     const int Q = D / 6; 
     // one token = [0..Q : Q..2Q : 2Q..3Q : 3Q..4Q : 4Q..5Q : 6Q..D]
-    //              u_T     v_YT     u_Y      v_Y     u_X      v_X
+    //              u_T     v_T     u_Y      v_Y     u_X      v_X
 
     // shared memory: first, compute inv_freq
     if (threadIdx.x < Q)
@@ -81,7 +81,7 @@ __global__ void rope_3d_cuda_kernel(
     }
 }
 
-void rope_2d_cuda( torch::Tensor tokens, const torch::Tensor pos, const float base, const float fwd ) 
+void rope_3d_cuda( torch::Tensor tokens, const torch::Tensor pos, const float base, const float fwd ) 
 {
     const int B = tokens.size(0); // batch size
     const int N = tokens.size(1); // sequence length
@@ -90,16 +90,16 @@ void rope_2d_cuda( torch::Tensor tokens, const torch::Tensor pos, const float ba
 
     TORCH_CHECK(tokens.stride(3) == 1 && tokens.stride(2) == D, "tokens are not contiguous");
     TORCH_CHECK(pos.is_contiguous(), "positions are not contiguous");
-    TORCH_CHECK(pos.size(0) == B && pos.size(1) == N && pos.size(2) == 2, "bad pos.shape");
-    TORCH_CHECK(D % 4 == 0, "token dim must be multiple of 4");
+    TORCH_CHECK(pos.size(0) == B && pos.size(1) == N && pos.size(2) == 3, "bad pos.shape");
+    TORCH_CHECK(D % 6 == 0, "token dim must be multiple of 6");
 
     // one block for each layer, one thread per local-max
     const int THREADS_PER_BLOCK = D;
     const int N_BLOCKS = B * N; // each block takes care of H*D values
-    const int SHARED_MEM = sizeof(float) * (D + D/4);
+    const int SHARED_MEM = sizeof(float) * (D + D/6);
 
-    AT_DISPATCH_FLOATING_TYPES_AND_HALF(tokens.type(), "rope_2d_cuda", ([&] {
-        rope_2d_cuda_kernel<scalar_t> <<<N_BLOCKS, THREADS_PER_BLOCK, SHARED_MEM>>> (
+    AT_DISPATCH_FLOATING_TYPES_AND_HALF(tokens.type(), "rope_3d_cuda", ([&] {
+        rope_3d_cuda_kernel<scalar_t> <<<N_BLOCKS, THREADS_PER_BLOCK, SHARED_MEM>>> (
             //tokens.data_ptr<scalar_t>(), 
             tokens.packed_accessor32<scalar_t,4,torch::RestrictPtrTraits>(),
             pos.data_ptr<int64_t>(), 

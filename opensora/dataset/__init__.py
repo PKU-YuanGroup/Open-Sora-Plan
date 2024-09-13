@@ -10,7 +10,6 @@ from opensora.dataset.t2v_datasets import T2V_dataset
 from opensora.models.causalvideovae import ae_norm, ae_denorm
 from opensora.dataset.transform import ToTensorVideo, TemporalRandomCrop, RandomHorizontalFlipVideo, CenterCropResizeVideo, LongSideResizeVideo, SpatialStrideCropVideo, NormalizeVideo, ToTensorAfterResize
 
-from opensora.dataset.inpaint_datasets import Inpaint_dataset
 
 
 def getdataset(args):

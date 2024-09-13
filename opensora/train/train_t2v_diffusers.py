@@ -878,8 +878,12 @@ def main(args):
     else:
         if args.enable_profiling:
             with torch.profiler.profile(
+                activities=[
+                    # torch.profiler.ProfilerActivity.CPU, 
+                    torch.profiler.ProfilerActivity.CUDA
+                    ], 
                 schedule=torch.profiler.schedule(wait=5, warmup=1, active=1, repeat=1, skip_first=0),
-                on_trace_ready=torch.profiler.tensorboard_trace_handler('./gpu_profiling_active_1_delmask_delbkmask_andvaemask'),
+                on_trace_ready=torch.profiler.tensorboard_trace_handler('./gpu_profiling_active_1_delmask_delbkmask_andvaemask_curope_gpu'),
                 record_shapes=True,
                 profile_memory=True,
                 with_stack=True
