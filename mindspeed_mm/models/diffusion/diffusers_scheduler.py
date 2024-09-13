@@ -1,10 +1,9 @@
-from typing import Union, Tuple, List
+from typing import Union, Tuple, List, Callable
 
 import torch
 from torch import Tensor
+from tqdm.auto import tqdm
 import torch.nn.functional as F
-
-
 from diffusers.schedulers import (
     DDIMScheduler,
     DDPMScheduler,
@@ -18,7 +17,7 @@ from diffusers.schedulers import (
 )
 from diffusers.training_utils import compute_snr
 
-
+from mindspeed_mm.utils.utils import get_device
 DIFFUSERS_SCHEDULE_MAPPINGS = {
     "DDIM": DDIMScheduler,
     "EulerDiscrete": EulerDiscreteScheduler,
@@ -58,6 +57,7 @@ class DiffusersScheduler:
         self.prediction_type = config.pop("prediction_type", "epsilon")
         self.noise_offset = config.pop("noise_offset", 0)
         self.snr_gamma = config.pop("snr_gamma", 5.0)
+        self.device = get_device(config.pop("device", "npu"))
         model_id = config.pop("model_id")
 
         if model_id in DIFFUSERS_SCHEDULE_MAPPINGS:
@@ -157,7 +157,7 @@ class DiffusersScheduler:
 
     def sample(
         self,
-        model,
+        model: Callable,
         shape: Union[List, Tuple],
         latents: Tensor,
         model_kwargs: dict = None,
@@ -184,7 +184,6 @@ class DiffusersScheduler:
         :return: a non-differentiable batch of samples.
         Returns clean latents.
         """
-        indices = list(range(self.timesteps))[::-1]
         if not isinstance(shape, (tuple, list)):
             raise AssertionError("param shape is incorrect")
         if latents is None:
@@ -192,52 +191,43 @@ class DiffusersScheduler:
         if added_cond_kwargs:
             model_kwargs.update(added_cond_kwargs)
 
-        # for loop denoising to get latents
-        with self.diffusion.progress_bar(
-            total=self.num_inference_steps
-        ) as progress_bar:
-            for i in indices:
-                timestep = torch.tensor([i] * shape[0], device=self.device)
-                latents = (
-                    torch.cat([latents] * 2)
-                    if self.do_classifier_free_guidance
-                    else latents
-                )
-                latents = self.diffusion.scale_model_input(latents, timestep)
+        self.diffusion.set_timesteps(self.num_inference_steps, device=self.device)
+        self.timesteps = self.diffusion.timesteps
 
-                model_kwargs["video"] = latents
-                model_kwargs["video_mask"] = torch.ones_like(latents)[:, 0]
+        # for loop denoising to get latents
+        with tqdm(total=self.num_inference_steps) as progress_bar:
+            for i, t in enumerate(self.timesteps):
+                # timestep = torch.tensor([i] * shape[0], device=self.device)
+                latent_model_input = torch.cat([latents] * 2) if self.do_classifier_free_guidance else latents
+                latent_model_input = self.diffusion.scale_model_input(latent_model_input, t)
+                current_timestep = t
+                current_timestep = current_timestep.expand(latent_model_input.shape[0])
+                model_kwargs["latents"] = latent_model_input
+                video_mask = torch.ones_like(latent_model_input)[:, 0]
+                world_size = model_kwargs.get("world_size", 1)
+                video_mask = video_mask.repeat(1, world_size, 1, 1)
+                model_kwargs["video_mask"] = video_mask
 
                 with torch.no_grad():
-                    noise_pred = model(t=timestep, **model_kwargs)[0]
+                    noise_pred = model(timestep=current_timestep, **model_kwargs)
 
                 # perform guidance
                 if self.do_classifier_free_guidance:
                     noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-                    noise_pred = noise_pred_uncond + self.guidance_scale * (
-                        noise_pred_text - noise_pred_uncond
-                    )
+                    noise_pred = noise_pred_uncond + self.guidance_scale * (noise_pred_text - noise_pred_uncond)
 
                 # learned sigma
                 if model.out_channels // 2 == model.in_channels:
                     noise_pred = noise_pred.chunk(2, dim=1)[0]
 
                 # compute previous image: x_t -> x_t-1
-                latents = self.diffusion.step(
-                    noise_pred,
-                    timestep,
-                    latents,
-                    **extra_step_kwargs,
-                    return_dict=False,
-                )[0]
+                latents = self.diffusion.step(noise_pred, t, latents, **extra_step_kwargs, return_dict=False)[0]
 
                 # call the callback, if provided
                 if i == len(self.timesteps) - 1 or (
-                    (i + 1) > self.num_warmup_steps
-                    and (i + 1) % self.diffusion.order == 0
-                ):
+                        (i + 1) > self.num_warmup_steps and (i + 1) % self.diffusion.order == 0):
                     progress_bar.update()
                     if callback is not None and i % callback_steps == 0:
                         step_idx = i // getattr(self.diffusion, "order", 1)
-                        callback(step_idx, timestep, latents)
+                        callback(step_idx, t, latents)
         return latents

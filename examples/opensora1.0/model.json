@@ -3,6 +3,8 @@
     "dtype": "bf16",
     "load_video_features": false,
     "load_text_features": false,
+    "allow_tf32": false,
+    "allow_internal_format": false,
     "ae": {
         "model_id": "vae",
         "from_pretrained": "your model path",

@@ -62,7 +62,6 @@ class MMEncoderMixin:
                     "The following part of your input was truncated because CLIP can only handle sequences up to"
                     f" {max_length} tokens: {removed_text}"
                 )
-            # TODO 加入参数use_attention_mask
             if hasattr(self.text_encoder,
                        "use_attention_mask") and self.text_encoder.use_attention_mask:
                 attention_mask = text_inputs.attention_mask.to(device)
@@ -72,7 +71,6 @@ class MMEncoderMixin:
             if clip_skip is None:
                 prompt_embeds = self.text_encoder(text_input_ids.to(device), attention_mask=attention_mask)
                 if isinstance(prompt_embeds, transformers.utils.ModelOutput):
-                    # [0]表示取last_hidden_state TODO 如果使用mindspeed-mm这里就不需要
                     prompt_embeds = prompt_embeds[0]
             else:
                 prompt_embeds = self.text_encoder(
@@ -145,7 +143,6 @@ class MMEncoderMixin:
                 attention_mask=attention_mask,
             )
             if isinstance(negative_prompt_embeds, transformers.utils.ModelOutput):
-                # [0]表示取last_hidden_state TODO 如果使用mindspeed-mm这里就不需要
                 negative_prompt_embeds = negative_prompt_embeds[0]
         else:
             if hasattr(self.text_encoder,

@@ -95,6 +95,7 @@ class CausalVAE(MultiModalModule):
         tile_sample_min_size_t: int = 33,
         tile_latent_min_size_t: int = 16,
         tile_overlap_factor: int = 0.125,
+        vae_scale_factor: list = None,
         use_tiling: bool = False,
         use_quant_layer: bool = True,
         **kwargs
@@ -106,6 +107,7 @@ class CausalVAE(MultiModalModule):
 
         self.tile_latent_min_size_t = tile_latent_min_size_t
         self.tile_overlap_factor = tile_overlap_factor
+        self.vae_scale_factor = vae_scale_factor
         self.use_tiling = use_tiling
         self.use_quant_layer = use_quant_layer
 
