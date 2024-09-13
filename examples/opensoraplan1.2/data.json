@@ -75,7 +75,7 @@
 		"group_resolution": false,
 		"collate_param": {
 			"batch_size": 1,
-			"num_frames": 13,
+			"num_frames": 93,
 			"group_frame": false,
 			"group_resolution": false,
 			"max_height": 480,

@@ -139,13 +139,13 @@ class DDPM:
         :param noise: if specified, the split-out normal noise.
         :return: A noisy version of x_start.
         """
-        b, s, z = x_start.shape
+        b = x_start.shape[1]
         if noise is None:
             noise = torch.randn_like(x_start)
-        if noise.shape != (b, s, z):
+        if noise.shape != x_start.shape:
             raise ValueError("the shape of noise and x_start must equal")
         if t is None:
-            t = torch.randint(0, self.num_train_steps, (b, s, z), device=x_start.device)
+            t = torch.randint(0, self.num_train_steps, (b,), device=x_start.device)
         x_t = (
             extract_into_tensor(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start
             + extract_into_tensor(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * noise

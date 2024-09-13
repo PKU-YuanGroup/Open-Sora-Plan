@@ -142,16 +142,16 @@ class DiffusersScheduler:
         :param noise: if specified, the split-out normal noise.
         :return: A noisy version of x_start.
         """
-        b, s, z = x_start.shape
+        b, c, _, _, _ = x_start.shape
         if noise is None:
             noise = torch.randn_like(x_start)
-        if noise.shape != (b, s, z):
+        if noise.shape != x_start.shape:
             raise ValueError("The shape of noise and x_start must be equal.")
         if t is None:
-            t = torch.randint(0, self.num_train_steps, (b, s, z), device=x_start.device)
+            t = torch.randint(0, self.num_train_steps, (b,), device=x_start.device)
         if self.noise_offset:
             # https://www.crosslabs.org//blog/diffusion-with-offset-noise
-            noise += self.noise_offset * torch.randn((b, s, 1, 1, 1), device=x_start.device)
+            noise += self.noise_offset * torch.randn((b, c, 1, 1, 1), device=x_start.device)
         x_t = self.diffusion.add_noise(x_start, noise, t)
         return x_t, noise, t
 

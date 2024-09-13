@@ -71,7 +71,8 @@ class SoRAModel(nn.Module):
                 latents = video
             else:
                 if self.ae_dtype is not None:
-                    self.ae.to(self.config.ae.dtype)
+                    self.ae.to(self.ae_dtype)
+                    video = video.to(self.ae_dtype)
                 latents = self.ae.encode(video)
             # Text Encode
             if self.load_text_features:
@@ -86,7 +87,7 @@ class SoRAModel(nn.Module):
         noised_latents, noise, timesteps = self.diffusion.q_sample(latents)
 
         model_output = self.predictor(
-            video=noised_latents,
+            noised_latents,
             timestep=timesteps,
             prompt=prompt,
             video_mask=video_mask,

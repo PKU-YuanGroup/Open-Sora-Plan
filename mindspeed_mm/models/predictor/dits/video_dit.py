@@ -177,7 +177,7 @@ class VideoDiT(MultiModalModule):
         b, _, t, _, _ = latents.shape
         frames = t - use_image_num
         vid_mask, img_mask = None, None
-        prompt_mask = prompt_mask.view(b, -1, prompt.shape[-1])
+        prompt_mask = prompt_mask.view(b, -1, prompt_mask.shape[-1])
         if video_mask is not None and video_mask.ndim == 4:
             video_mask = video_mask.to(self.dtype)
             vid_mask = video_mask[:, :frames]  # [b, frames, h, w]
