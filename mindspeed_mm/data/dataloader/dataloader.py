@@ -1,15 +1,16 @@
-from typing import Iterator, Optional
+from typing import Optional
 
-import torch
 from torch.distributed import ProcessGroup
 from torch.distributed.distributed_c10d import _get_default_group
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
 
-from mindspeed_mm.data.data_utils.utils import get_seed_worker
+from mindspeed_mm.data.data_utils.utils import get_seed_worker, collate_fn_default
+from mindspeed_mm.data.datasets.t2v_dataset import DynamicVideoTextDataset
 from mindspeed_mm.data.dataloader.sampler import (
     Collate,
     LengthGroupedSampler,
     StatefulDistributedSampler,
+    VariableVideoBatchSampler
 )
 
 
@@ -98,6 +99,7 @@ def prepare_sampler_dataloader(
         return DataLoader(
             dataset,
             batch_size=batch_size,
+            shuffle=shuffle,
             sampler=sampler,
             worker_init_fn=get_seed_worker(seed),
             drop_last=drop_last,
@@ -144,6 +146,40 @@ def prepare_sampler_dataloader(
         raise NotImplementedError(f"sampler type: {sampler_type}")
 
 
-# TODO
-def prepare_variable_dataloader():
-    pass
+def prepare_variable_dataloader(
+        dataset,
+        shuffle=False,
+        seed=1024,
+        drop_last=False,
+        pin_memory=False,
+        num_workers=0,
+        process_group: Optional[ProcessGroup] = None,
+        bucket_config=None,
+        num_bucket_build_workers=1,
+        sampler_type="variable_video_batch_sampler",
+        **kwargs,
+    ):
+    if isinstance(dataset, DynamicVideoTextDataset) and sampler_type == "variable_video_batch_sampler":
+        batch_sampler = VariableVideoBatchSampler(
+            dataset,
+            bucket_config,
+            num_replicas=process_group.size(),
+            rank=process_group.rank(),
+            shuffle=shuffle,
+            seed=seed,
+            drop_last=drop_last,
+            verbose=True,
+            num_bucket_build_workers=num_bucket_build_workers,
+        )
+
+        return DataLoader(
+                    dataset,
+                    batch_sampler=batch_sampler,
+                    worker_init_fn=get_seed_worker(seed),
+                    pin_memory=pin_memory,
+                    num_workers=num_workers,
+                    collate_fn=collate_fn_default,
+                    **kwargs,
+                )
+    else:
+        return NotImplementedError

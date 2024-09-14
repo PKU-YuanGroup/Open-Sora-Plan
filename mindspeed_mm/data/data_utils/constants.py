@@ -6,3 +6,4 @@ VIDEO = "video"
 VIDEO_MASK = "video_mask"
 FILE_INFO = "file"
 CAPTIONS = "captions"
+IMG_FPS = 120

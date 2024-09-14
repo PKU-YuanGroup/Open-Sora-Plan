@@ -22,6 +22,7 @@ class MMBaseDataset(Dataset):
         self,
         data_path: str = "",
         data_folder: str = "",
+        return_type: str = "list",
         data_storage_mode: str = "standard",
         **kwargs,
     ):
@@ -29,7 +30,7 @@ class MMBaseDataset(Dataset):
         self.data_folder = data_folder
         self.data_storage_mode = data_storage_mode
         self.get_data = DataFileReader(data_storage_mode=data_storage_mode)
-        self.data_samples = self.get_data(self.data_path)
+        self.data_samples = self.get_data(self.data_path, return_type=return_type)
 
     def __len__(self):
         return len(self.data_samples)

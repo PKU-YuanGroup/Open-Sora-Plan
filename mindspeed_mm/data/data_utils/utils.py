@@ -5,29 +5,39 @@
 # TextProcesser: https://github.com/huggingface/diffusers/blob/main/src/diffusers/pipelines/deepfloyd_if/pipeline_if.py
 
 
+import os
+import re
+import gc
 import html
 import math
-import os
 import random
-import re
-import string
 import urllib.parse as ul
+from fractions import Fraction
+from collections import Counter
+from typing import Any, Dict, Optional, Tuple, Union
 
+import av
+import ftfy
+import torch
+import torchvision
+import numpy as np
+import pandas as pd
+from PIL import Image
+from bs4 import BeautifulSoup
+from einops import rearrange
+from torchvision import get_video_backend
+from torchvision.datasets.folder import IMG_EXTENSIONS, pil_loader
+from torchvision.io.video import (
+    _align_audio_frames,
+    _check_av_available,
+    _log_api_usage_once,
+    _read_from_stream,
+    _video_opt,
+)
 try:
     import decord
 except ImportError:
     print("Failed to import decord module.")
-from collections import Counter
-
-import ftfy
-import numpy as np
-import pandas as pd
-import torch
-import torchvision
-from bs4 import BeautifulSoup
-from einops import rearrange
-from PIL import Image
-from torchvision.datasets.folder import IMG_EXTENSIONS, pil_loader
 
 from mindspeed_mm.data.data_utils.data_transform import TemporalRandomCrop
 from mindspeed_mm.data.data_utils.transform_pipeline import get_transforms
@@ -41,18 +51,21 @@ class DataFileReader:
     def __init__(self, data_storage_mode="standard"):
         self.data_storage_mode = data_storage_mode
 
-    def __call__(self, data_path):
+    def __call__(self, data_path, return_type="list"):
         if self.data_storage_mode == "standard":
-            return self.get_datasamples(data_path)
+            return self.get_datasamples(data_path, return_type=return_type)
         elif self.data_storage_mode == "combine":
             return self.get_cap_list(data_path)
         else:
             raise NotImplementedError("Not support now.")
 
-    def get_datasamples(self, data_path):
+    def get_datasamples(self, data_path, return_type="list"):
         if data_path.endswith(".csv"):
             data_out = pd.read_csv(data_path)
-            return data_out.to_dict("records")
+            if return_type == "list":
+                return data_out.to_dict("records")
+            else:
+                return data_out
         elif data_path.endswith(".json"):
             data_out = pd.read_json(data_path)
             return data_out.to_dict("records")
@@ -113,6 +126,7 @@ class VideoReader:
             self.v_decoder = DecordInit(num_threads)
 
     def __call__(self, video_path):
+        is_decord_read = False
         if self.video_reader_type == "decoder":
             vframes = self.v_decoder(video_path)
             is_decord_read = True
@@ -120,12 +134,125 @@ class VideoReader:
             vframes, aframes, info = torchvision.io.read_video(
                 filename=video_path, pts_unit="sec", output_format="TCHW"
             )  # [T: temporal, C: channel, H: height, W: width]
-            is_decord_read = False
+        elif self.video_reader_type == "av":
+            vframes, aframes, info = read_video_av(filename=video_path, pts_unit="sec", output_format="TCHW")
         else:
             raise NotImplementedError(
                 f"Unsupported video reader type: {self.video_reader_type}"
             )
-        return vframes, is_decord_read
+        return vframes, info, is_decord_read
+
+
+def read_video_av(
+    filename: str,
+    start_pts: Union[float, Fraction] = 0,
+    end_pts: Optional[Union[float, Fraction]] = None,
+    pts_unit: str = "pts",
+    output_format: str = "THWC",
+) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, Any]]:
+    """
+    Reads a video from a file, returning both the video frames and the audio frames
+
+    Args:
+        filename (str): path to the video file
+        start_pts (int if pts_unit = 'pts', float / Fraction if pts_unit = 'sec', optional):
+            The start presentation time of the video
+        end_pts (int if pts_unit = 'pts', float / Fraction if pts_unit = 'sec', optional):
+            The end presentation time
+        pts_unit (str, optional): unit in which start_pts and end_pts values will be interpreted,
+            either 'pts' or 'sec'. Defaults to 'pts'.
+        output_format (str, optional): The format of the output video tensors. Can be either "THWC" (default) or "TCHW".
+
+    Returns:
+        vframes (Tensor[T, H, W, C] or Tensor[T, C, H, W]): the `T` video frames
+        aframes (Tensor[K, L]): the audio frames, where `K` is the number of channels and `L` is the number of points
+        info (Dict): metadata for the video and audio. Can contain the fields video_fps (float) and audio_fps (int)
+    """
+    output_format = output_format.upper()
+    if output_format not in ("THWC", "TCHW"):
+        raise ValueError(f"output_format should be either 'THWC' or 'TCHW', got {output_format}.")
+
+    if not os.path.exists(filename):
+        raise RuntimeError(f"File not found: {filename}")
+
+    if get_video_backend() != "pyav":
+        vframes, aframes, info = _video_opt._read_video(filename, start_pts, end_pts, pts_unit)
+    else:
+        _check_av_available()
+
+        if end_pts is None:
+            end_pts = float("inf")
+
+        if end_pts < start_pts:
+            raise ValueError(
+                f"end_pts should be larger than start_pts, got start_pts={start_pts} and end_pts={end_pts}"
+            )
+
+        info = {}
+        video_frames = []
+        audio_frames = []
+        audio_timebase = _video_opt.default_timebase
+
+        container = av.open(filename, metadata_errors="ignore")
+        try:
+            if container.streams.audio:
+                audio_timebase = container.streams.audio[0].time_base
+            if container.streams.video:
+                video_frames = _read_from_stream(
+                    container,
+                    start_pts,
+                    end_pts,
+                    pts_unit,
+                    container.streams.video[0],
+                    {"video": 0},
+                )
+                video_fps = container.streams.video[0].average_rate
+                # guard against potentially corrupted files
+                if video_fps is not None:
+                    info["video_fps"] = float(video_fps)
+
+            if container.streams.audio:
+                audio_frames = _read_from_stream(
+                    container,
+                    start_pts,
+                    end_pts,
+                    pts_unit,
+                    container.streams.audio[0],
+                    {"audio": 0},
+                )
+                info["audio_fps"] = container.streams.audio[0].rate
+        except av.AVError as ex:
+            raise ex
+        finally:
+            container.close()
+            del container
+            # NOTE: manually garbage collect to close pyav threads
+            gc.collect()
+
+        vframes_list = [frame.to_rgb().to_ndarray() for frame in video_frames]
+        aframes_list = [frame.to_ndarray() for frame in audio_frames]
+
+        if vframes_list:
+            vframes = torch.as_tensor(np.stack(vframes_list))
+        else:
+            vframes = torch.empty((0, 1, 1, 3), dtype=torch.uint8)
+
+        if aframes_list:
+            aframes = np.concatenate(aframes_list, 1)
+            aframes = torch.as_tensor(aframes)
+            if pts_unit == "sec":
+                start_pts = int(math.floor(start_pts * (1 / audio_timebase)))
+                if end_pts != float("inf"):
+                    end_pts = int(math.ceil(end_pts * (1 / audio_timebase)))
+            aframes = _align_audio_frames(aframes, audio_frames, start_pts, end_pts)
+        else:
+            aframes = torch.empty((1, 0), dtype=torch.float32)
+
+    if output_format == "TCHW":
+        # [T,H,W,C] --> [T,C,H,W]
+        vframes = vframes.permute(0, 3, 1, 2)
+
+    return vframes, aframes, info
 
 
 class VideoProcesser:
@@ -145,9 +272,8 @@ class VideoProcesser:
         **kwargs,
     ):
         self.num_frames = num_frames
-        self.video_transforms = get_transforms(
-            is_video=True, train_pipeline=train_pipeline
-        )
+        self.train_pipeline = train_pipeline
+        self.video_transforms = None
         self.temporal_sample = TemporalRandomCrop(num_frames * frame_interval)
         self.data_storage_mode = data_storage_mode
         if self.data_storage_mode == "combine":
@@ -157,9 +283,12 @@ class VideoProcesser:
             self.max_height = max_height
             self.max_width = max_width
 
-    def __call__(self, vframes, is_decord_read=False, predefine_num_frames=13):
+    def __call__(self, vframes, num_frames=None, frame_interval=None, image_size=None, is_decord_read=False, predefine_num_frames=13):
         if self.data_storage_mode == "standard":
             total_frames = len(vframes)
+            if num_frames:
+                self.num_frames = num_frames
+                self.temporal_sample = TemporalRandomCrop(num_frames * frame_interval)
             start_frame_ind, end_frame_ind = self.temporal_sample(total_frames)
             if end_frame_ind - start_frame_ind < self.num_frames:
                 raise AssertionError("the video does not have enough frames.")
@@ -173,6 +302,14 @@ class VideoProcesser:
                 video = video.permute(0, 3, 1, 2)
             else:
                 video = vframes[frame_indice]  # TCHW
+
+            if image_size:
+                self.video_transforms = get_transforms(is_video=True, train_pipeline=self.train_pipeline,
+                                                       image_size=image_size)
+            else:
+                self.video_transforms = get_transforms(is_video=True, train_pipeline=self.train_pipeline,
+                                                       image_size=image_size)
+
             video = self.video_transforms(video)
             # TCHW -> CTHW
             video = video.permute(1, 0, 2, 3)
@@ -183,6 +320,7 @@ class VideoProcesser:
                 predefine_num_frames=predefine_num_frames,
             )
         return video
+
 
     def combine_data_video_process(
         self, vframes, is_decord_read=True, predefine_num_frames=13
@@ -457,6 +595,7 @@ class TextProcesser:
         model_max_length=120,
         tokenizer=None,
         use_clean_caption=True,
+        enable_text_preprocessing=True,
         padding_type="max_length",
         support_chinese=False,
         cfg=0.1,
@@ -467,13 +606,18 @@ class TextProcesser:
         self.use_clean_caption = use_clean_caption
         self.support_chinese = support_chinese
         self.cfg = cfg
+        self.enable_text_preprocessing = enable_text_preprocessing
 
     def __call__(self, texts):
-        texts_info = [
-            TextProcesser.text_preprocessing(text, self.use_clean_caption)
-            for text in texts
-        ]
-        texts_info = texts_info if random.random() > self.cfg else [""]
+        if self.enable_text_preprocessing:
+            texts_info = [
+                TextProcesser.text_preprocessing(text, self.use_clean_caption)
+                for text in texts
+            ]
+            texts_info = texts_info if random.random() > self.cfg else [""]
+        else:
+            texts_info = texts
+
         text_tokens_and_mask = self.tokenizer(
             texts_info,
             max_length=self.model_max_length,
@@ -705,3 +849,40 @@ def get_batch_on_this_tp_rank(data_iterator):
 
     batch = data_iterator
     return batch
+
+
+def format_numel_str(numel: int) -> str:
+    B = 1024**3
+    M = 1024**2
+    K = 1024
+    if numel >= B:
+        return f"{numel / B:.2f} B"
+    elif numel >= M:
+        return f"{numel / M:.2f} M"
+    elif numel >= K:
+        return f"{numel / K:.2f} K"
+    else:
+        return f"{numel}"
+
+
+def collate_fn_default(batch):
+    use_mask = False
+    if "mask" in batch[0] and isinstance(batch[0]["mask"], int):
+        masks = [x.pop("mask") for x in batch]
+        input_ids = [x.pop("input_ids") for x in batch]
+        input_ids = torch.cat(input_ids, dim=-1)
+        use_mask = True
+    elif "mask" in batch[0] and isinstance(batch[0]["mask"], torch.Tensor):
+        masks = [x.pop("mask") for x in batch]
+        input_ids = [x.pop("input_ids") for x in batch]
+        masks = torch.cat(masks, dim=0)
+        input_ids = torch.cat(input_ids, dim=0)
+        use_mask = True
+
+    ret = torch.utils.data.default_collate(batch)
+
+    if use_mask:
+        ret["mask"] = masks
+        ret["input_ids"] = input_ids
+
+    return ret

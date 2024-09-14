@@ -27,6 +27,7 @@ VIDEO_TRANSFORM_MAPPING = {
 
 
 IMAGE_TRANSFORM_MAPPING = {
+    "Lambda": transforms.Lambda,
     "ToTensorVideo": ToTensorVideo,
     "CenterCropResizeVideo": CenterCropResizeVideo,
     "CenterCropArr": CenterCropArr,
@@ -38,7 +39,7 @@ IMAGE_TRANSFORM_MAPPING = {
 }
 
 
-def get_transforms(is_video=True, train_pipeline=None):
+def get_transforms(is_video=True, train_pipeline=None, image_size=None):
     if train_pipeline is None:
         return None
     train_pipeline_info = (
@@ -49,6 +50,10 @@ def get_transforms(is_video=True, train_pipeline=None):
     pipeline = []
     for pp_in in train_pipeline_info:
         param_info = pp_in.get("param", dict())
+
+        # 动态数据集场景下，用户须传入image_size,按照用户传的值做transforms
+        if image_size and "size" in param_info and param_info["size"] == "auto":
+            param_info["size"] = image_size
         trans_type = pp_in.get("trans_type", "")
         trans_info = TransformMaping(
             is_video=is_video, trans_type=trans_type, param=param_info

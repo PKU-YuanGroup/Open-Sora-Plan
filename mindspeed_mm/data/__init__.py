@@ -5,7 +5,7 @@ from mindspeed_mm.data.dataloader.dataloader import (
 )
 from mindspeed_mm.data.datasets.image_dataset import ImageDataset
 from mindspeed_mm.data.datasets.t2i_dataset import T2IDataset
-from mindspeed_mm.data.datasets.t2v_dataset import T2VDataset
+from mindspeed_mm.data.datasets.t2v_dataset import T2VDataset, DynamicVideoTextDataset
 from mindspeed_mm.data.datasets.video_dataset import VideoDataset
 
 
@@ -18,8 +18,8 @@ def build_mm_dataset(dataset_param):
     Return:
         dataset
     """
-
-    dataset_param = dataset_param.to_dict()
+    if not isinstance(dataset_param, dict):
+        dataset_param = dataset_param.to_dict()
     for check_key in ["dataset_type", "basic_parameters", "preprocess_parameters"]:
         if check_key not in dataset_param:
             raise AssertionError(f"Key parameter missing: {check_key}")
@@ -30,6 +30,8 @@ def build_mm_dataset(dataset_param):
         return T2VDataset(basic_param, preprocess_param, **dataset_param)
     elif dataset_type == "t2i":
         return T2IDataset(basic_param, preprocess_param, **dataset_param)
+    elif dataset_type == "dt2v":  # 构建动态分辨率数据集
+        return DynamicVideoTextDataset(basic_param, preprocess_param, **dataset_param)
     elif dataset_type == "video":
         return VideoDataset(basic_param, preprocess_param, **dataset_param)
     elif dataset_type == "image":
@@ -52,11 +54,11 @@ def build_mm_dataloader(dataset, dataloader_param, process_group=None):
     Return:
         dataloader
     """
-
-    dataloader_param = dataloader_param.to_dict()
+    if not isinstance(dataloader_param, dict):
+        dataloader_param = dataloader_param.to_dict()
     if "dataloader_mode" not in dataloader_param:
         raise AssertionError("Key parameter missing: dataloader_mode")
-    dataloader_mode = dataloader_param["dataloader_mode"]
+    dataloader_mode = dataloader_param.pop("dataloader_mode")
     if dataloader_mode == "base":
         data_loader = prepare_base_dataloader(dataset, **dataloader_param)
         return data_loader
@@ -66,7 +68,7 @@ def build_mm_dataloader(dataset, dataloader_param, process_group=None):
         )
         return data_loader
     elif dataloader_mode == "variable":
-        data_loader = prepare_variable_dataloader(dataset, **dataloader_param)
+        data_loader = prepare_variable_dataloader(dataset, **dataloader_param, process_group=process_group)
         return data_loader
     else:
         raise NotImplementedError(dataloader_param["dataloader_mode"])
