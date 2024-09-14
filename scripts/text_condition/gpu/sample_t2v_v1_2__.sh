@@ -8,17 +8,18 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun --nnodes=1 --nproc_per_node 8 --ma
     --width 640 \
     --cache_dir "../cache_dir" \
     --text_encoder_name_1 "/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl" \
-    --text_prompt examples/dense_output.txt \
+    --text_prompt examples/dense_output_cn.txt \
     --ae WFVAEModel_D8_4x8x8 \
     --ae_path "/storage/lcm/Causal-Video-VAE/results/WFVAE_DISTILL_FORMAL" \
-    --save_img_path "./gyy_dense_output_m0.95_seed1" \
+    --save_img_path "./gyy_dense_output_m0.9_cfg10.0_seed3_cn_refine" \
     --fps 18 \
-    --guidance_scale 7.5 \
+    --guidance_scale 10.0 \
     --num_sampling_steps 200 \
     --max_sequence_length 512 \
     --sample_method EulerAncestralDiscrete \
-    --motion_score 0.95 \
-    --seed 1234 \
+    --motion_score 0.9 \
+    --seed 3 \
     --num_samples_per_prompt 1 \
     --prediction_type "v_prediction" \
-    --rescale_betas_zero_snr 
+    --rescale_betas_zero_snr \
+    --caption_refiner "/storage/ongoing/refine_model/llama3_1_instruct_lora/llama3_8B_lora_merged_cn"

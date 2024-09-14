@@ -67,9 +67,9 @@ def get_scheduler(args):
         )
     return scheduler
 
-def prepare_pipeline(args, device):
+def prepare_pipeline(args, dtype, device):
     
-    weight_dtype = torch.bfloat16
+    weight_dtype = dtype
 
     vae = ae_wrapper[args.ae](args.ae_path)
     vae.vae = vae.vae.to(device=device, dtype=weight_dtype).eval()
@@ -132,12 +132,6 @@ def prepare_pipeline(args, device):
 
     return pipeline
 
-def prepare_caption_refiner(args, device):
-    tokenizer = AutoTokenizer.from_pretrained(args.caption_refiner, trust_remote_code=True)
-    model = AutoModelForCausalLM.from_pretrained(
-        args.caption_refiner, torch_dtype=torch.bfloat16, trust_remote_code=True).to(device).eval()
-    return tokenizer, model
-
 def init_gpu_env(args):
     local_rank = int(os.getenv('RANK', 0))
     world_size = int(os.getenv('WORLD_SIZE', 1))
@@ -194,27 +188,7 @@ def save_video_grid(video, nrow=None):
     return video_grid
 
 
-def get_refiner_output(model, tokenizer, prompt):
-    template = "Refine the sentence: \"{}\" to contain subject description, action, scene description. " \
-            "(Optional: camera language, light and shadow, atmosphere) and conceive some additional actions to make the sentence more dynamic. " \
-            "Make sure it is a fluent sentence, not nonsense."
-    prompt = template.format(prompt)
-    messages = [
-            {"role": "system", "content": "You are a caption refiner."},
-            {"role": "user", "content": prompt}
-    ]
-    input_ids = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-    model_inputs = tokenizer([input_ids], return_tensors="pt").to('cuda:0')
-    generated_ids = model.generate(model_inputs.input_ids, max_new_tokens=512)
-    generated_ids = [
-        output_ids[len(input_ids):] for input_ids, output_ids in zip(model_inputs.input_ids, generated_ids)
-    ]
-    response = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
-    # print('\nInput\n:', prompt)
-    # print('\nOutput\n:', response)
-    return response
-
-def run_model_and_save_samples(args, pipeline, caption_refiner_model=None, caption_refiner_tokenizer=None):
+def run_model_and_save_samples(args, pipeline, caption_refiner_model=None):
     if args.seed is not None:
         torch.manual_seed(args.seed)
     if args.local_rank >= 0:
@@ -242,7 +216,9 @@ def run_model_and_save_samples(args, pipeline, caption_refiner_model=None, capti
         if not args.sp and args.local_rank != -1 and index % args.world_size != args.local_rank:
             continue  # skip when ddp
         if args.caption_refiner is not None:
-            prompt = get_refiner_output(caption_refiner_model, caption_refiner_tokenizer, prompt)
+            refine_prompt = caption_refiner_model.get_refiner_output(prompt)
+            print(f'\nOrigin prompt: {prompt}\n->\nRefine prompt: {refine_prompt}')
+            prompt = refine_prompt
         input_prompt = positive_prompt.format(prompt)
         videos = pipeline(
             input_prompt, 
@@ -357,30 +333,30 @@ def run_model_and_save_samples(args, pipeline, caption_refiner_model=None, capti
         print('save path {}'.format(args.save_img_path))
 
 
-def run_model_and_save_samples_npu(args, pipeline, caption_refiner_model=None, caption_refiner_tokenizer=None):
+def run_model_and_save_samples_npu(args, pipeline, caption_refiner_model=None):
     
-    experimental_config = torch_npu.profiler._ExperimentalConfig(
-        profiler_level=torch_npu.profiler.ProfilerLevel.Level1,
-        aic_metrics=torch_npu.profiler.AiCMetrics.PipeUtilization
-    )
-    profile_output_path = "./npu_profiling_t2v"
-    os.makedirs(profile_output_path, exist_ok=True)
-    with torch_npu.profiler.profile(
-            activities=[
-                torch_npu.profiler.ProfilerActivity.NPU, 
-                torch_npu.profiler.ProfilerActivity.CPU
-                ],
-            with_stack=True,
-            record_shapes=True,
-            profile_memory=True,
-            experimental_config=experimental_config,
-            schedule=torch_npu.profiler.schedule(
-                wait=10000, warmup=0, active=1, repeat=1, skip_first=0
-                ),
-            on_trace_ready=torch_npu.profiler.tensorboard_trace_handler(f"{profile_output_path}/")
-    ) as prof:
-        run_model_and_save_samples(args, pipeline, caption_refiner_model, caption_refiner_tokenizer)
-        prof.step()
+    # experimental_config = torch_npu.profiler._ExperimentalConfig(
+    #     profiler_level=torch_npu.profiler.ProfilerLevel.Level1,
+    #     aic_metrics=torch_npu.profiler.AiCMetrics.PipeUtilization
+    # )
+    # profile_output_path = "./npu_profiling_t2v"
+    # os.makedirs(profile_output_path, exist_ok=True)
+    # with torch_npu.profiler.profile(
+    #         activities=[
+    #             torch_npu.profiler.ProfilerActivity.NPU, 
+    #             torch_npu.profiler.ProfilerActivity.CPU
+    #             ],
+    #         with_stack=True,
+    #         record_shapes=True,
+    #         profile_memory=True,
+    #         experimental_config=experimental_config,
+    #         schedule=torch_npu.profiler.schedule(
+    #             wait=10000, warmup=0, active=1, repeat=1, skip_first=0
+    #             ),
+    #         on_trace_ready=torch_npu.profiler.tensorboard_trace_handler(f"{profile_output_path}/")
+    # ) as prof:
+    run_model_and_save_samples(args, pipeline, caption_refiner_model)
+        # prof.step()
 
 
 def get_args():
