@@ -78,11 +78,6 @@ style_list = [
 
 
 
-def save_video(video):
-    unique_name = str(uuid.uuid4()) + ".mp4"
-    imageio.mimwrite(unique_name, video, fps=23, quality=6)
-    return unique_name
-
 def randomize_seed_fn(seed: int, randomize_seed: bool) -> int:
     if randomize_seed:
         seed = random.randint(0, MAX_SEED)

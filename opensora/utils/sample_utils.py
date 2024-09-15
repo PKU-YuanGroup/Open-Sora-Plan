@@ -121,11 +121,13 @@ def prepare_pipeline(args, dtype, device):
     ).to(device)
 
     if args.save_memory:
+        print('enable_model_cpu_offload AND enable_sequential_cpu_offload AND enable_tiling')
         pipeline.enable_model_cpu_offload()
         pipeline.enable_sequential_cpu_offload()
         # torch.cuda.empty_cache()
-        # input('input')
         vae.vae.enable_tiling()
+        vae.vae.t_chunk_enc = 8
+        vae.vae.t_chunk_dec = vae.vae.t_chunk_enc // 2
         
     if args.compile:
         pipeline.transformer = torch.compile(pipeline.transformer)
@@ -188,7 +190,7 @@ def save_video_grid(video, nrow=None):
     return video_grid
 
 
-def run_model_and_save_samples(args, pipeline, caption_refiner_model=None):
+def run_model_and_save_samples(args, pipeline, caption_refiner_model=None, enhance_video_model=None):
     if args.seed is not None:
         torch.manual_seed(args.seed)
     if args.local_rank >= 0:
@@ -232,6 +234,9 @@ def run_model_and_save_samples(args, pipeline, caption_refiner_model=None):
             num_samples_per_prompt=args.num_samples_per_prompt,
             max_sequence_length=args.max_sequence_length,
             ).videos
+        if enhance_video_model is not None:
+            # b t h w c
+            videos = enhance_video_model.enhance_a_video(videos, input_prompt, 2.0, args.fps, 250)
         if (not args.sp) or (args.sp and args.local_rank <= 0):
             if args.num_frames == 1:
                 videos = rearrange(videos, 'b t h w c -> (b t) c h w')
@@ -333,7 +338,7 @@ def run_model_and_save_samples(args, pipeline, caption_refiner_model=None):
         print('save path {}'.format(args.save_img_path))
 
 
-def run_model_and_save_samples_npu(args, pipeline, caption_refiner_model=None):
+def run_model_and_save_samples_npu(args, pipeline, caption_refiner_model=None, enhance_video_model=None):
     
     # experimental_config = torch_npu.profiler._ExperimentalConfig(
     #     profiler_level=torch_npu.profiler.ProfilerLevel.Level1,
@@ -355,7 +360,7 @@ def run_model_and_save_samples_npu(args, pipeline, caption_refiner_model=None):
     #             ),
     #         on_trace_ready=torch_npu.profiler.tensorboard_trace_handler(f"{profile_output_path}/")
     # ) as prof:
-    run_model_and_save_samples(args, pipeline, caption_refiner_model)
+    run_model_and_save_samples(args, pipeline, caption_refiner_model, enhance_video_model)
         # prof.step()
 
 
@@ -371,6 +376,7 @@ def get_args():
     parser.add_argument("--caption_refiner", type=str, default=None)
     parser.add_argument("--ae", type=str, default='CausalVAEModel_4x8x8')
     parser.add_argument("--ae_path", type=str, default='CausalVAEModel_4x8x8')
+    parser.add_argument("--enhance_video", type=str, default=None)
     parser.add_argument("--text_encoder_name_1", type=str, default='DeepFloyd/t5-v1_1-xxl')
     parser.add_argument("--text_encoder_name_2", type=str, default=None)
     parser.add_argument("--save_img_path", type=str, default="./sample_videos/t2v")

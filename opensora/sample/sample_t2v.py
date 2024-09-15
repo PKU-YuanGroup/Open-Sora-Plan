@@ -25,6 +25,11 @@ if __name__ == "__main__":
         args = init_gpu_env(args)
 
     device = torch.cuda.current_device()
+    if args.num_frames != 1 and args.enhance_video is not None:
+        from opensora.sample.VEnhancer.enhance_a_video import VEnhancer
+        enhance_video_model = VEnhancer(model_path=args.enhance_video, version='v2', device=device)
+    else:
+        enhance_video_model = None
     pipeline = prepare_pipeline(args, dtype, device)
     if args.caption_refiner is not None:
         caption_refiner_model = OpenSoraCaptionRefiner(args, dtype, device)
@@ -32,6 +37,6 @@ if __name__ == "__main__":
         caption_refiner_model = None
 
     if npu_config is not None and npu_config.on_npu and npu_config.profiling:
-        run_model_and_save_samples_npu(args, pipeline, caption_refiner_model)
+        run_model_and_save_samples_npu(args, pipeline, caption_refiner_model, enhance_video_model)
     else:
-        run_model_and_save_samples(args, pipeline, caption_refiner_model)
+        run_model_and_save_samples(args, pipeline, caption_refiner_model, enhance_video_model)
