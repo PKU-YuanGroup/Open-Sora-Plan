@@ -309,6 +309,8 @@ class Spatial2x3DUpsample(Block):
         x = F.interpolate(x, scale_factor=(1,2,2), mode='trilinear')
         return self.conv(x)
     
+    
+
 class Spatial2xTime2x3DUpsample(Block):
     def __init__(
         self,
@@ -324,11 +326,16 @@ class Spatial2xTime2x3DUpsample(Block):
         self.causal_cached = None
 
     def forward(self, x):
-        if x.size(2) > 1:
-            if self.enable_cached and self.causal_cached:
+        if x.size(2) > 1 or self.causal_cached is not None :
+            if self.enable_cached and self.causal_cached is not None:
+                x = torch.cat([self.causal_cached, x], dim=2)
+                self.causal_cached = x[:, :, -2:-1].clone()
                 x = F.interpolate(x, scale_factor=(2, 1, 1), mode=self.t_interpolation)
+                x = x[:, :, 2:]
                 x = F.interpolate(x, scale_factor=(1, 2, 2), mode="trilinear")
             else:
+                if self.enable_cached:
+                    self.causal_cached = x[:, :, -1:].clone()
                 x, x_ = x[:, :, :1], x[:, :, 1:]
                 x_ = F.interpolate(
                     x_, scale_factor=(2, 1, 1), mode=self.t_interpolation
@@ -336,11 +343,9 @@ class Spatial2xTime2x3DUpsample(Block):
                 x_ = F.interpolate(x_, scale_factor=(1, 2, 2), mode="trilinear")
                 x = F.interpolate(x, scale_factor=(1, 2, 2), mode="trilinear")
                 x = torch.concat([x, x_], dim=2)
-                self.causal_cached = True
         else:
-            if self.enable_cached and not self.causal_cached:
-                self.causal_cached = True
+            if self.enable_cached:
+                self.causal_cached = x[:, :, -1:].clone()
             x = F.interpolate(x, scale_factor=(1, 2, 2), mode="trilinear")
         return self.conv(x)
-    
     

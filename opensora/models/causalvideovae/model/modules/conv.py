@@ -80,6 +80,7 @@ class CausalConv3d(Block):
         )
         self.enable_cached = enable_cached
         self.causal_cached = None
+        self.cache_offset = 0
 
     def forward(self, x):
         x_dtype = x.dtype
@@ -89,20 +90,23 @@ class CausalConv3d(Block):
             )
         else:
             first_frame_pad = self.causal_cached
-
         x = torch.concatenate((first_frame_pad, x), dim=2)
 
         if self.enable_cached and self.time_kernel_size != 1:
             if (self.time_kernel_size - 1) // self.stride[0] != 0:
-                self.causal_cached = x[:, :, -(self.time_kernel_size - 1) // self.stride[0]:, :, :]
+                if self.cache_offset == 0:
+                    self.causal_cached = x[:, :, -(self.time_kernel_size - 1) // self.stride[0]:].clone()
+                else:
+                    self.causal_cached = (x[:, :, :-self.cache_offset][:, :, -(self.time_kernel_size - 1) // self.stride[0]:]).clone()
             else:
-                self.causal_cached = x[:, :, 0:0, :, :]
+                self.causal_cached = x[:, :, 0:0, :, :].clone()
 
         if npu_config is not None and npu_config.on_npu:
             return npu_config.run_conv3d(self.conv, x, x_dtype)
         else:
             x = self.conv(x)
             return x
+
 
 
 class CausalConv3d_GC(CausalConv3d):
