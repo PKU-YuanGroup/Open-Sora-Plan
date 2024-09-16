@@ -170,7 +170,7 @@ class OpenSoraAttnProcessor2_0:
         if l % (self.sparse_n * self.sparse_n) != 0:
             pad_len = self.sparse_n * self.sparse_n - l % (self.sparse_n * self.sparse_n)
         if pad_len != 0:
-            x = F.pad(x, (0, 0, 0, 0, 0, 0, 0, pad_len))
+            x = F.pad(x, (0, 0, 0, 0, 0, pad_len))
         if not self.sparse_group:
             x = rearrange(x, '(g k) b d -> g (k b) d', k=self.sparse_n)
         else:
