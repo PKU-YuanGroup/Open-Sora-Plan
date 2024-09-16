@@ -51,6 +51,7 @@ class AttnBlock3D(Block):
 
         return x + h_
 
+
 class AttnBlock3DFix(nn.Module):
     """
     Thanks to https://github.com/PKU-YuanGroup/Open-Sora-Plan/pull/172.
