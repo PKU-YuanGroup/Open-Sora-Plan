@@ -13,6 +13,7 @@ from torch.nn import functional as F
 from pytorchvideo.transforms import ShortSideScale
 from torchvision.transforms import Lambda, Compose
 import sys
+sys.path.append(".")
 from opensora.models.causalvideovae import ae_wrapper
 from opensora.dataset.transform import ToTensorVideo, CenterCropResizeVideo
 
@@ -33,7 +34,7 @@ def custom_to_video(x: torch.Tensor, fps: float = 2.0, output_file: str = 'outpu
     x = x.detach().cpu()
     x = torch.clamp(x, -1, 1)
     x = (x + 1) / 2
-    x = x.permute(0, 2, 3, 1).numpy()
+    x = x.permute(0, 2, 3, 1).float().numpy()
     x = (255 * x).astype(np.uint8)
     array_to_video(x, fps=fps, output_file=output_file)
     return
@@ -98,21 +99,20 @@ def main(args: argparse.Namespace):
         #     vae.vae.tile_latent_min_size = 32
         #     vae.vae.tile_sample_min_size_t = 9
         #     vae.vae.tile_latent_min_size_t = 3
-    dtype = torch.float32
+    dtype = torch.bfloat16
     vae.eval()
     vae = vae.to(device, dtype=dtype)
     
     with torch.no_grad():
         x_vae = preprocess(read_video(args.video_path, args.num_frames, args.sample_rate), args.height,
                            args.width)
-        print(x_vae.shape)
+        print("input shape", x_vae.shape)
         x_vae = x_vae.to(device, dtype=dtype)  # b c t h w
         # for i in range(10000):
         latents = vae.encode(x_vae)
-        print(latents.shape)
         latents = latents.to(dtype)
         video_recon = vae.decode(latents)  # b t c h w
-        print(video_recon.shape)
+        print("recon shape", video_recon.shape)
 
 
     

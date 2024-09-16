@@ -316,11 +316,11 @@ class WFVAEModel(VideoBaseAE):
     ) -> None:
         super().__init__()
         self.use_tiling = False
-        self.use_quant_layer = False
-        
+        # Hardcode for now
         self.t_chunk_enc = 16
-        self.t_upsample_times = 4 // 2 # Hard code for now.
-        self.t_chunk_dec = self.t_chunk_enc // 2
+        self.t_upsample_times = 4 // 2
+        self.t_chunk_dec = 2
+        self.use_quant_layer = False
 
         self.encoder = Encoder(
             latent_dim=latent_dim,
@@ -366,6 +366,12 @@ class WFVAEModel(VideoBaseAE):
             if hasattr(module, 'enable_cached'):
                 module.enable_cached = enable_cached
     
+    def _set_cache_offset(self, modules, cache_offset=0):
+        for module in modules:
+            for submodule in module.modules():
+                if hasattr(submodule, 'cache_offset'):
+                    submodule.cache_offset = cache_offset
+    
     def build_chunk_start_end(self, t, decoder_mode=False):
         start_end = [[0, 1]]
         start = 1
@@ -384,11 +390,11 @@ class WFVAEModel(VideoBaseAE):
         if torch_npu is not None:
             dtype = x.dtype
             x = x.to(torch.float16)
-            wt = HaarWaveletTransform3D()
+            wt = HaarWaveletTransform3D().to(x.device, dtype=x.dtype)
             coeffs = wt(x)
             coeffs = coeffs.to(dtype)
         else:
-            wt = HaarWaveletTransform3D()
+            wt = HaarWaveletTransform3D().to(x.device, dtype=x.dtype)
             coeffs = wt(x)
             
         if self.use_tiling:
@@ -425,15 +431,14 @@ class WFVAEModel(VideoBaseAE):
             if self.use_quant_layer:
                 z = self.post_quant_conv(z)
             dec = self.decoder(z)
-        
         if torch_npu is not None:
             dtype = dec.dtype
             dec = dec.to(torch.float16)
-            wt = InverseHaarWaveletTransform3D()
+            wt = InverseHaarWaveletTransform3D().to(dec.device, dtype=dec.dtype)
             dec = wt(dec)
             dec = dec.to(dtype)
         else:
-            wt = InverseHaarWaveletTransform3D()
+            wt = InverseHaarWaveletTransform3D().to(dec.device, dtype=dec.dtype)
             dec = wt(dec)
             
         return dec
@@ -445,7 +450,6 @@ class WFVAEModel(VideoBaseAE):
         
         result = []
         for start, end in start_end:
-            
             if end + 1 < t:
                 chunk = x[:, :, start:end+1, :, :]
             else:
@@ -457,11 +461,9 @@ class WFVAEModel(VideoBaseAE):
             
             if end + 1 < t:
                 chunk = chunk[:, :, :-2]
-                result.append(chunk)
+                result.append(chunk.clone())
             else:
-                result.append(chunk)
-                
-            result.append(chunk)
+                result.append(chunk.clone())
             
         return torch.cat(result, dim=2)
 
