@@ -56,9 +56,6 @@ def get_scheduler(args):
         scheduler_cls = KDPM2AncestralDiscreteScheduler
     elif args.sample_method == 'CogVideoX':
         scheduler_cls = CogVideoXDDIMScheduler
-        kwargs['beta_start'] = 0.0001
-        kwargs['beta_end'] = 0.02
-        kwargs['beta_schedule'] = "linear"
     scheduler = scheduler_cls(
         prediction_type=args.prediction_type, 
         rescale_betas_zero_snr=args.rescale_betas_zero_snr, 

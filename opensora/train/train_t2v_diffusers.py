@@ -305,8 +305,11 @@ def main(args):
 
     ae.vae.tile_sample_min_size = args.tile_sample_min_size
     ae.vae.tile_sample_min_size_t = args.tile_sample_min_size_t
-    if args.cogvideox_schedule:
-        noise_scheduler = CogVideoXDDIMScheduler(rescale_betas_zero_snr=args.rescale_betas_zero_snr)
+    if args.cogvideox_scheduler:
+        noise_scheduler = CogVideoXDDIMScheduler(
+            prediction_type=args.prediction_type, 
+            rescale_betas_zero_snr=args.rescale_betas_zero_snr
+            )
     else:
         noise_scheduler = DDPMScheduler(
             prediction_type=args.prediction_type, 
@@ -946,7 +949,7 @@ if __name__ == "__main__":
     parser.add_argument('--tile_sample_min_size', type=int, default=512)
     parser.add_argument('--tile_sample_min_size_t', type=int, default=33)
     parser.add_argument('--adapt_vae', action='store_true')
-    parser.add_argument('--cogvideox_schedule', action='store_true')
+    parser.add_argument('--cogvideox_scheduler', action='store_true')
     parser.add_argument('--use_motion', action='store_true')
     parser.add_argument("--gradient_checkpointing", action="store_true", help="Whether or not to use gradient checkpointing to save memory at the expense of slower backward pass.")
 
