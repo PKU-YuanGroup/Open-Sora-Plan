@@ -315,9 +315,9 @@ if __name__ == '__main__':
     {
         'ae': 'WFVAEModel_D8_4x8x8', 
         'model_max_length': 300, 
-        'max_height': 480,
-        'max_width': 640,
-        'num_frames': 29,
+        'max_height': 176,
+        'max_width': 176,
+        'num_frames': 33,
         'compress_kv_factor': 1, 
         'interpolation_scale_t': 1,
         'interpolation_scale_h': 1,

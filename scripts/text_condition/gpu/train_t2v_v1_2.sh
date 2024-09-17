@@ -70,5 +70,4 @@ accelerate launch \
     --use_decord \
     --prediction_type "v_prediction" \
     --rescale_betas_zero_snr \
-    --output_dir="test_cogvideox" \
-    --cogvideox_schedule
+    --output_dir="debug" 

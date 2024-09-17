@@ -21,8 +21,10 @@ def getdataset(args):
         assert args.max_height_for_img is None
         assert args.max_width_for_img is None
     else:
+        assert (args.min_height is not None and args.skip_low_resolution) or (args.min_height is None)
+        assert (args.min_width is not None and args.skip_low_resolution) or (args.min_width is None)
         resize = [
-            LongSideResizeVideo((args.max_height, args.max_width), skip_low_resolution=True), 
+            LongSideResizeVideo((args.max_height, args.max_width), skip_low_resolution=args.skip_low_resolution), 
             SpatialStrideCropVideo(stride=args.hw_stride), 
         ]
         resize_for_img = None
@@ -30,7 +32,7 @@ def getdataset(args):
             assert args.max_height_for_img > 0 and args.max_width_for_img > 0
             assert args.max_height_for_img > args.max_height and args.max_width_for_img > args.max_width
             resize_for_img = [
-                LongSideResizeVideo((args.max_height_for_img, args.max_width_for_img), skip_low_resolution=True), 
+                LongSideResizeVideo((args.max_height_for_img, args.max_width_for_img), skip_low_resolution=args.skip_low_resolution), 
                 SpatialStrideCropVideo(stride=args.hw_stride), 
             ]
 

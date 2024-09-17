@@ -308,7 +308,10 @@ def main(args):
     if args.cogvideox_schedule:
         noise_scheduler = CogVideoXDDIMScheduler(rescale_betas_zero_snr=args.rescale_betas_zero_snr)
     else:
-        noise_scheduler = DDPMScheduler(rescale_betas_zero_snr=args.rescale_betas_zero_snr)
+        noise_scheduler = DDPMScheduler(
+            prediction_type=args.prediction_type, 
+            rescale_betas_zero_snr=args.rescale_betas_zero_snr
+            )
     # Move unet, vae and text_encoder to device and cast to weight_dtype
     # The VAE is in float32 to avoid NaN losses.
     if not args.extra_save_mem:
@@ -629,10 +632,6 @@ def main(args):
             **model_kwargs
         )[0]
         # Get the target for loss depending on the prediction type
-        if args.prediction_type is not None:
-            # set prediction_type of scheduler if defined
-            noise_scheduler.register_to_config(prediction_type=args.prediction_type)
-
         if noise_scheduler.config.prediction_type == "epsilon":
             target = noise
         elif noise_scheduler.config.prediction_type == "v_prediction":
@@ -663,7 +662,7 @@ def main(args):
                 loss = (loss * mask).sum() / mask.sum()  # mean loss on unpad patches
             else:
                 loss = loss.mean()
-        else:
+        elif args.snr_gamma is not None and noise_scheduler.config.prediction_type == "epsilon":
             # Compute loss-weights as per Section 3.4 of https://arxiv.org/abs/2303.09556.
             # Since we predict the noise instead of x_0, the original formulation is slightly changed.
             # This is discussed in Section 4.2 of the same paper.
@@ -671,20 +670,17 @@ def main(args):
             mse_loss_weights = torch.stack([snr, args.snr_gamma * torch.ones_like(timesteps)], dim=1).min(
                 dim=1
             )[0]
-            if noise_scheduler.config.prediction_type == "epsilon":
-                mse_loss_weights = mse_loss_weights / snr
-            elif noise_scheduler.config.prediction_type == "v_prediction":
-                mse_loss_weights = mse_loss_weights / (snr + 1)
-            else:
-                raise NameError(f'{noise_scheduler.config.prediction_type}')
+            mse_loss_weights = mse_loss_weights / snr
             loss = F.mse_loss(model_pred.float(), target.float(), reduction="none")
+            print(f'args.snr_gamma {args.snr_gamma}, snr {snr}, timesteps {timesteps}, loss {loss.mean()}, mse_loss_weights {mse_loss_weights}')
             loss = loss.reshape(b, -1)
             mse_loss_weights = mse_loss_weights.reshape(b, 1)
             if mask is not None:
                 loss = (loss * mask * mse_loss_weights).sum() / mask.sum()  # mean loss on unpad patches
             else:
                 loss = (loss * mse_loss_weights).mean()
-
+        else:
+            raise NotImplementedError
         # Gather the losses across all processes for logging (if we use distributed training).
         avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
         progress_info.train_loss += avg_loss.detach().item() / args.gradient_accumulation_steps
@@ -864,7 +860,10 @@ def main(args):
         os.makedirs(profile_output_path, exist_ok=True)
 
         with torch_npu.profiler.profile(
-                activities=[torch_npu.profiler.ProfilerActivity.NPU, torch_npu.profiler.ProfilerActivity.CPU],
+                activities=[
+                    torch_npu.profiler.ProfilerActivity.CPU, 
+                    torch_npu.profiler.ProfilerActivity.NPU, 
+                    ],
                 with_stack=True,
                 record_shapes=True,
                 profile_memory=True,
@@ -880,7 +879,7 @@ def main(args):
             with torch.profiler.profile(
                 activities=[
                     # torch.profiler.ProfilerActivity.CPU, 
-                    torch.profiler.ProfilerActivity.CUDA
+                    torch.profiler.ProfilerActivity.CUDA, 
                     ], 
                 schedule=torch.profiler.schedule(wait=5, warmup=1, active=1, repeat=1, skip_first=0),
                 on_trace_ready=torch.profiler.tensorboard_trace_handler('./gpu_profiling_active_1_delmask_delbkmask_andvaemask_curope_gpu'),
@@ -910,6 +909,8 @@ if __name__ == "__main__":
     parser.add_argument("--num_frames", type=int, default=65)
     parser.add_argument("--max_height", type=int, default=320)
     parser.add_argument("--max_width", type=int, default=240)
+    parser.add_argument("--min_height", type=int, default=None)
+    parser.add_argument("--min_width", type=int, default=None)
     parser.add_argument("--max_height_for_img", type=int, default=None)
     parser.add_argument("--max_width_for_img", type=int, default=None)
     parser.add_argument("--ood_img_ratio", type=float, default=0.0)
@@ -955,7 +956,7 @@ if __name__ == "__main__":
     parser.add_argument("--ema_decay", type=float, default=0.9999)
     parser.add_argument("--ema_start_step", type=int, default=0)
     parser.add_argument("--noise_offset", type=float, default=0.0, help="The scale of noise offset.")
-    parser.add_argument("--prediction_type", type=str, default=None, help="The prediction_type that shall be used for training. Choose between 'epsilon' or 'v_prediction' or leave `None`. If left to `None` the default prediction type of the scheduler: `noise_scheduler.config.prediciton_type` is chosen.")
+    parser.add_argument("--prediction_type", type=str, default='epsilon', help="The prediction_type that shall be used for training. Choose between 'epsilon' or 'v_prediction' or leave `None`. If left to `None` the default prediction type of the scheduler: `noise_scheduler.config.prediciton_type` is chosen.")
     parser.add_argument('--rescale_betas_zero_snr', action='store_true')
 
     # validation & logs

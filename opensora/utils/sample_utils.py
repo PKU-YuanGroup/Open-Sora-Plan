@@ -80,7 +80,7 @@ def prepare_pipeline(args, dtype, device):
     text_encoder_1 = MT5EncoderModel.from_pretrained(
         args.text_encoder_name_1, cache_dir=args.cache_dir, 
         torch_dtype=weight_dtype
-        ).to(device).eval()
+        ).eval()
     tokenizer_1 = AutoTokenizer.from_pretrained(
         args.text_encoder_name_1, cache_dir=args.cache_dir
         )
@@ -89,7 +89,7 @@ def prepare_pipeline(args, dtype, device):
         text_encoder_2 = CLIPTextModelWithProjection.from_pretrained(
             args.text_encoder_name_2, cache_dir=args.cache_dir, 
             torch_dtype=weight_dtype
-            ).to(device).eval()
+            ).eval()
         tokenizer_2 = AutoTokenizer.from_pretrained(
             args.text_encoder_name_2, cache_dir=args.cache_dir
             )

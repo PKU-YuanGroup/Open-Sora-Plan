@@ -145,6 +145,8 @@ class T2V_dataset(Dataset):
         self.speed_factor = args.speed_factor
         self.max_height = args.max_height
         self.max_width = args.max_width
+        self.min_height = args.min_height
+        self.min_width = args.min_width
         self.max_height_for_img = args.max_height_for_img
         self.max_width_for_img = args.max_width_for_img
         self.drop_short_ratio = args.drop_short_ratio
@@ -358,6 +360,7 @@ class T2V_dataset(Dataset):
         cnt_no_motion = 0
         cnt_no_aesthetic = 0
         cnt_resolution_mismatch = 0
+        cnt_resolution_too_small = 0
         cnt_vid = 0
         cnt_img = 0
         cnt = 0
@@ -421,13 +424,18 @@ class T2V_dataset(Dataset):
                             if sample_h <= 0 or sample_w <= 0:
                                 cnt_resolution_mismatch += 1
                                 continue
+                            if self.min_height is not None and self.min_width is not None:
+                                if sample_h < self.min_height or sample_w < self.min_width:
+                                    cnt_resolution_too_small += 1
+                                    continue
                             i['resolution'].update(dict(sample_height=sample_h, sample_width=sample_w))
                             
                         else:
                             aspect = self.max_height / self.max_width
-                            hw_aspect_thr = 1.85  
-                            is_pick = filter_resolution(height, width, max_h_div_w_ratio=hw_aspect_thr*aspect, 
-                                                        min_h_div_w_ratio=1/hw_aspect_thr*aspect)
+                            hw_aspect_thr = 1.85  # just a threshold
+                            is_pick = filter_resolution(
+                                height, width, max_h_div_w_ratio=hw_aspect_thr*aspect, min_h_div_w_ratio=1/hw_aspect_thr*aspect
+                                )
                             if not is_pick:
                                 cnt_resolution_mismatch += 1
                                 continue
@@ -499,6 +507,7 @@ class T2V_dataset(Dataset):
                     
         logger.info(f'no_cap: {cnt_no_cap}, too_long: {cnt_too_long}, too_short: {cnt_too_short}, '
                 f'no_resolution: {cnt_no_resolution}, resolution_mismatch: {cnt_resolution_mismatch}, '
+                f'cnt_resolution_too_small: {cnt_resolution_too_small}, '
                 f'Counter(sample_size): {Counter(sample_size)}, cnt_vid: {cnt_vid}, cnt_img: {cnt_img}, '
                 f'before filter: {cnt}, after filter: {len(new_cap_list)}')
         
