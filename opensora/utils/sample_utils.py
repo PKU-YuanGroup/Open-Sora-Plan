@@ -240,8 +240,7 @@ def run_model_and_save_samples(args, pipeline, caption_refiner_model=None, enhan
             videos = pipeline(
                 conditional_images=images,
                 crop_for_hw=args.crop_for_hw,
-                max_height=args.max_height,
-                max_width=args.max_width,
+                max_hw_square=args.max_hw_square,
                 prompt=input_prompt, 
                 negative_prompt=negative_prompt, 
                 num_frames=args.num_frames,
@@ -444,8 +443,7 @@ def get_args():
 
     parser.add_argument('--conditional_images_path', type=str, default=None)
     parser.add_argument('--crop_for_hw', action='store_true')
-    parser.add_argument('--max_height', type=int, default=1280)
-    parser.add_argument('--max_width', type=int, default=1280)
+    parser.add_argument('--max_hw_square', type=int, default=1024 * 1024)
     args = parser.parse_args()
     assert not (args.sp and args.num_frames == 1)
     return args
