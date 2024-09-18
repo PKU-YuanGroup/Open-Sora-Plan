@@ -26,5 +26,4 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun --nnodes=1 --nproc_per_node 8 --ma
     --rescale_betas_zero_snr \
     --conditional_images_path /storage/gyy/hw/Open-Sora-Plan/test_cond_imgs_path.txt \
     --sp \
-    --enable_tiling \
-    # --crop_for_hw 
+    --enable_tiling 

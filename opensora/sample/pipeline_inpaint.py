@@ -280,8 +280,6 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
         min_height = min([image.shape[2] for image in conditional_images])
         min_width = min([image.shape[3] for image in conditional_images])
 
-        print('min_height', min_height, 'min_width', min_width)
-
         resize_transform = self.get_resize_transform(
             ori_height=min_height, 
             ori_width=min_width, 
@@ -293,7 +291,6 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
 
         video_transform = self.get_video_transform()
         conditional_images = torch.cat([resize_transform(image) for image in conditional_images])
-        print('after_resize', conditional_images.shape)
         real_height, real_width = conditional_images.shape[-2], conditional_images.shape[-1]
         # ==================prepare inpaint data=====================================
         
