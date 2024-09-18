@@ -67,7 +67,6 @@ class Collate:
         self.patch_size_t = args.patch_size_t
 
         self.num_frames = args.num_frames
-        self.use_image_num = args.use_image_num
         self.max_thw = (self.num_frames, self.max_height, self.max_width)
 
     def package(self, batch):

@@ -42,7 +42,6 @@ accelerate launch \
     --checkpointing_steps=1000 \
     --allow_tf32 \
     --model_max_length 512 \
-    --use_image_num 0 \
     --snr_gamma 5.0 \
     --use_ema \
     --ema_start_step 0 \

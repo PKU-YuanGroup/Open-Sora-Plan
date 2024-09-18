@@ -160,7 +160,6 @@ class ProgressInfo:
 def main(args):
     logging_dir = Path(args.output_dir, args.logging_dir)
 
-    # use LayerNorm, GeLu, SiLu always as fp32 mode
     if torch_npu is not None and npu_config is not None:
         npu_config.print_msg(args)
         npu_config.seed_everything(args.seed)
@@ -173,7 +172,7 @@ def main(args):
         project_config=accelerator_project_config,
     )
 
-    if args.num_frames != 1 and args.use_image_num == 0:
+    if args.num_frames != 1:
         initialize_sequence_parallel_state(args.sp_size)
 
     if args.report_to == "wandb":
@@ -303,8 +302,6 @@ def main(args):
     # Set model as trainable.
     model.train()
 
-    ae.vae.tile_sample_min_size = args.tile_sample_min_size
-    ae.vae.tile_sample_min_size_t = args.tile_sample_min_size_t
     if args.cogvideox_scheduler:
         noise_scheduler = CogVideoXDDIMScheduler(
             prediction_type=args.prediction_type, 
@@ -918,7 +915,6 @@ if __name__ == "__main__":
     parser.add_argument("--max_width_for_img", type=int, default=None)
     parser.add_argument("--ood_img_ratio", type=float, default=0.0)
     parser.add_argument("--use_img_from_vid", action="store_true")
-    parser.add_argument("--use_image_num", type=int, default=0)
     parser.add_argument("--model_max_length", type=int, default=512)
     parser.add_argument('--cfg', type=float, default=0.1)
     parser.add_argument("--dataloader_num_workers", type=int, default=10, help="Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process.")
@@ -946,8 +942,6 @@ if __name__ == "__main__":
     parser.add_argument("--pretrained", type=str, default=None)
     parser.add_argument('--sparse1d', action='store_true')
     parser.add_argument('--sparse_n', type=int, default=2)
-    parser.add_argument('--tile_sample_min_size', type=int, default=512)
-    parser.add_argument('--tile_sample_min_size_t', type=int, default=33)
     parser.add_argument('--adapt_vae', action='store_true')
     parser.add_argument('--cogvideox_scheduler', action='store_true')
     parser.add_argument('--use_motion', action='store_true')

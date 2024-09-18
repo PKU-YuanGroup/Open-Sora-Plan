@@ -50,7 +50,6 @@ accelerate launch \
     --checkpointing_steps=1000 \
     --allow_tf32 \
     --model_max_length 512 \
-    --use_image_num 0 \
     --use_ema \
     --ema_start_step 0 \
     --cfg 0.1 \
@@ -70,4 +69,6 @@ accelerate launch \
     --use_decord \
     --prediction_type "v_prediction" \
     --rescale_betas_zero_snr \
-    --output_dir="debug" 
+    --output_dir="debug" \
+    --min_height 320 \
+    --min_width 320

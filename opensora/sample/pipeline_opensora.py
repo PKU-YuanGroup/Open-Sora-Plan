@@ -431,6 +431,7 @@ class OpenSoraPipeline(DiffusionPipeline):
         guidance_rescale: float = 0.0,
         max_sequence_length: int = 512,
         motion_score: float = None, 
+        device = None, 
     ):
         
         if isinstance(callback_on_step_end, (PipelineCallback, MultiPipelineCallbacks)):
@@ -470,7 +471,7 @@ class OpenSoraPipeline(DiffusionPipeline):
         else:
             batch_size = prompt_embeds.shape[0]
 
-        device = getattr(self, '_execution_device', None) or getattr(self, 'device', None) or torch.device('cuda')
+        device = device or getattr(self, '_execution_device', None) or getattr(self, 'device', None) or torch.device('cuda')
 
 
         # 3. Encode input prompt

@@ -39,7 +39,6 @@ accelerate launch \
     --output_dir="/home/image_data/checkpoints/${PROJECT}/" \
     --allow_tf32 \
     --model_max_length 512 \
-    --use_image_num 0 \
     --enable_tracker \
     --enable_tiling \
     --snr_gamma 5.0 \

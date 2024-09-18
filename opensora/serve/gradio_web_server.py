@@ -9,36 +9,15 @@ import math
 import argparse
 import random
 import numpy as np
-
+import string
 
 from opensora.sample.caption_refiner import OpenSoraCaptionRefiner
 from opensora.utils.sample_utils import (
-    prepare_pipeline, save_video_grid
+    prepare_pipeline, save_video_grid, init_gpu_env
 )
+from .gradio_utils import *
 
-LOGO = """
-    <center><img src='https://s21.ax1x.com/2024/07/14/pk5pLBF.jpg' alt='Open-Sora Plan logo' style="width:220px; margin-bottom:1px"></center>
-"""
-TITLE = """
-    <div style="text-align: center; font-size: 45px; font-weight: bold; margin-bottom: 5px;">
-        Open-Sora Plan🤗
-    </div>
-"""
-DESCRIPTION = """
-    <div style="text-align: center; font-size: 16px; font-weight: bold; margin-bottom: 5px;">
-        Support Chinese and English; 支持中英双语
-    </div>
-    <div style="text-align: center; font-size: 16px; font-weight: bold; margin-bottom: 5px;">
-        Welcome to Star🌟 our <a href='https://github.com/PKU-YuanGroup/Open-Sora-Plan' target='_blank'><b>GitHub</b></a>
-    </div>
-"""
 
-NUM_IMAGES_PER_PROMPT = 1
-MAX_SEED = np.iinfo(np.int32).max
-def randomize_seed_fn(seed: int, randomize_seed: bool) -> int:
-    if randomize_seed:
-        seed = random.randint(0, MAX_SEED)
-    return seed
 
 @torch.no_grad()
 @torch.inference_mode()
@@ -50,7 +29,7 @@ def generate(
         guidance_scale: float = 4.5,
         num_inference_steps: int = 25,
         randomize_seed: bool = False,
-        progress=gr.Progress(track_tqdm=True),
+        progress=gr.Progress(track_tqdm=False),
 ):
     seed = int(randomize_seed_fn(seed, randomize_seed))
     if seed is not None:
@@ -61,24 +40,17 @@ def generate(
     video_grids = []
     text_prompt = [prompt]
 
-    positive_prompt = """
-    high quality, high aesthetic, {}
-    """
-
-    negative_prompt = """
-    nsfw, lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, 
-    low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry.
-    """
+    
 
     for index, prompt in enumerate(text_prompt):
         if caption_refiner_model is not None:
             refine_prompt = caption_refiner_model.get_refiner_output(prompt)
             print(f'\nOrigin prompt: {prompt}\n->\nRefine prompt: {refine_prompt}')
             prompt = refine_prompt
-        input_prompt = positive_prompt.format(prompt)
+        input_prompt = POS_PROMPT.format(prompt)
         videos = pipeline(
             input_prompt, 
-            negative_prompt=negative_prompt, 
+            negative_prompt=NEG_PROMPT, 
             num_frames=num_frames,
             height=352,
             width=640,
@@ -87,6 +59,7 @@ def generate(
             guidance_scale=guidance_scale,
             num_samples_per_prompt=num_samples,
             max_sequence_length=512,
+            device=device, 
             ).videos
         if num_frames != 1 and enhance_video_model is not None:
             # b t h w c
@@ -156,8 +129,10 @@ def generate(
                     args.save_img_path,
                     f'{args.sample_method}_gs{guidance_scale}_s{num_inference_steps}'
                     )
+
+    random_string = ''.join(random.choices(string.ascii_letters, k=4))
     if num_frames == 1:
-        final_path = final_path + '.jpg'
+        final_path = final_path + f'_{random_string}.jpg'
         save_image(
             video_grids / 255.0, 
             final_path, 
@@ -167,7 +142,7 @@ def generate(
             )
     else:
         video_grids = save_video_grid(video_grids)
-        final_path = final_path + '.mp4'
+        final_path = final_path + f'_{random_string}.mp4'
         imageio.mimwrite(
             final_path, 
             video_grids, 
@@ -192,26 +167,28 @@ parser.add_argument("--fps", type=int, default=24)
 parser.add_argument('--enable_tiling', action='store_true')
 parser.add_argument('--save_memory', action='store_true')
 parser.add_argument('--compile', action='store_true') 
+parser.add_argument("--gradio_port", type=int, default=11900)
+parser.add_argument("--enhance_video", type=str, default=None)
 args = parser.parse_args()
 
 args.model_path = "/storage/ongoing/new/7.19anyres/Open-Sora-Plan/bs32x8x1_anyx93x640x640_fps16_lr1e-5_snr5_ema9999_sparse1d4_dit_l_mt5xxl_vpred_zerosnr/checkpoint-144000/model_ema"
 args.version = "v1_2"
 args.caption_refiner = "/storage/ongoing/refine_model/llama3_1_instruct_lora/llama3_8B_lora_merged_cn"
 args.ae = "WFVAEModel_D8_4x8x8"
-args.ae_path = "/storage/lcm/Causal-Video-VAE/results/WFVAE_DISTILL_FORMAL"
+args.ae_path = "/storage/lcm/wf-vae_trilinear"
 args.text_encoder_name_1 = "/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl"
 args.text_encoder_name_2 = None
 args.save_img_path = "./test_gradio"
 args.fps = 18
 
-args.enhance_video = "/storage/ongoing/new/VEnhancer/ckpts/venhancer_v2.pt"
 args.prediction_type = "v_prediction"
 args.rescale_betas_zero_snr = True
 args.cache_dir = "./cache_dir"
 args.sample_method = 'EulerAncestralDiscrete'
+args.sp = False
 
 dtype = torch.bfloat16
-
+args = init_gpu_env(args)
 device = torch.cuda.current_device()
 
 if args.enhance_video is not None:
@@ -282,15 +259,26 @@ with gr.Blocks(css="style.css") as demo:
                     container=False,
                 )
                 run_button = gr.Button("Run", scale=0)
-            result = gr.Video(label="Result")
+            result = gr.Video(autoplay=True, label="Result")
             # result = gr.Gallery(label="Result", columns=NUM_IMAGES_PER_PROMPT,  show_label=False)
-    # gr.Examples(
-    #     examples=examples,
-    #     inputs=prompt,
-    #     outputs=[result, seed],
-    #     fn=generate,
-    #     cache_examples=CACHE_EXAMPLES,
-    # )
+
+
+    
+
+    with gr.Row(), gr.Column():
+        gr.Markdown("## Examples (Text-to-Video)")
+        examples = [[i, 42, 93, 1, 7.5, 100, False] for i in t2v_prompt_examples]
+        gr.Examples(
+            examples=examples, 
+            inputs=[
+                prompt, seed, num_frames, num_samples, 
+                guidance_scale, inference_steps, randomize_seed
+                ],
+            label='Text-to-Video', 
+            cache_examples=False, 
+            outputs=[result, seed],
+            fn=generate
+            )
 
 
     gr.on(
@@ -314,10 +302,9 @@ with gr.Blocks(css="style.css") as demo:
 
 
 
-if __name__ == "__main__":
-    gradio_port = 11900
-    demo.queue(max_size=20).launch(
-        server_name="0.0.0.0", 
-        server_port=gradio_port, 
-        debug=True
-        )
+# if __name__ == "__main__":
+demo.queue(max_size=20).launch(
+    server_name="0.0.0.0", 
+    server_port=args.gradio_port+args.local_rank, 
+    debug=True
+    )
