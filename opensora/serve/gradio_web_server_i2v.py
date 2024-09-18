@@ -23,13 +23,15 @@ from .gradio_utils import *
 @torch.inference_mode()
 def generate(
         prompt: str,
+        image_1: str, 
+        image_2: str = None, 
         seed: int = 0,
         num_frames: int = 29, 
         num_samples: int = 1, 
         guidance_scale: float = 4.5,
         num_inference_steps: int = 25,
         randomize_seed: bool = False,
-        progress=gr.Progress(track_tqdm=False),
+        progress=gr.Progress(track_tqdm=True),
 ):
     seed = int(randomize_seed_fn(seed, randomize_seed))
     if seed is not None:
@@ -39,21 +41,21 @@ def generate(
 
     video_grids = []
     text_prompt = [prompt]
-
+    images = [[image_1] if image_2 is None else [image_1, image_2]]
     
 
-    for index, prompt in enumerate(text_prompt):
+    for index, (image, prompt) in enumerate(zip(images, text_prompt)):
         if caption_refiner_model is not None:
             refine_prompt = caption_refiner_model.get_refiner_output(prompt)
             print(f'\nOrigin prompt: {prompt}\n->\nRefine prompt: {refine_prompt}')
             prompt = refine_prompt
         input_prompt = POS_PROMPT.format(prompt)
+        print(image)
         videos = pipeline(
-            input_prompt, 
+            conditional_images=image, 
+            prompt=input_prompt, 
             negative_prompt=NEG_PROMPT, 
             num_frames=num_frames,
-            height=352,
-            width=640,
             motion_score=0.9, 
             num_inference_steps=num_inference_steps,
             guidance_scale=guidance_scale,
@@ -169,10 +171,10 @@ parser.add_argument('--save_memory', action='store_true')
 parser.add_argument('--compile', action='store_true') 
 parser.add_argument("--gradio_port", type=int, default=11900)
 parser.add_argument("--enhance_video", type=str, default=None)
-parser.add_argument("--model_type", type=str, default='t2v')
+parser.add_argument("--model_type", type=str, default='i2v')
 args = parser.parse_args()
 
-args.model_path = "/storage/ongoing/new/7.19anyres/Open-Sora-Plan/bs32x8x1_anyx93x640x640_fps16_lr1e-5_snr5_ema9999_sparse1d4_dit_l_mt5xxl_vpred_zerosnr/checkpoint-144000/model_ema"
+args.model_path = "/storage/gyy/hw/Open-Sora-Plan/runs/inpaint_93x1280x1280_stage3_gpu/checkpoint-1692/model_ema"
 args.version = "v1_2"
 args.caption_refiner = "/storage/ongoing/refine_model/llama3_1_instruct_lora/llama3_8B_lora_merged_cn"
 args.ae = "WFVAEModel_D8_4x8x8"
@@ -187,6 +189,8 @@ args.rescale_betas_zero_snr = True
 args.cache_dir = "./cache_dir"
 args.sample_method = 'EulerAncestralDiscrete'
 args.sp = False
+args.crop_for_hw = False
+args.enable_tiling = True
 
 dtype = torch.bfloat16
 args = init_gpu_env(args)
@@ -211,6 +215,9 @@ with gr.Blocks(css="style.css") as demo:
 
     with gr.Row(equal_height=False):
         with gr.Group():
+            with gr.Row():
+                image_1 = gr.Image(type="filepath")
+                image_2 = gr.Image(type="filepath")
             with gr.Row():
                 seed = gr.Slider(
                     label="Seed",
@@ -266,20 +273,20 @@ with gr.Blocks(css="style.css") as demo:
 
     
 
-    with gr.Row(), gr.Column():
-        gr.Markdown("## Examples (Text-to-Video)")
-        examples = [[i, 42, 93, 1, 7.5, 100, False] for i in t2v_prompt_examples]
-        gr.Examples(
-            examples=examples, 
-            inputs=[
-                prompt, seed, num_frames, num_samples, 
-                guidance_scale, inference_steps, randomize_seed
-                ],
-            label='Text-to-Video', 
-            cache_examples=False, 
-            outputs=[result, seed],
-            fn=generate
-            )
+    # with gr.Row(), gr.Column():
+    #     gr.Markdown("## Examples (Text-to-Video)")
+    #     examples = [[i, 42, 93, 1, 7.5, 100, False] for i in t2v_prompt_examples]
+    #     gr.Examples(
+    #         examples=examples, 
+    #         inputs=[
+    #             prompt, seed, num_frames, num_samples, 
+    #             guidance_scale, inference_steps, randomize_seed
+    #             ],
+    #         label='Text-to-Video', 
+    #         cache_examples=False, 
+    #         outputs=[result, seed],
+    #         fn=generate
+    #         )
 
 
     gr.on(
@@ -290,6 +297,8 @@ with gr.Blocks(css="style.css") as demo:
         fn=generate,
         inputs=[
             prompt,
+            image_1, 
+            image_2, 
             seed,
             num_frames, 
             num_samples, 
