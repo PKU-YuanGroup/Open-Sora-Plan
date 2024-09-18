@@ -46,18 +46,22 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
         width=None, 
         crop_for_hw=False, 
         hw_stride=32, 
-        max_height=1024,
-        max_width=1024
+        max_hw_square=1024 * 1024,
     ):
         if crop_for_hw:
             assert height is not None and width is not None
             transform = CenterCropResizeVideo((height, width))
         else:
-            ori_height = ori_height if ori_height < max_height else max_height
-            ori_width = ori_width if ori_width < max_width else max_width
+            if ori_height * ori_width > max_hw_square:
+                scale_factor = np.sqrt(max_hw_square / (ori_height * ori_width))
+                new_height = int(ori_height * scale_factor)
+                new_width = int(ori_width * scale_factor)
+            else:
+                new_height = ori_height
+                new_width = ori_width
             transform = Compose(
                 [
-                    CenterCropResizeVideo((ori_height, ori_width)),
+                    CenterCropResizeVideo((new_height, new_width)),
                     SpatialStrideCropVideo(stride=hw_stride), 
                 ]
             )
@@ -132,8 +136,7 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
         conditional_images: Union[str, List[str]] = None,
         conditional_images_indices: Optional[List[int]] = None,
         crop_for_hw: bool = False,
-        max_height: int = 1280,
-        max_width: int = 1280,
+        max_hw_square: int = 1024 * 1024,
         prompt: Union[str, List[str]] = None,
         num_frames: Optional[int] = None,
         height: Optional[int] = None,
@@ -277,19 +280,21 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
         min_height = min([image.shape[2] for image in conditional_images])
         min_width = min([image.shape[3] for image in conditional_images])
 
+        print('min_height', min_height, 'min_width', min_width)
+
         resize_transform = self.get_resize_transform(
             ori_height=min_height, 
             ori_width=min_width, 
             height=height, 
             width=width, 
             crop_for_hw=crop_for_hw,
-            max_height=max_height,
-            max_width=max_width,
+            max_hw_square=max_hw_square,
         )
 
         video_transform = self.get_video_transform()
         conditional_images = torch.cat([resize_transform(image) for image in conditional_images])
-        print(conditional_images.shape)
+        print('after_resize', conditional_images.shape)
+        real_height, real_width = conditional_images.shape[-2], conditional_images.shape[-1]
         # ==================prepare inpaint data=====================================
         
         # 4. Prepare timesteps
@@ -304,8 +309,8 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
             batch_size * num_samples_per_prompt,
             num_channels_latents,
             (num_frames + world_size - 1) // world_size if get_sequence_parallel_state() else num_frames, 
-            conditional_images.shape[-2] if not crop_for_hw else height,
-            conditional_images.shape[-1] if not crop_for_hw else width,
+            real_height,
+            real_width,
             prompt_embeds.dtype,
             device,
             generator,
@@ -323,8 +328,8 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
             batch_size, 
             num_samples_per_prompt, 
             num_frames, 
-            conditional_images.shape[-2] if not crop_for_hw else height,
-            conditional_images.shape[-1] if not crop_for_hw else width,
+            real_height,
+            real_width,
             video_transform,
             prompt_embeds.dtype,
             device
@@ -452,7 +457,7 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
 
         if not output_type == "latent":
             videos = self.decode_latents(latents)
-            videos = videos[:, :num_frames, :height, :width]
+            videos = videos[:, :num_frames, :real_height, :real_width]
         else:
             videos = latents
 
