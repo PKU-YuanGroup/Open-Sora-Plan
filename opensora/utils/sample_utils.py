@@ -27,7 +27,9 @@ except:
 
 from opensora.models.causalvideovae import ae_stride_config, ae_wrapper
 from opensora.sample.pipeline_opensora import OpenSoraPipeline
+from opensora.sample.pipeline_inpaint import OpenSoraInpaintPipeline
 from opensora.models.diffusion.opensora_v1_2.modeling_opensora import OpenSoraT2V_v1_2
+from opensora.models.diffusion.opensora_v1_2.modeling_inpaint import OpenSoraInpaint_v1_2
 from transformers import T5EncoderModel, T5Tokenizer, AutoTokenizer, MT5EncoderModel, CLIPTextModelWithProjection
 
 def get_scheduler(args):
@@ -94,20 +96,30 @@ def prepare_pipeline(args, dtype, device):
         text_encoder_2, tokenizer_2 = None, None
 
     if args.version == 'v1_2':
-        transformer_model = OpenSoraT2V_v1_2.from_pretrained(
-            args.model_path, cache_dir=args.cache_dir,
-            device_map=None, torch_dtype=weight_dtype
-            ).eval()
+        if args.model_type == 'inpaint' or args.model_type == 'i2v':
+            transformer_model = OpenSoraInpaint_v1_2.from_pretrained(
+                args.model_path, cache_dir=args.cache_dir,
+                device_map=None, torch_dtype=weight_dtype
+                ).eval()
+        else:
+            transformer_model = OpenSoraT2V_v1_2.from_pretrained(
+                args.model_path, cache_dir=args.cache_dir,
+                device_map=None, torch_dtype=weight_dtype
+                ).eval()
     elif args.version == 'v1_5':
-        from opensora.models.diffusion.opensora_v1_5.modeling_opensora import OpenSoraT2V_v1_5
-        transformer_model = OpenSoraT2V_v1_5.from_pretrained(
-            args.model_path, cache_dir=args.cache_dir, 
-            device_map=None, torch_dtype=weight_dtype
-            ).eval()
+        if args.model_type == 'inpaint' or args.model_type == 'i2v':
+            raise NotImplementedError('Inpainting model is not available in v1_5')
+        else:
+            from opensora.models.diffusion.opensora_v1_5.modeling_opensora import OpenSoraT2V_v1_5
+            transformer_model = OpenSoraT2V_v1_5.from_pretrained(
+                args.model_path, cache_dir=args.cache_dir, 
+                device_map=None, torch_dtype=weight_dtype
+                ).eval()
     
     scheduler = get_scheduler(args)
+    pipeline_class = OpenSoraInpaintPipeline if args.model_type == 'inpaint' or args.model_type == 'i2v' else OpenSoraPipeline
 
-    pipeline = OpenSoraPipeline(
+    pipeline = pipeline_class(
         vae=vae,
         text_encoder=text_encoder_1,
         tokenizer=tokenizer_1,
@@ -201,6 +213,13 @@ def run_model_and_save_samples(args, pipeline, caption_refiner_model=None, enhan
     if len(args.text_prompt) == 1 and args.text_prompt[0].endswith('txt'):
         text_prompt = open(args.text_prompt[0], 'r').readlines()
         args.text_prompt = [i.strip() for i in text_prompt]
+    
+    if args.model_type == 'inpaint' or args.model_type == 'i2v':
+        if not isinstance(args.conditional_images_path, list):
+            args.conditional_images_path = [args.conditional_images_path]
+        if len(args.conditional_images_path) == 1 and args.conditional_images_path[0].endswith('txt'):
+            temp = open(args.conditional_images_path[0], 'r').readlines()
+            conditional_images = [i.strip().split(',') for i in temp]
 
     positive_prompt = """
     high quality, high aesthetic, {}
@@ -210,26 +229,42 @@ def run_model_and_save_samples(args, pipeline, caption_refiner_model=None, enhan
     nsfw, lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, 
     low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry.
     """
-
-    for index, prompt in enumerate(args.text_prompt):
-        if not args.sp and args.local_rank != -1 and index % args.world_size != args.local_rank:
-            continue  # skip when ddp
+    
+    def generate(prompt, images=None):
         if args.caption_refiner is not None:
             refine_prompt = caption_refiner_model.get_refiner_output(prompt)
             print(f'\nOrigin prompt: {prompt}\n->\nRefine prompt: {refine_prompt}')
             prompt = refine_prompt
         input_prompt = positive_prompt.format(prompt)
-        videos = pipeline(
-            input_prompt, 
-            negative_prompt=negative_prompt, 
-            num_frames=args.num_frames,
-            height=args.height,
-            width=args.width,
-            motion_score=args.motion_score, 
-            num_inference_steps=args.num_sampling_steps,
-            guidance_scale=args.guidance_scale,
-            num_samples_per_prompt=args.num_samples_per_prompt,
-            max_sequence_length=args.max_sequence_length,
+        if args.model_type == 'inpaint' or args.model_type == 'i2v':
+            videos = pipeline(
+                conditional_images=images,
+                crop_for_hw=args.crop_for_hw,
+                max_height=args.max_height,
+                max_width=args.max_width,
+                prompt=input_prompt, 
+                negative_prompt=negative_prompt, 
+                num_frames=args.num_frames,
+                height=args.height,
+                width=args.width,
+                motion_score=args.motion_score, 
+                num_inference_steps=args.num_sampling_steps,
+                guidance_scale=args.guidance_scale,
+                num_samples_per_prompt=args.num_samples_per_prompt,
+                max_sequence_length=args.max_sequence_length,
+            ).videos
+        else:
+            videos = pipeline(
+                input_prompt, 
+                negative_prompt=negative_prompt, 
+                num_frames=args.num_frames,
+                height=args.height,
+                width=args.width,
+                motion_score=args.motion_score, 
+                num_inference_steps=args.num_sampling_steps,
+                guidance_scale=args.guidance_scale,
+                num_samples_per_prompt=args.num_samples_per_prompt,
+                max_sequence_length=args.max_sequence_length,
             ).videos
         if enhance_video_model is not None:
             # b t h w c
@@ -294,6 +329,17 @@ def run_model_and_save_samples(args, pipeline, caption_refiner_model=None, enhan
                     videos = videos.unsqueeze(0) # 1 t h w c
             video_grids.append(videos)
 
+    if args.model_type == 'inpaint' or args.model_type == 'i2v':
+        for index, (prompt, images) in enumerate(zip(args.text_prompt, conditional_images)):
+            if not args.sp and args.local_rank != -1 and index % args.world_size != args.local_rank:
+                continue
+            generate(prompt, images)
+    else:
+        for index, prompt in enumerate(args.text_prompt):
+            if not args.sp and args.local_rank != -1 and index % args.world_size != args.local_rank:
+                continue  # skip when ddp
+            generate(prompt)
+
     if not args.sp:
         if args.local_rank != -1:
             dist.barrier()
@@ -334,7 +380,6 @@ def run_model_and_save_samples(args, pipeline, caption_refiner_model=None, enhan
                 )
         print('save path {}'.format(args.save_img_path))
 
-
 def run_model_and_save_samples_npu(args, pipeline, caption_refiner_model=None, enhance_video_model=None):
     
     # experimental_config = torch_npu.profiler._ExperimentalConfig(
@@ -365,6 +410,7 @@ def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_path", type=str, default='LanguageBind/Open-Sora-Plan-v1.0.0')
     parser.add_argument("--version", type=str, default='v1_2', choices=['v1_2', 'v1_5'])
+    parser.add_argument("--model_type", type=str, default='t2v', choices=['t2v', 'inpaint', 'i2v'])
     parser.add_argument("--num_frames", type=int, default=1)
     parser.add_argument("--height", type=int, default=512)
     parser.add_argument("--width", type=int, default=512)
@@ -395,6 +441,11 @@ def get_args():
     parser.add_argument('--local_rank', type=int, default=-1)    
     parser.add_argument('--world_size', type=int, default=1)    
     parser.add_argument('--sp', action='store_true')
+
+    parser.add_argument('--conditional_images_path', type=str, default=None)
+    parser.add_argument('--crop_for_hw', action='store_true')
+    parser.add_argument('--max_height', type=int, default=1280)
+    parser.add_argument('--max_width', type=int, default=1280)
     args = parser.parse_args()
     assert not (args.sp and args.num_frames == 1)
     return args
