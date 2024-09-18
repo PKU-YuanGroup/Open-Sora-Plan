@@ -11,8 +11,15 @@ authors = [
 keywords = ["AI", "Ascend", "DeepLearning", "MultiModal", "MindSpeed"]
 dependencies = [
     "numpy",
+    "av",
+    "ftfy",
+    "bs4",
+    "timm==1.0.8",
+    "pandas==2.0.3",
+    "torchvision",
     "diffusers==0.29.2",
-    "transformers"
+    "transformers==4.36.2",
+    "accelerate==0.32.1",
 ]
 
 [build-system]

@@ -15,7 +15,8 @@
 
 import torch
 from torch import nn
-
+from megatron.training.arguments import core_transformer_config_from_args
+from megatron.training import get_args
 from mindspeed_mm.models.predictor import PredictModel
 from mindspeed_mm.models.diffusion import DiffusionModel
 from mindspeed_mm.models.ae import AEModel
@@ -41,6 +42,7 @@ class SoRAModel(nn.Module):
 
     def __init__(self, config):
         super().__init__()
+        self.config = core_transformer_config_from_args(get_args())
         self.load_video_features = config.load_video_features
         self.load_text_features = config.load_text_features
         if not self.load_video_features:

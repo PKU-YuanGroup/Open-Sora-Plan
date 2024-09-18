@@ -33,11 +33,9 @@ def get_batch_on_this_tp_rank(data_iterator):
         batch = next(data_iterator)
     else:
         batch = None
-    video = batch[VIDEO].to(torch.cuda.current_device())
-    prompt_ids = batch[PROMPT_IDS].to(torch.cuda.current_device())
-    video_mask = batch[VIDEO_MASK].to(torch.cuda.current_device())
-    prompt_mask = batch[PROMPT_MASK].to(torch.cuda.current_device())
-    batch = {VIDEO: video, PROMPT_IDS: prompt_ids, VIDEO_MASK: video_mask, PROMPT_MASK: prompt_mask}
+    for k, v in batch.items():
+        if isinstance(v, torch.Tensor):
+            batch[k] = v.to(torch.cuda.current_device())
     return batch
 
 
@@ -45,9 +43,9 @@ def get_batch(data_iterator):
     """Generate a batch."""
     if mpu.is_pipeline_first_stage():
         batch = get_batch_on_this_tp_rank(data_iterator)
-        return batch[VIDEO], batch[PROMPT_IDS], batch[VIDEO_MASK], batch[PROMPT_MASK]
+        return batch
     else:
-        return None, None, None, None
+        return None
 
 
 def loss_func(output_tensor):
@@ -60,8 +58,12 @@ def loss_func(output_tensor):
 
 def forward_step(data_iterator, model):
     """Forward step."""
-    video, prompt_ids, video_mask, prompt_mask = get_batch(data_iterator)
-    output_tensor_list = model(video, prompt_ids, video_mask, prompt_mask=prompt_mask)
+    batch = get_batch(data_iterator)
+    video = batch.pop(VIDEO, None)
+    prompt_ids = batch.pop(PROMPT_IDS, None)
+    video_mask = batch.pop(VIDEO_MASK, None)
+    prompt_mask = batch.pop(PROMPT_MASK, None)
+    output_tensor_list = model(video, prompt_ids, video_mask, prompt_mask=prompt_mask, **batch)
     loss_dict = unwrap_model(model).compute_loss(*output_tensor_list)
     return loss_dict, loss_func
 
@@ -80,7 +82,6 @@ def train_valid_test_datasets_provider(train_val_test_num_samples):
 
 
 if __name__ == "__main__":
-    torch.npu.config.allow_internal_format = False
     train_valid_test_datasets_provider.is_distributed = True
     pretrain(
         train_valid_test_datasets_provider,

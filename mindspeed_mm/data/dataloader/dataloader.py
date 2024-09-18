@@ -99,7 +99,6 @@ def prepare_sampler_dataloader(
         return DataLoader(
             dataset,
             batch_size=batch_size,
-            shuffle=shuffle,
             sampler=sampler,
             worker_init_fn=get_seed_worker(seed),
             drop_last=drop_last,
