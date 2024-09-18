@@ -268,7 +268,7 @@ with gr.Blocks(css="style.css") as demo:
 
     with gr.Row(), gr.Column():
         gr.Markdown("## Examples (Text-to-Video)")
-        examples = [[i, 42, 93, 1, 7.5, 100, False] for i in t2v_prompt_examples]
+        examples = [[i, 42, 93, 1, 7.5, 100, True] for i in t2v_prompt_examples]
         gr.Examples(
             examples=examples, 
             inputs=[

@@ -190,6 +190,7 @@ args.cache_dir = "./cache_dir"
 args.sample_method = 'EulerAncestralDiscrete'
 args.sp = False
 args.crop_for_hw = False
+args.max_hw_square = 1048576
 args.enable_tiling = True
 
 dtype = torch.bfloat16
@@ -216,8 +217,8 @@ with gr.Blocks(css="style.css") as demo:
     with gr.Row(equal_height=False):
         with gr.Group():
             with gr.Row():
-                image_1 = gr.Image(type="filepath")
-                image_2 = gr.Image(type="filepath")
+                image_1 = gr.Image(type="filepath", label='Image 1')
+                image_2 = gr.Image(type="filepath", label='Image 2')
             with gr.Row():
                 seed = gr.Slider(
                     label="Seed",
