@@ -1,0 +1,76 @@
+
+{
+    "ae": {
+        "model_id": "3dvae",
+        "from_pretrained": "OpenSora-VAE-v1.2/model.safetensors",
+        "dtype": "bf16",
+        "cal_loss": false,
+        "shift": [-0.10, 0.34, 0.27, 0.98],
+        "scale": [3.85, 2.32, 2.33, 3.06],
+        "micro_frame_size" :17,
+        "freeze_vae_2d": false
+    },
+    "text_encoder": {
+       "hub_backend": "hf",
+        "model_id": "T5",
+        "from_pretrained": "DeepFloyd/t5-v1_1-xxl",
+        "local_files_only": false,
+        "low_cpu_mem_usage": true,
+        "dtype": "fp32"
+    },
+    "tokenizer":{
+        "hub_backend": "hf",
+        "autotokenizer_name": "AutoTokenizer",
+        "from_pretrained": "DeepFloyd/t5-v1_1-xxl",
+        "local_files_only": false
+    },
+    "predictor": {
+        "dtype": "bf16",
+        "model_id": "stdit3",
+        "hidden_size" : 1152,
+        "num_heads": 16,
+        "input_size": [16, 32, 32],
+        "patch_size": [1, 2, 2],
+        "space_scale": 0.5,
+        "time_scale": 1.0,
+        "enable_flashattn": true,
+        "enable_sequence_parallelism": false,
+        "from_pretrained": "weights/stdit3.pt"
+    },
+    "diffusion": {
+        "model_id": "rflow",
+        "use_timestep_transform":true,
+        "num_inference_steps":30,
+        "cfg_scale":7.0
+    },
+
+
+    "mask_ratios": {
+        "random": 0.05,
+        "intepolate": 0.005,
+        "quarter_random": 0.005,
+        "quarter_head": 0.005,
+        "quarter_tail": 0.005,
+        "quarter_head_tail": 0.005,
+        "image_random": 0.025,
+        "image_head": 0.05,
+        "image_tail": 0.025,
+        "image_head_tail": 0.025
+    },
+
+    "num_frames": 102,
+    "frame_interval": 1,
+    "image_size": [720, 1280],
+    "num_workers": 4,
+    "use_image_transform": false,
+    "input_size": [102, 720, 1280],
+    "micro_batch_size": 1,
+    "model_max_length":300,
+    "save_path":"./opensora_samples/samples/",
+    "fps":24,
+    "prompt":"examples/opensora1.0/samples_prompts.txt",
+    "pipeline_class": "OpenSoraPipeline",
+    "use_y_embedder": true,
+    "device":"npu",
+    "dtype": "bf16"
+}

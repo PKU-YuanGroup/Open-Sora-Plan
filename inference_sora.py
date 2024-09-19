@@ -29,8 +29,8 @@ def prepare_pipeline(args, device):
     predict_model = PredictModel(args.predictor).get_model().to(device, args.predictor.dtype).eval()
     scheduler = DiffusionModel(args.diffusion).get_model()
     tokenizer = Tokenizer(args.tokenizer).get_tokenizer()
-
-    vae.dtype = args.ae.dtype
+    if not hasattr(vae, 'dtype'):
+        vae.dtype = args.ae.dtype
     tokenizer.model_max_length = args.model_max_length
     if hasattr(args, 'use_y_embedder') and args.use_y_embedder:
         text_encoder.y_embedder = predict_model.y_embedder
@@ -68,13 +68,8 @@ def main():
         # == prepare batch prompts ==
         batch_prompts = prompts[i: i + args.micro_batch_size]
 
-        # == multi-resolution info ==
-        model_args = prepare_multi_resolution_info(
-            args.predictor.model_id, len(batch_prompts), image_size, num_frames, args.fps, device, dtype
-        )
-
         videos = sora_pipeline(prompt=batch_prompts, height=args.height, width=args.width, num_frames=num_frames,
-                               model_args=model_args, device=device, dtype=dtype)
+                               fps=save_fps, device=device, dtype=dtype)
         video_grids.append(videos)
         start_idx += len(batch_prompts)
     video_grids = torch.cat(video_grids, dim=0)

@@ -17,7 +17,7 @@ class OpenSoraPipeline(MMPipeline, InputsCheckMixin, MMEncoderMixin):
         self.text_encoder = text_encoder
         self.tokenizer = tokenizer
         self.scheduler = scheduler
-        self.transformer = predict_model
+        self.predict_model = predict_model
 
     @torch.no_grad()
     def __call__(self,
@@ -34,6 +34,7 @@ class OpenSoraPipeline(MMPipeline, InputsCheckMixin, MMEncoderMixin):
                  generator: Optional[Union[torch.Generator, List[torch.Generator]]] = None,
                  latents: Optional[torch.FloatTensor] = None,
                  clean_caption: bool = True,
+                 fps: int = None,
                  mask_feature: bool = True,
                  enable_temporal_attentions: bool = True,
                  added_cond_kwargs: dict = None,
@@ -64,6 +65,12 @@ class OpenSoraPipeline(MMPipeline, InputsCheckMixin, MMEncoderMixin):
             model_args = dict(prompt=prompt_embeds, prompt_mask=prompt_embeds_attention_mask)
         y_null = self.null(batch_size)
         model_args["prompt"] = torch.cat([model_args["prompt"], y_null], 0)
+        model_args["fps"] = torch.tensor([fps], device=device, dtype=dtype).repeat(batch_size)
+        model_args["height"] = torch.tensor([height], device=device, dtype=dtype).repeat(batch_size)
+        model_args["width"] = torch.tensor([width], device=device, dtype=dtype).repeat(batch_size)
+        model_args["num_frames"] = torch.tensor([num_frames], device=device, dtype=dtype).repeat(batch_size)
+        model_args["ar"] = torch.tensor([height / width], device=device, dtype=dtype).repeat(batch_size)
+        model_args["mask"] = prompt_embeds_attention_mask
 
         # 5. Prepare latents
         image_size = (height, width)
@@ -72,13 +79,11 @@ class OpenSoraPipeline(MMPipeline, InputsCheckMixin, MMEncoderMixin):
         latent_size = self.vae.get_latent_size(input_size)
         shape = (batch_size, self.vae.out_channels, *latent_size)
         z = torch.randn(shape, device=device, dtype=dtype)
-        z = torch.cat([z, z], 0)
-        shape = z.shape
-
-        latents = self.scheduler.sample(model=self.transformer, shape=shape, clip_denoised=False, latents=z,
+        masks = torch.ones(z.shape[2], dtype=torch.float, device=z.device)
+        latents = self.scheduler.sample(model=self.predict_model, shape=shape, clip_denoised=False, latents=z,
+                                        mask=masks,
                                         model_kwargs=model_args, progress=True)  # b,c,t,h,w
-        latents, _ = latents.chunk(2, dim=0)
-        video = self.decode_latents(latents.to(self.vae.dtype))  # b,c,t,h,w
+        video = self.decode_latents(latents.to(self.vae.dtype), num_frames=num_frames)  # b,c,t,h,w
         video = video[:, :num_frames, :height, :width]
 
         return video

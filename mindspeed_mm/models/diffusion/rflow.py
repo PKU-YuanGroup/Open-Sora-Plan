@@ -1,4 +1,4 @@
-from tqdm import tqdm
+from tqdm.auto import tqdm
 import torch
 from torch.distributions import LogisticNormal
 
@@ -43,24 +43,25 @@ class RFlow:
         loc=0.0,
         scale=1.0,
         transform_scale=1.0,
+        **kwargs,
     ):
         self.num_sampling_steps = num_inference_steps
         self.num_timesteps = num_train_steps
         self.cfg_scale = cfg_scale
         self.use_discrete_timesteps = use_discrete_timesteps
-        
+
         # sample method
         if sample_method not in ["uniform", "logit-normal"]:
             raise Exception("Currently sample_method must be uniform or logit-normal")
-        
-        if  use_discrete_timesteps and not sample_method == "uniform":
+
+        if use_discrete_timesteps and not sample_method == "uniform":
             raise Exception("Only uniform sampling is supported for discrete timesteps")
 
         self.sample_method = sample_method
         if sample_method == "logit-normal":
             self.distribution = LogisticNormal(torch.tensor([loc]), torch.tensor([scale]))
             self.sample_t = lambda x: self.distribution.sample((x.shape[0],))[:, 0].to(x.device)
-            
+
         # timestep transform
         self.use_timestep_transform = use_timestep_transform
         self.transform_scale = transform_scale
@@ -69,11 +70,10 @@ class RFlow:
         self,
         model,
         latents,
-        device="npu",
         additional_args=None,
         mask=None,
         guidance_scale=None,
-        model_args=None,
+        model_kwargs=None,
         progress=True,
         **kwargs
     ):
@@ -82,30 +82,30 @@ class RFlow:
             guidance_scale = self.cfg_scale
 
         if additional_args is not None:
-            model_args.update(additional_args)
+            model_kwargs.update(additional_args)
 
         # prepare timesteps
         timesteps = [(1.0 - i / self.num_sampling_steps) * self.num_timesteps for i in range(self.num_sampling_steps)]
         if self.use_discrete_timesteps:
             timesteps = [int(round(t)) for t in timesteps]
-        timesteps = [torch.tensor([t] * latents.shape[0], device=device) for t in timesteps]
+        timesteps = [torch.tensor([t] * latents.shape[0], device=latents.device) for t in timesteps]
         if self.use_timestep_transform:
-            timesteps = [timestep_transform(t, additional_args, num_timesteps=self.num_timesteps) for t in timesteps]
+            timesteps = [timestep_transform(t, model_kwargs, num_timesteps=self.num_timesteps) for t in timesteps]
 
         if mask is not None:
             noise_added = torch.zeros_like(mask, dtype=torch.bool)
             noise_added = noise_added | (mask == 1)
 
         progress_wrap = tqdm if progress else (lambda x: x)
-        for i, t in progress_wrap(enumerate(timesteps)):
+        for i in progress_wrap(range(len(timesteps))):
+            t = timesteps[i]
             # mask for adding noise
             if mask is not None:
                 mask_t = mask * self.num_timesteps
                 x0 = latents.clone()
-                x_noise = self.q_sample(x0, torch.randn_like(x0), t)
-
+                x_noise, _, _ = self.q_sample(x_start=x0, noise=torch.randn_like(x0), t=t)
                 mask_t_upper = mask_t >= t.unsqueeze(1)
-                model_args["x_mask"] = mask_t_upper.repeat(2, 1)
+                model_kwargs["video_mask"] = mask_t_upper.repeat(2, 1)
                 mask_add_noise = mask_t_upper & ~noise_added
 
                 latents = torch.where(mask_add_noise[:, None, :, None, None], x_noise, x0)
@@ -114,7 +114,7 @@ class RFlow:
             # classifier-free guidance
             z_in = torch.cat([latents, latents], 0)
             t = torch.cat([t, t], 0)
-            pred = model(z_in, t, **model_args).chunk(2, dim=1)[0]
+            pred = model(z_in, t, **model_kwargs).chunk(2, dim=1)[0]
             pred_cond, pred_uncond = pred.chunk(2, dim=0)
             v_pred = pred_uncond + guidance_scale * (pred_cond - pred_uncond)
 
@@ -127,8 +127,10 @@ class RFlow:
                 latents = torch.where(mask_t_upper[:, None, :, None, None], latents, x0)
 
         return latents
-    
-    def q_sample(self, x_start, noise=None, t=None, mask=None):
+
+    def q_sample(self, x_start, noise=None, t=None, mask=None, model_kwargs=None):
+        if model_kwargs is None:
+            model_kwargs = {}
         if t is None:
             if self.use_discrete_timesteps:
                 t = torch.randint(0, self.num_timesteps, (x_start.shape[0],), device=x_start.device)
@@ -138,10 +140,9 @@ class RFlow:
                 t = self.sample_t(x_start) * self.num_timesteps
 
             if self.use_timestep_transform:
-                t = timestep_transform(t, model_kwargs, scale=self.transform_scale, num_timesteps=self.num_timesteps)
+                t = timestep_transform(t, model_kwargs=model_kwargs, scale=self.transform_scale,
+                                       num_timesteps=self.num_timesteps)
 
-        if model_kwargs is None:
-            model_kwargs = {}
         if noise is None:
             noise = torch.randn_like(x_start)
         if not noise.shape == x_start.shape:
@@ -161,7 +162,6 @@ class RFlow:
             x_t0 = self.q_sample(x_start, noise, t0)
             x_t = torch.where(mask[:, None, :, None, None], x_t, x_t0)
         return x_t, noise, t
-    
 
     def training_losses(self, model_output, x_start, noise=None, mask=None, weights=None, t=None):
         """

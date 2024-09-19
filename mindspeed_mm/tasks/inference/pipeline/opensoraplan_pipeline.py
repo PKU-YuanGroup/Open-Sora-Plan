@@ -19,7 +19,7 @@ class OpenSoraPlanPipeline(MMPipeline, InputsCheckMixin, MMEncoderMixin):
         self.text_encoder = text_encoder
         self.tokenizer = tokenizer
         self.scheduler = scheduler
-        self.transformer = predict_model
+        self.predict_model = predict_model
         replace_with_fp32_forwards()
 
     @torch.no_grad()
@@ -78,7 +78,7 @@ class OpenSoraPlanPipeline(MMPipeline, InputsCheckMixin, MMEncoderMixin):
                                                      dim=0)
 
         # 5. Prepare latents
-        latent_channels = self.transformer.in_channels
+        latent_channels = self.predict_model.in_channels
         batch_size = batch_size * num_images_per_prompt
         shape = (
             batch_size,
@@ -106,7 +106,7 @@ class OpenSoraPlanPipeline(MMPipeline, InputsCheckMixin, MMEncoderMixin):
                         "prompt_mask": prompt_embeds_attention_mask,
                         "return_dict": False}
 
-        latents = self.scheduler.sample(model=self.transformer, shape=shape, latents=latents, model_kwargs=model_kwargs,
+        latents = self.scheduler.sample(model=self.predict_model, shape=shape, latents=latents, model_kwargs=model_kwargs,
                                         extra_step_kwargs=extra_step_kwargs)
         video = self.decode_latents(latents.to(self.vae.dtype))
         video = video.permute(0, 2, 1, 3, 4)  # [b,t,c,h,w -> [b,c,t,h,w]

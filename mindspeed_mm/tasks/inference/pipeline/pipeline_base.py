@@ -14,7 +14,6 @@ class MMPipeline(DiffusionPipeline):
         latents = latents * self.scheduler.init_noise_sigma
         return latents
 
-    def decode_latents(self, latents):
-        video = self.vae.decode(latents)  # b c t h w
+    def decode_latents(self, latents, **kwargs):
+        video = self.vae.decode(latents, **kwargs)  # b c t h w
         return video
-

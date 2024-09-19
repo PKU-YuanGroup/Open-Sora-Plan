@@ -57,7 +57,7 @@ class VideoAutoencoderKL(nn.Module):
             )
         return x
 
-    def decode(self, x):
+    def decode(self, x, **kwargs):
         # x: (B, C, T, H, W)
         B = x.shape[0]
         x = rearrange(x, "B C T H W -> (B T) C H W")

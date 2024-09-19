@@ -176,7 +176,7 @@ class CausalVAE(MultiModalModule):
         res = posterior.sample().mul_(0.18215)
         return res
 
-    def decode(self, z):
+    def decode(self, z, **kwargs):
         z = z / 0.18215
         if self.use_tiling:
             if (z.shape[-1] > self.tile_latent_min_size

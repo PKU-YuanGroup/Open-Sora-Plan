@@ -192,6 +192,8 @@ class IDDPM(DDPM):
         Same usage as p_sample_loop().
         """
         final = None
+        latents = torch.cat([latents, latents], 0)
+        shape = latents.shape
         for sample in self.ddim_sample_loop_progressive(
             model,
             shape,
@@ -204,4 +206,5 @@ class IDDPM(DDPM):
             eta=eta,
         ):
             final = sample
-        return final["sample"]
+        sample, _ = final["sample"].chunk(2, dim=0)
+        return sample

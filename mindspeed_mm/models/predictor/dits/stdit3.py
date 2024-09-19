@@ -33,6 +33,8 @@ from mindspeed_mm.models.common.embeddings import (
 from mindspeed_mm.utils.utils import NpuRotaryEmbedding
 
 
+
+
 class STDiT3Block(nn.Module):
     def __init__(
         self,
@@ -70,29 +72,27 @@ class STDiT3Block(nn.Module):
         )
         self.cross_attn = mha_cls(hidden_size, num_heads)
         self.norm2 = nn.LayerNorm(hidden_size, eps=1e-6, elementwise_affine=False)
+        approx_gelu = lambda: nn.GELU(approximate="tanh")
         self.mlp = Mlp(
-            in_features=hidden_size, hidden_features=int(hidden_size * mlp_ratio), 
-            act_layer=nn.GELU(approximate="tanh"), drop=0
+            in_features=hidden_size, hidden_features=int(hidden_size * mlp_ratio), act_layer=approx_gelu, drop=0
         )
         self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
         self.scale_shift_table = nn.Parameter(torch.randn(6, hidden_size) / hidden_size**0.5)
 
-    def t_mask_select(self, x_mask, x, masked_x, T, S):
+
+    def t_mask_select(self, video_mask, x, masked_x):
         # x: [B, (T, S), C]
         # mased_x: [B, (T, S), C]
-        # x_mask: [B, T]
-        x = rearrange(x, "B (T S) C -> B T S C", T=T, S=S)
-        masked_x = rearrange(masked_x, "B (T S) C -> B T S C", T=T, S=S)
-        x = torch.where(x_mask[:, :, None, None], x, masked_x)
-        x = rearrange(x, "B T S C -> B (T S) C")
+        # video_mask: [B, (T, S), C]
+        x = torch.lerp(masked_x, x, video_mask)
         return x
-    
-    def modulate(self, x, norm, shift_msa, scale_msa, shift_msa_zero, scale_msa_zero, x_mask, T, S):
+
+    def modulate(self, x, norm, shift_msa, scale_msa, shift_msa_zero, scale_msa_zero, video_mask, T, S):
         x_norm = norm(x)
         x_m = t2i_modulate(x_norm, shift_msa, scale_msa)
-        if x_mask is not None:
+        if video_mask is not None:
             x_m_zero = t2i_modulate(x_norm, shift_msa_zero, scale_msa_zero)
-            x_m = self.t_mask_select(x_mask, x_m, x_m_zero, T, S)
+            x_m = self.t_mask_select(video_mask, x_m, x_m_zero, T, S)
         return x_m
 
     def forward(
@@ -101,7 +101,7 @@ class STDiT3Block(nn.Module):
         y,
         t,
         mask=None,  # text mask
-        x_mask=None,  # temporal mask
+        video_mask=None,  # temporal mask
         t0=None,  # t with timestamp=0
         T=None,  # number of frames
         S=None,  # number of pixel patches
@@ -109,19 +109,19 @@ class STDiT3Block(nn.Module):
         # prepare modulate parameters
         B, N, C = x.shape
         shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
-            self.scale_shift_table[None] + t.reshape(B, 6, -1)
+                self.scale_shift_table[None] + t.reshape(B, 6, -1)
         ).chunk(6, dim=1)
-        if x_mask is not None:
+        if video_mask is not None:
             shift_msa_zero, scale_msa_zero, gate_msa_zero, shift_mlp_zero, scale_mlp_zero, gate_mlp_zero = (
-                self.scale_shift_table[None] + t0.reshape(B, 6, -1)
+                    self.scale_shift_table[None] + t0.reshape(B, 6, -1)
             ).chunk(6, dim=1)
 
         # modulate (attention)
         x_norm1 = self.norm1(x)
         x_m = t2i_modulate(x_norm1, shift_msa, scale_msa)
-        if x_mask is not None:
+        if video_mask is not None:
             x_m_zero = t2i_modulate(x_norm1, shift_msa_zero, scale_msa_zero)
-            x_m = self.t_mask_select(x_mask, x_m, x_m_zero, T, S)
+            x_m = self.t_mask_select(video_mask, x_m, x_m_zero)
 
         # attention
         if self.temporal:
@@ -134,12 +134,12 @@ class STDiT3Block(nn.Module):
             x_m = rearrange(x_m, "(B T) S C -> B (T S) C", T=T, S=S)
 
         # modulate (attention)
-        x_m_s = gate_msa * x_m
-        if x_mask is not None:
-            x_m_s_zero = gate_msa_zero * x_m
-            x_m_s = self.t_mask_select(x_mask, x_m_s, x_m_s_zero, T, S)
+        if video_mask is not None:
+            x_m_s = self.t_mask_select(video_mask, gate_msa, gate_msa_zero) * x_m
+        else:
+            x_m_s = gate_msa * x_m
 
-        # residual
+            # residual
         x = x + self.drop_path(x_m_s)
 
         # cross attention
@@ -148,18 +148,18 @@ class STDiT3Block(nn.Module):
         # modulate (MLP)
         x_norm2 = self.norm2(x)
         x_m = t2i_modulate(x_norm2, shift_mlp, scale_mlp)
-        if x_mask is not None:
+        if video_mask is not None:
             x_m_zero = t2i_modulate(x_norm2, shift_mlp_zero, scale_mlp_zero)
-            x_m = self.t_mask_select(x_mask, x_m, x_m_zero, T, S)
+            x_m = self.t_mask_select(video_mask, x_m, x_m_zero)
 
         # MLP
         x_m = self.mlp(x_m)
 
         # modulate (MLP)
-        x_m_s = gate_mlp * x_m
-        if x_mask is not None:
-            x_m_s_zero = gate_mlp_zero * x_m
-            x_m_s = self.t_mask_select(x_mask, x_m_s, x_m_s_zero, T, S)
+        if video_mask is not None:
+            x_m_s = self.t_mask_select(video_mask, gate_mlp, gate_mlp_zero) * x_m
+        else:
+            x_m_s = gate_mlp * x_m
 
         # residual
         x = x + self.drop_path(x_m_s)
@@ -189,8 +189,7 @@ class STDiT3(MultiModalModule):
         only_train_temporal=False,
         freeze_y_embedder=True,
         skip_y_embedder=False,
-        **kwargs
-        ):
+        **kwargs):
         super().__init__(config=None)
         self.pred_sigma = pred_sigma
         self.in_channels = in_channels
@@ -222,11 +221,12 @@ class STDiT3(MultiModalModule):
             nn.SiLU(),
             nn.Linear(hidden_size, 6 * hidden_size, bias=True),
         )
+        approx_gelu = lambda: nn.GELU(approximate="tanh")
         self.y_embedder = CaptionEmbedder(
             in_channels=caption_channels,
             hidden_size=hidden_size,
             uncond_prob=class_dropout_prob,
-            act_layer=nn.GELU(approximate="tanh"),
+            act_layer=approx_gelu,
             token_num=model_max_length,
         )
         self.skip_y_embedder = skip_y_embedder
@@ -333,7 +333,7 @@ class STDiT3(MultiModalModule):
             y = y.squeeze(1).view(1, -1, self.hidden_size)
         return y, y_lens
 
-    def forward(self, video, timestep, prompt, prompt_mask=None, video_mask=None, fps=None, height=None, width=None, **kwargs):
+    def forward(self, video, timestep, prompt, mask=None, video_mask=None, fps=None, height=None, width=None, **kwargs):
         dtype = self.x_embedder.proj.weight.dtype
         B = video.size(0)
         video = video.to(dtype)
@@ -344,7 +344,7 @@ class STDiT3(MultiModalModule):
         _, _, Tx, Hx, Wx = video.size()
         T, H, W = self.get_dynamic_size(video)
         S = H * W
-        base_size = round(S**0.5)
+        base_size = round(S ** 0.5)
         resolution_sq = (height[0].item() * width[0].item()) ** 0.5
         scale = resolution_sq / self.input_sq_size
         pos_emb = self.pos_embed(video, H, W, scale=scale, base_size=base_size)
@@ -361,13 +361,13 @@ class STDiT3(MultiModalModule):
             t0 = t0 + fps
             t0_mlp = self.t_block(t0)
 
-        # === get y embed ===  
+        # === get y embed ===
         if self.skip_y_embedder:
-            y_lens = prompt_mask
+            y_lens = mask
             if isinstance(y_lens, torch.Tensor):
                 y_lens = y_lens.long().tolist()
         else:
-            prompt, y_lens = self.encode_text(prompt, prompt_mask)
+            prompt, y_lens = self.encode_text(prompt, mask)
 
         # === get x embed ===
         video = self.x_embedder(video)  # [B, N, C]
@@ -380,7 +380,8 @@ class STDiT3(MultiModalModule):
             S = S // mpu.get_context_parallel_world_size()
 
         video = rearrange(video, "B T S C -> B (T S) C", T=T, S=S)
-        
+        video_mask = video_mask[:, :, None, None].expand(B, T, S, video.shape[-1]).contiguous()
+        video_mask = video_mask.view(B, T * S, video.shape[-1]).to(video.dtype)
         # === blocks ===
         for spatial_block, temporal_block in zip(self.spatial_blocks, self.temporal_blocks):
             video = auto_grad_checkpoint(spatial_block, video, prompt, t_mlp, y_lens, video_mask, t0_mlp, T, S)
