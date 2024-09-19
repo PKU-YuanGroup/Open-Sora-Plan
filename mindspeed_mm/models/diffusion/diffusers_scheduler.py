@@ -71,7 +71,12 @@ class DiffusersScheduler:
             self.num_warmup_steps = max(
                 len(self.timesteps) - self.num_inference_steps * self.diffusion.order, 0
             )
-    
+
+    def __getattr__(self, item):
+        if item in self.__dict__:
+            return self.__dict__[item]
+        return getattr(self.diffusion, item)
+
     def training_losses(
         self,
         model_output: Tensor,
