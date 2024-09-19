@@ -50,7 +50,7 @@
     "pipeline_class": "OpenSoraPipeline",
     "save_path":"./opensora_samples/samples/",
     "fps":24,
-    "prompt":"examples/opensora/samples_prompts.txt",
+    "prompt":"examples/opensora1.0/samples_prompts.txt",
     "use_y_embedder": true,
     "dtype": "fp16",
     "device":"npu"
