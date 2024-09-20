@@ -44,9 +44,11 @@ import accelerate
 import torch
 from torch.nn import functional as F
 import transformers
+from transformers.utils import ContextManagers
 from accelerate import Accelerator
 from accelerate.logging import get_logger
 from accelerate.utils import DistributedType, ProjectConfiguration, set_seed
+from accelerate.state import AcceleratorState
 from packaging import version
 from tqdm.auto import tqdm
 
@@ -211,21 +213,42 @@ def main(args):
         weight_dtype = torch.bfloat16
 
     # Create model:
-    kwargs = {}
-    ae = ae_wrapper[args.ae](args.ae_path, cache_dir=args.cache_dir, **kwargs).eval()
-    
-    if args.enable_tiling:
-        ae.vae.enable_tiling()
 
-    kwargs = {
-        'torch_dtype': weight_dtype, 
-        'low_cpu_mem_usage': True
-        }
-    text_enc_1 = get_text_warpper(args.text_encoder_name_1)(args, **kwargs).eval()
+    # Currently Accelerate doesn't know how to handle multiple models under Deepspeed ZeRO stage 3.
+    # For this to work properly all models must be run through `accelerate.prepare`. But accelerate
+    # will try to assign the same optimizer with the same weights to all models during
+    # `deepspeed.initialize`, which of course doesn't work.
+    #
+    # For now the following workaround will partially support Deepspeed ZeRO-3, by excluding the 2
+    # frozen models from being partitioned during `zero.Init` which gets called during
+    # `from_pretrained` So CLIPTextModel and AutoencoderKL will not enjoy the parameter sharding
+    # across multiple gpus and only UNet2DConditionModel will get ZeRO sharded.
+    def deepspeed_zero_init_disabled_context_manager():
+        """
+        returns either a context list that includes one that will disable zero.Init or an empty context list
+        """
+        deepspeed_plugin = AcceleratorState().deepspeed_plugin if accelerate.state.is_initialized() else None
+        if deepspeed_plugin is None:
+            return []
 
-    text_enc_2 = None
-    if args.text_encoder_name_2 is not None:
-        text_enc_2 = get_text_warpper(args.text_encoder_name_2)(args, **kwargs).eval()
+        return [deepspeed_plugin.zero3_init_context_manager(enable=False)]
+
+    with ContextManagers(deepspeed_zero_init_disabled_context_manager()):
+        kwargs = {}
+        ae = ae_wrapper[args.ae](args.ae_path, cache_dir=args.cache_dir, **kwargs).eval()
+        
+        if args.enable_tiling:
+            ae.vae.enable_tiling()
+
+        kwargs = {
+            'torch_dtype': weight_dtype, 
+            'low_cpu_mem_usage': False
+            }
+        text_enc_1 = get_text_warpper(args.text_encoder_name_1)(args, **kwargs).eval()
+
+        text_enc_2 = None
+        if args.text_encoder_name_2 is not None:
+            text_enc_2 = get_text_warpper(args.text_encoder_name_2)(args, **kwargs).eval()
 
     ae_stride_t, ae_stride_h, ae_stride_w = ae_stride_config[args.ae]
     ae.vae_scale_factor = (ae_stride_t, ae_stride_h, ae_stride_w)

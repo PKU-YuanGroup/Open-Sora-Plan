@@ -23,7 +23,7 @@ export NCCL_IB_RETRY_CNT=32
 accelerate launch \
     --config_file scripts/accelerate_configs/deepspeed_zero3_config.yaml \
     opensora/train/train_t2v_diffusers.py \
-    --model OpenSoraT2V_v1_5-5B/122 \
+    --model OpenSoraT2V_v1_5-7B/122 \
     --text_encoder_name_1 DeepFloyd/t5-v1_1-xxl \
     --cache_dir "../../cache_dir/" \
     --text_encoder_name_2 laion/CLIP-ViT-bigG-14-laion2B-39B-b160k \

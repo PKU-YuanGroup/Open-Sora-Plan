@@ -1,6 +1,7 @@
 import os
 
-
+if os.path.exists('i2v.txt'):
+    os.remove('i2v.txt')
 
 command = """
 
