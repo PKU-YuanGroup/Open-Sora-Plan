@@ -1,12 +1,7 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
-
 import math
+from einops import rearrange
 
 import torch
-from timm.models.vision_transformer import Mlp
 from torch import nn
 
 
@@ -141,3 +136,40 @@ class CaptionEmbedder(nn.Module):
             caption = self.token_drop(caption, force_drop_ids)
         caption = self.y_proj(caption)
         return caption
+    
+
+class SizeEmbedder(TimestepEmbedder):
+    """
+    Embeds scalar timesteps into vector representations.
+    """
+    def __init__(self, hidden_size, frequency_embedding_size=256):
+        super().__init__(hidden_size=hidden_size, frequency_embedding_size=frequency_embedding_size)
+        self.mlp = nn.Sequential(
+            nn.Linear(frequency_embedding_size, hidden_size, bias=True),
+            nn.SiLU(),
+            nn.Linear(hidden_size, hidden_size, bias=True),
+        )
+        self.frequency_embedding_size = frequency_embedding_size
+        self.outdim = hidden_size
+
+    def forward(self, s, bs):
+        if s.ndim == 1:
+            s = s[:, None]
+        if s.ndim != 2:
+            raise Exception("ndim of s must be 2")
+        if s.shape[0] != bs:
+            s = s.repeat(bs // s.shape[0], 1)
+            if s.shape[0] != bs:
+                raise Exception("s.shape[0] must be equal to bs")
+        b, dims = s.shape[0], s.shape[1]
+        s = rearrange(s, "b d -> (b d)")
+        s_freq = self.timestep_embedding(s, self.frequency_embedding_size).to(self.dtype)
+        s_emb = self.mlp(s_freq)
+        s_emb = rearrange(s_emb, "(b d) d2 -> b (d d2)", b=b, d=dims, d2=self.outdim)
+        return s_emb
+
+    @property
+    def dtype(self):
+        return next(self.parameters()).dtype
+    
+

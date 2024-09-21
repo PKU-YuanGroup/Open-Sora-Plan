@@ -1,0 +1,61 @@
+{
+    "dataset_param": {
+        "dataset_type": "t2v",
+        "basic_parameters": {
+            "data_path": "json_path", 
+            "data_folder": "root_path",
+            "return_type": "dict"
+        },
+        "preprocess_parameters": {
+            "video_reader_type": "torchvision",
+            "image_reader_type": "torchvision",
+            "num_frames": 120,
+            "frame_interval": 3,
+            "resolution": [120, 256, 256],
+            "train_pipeline": {
+                "video": [
+                    {"trans_type": "ToTensorVideo"},
+                    {"trans_type": "ResizeCrop", "param": {"size": "auto"}},
+                    {"trans_type": "norm_fun", "param": {"mean": [0.5, 0.5, 0.5], "std": [0.5, 0.5, 0.5], "inplace": true}}
+                ],
+                "image": [
+                    {"trans_type": "RandomHorizontalFlip"},
+                    {"trans_type": "ToTensor"},
+                    {"trans_type": "norm_fun", "param": {"mean": [0.5, 0.5, 0.5], "std": [0.5, 0.5, 0.5], "inplace": true}}
+                ]
+            }
+        },
+        "use_text_processer": true,
+        "enable_text_preprocessing": false,
+        "model_max_length": 300,
+        "tokenizer_config": {
+            "hub_backend": "hf",
+            "autotokenizer_name": "AutoTokenizer",
+            "from_pretrained": "your model path"
+        },
+        "use_feature_data": false,
+        "vid_img_fusion_by_splicing": false,
+        "use_img_num": 4,
+        "use_img_from_vid": true
+    },
+    "dataloader_param": {
+        "dataloader_mode": "variable",
+        "batch_size": 2,
+        "num_workers": 4,
+        "shuffle": true,
+        "drop_last": true,
+        "pin_memory": true,
+        "seed": 42,
+        "bucket_config": {
+            "144p": {"1": [1.0, 475], "51": [1.0, 51], "102": [[1.0, 0.33], 27], "204": [[1.0, 0.1], 13], "408": [[1.0, 0,1], 6]},
+            "256" : {"1": [0.4, 297], "51": [0.5, 20], "102": [[0.5, 0.33], 10], "204":[[0.5, 0.1], 5], "408": [[0.5, 0.1], 2]},
+            "240p": {"1": [0.3, 297], "51": [0.4, 20], "102": [[0.15, 0.33], 4], "204": [[0.15, 0.1], 2], "408": [[0.15, 0.1], 1]},
+            "360p": {"1": [0.2, 141], "51": [0.15, 8], "102": [[0.15, 0.33], 4], "204": [[0.15, 0.1], 2], "408": [[0.15, 0.1], 1]},
+            "512": {"1": [0.1, 141]},
+            "480p": {"1": [0.1, 89]},
+            "720p": {"1": [0.05, 36]},
+            "1080p": {"1": [0.1, 5]},
+            "2048": {"1": [0.1, 5]}
+        }
+    }
+}

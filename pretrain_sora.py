@@ -77,7 +77,6 @@ def train_valid_test_datasets_provider(train_val_test_num_samples):
         args.mm.data.dataloader_param,
         process_group=mpu.get_data_parallel_group(),
     )
-    train_dataloader.sampler.set_start_index(0)
     return iter(train_dataloader), None, None
 
 

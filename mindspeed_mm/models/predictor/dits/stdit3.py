@@ -30,9 +30,27 @@ from mindspeed_mm.models.common.embeddings import (
     CaptionEmbedder,
     PatchEmbed3D,
 )
-from mindspeed_mm.utils.utils import NpuRotaryEmbedding
+from mindspeed_mm.models.common.embeddings.pos_embeddings import NpuRotaryEmbedding
 
 
+class LlamaRMSNorm(nn.Module):
+    def __init__(self, hidden_size, eps=1e-6):
+        """
+        LlamaRMSNorm is equivalent to T5LayerNorm
+        """
+        super().__init__()
+        self.weight = nn.Parameter(torch.ones(hidden_size))
+        self.variance_epsilon = eps
+
+    def forward(self, hidden_states):
+        try:
+            return torch_npu.npu_rms_norm(hidden_states, self.weight, epsilon=self.variance_epsilon)[0]
+        except TypeError:
+            input_dtype = hidden_states.dtype
+            hidden_states = hidden_states.to(torch.float32)
+            variance = hidden_states.pow(2).mean(-1, keepdim=True)
+            hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
+            return self.weight * hidden_states.to(input_dtype)  
 
 
 class STDiT3Block(nn.Module):
@@ -45,13 +63,13 @@ class STDiT3Block(nn.Module):
         rope=None,
         qk_norm=False,
         temporal=False,
-        enable_flash_attn=False,
+        enable_flashattn=False,
         enable_sequence_parallelism=False,
     ):
         super().__init__()
         self.temporal = temporal
         self.hidden_size = hidden_size
-        self.enable_flash_attn = enable_flash_attn
+        self.enable_flashattn = enable_flashattn
         self.enable_sequence_parallelism = enable_sequence_parallelism
 
         if self.enable_sequence_parallelism and not temporal:
@@ -67,8 +85,9 @@ class STDiT3Block(nn.Module):
             num_heads=num_heads,
             qkv_bias=True,
             qk_norm=qk_norm,
+            norm_layer=LlamaRMSNorm,
             rope=rope,
-            enable_flash_attn=enable_flash_attn,
+            enable_flashattn=enable_flashattn,
         )
         self.cross_attn = mha_cls(hidden_size, num_heads)
         self.norm2 = nn.LayerNorm(hidden_size, eps=1e-6, elementwise_affine=False)
@@ -183,8 +202,7 @@ class STDiT3(MultiModalModule):
         caption_channels=4096,
         model_max_length=300,
         qk_norm=True,
-        enable_flash_attn=True,
-        enable_layernorm_kernel=True,
+        enable_flashattn=True,
         enable_sequence_parallelism=False,
         only_train_temporal=False,
         freeze_y_embedder=True,
@@ -203,8 +221,7 @@ class STDiT3(MultiModalModule):
 
         # computation related
         self.drop_path = drop_path
-        self.enable_flash_attn = enable_flash_attn
-        self.enable_layernorm_kernel = enable_layernorm_kernel
+        self.enable_flashattn = enable_flashattn
         self.enable_sequence_parallelism = enable_sequence_parallelism
 
         # input size related
@@ -241,8 +258,7 @@ class STDiT3(MultiModalModule):
                     mlp_ratio=mlp_ratio,
                     drop_path=drop_path[i],
                     qk_norm=qk_norm,
-                    enable_flash_attn=enable_flash_attn,
-                    enable_layernorm_kernel=enable_layernorm_kernel,
+                    enable_flashattn=enable_flashattn,
                     enable_sequence_parallelism=enable_sequence_parallelism,
                 )
                 for i in range(depth)
@@ -259,8 +275,7 @@ class STDiT3(MultiModalModule):
                     mlp_ratio=mlp_ratio,
                     drop_path=drop_path[i],
                     qk_norm=qk_norm,
-                    enable_flash_attn=enable_flash_attn,
-                    enable_layernorm_kernel=enable_layernorm_kernel,
+                    enable_flashattn=enable_flashattn,
                     enable_sequence_parallelism=enable_sequence_parallelism,
                     # temporal
                     temporal=True,

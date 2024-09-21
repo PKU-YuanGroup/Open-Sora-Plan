@@ -21,7 +21,10 @@ class VideoAutoencoderKL(nn.Module):
         **kwargs,
     ):
         super().__init__()
-        self.module = AutoencoderKL.from_pretrained(from_pretrained)
+        self.module = AutoencoderKL.from_pretrained(from_pretrained,
+                                                    subfolder="vae",
+                                                    cache_dir=None,
+                                                    local_files_only=False)
         self.out_channels = self.module.config.latent_channels
         self.micro_batch_size = micro_batch_size
         self.patch_size = patch_size
@@ -84,23 +87,25 @@ class VideoAutoencoderKL(nn.Module):
 
 
 class VideoAutoencoder3D(nn.Module):
-    def __init__(self, config, micro_frame_size=17):
+    def __init__(self, cal_loss=False, vae_micro_frame_size=17, **kwargs):
         super().__init__()
-        self.spatial_vae = VideoAutoencoderKL(config, micro_batch_size=4)
+        self.spatial_vae = VideoAutoencoderKL(micro_batch_size=4, **kwargs)
         self.temporal_vae = VAE_Temporal()
-        self.cal_loss = config.cal_loss
-        self.micro_frame_size = config.micro_frame_size
-        self.micro_z_frame_size = self.temporal_vae.get_latent_size([config.micro_frame_size, None, None])[0]
+        self.cal_loss = cal_loss
+        self.vae_micro_frame_size = vae_micro_frame_size
+        self.micro_z_frame_size = self.temporal_vae.get_latent_size([vae_micro_frame_size, None, None])[0]
 
-        if config.freeze_vae_2d:
+        if "freeze_vae_2d" in kwargs and kwargs["freeze_vae_2d"]:
             for param in self.spatial_vae.parameters():
                 param.requires_grad = False
 
         self.out_channels = self.temporal_vae.out_channels
 
         # normalization parameters
-        scale = torch.tensor(config.scale)
-        shift = torch.tensor(config.shift)
+        if "scale" not in kwargs or "shift" not in kwargs:
+            raise Exception("values of scale and shift must be set in data json")
+        scale = torch.tensor(kwargs["scale"])
+        shift = torch.tensor(kwargs["shift"])
         if len(scale.shape) > 0:
             scale = scale[None, :, None, None, None]
         if len(shift.shape) > 0:
@@ -111,13 +116,13 @@ class VideoAutoencoder3D(nn.Module):
     def encode(self, x):
         x_z = self.spatial_vae.encode(x)
 
-        if self.micro_frame_size is None:
+        if self.vae_micro_frame_size is None:
             posterior = self.temporal_vae.encode(x_z)
             z = posterior.sample()
         else:
             z_list = []
-            for i in range(0, x_z.shape[2], self.micro_frame_size):
-                x_z_bs = x_z[:, :, i : i + self.micro_frame_size]
+            for i in range(0, x_z.shape[2], self.vae_micro_frame_size):
+                x_z_bs = x_z[:, :, i : i + self.vae_micro_frame_size]
                 posterior = self.temporal_vae.encode(x_z_bs)
                 z_list.append(posterior.sample())
             z = torch.cat(z_list, dim=2)
@@ -131,16 +136,16 @@ class VideoAutoencoder3D(nn.Module):
         if not self.cal_loss:
             z = z * self.scale.to(z.dtype) + self.shift.to(z.dtype)
 
-        if self.micro_frame_size is None:
+        if self.vae_micro_frame_size is None:
             x_z = self.temporal_vae.decode(z, num_frames=num_frames)
             x = self.spatial_vae.decode(x_z)
         else:
             x_z_list = []
             for i in range(0, z.size(2), self.micro_z_frame_size):
                 z_bs = z[:, :, i : i + self.micro_z_frame_size]
-                x_z_bs = self.temporal_vae.decode(z_bs, num_frames=min(self.micro_frame_size, num_frames))
+                x_z_bs = self.temporal_vae.decode(z_bs, num_frames=min(self.vae_micro_frame_size, num_frames))
                 x_z_list.append(x_z_bs)
-                num_frames -= self.micro_frame_size
+                num_frames -= self.vae_micro_frame_size
             x_z = torch.cat(x_z_list, dim=2)
             x = self.spatial_vae.decode(x_z)
 
@@ -157,13 +162,13 @@ class VideoAutoencoder3D(nn.Module):
         return x_rec, x_z_rec, z, posterior, x_z
 
     def get_latent_size(self, input_size):
-        if self.micro_frame_size is None or input_size[0] is None:
+        if self.vae_micro_frame_size is None or input_size[0] is None:
             return self.temporal_vae.get_latent_size(self.spatial_vae.get_latent_size(input_size))
         else:
-            sub_input_size = [self.micro_frame_size, input_size[1], input_size[2]]
+            sub_input_size = [self.vae_micro_frame_size, input_size[1], input_size[2]]
             sub_latent_size = self.temporal_vae.get_latent_size(self.spatial_vae.get_latent_size(sub_input_size))
-            sub_latent_size[0] = sub_latent_size[0] * (input_size[0] // self.micro_frame_size)
-            remain_temporal_size = [input_size[0] % self.micro_frame_size, None, None]
+            sub_latent_size[0] = sub_latent_size[0] * (input_size[0] // self.vae_micro_frame_size)
+            remain_temporal_size = [input_size[0] % self.vae_micro_frame_size, None, None]
             if remain_temporal_size[0] > 0:
                 remain_size = self.temporal_vae.get_latent_size(remain_temporal_size)
                 sub_latent_size[0] += remain_size[0]

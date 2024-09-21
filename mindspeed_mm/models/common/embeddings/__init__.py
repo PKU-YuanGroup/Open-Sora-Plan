@@ -16,7 +16,7 @@
 # LabelEmbbedder:   https://github.com/hpcaitech/Open-Sora/
 # --------------------------------------------------------
 
-from .common_embeddings import CaptionEmbedder, LabelEmbedder, TimestepEmbedder
+from .common_embeddings import CaptionEmbedder, LabelEmbedder, TimestepEmbedder, SizeEmbedder
 from .patch_embeddings import (
     OverlapPatchEmbed2D,
     OverlapPatchEmbed3D,
@@ -24,6 +24,7 @@ from .patch_embeddings import (
     VideoPatchEmbed2D,
 )
 from .pos_embeddings import (
+    PositionEmbedding2D,
     get_1d_sincos_pos_embed,
     get_2d_sincos_pos_embed,
     get_3d_sincos_pos_embed,

@@ -16,7 +16,7 @@ from .communications import (
     all_to_all_SBH,
     split_forward_gather_backward,
 )
-
+        
 
 class MultiHeadAttentionBSH(nn.Module):
     """
@@ -270,6 +270,8 @@ class Attention(nn.Module):
         proj_drop: float = 0.0,
         norm_layer: nn.Module = nn.LayerNorm,
         enable_flashattn: bool = False,
+        rope=None,
+        qk_norm_legacy: bool = False,
     ) -> None:
         super().__init__()
         if dim % num_heads != 0:
@@ -285,48 +287,101 @@ class Attention(nn.Module):
         self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
         self.q_norm = norm_layer(self.head_dim) if qk_norm else nn.Identity()
         self.k_norm = norm_layer(self.head_dim) if qk_norm else nn.Identity()
+        self.qk_norm_legacy = qk_norm_legacy
         self.attn_drop = nn.Dropout(attn_drop)
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
 
+        self.rope = False
+        if rope is not None:
+            self.rope = True
+            self.rotary_emb = rope
+
+    def npu_spatial_attention(self, qkv: torch.Tensor) -> torch.Tensor:
+        B, N, _ = qkv.shape
+        qkv_shape = (B, N, 3, self.num_heads, self.head_dim)
+        qkv = qkv.view(qkv_shape)
+        q, k, v = qkv.unbind(2)
+        q, k = self.q_norm(q), self.k_norm(k)
+
+        x = torch_npu.npu_fusion_attention(
+            q, k, v, self.num_heads, input_layout="BSND",
+            pse=None,
+            scale=self.scale,
+            pre_tockens=65536,
+            next_tockens=65536,
+            keep_prob=1. - self.attn_drop.p if self.training else 1., 
+            sync=False,
+            inner_precise=0
+        )[0]
+
+        x = x.view(B, N, -1)
+        x = self.proj(x)
+        x = self.proj_drop(x)
+        return x
+
+    def npu_temporal_attention(self, qkv: torch.Tensor) -> torch.Tensor:
+        B, N, _ = qkv.shape
+        qkv_shape = (B, N, 3, self.num_heads, self.head_dim)
+        qkv = qkv.view(qkv_shape).permute(2, 0, 3, 1, 4)
+        q, k, v = qkv.unbind(0)
+
+        if self.qk_norm_legacy:
+            q, k = self.rotary_emb(q), self.rotary_emb(k)
+            q, k = self.q_norm(q), self.k_norm(k)
+        else:
+            q, k = self.q_norm(q), self.k_norm(k)
+            q, k = self.rotary_emb(q), self.rotary_emb(k)
+
+        x = torch_npu.npu_fusion_attention(
+            q, k, v, self.num_heads, input_layout="BNSD",
+            pse=None,
+            scale=self.scale,
+            pre_tockens=65536,
+            next_tockens=65536,
+            keep_prob=1. - self.attn_drop.p if self.training else 1.,
+            sync=False,
+            inner_precise=0,
+        )[0]
+
+        x = x.transpose(1, 2)
+        x = x.reshape(B, N, -1)
+        x = self.proj(x)
+        x = self.proj_drop(x)
+        return x
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         B, N, C = x.shape
+        # flash attn is not memory efficient for small sequences, this is empirical
+        enable_flashattn = self.enable_flashattn and (N > B)
         qkv = self.qkv(x)
+
+        if enable_flashattn:
+            if qkv.dtype in [torch.float16, torch.bfloat16]:
+                if self.rope:
+                    return self.npu_temporal_attention(qkv)
+                else:
+                    return self.npu_spatial_attention(qkv)
+            else:
+                raise ValueError("The dtype of x must be torch.float16 or torch.bfloat16, got torch.float32 instead.")
+
         qkv_shape = (B, N, 3, self.num_heads, self.head_dim)
-        if self.enable_flashattn:
-            qkv_permute_shape = (2, 0, 1, 3, 4)
-        else:
-            qkv_permute_shape = (2, 0, 3, 1, 4)
-        qkv = qkv.view(qkv_shape).permute(qkv_permute_shape)
+
+        qkv = qkv.view(qkv_shape).permute(2, 0, 3, 1, 4)
         q, k, v = qkv.unbind(0)
-        q, k = self.q_norm(q), self.k_norm(k)
-        if self.enable_flashattn and q.dtype in [torch.float16, torch.bfloat16]:
-            x = torch_npu.npu_fusion_attention(
-                q,
-                k,
-                v,
-                self.num_heads,
-                input_layout="BSND",
-                pse=None,
-                scale=self.scale,
-                pre_tockens=65536,
-                next_tockens=65536,
-                keep_prob=1.0 - self.attn_drop.p if self.training else 1.0,
-                sync=False,
-                inner_precise=0,
-            )[0]
+        if self.qk_norm_legacy:
+            if self.rope:
+                q = self.rotary_emb(q)
+                k = self.rotary_emb(k)
+            q, k = self.q_norm(q), self.k_norm(k)
         else:
-            dtype = q.dtype
-            q = q * self.scale
-            attn = q @ k.transpose(-2, -1)  # translate attn to float32
-            attn = attn.to(torch.float32)
-            attn = attn.softmax(dim=-1)
-            attn = attn.to(dtype)  # cast back attn to original dtype
-            attn = self.attn_drop(attn)
-            x = attn @ v
+            q, k = self.q_norm(q), self.k_norm(k)
+            if self.rope:
+                q = self.rotary_emb(q)
+                k = self.rotary_emb(k)
 
         x_output_shape = (B, N, C)
-        if not self.enable_flashattn:
+        if not enable_flashattn:
             x = x.transpose(1, 2)
         x = x.reshape(x_output_shape)
         x = self.proj(x)

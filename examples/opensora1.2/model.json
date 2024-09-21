@@ -1,0 +1,57 @@
+{
+    "device": "npu:0",
+    "use_ema": false,
+    "dtype": "bf16",
+    "load_video_features": false,
+    "load_text_features": false,
+    "allow_tf32": false,
+    "allow_internal_format": false,
+    "ae": {
+        "model_id": "vae3D",
+        "from_pretrained": "your model path",
+        "dtype": "bf16",
+        "enable_sequence_parallelism": false,
+        "cal_loss": false,
+        "vae_micro_frame_size": 17,
+        "shift": [-0.10, 0.34, 0.27, 0.98],
+        "scale": [3.85, 2.32, 2.33, 3.06],
+        "freeze_vae_2d": false
+    },
+    "text_encoder": {
+        "hub_backend": "hf",
+        "model_id": "T5",
+        "from_pretrained": "your model path",
+        "dtype": "fp32",
+        "low_cpu_mem_usage": true
+    },
+    "predictor": {
+        "dtype": "bf16",
+        "model_id": "stdit3", 
+        "hidden_size": 1152,
+        "num_heads": 16,
+        "input_size": [16, 32, 32],
+        "patch_size": [1, 2, 2],
+        "space_scale": 0.5,
+        "time_scale": 1.0,
+        "enable_flashattn": true,
+        "enable_sequence_parallelism": false,
+        "from_pretrained": "your model path"
+    },
+    "diffusion": {
+        "timestep_respacing": "",
+        "model_id": "iddpm"
+    },
+    "model_max_length": 300,
+    "mask_ratios": {
+        "random": 0.05,
+        "intepolate": 0.005,
+        "quarter_random": 0.005,
+        "quarter_head": 0.005,
+        "quarter_tail": 0.005,
+        "quarter_head_tail": 0.005,
+        "image_random": 0.025,
+        "image_head": 0.05,
+        "image_tail": 0.025,
+        "image_head_tail": 0.025
+    }
+}
