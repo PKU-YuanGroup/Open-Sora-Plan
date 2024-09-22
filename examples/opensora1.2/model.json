@@ -39,7 +39,7 @@
     },
     "diffusion": {
         "timestep_respacing": "",
-        "model_id": "iddpm"
+        "model_id": "rflow"
     },
     "model_max_length": 300,
     "mask_ratios": {

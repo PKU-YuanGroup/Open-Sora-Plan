@@ -19,7 +19,7 @@ def set_grad_checkpoint(model, use_fp32_attention=False, gc_step=1):
 
 
 def auto_grad_checkpoint(module, *args, **kwargs):
-    if getattr(module, "grad_checkpointing", False):
+    if getattr(module, "grad_checkpointing", True):
         if not isinstance(module, Iterable):
             return checkpoint(module, *args, **kwargs)
         gc_step = module[0].grad_checkpointing_step

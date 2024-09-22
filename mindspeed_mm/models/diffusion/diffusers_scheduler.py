@@ -138,6 +138,7 @@ class DiffusersScheduler:
         x_start: Tensor,
         t: Tensor = None,
         noise: Tensor = None,
+        **kwargs
     ) -> Tensor:
         """
         Diffuse the data for a given number of diffusion steps.

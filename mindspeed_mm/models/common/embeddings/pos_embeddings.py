@@ -6,7 +6,7 @@ from beartype.typing import Literal, Union, Optional
 from einops import rearrange, repeat
 import numpy as np
 import torch
-from torch import nn, einsum, broadcast_tensors, Tensor, Module
+from torch import nn, einsum, broadcast_tensors, Tensor
 from torch.cuda.amp import autocast
 
 
@@ -224,10 +224,10 @@ def default(val, d):
 
 
 def rotate_half(x):
-    x = rearrange(x, '...(dr) -> ...dr', r=2).contiguous()
+    x = rearrange(x, '... (d r) -> ... d r', r=2).contiguous()
     x1, x2 = x.unbind(dim=-1)
     x = torch.stack((-x2, x1), dim=-1)
-    return rearrange(x, '...dr -> ...(dr)')
+    return rearrange(x, '... d r -> ... (d r)')
 
 
 @autocast(enabled=False)
@@ -251,7 +251,7 @@ def apply_rotary_emb(freqs, t, start_index=0, scale=1., seq_dim=-2):
     return out.type(dtype)
 
 
-class NpuRotaryEmbedding(Module):
+class NpuRotaryEmbedding(nn.Module):
     @beartype
     def __init__(
         self,

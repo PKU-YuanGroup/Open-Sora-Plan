@@ -127,6 +127,8 @@ class VideoReader:
 
     def __call__(self, video_path):
         is_decord_read = False
+        info = None
+        
         if self.video_reader_type == "decoder":
             vframes = self.v_decoder(video_path)
             is_decord_read = True
@@ -284,6 +286,11 @@ class VideoProcesser:
             self.max_width = max_width
 
     def __call__(self, vframes, num_frames=None, frame_interval=None, image_size=None, is_decord_read=False, predefine_num_frames=13):
+        if image_size:
+            self.video_transforms = get_transforms(is_video=True, train_pipeline=self.train_pipeline,
+                                                    image_size=image_size)
+        else:
+            self.video_transforms = get_transforms(is_video=True, train_pipeline=self.train_pipeline)
         if self.data_storage_mode == "standard":
             total_frames = len(vframes)
             if num_frames:
@@ -303,12 +310,6 @@ class VideoProcesser:
             else:
                 video = vframes[frame_indice]  # TCHW
 
-            if image_size:
-                self.video_transforms = get_transforms(is_video=True, train_pipeline=self.train_pipeline,
-                                                       image_size=image_size)
-            else:
-                self.video_transforms = get_transforms(is_video=True, train_pipeline=self.train_pipeline,
-                                                       image_size=image_size)
 
             video = self.video_transforms(video)
             # TCHW -> CTHW

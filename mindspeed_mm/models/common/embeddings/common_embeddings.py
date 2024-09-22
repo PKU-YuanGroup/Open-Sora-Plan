@@ -3,6 +3,7 @@ from einops import rearrange
 
 import torch
 from torch import nn
+from timm.model.vision_transformer import Mlp
 
 
 class TimestepEmbedder(nn.Module):

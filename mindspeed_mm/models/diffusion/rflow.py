@@ -1,5 +1,6 @@
 from tqdm.auto import tqdm
 import torch
+from torch import Tensor
 from torch.distributions import LogisticNormal
 
 from .diffusion_utils import extract_into_tensor, mean_flat
@@ -127,6 +128,25 @@ class RFlow:
                 latents = torch.where(mask_t_upper[:, None, :, None, None], latents, x0)
 
         return latents
+    
+    def add_noise(
+        self,
+        original_samples: torch.FloatTensor,
+        noise: torch.FloatTensor,
+        timesteps: torch.IntTensor,
+    ) -> torch.FloatTensor:
+        """
+        compatible with diffusers add_noise()
+        """
+        timepoints = timesteps.float() / self.num_timesteps
+        timepoints = 1 - timepoints  # [1,1/1000]
+
+        # timepoint  (bsz) noise: (bsz, 4, frame, w ,h)
+        # expand timepoint to noise shape
+        timepoints = timepoints.unsqueeze(1).unsqueeze(1).unsqueeze(1).unsqueeze(1)
+        timepoints = timepoints.repeat(1, noise.shape[1], noise.shape[2], noise.shape[3], noise.shape[4])
+
+        return timepoints * original_samples + (1 - timepoints) * noise
 
     def q_sample(self, x_start, noise=None, t=None, mask=None, model_kwargs=None):
         if model_kwargs is None:
@@ -148,22 +168,23 @@ class RFlow:
         if not noise.shape == x_start.shape:
             raise Exception("noise must have the same shape as x_start")
         
-        timepoints = t.float() / self.num_timesteps
-        timepoints = 1 - timepoints  # [1,1/1000]
-
-        # timepoint  (bsz) noise: (bsz, 4, frame, w ,h)
-        # expand timepoint to noise shape
-        timepoints = timepoints.unsqueeze(1).unsqueeze(1).unsqueeze(1).unsqueeze(1)
-        timepoints = timepoints.repeat(1, noise.shape[1], noise.shape[2], noise.shape[3], noise.shape[4])
-        x_t = timepoints * x_start + (1 - timepoints) * noise
+        x_t = self.add_noise(x_start, noise, t0)
         
         if mask is not None:
             t0 = torch.zeros_like(t)
-            x_t0 = self.q_sample(x_start, noise, t0)
+            x_t0 = self.add_noise(x_start, noise, t0)
             x_t = torch.where(mask[:, None, :, None, None], x_t, x_t0)
         return x_t, noise, t
 
-    def training_losses(self, model_output, x_start, noise=None, mask=None, weights=None, t=None):
+    def training_losses(
+        self, 
+        model_output, 
+        x_start, 
+        noise=None, 
+        t=None,
+        mask=None, 
+        weights=None, 
+        **kwargs) -> Tensor:
         """
         Compute training losses for a single timestep.
         Arguments format copied from opensora/schedulers/iddpm/gaussian_diffusion.py/training_losses

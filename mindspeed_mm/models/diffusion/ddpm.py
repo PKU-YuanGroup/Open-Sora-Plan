@@ -130,7 +130,7 @@ class DDPM:
         log_variance = extract_into_tensor(self.log_one_minus_alphas_cumprod, t, x_start.shape)
         return mean, variance, log_variance
 
-    def q_sample(self, x_start: Tensor, t: Tensor = None, noise: Tensor = None) -> Tensor:
+    def q_sample(self, x_start: Tensor, t: Tensor = None, noise: Tensor = None, **kwargs) -> Tensor:
         """
         Diffuse the data for a given number of diffusion steps.
         In other words, sample from q(x_t | x_0).

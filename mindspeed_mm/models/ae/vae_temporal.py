@@ -374,7 +374,7 @@ class VAE_Temporal(nn.Module):
         filters=128,
         num_res_blocks=4,
         channel_multipliers=(1, 2, 2, 4),
-        temporal_downsample=(True, True, False),
+        temporal_downsample=(False, True, True),
         num_groups=32,  # for nn.GroupNorm
         activation_fn="swish",
     ):

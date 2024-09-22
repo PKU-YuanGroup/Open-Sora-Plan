@@ -372,13 +372,13 @@ class DynamicVideoTextDataset(MMBaseDataset):
 
         if self.get_text:
             prompt_ids, prompt_mask = self.get_text_processer(sample["text"])
-            ret["input_ids"] = prompt_ids
-            ret["mask"] = prompt_mask
+            ret["prompt_ids"] = prompt_ids
+            ret["prompt_mask"] = prompt_mask
 
         if self.dummy_text_feature:
             text_len = 50
-            ret["input_ids"] = torch.zeros((1, text_len, 1152))
-            ret["mask"] = text_len
+            ret["prompt_ids"] = torch.zeros((1, text_len, 1152))
+            ret["prompt_mask"] = text_len
 
         return ret
 

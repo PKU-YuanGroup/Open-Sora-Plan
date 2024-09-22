@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import torch_npu
 import torch.distributed as dist
 import torch.nn as nn
 from einops import rearrange

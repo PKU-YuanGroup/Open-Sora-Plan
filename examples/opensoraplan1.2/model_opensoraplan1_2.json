@@ -47,7 +47,7 @@
     "ae": {
         "model_id": "casualvae",
         "from_pretrained": "your pretrined ckpt path",
-        "dtype": "fp32",
+        "dtype": "bf16",
         "decoder_spatial_upsample": [
             "",
             "SpatialUpsample2x",
