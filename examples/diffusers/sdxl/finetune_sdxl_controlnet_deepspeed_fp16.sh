@@ -51,10 +51,11 @@ echo "start_time: ${start_time}"
 
 
 
-accelerate launch --config_file ./accelerate_deepspeed_config.yaml ../controlnet/train_controlnet_sdxl.py \
+accelerate launch --config_file ./sdxl/accelerate_deepspeed_config.yaml \
+ ./examples/controlnet/train_controlnet_sdxl.py \
  --pretrained_model_name_or_path=$model_name \
  --dataset_name=$dataset_name \
- --mixed_precision="fp16" \
+ --mixed_precision=$mixed_precision \
  --resolution=$resolution \
  --learning_rate=1e-5 \
  --max_train_steps=$max_train_steps \

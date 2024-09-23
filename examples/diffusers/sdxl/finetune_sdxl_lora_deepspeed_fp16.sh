@@ -46,7 +46,8 @@ mkdir -p ${output_path}
 start_time=$(date +%s)
 echo "start_time: ${start_time}"
 
-accelerate launch --config_file ./accelerate_deepspeed_config.yaml  ../text_to_image/train_text_to_image_lora_sdxl.py \
+accelerate launch --config_file ./sdxl/accelerate_deepspeed_config.yaml  \
+  ./examples/text_to_image/train_text_to_image_lora_sdxl.py \
   --pretrained_model_name_or_path=$model_name \
   --dataset_name=$dataset_name --caption_column="text" \
   --resolution=$resolution  \

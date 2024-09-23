@@ -8,7 +8,7 @@
   - [模型介绍](#模型介绍)
   - [预训练](#预训练)
     - [环境搭建](#环境搭建)
-    - [训练与预训练](#训练与预训练)
+    - [预训练](#预训练)
     - [性能](#性能)
   - [微调](#微调)
     - [环境搭建](#环境搭建)
@@ -36,7 +36,7 @@
 
 ## 预训练
 
-## 环境搭建
+### 环境搭建
 
 1. 软件与驱动安装
 
@@ -57,15 +57,6 @@
 2. 克隆仓库到本地服务器
 
     ```shell
-    # 安装加速库
-    git clone https://gitee.com/ascend/MindSpeed.git
-    cd MindSpeed
-    git checkout core_r0.6.0
-    pip install -r requirements.txt
-    pip3 install -e .
-    cd ..
-
-    # 克隆仓库
     git clone https://gitee.com/ascend/MindSpeed-MM.git
     ```
 
@@ -75,13 +66,14 @@
 
     ```shell
     git clone https://github.com/huggingface/diffusers.git -b v0.30.0
+    cd diffusers
     git reset --hard eda36c4c286d281f216dfeb79e64adad3f85d37a
-    cp -r MindSpeed-MM/examples/diffusers/sdxl diffusers/sdxl
+    cp -r ../MindSpeed-MM/examples/diffusers/sdxl ./sdxl
     ```
 
     【主要代码路径】
 
-    ```
+    ```shell
     code_path=examples/text_to_image/
     ```
 
@@ -91,20 +83,19 @@
 
     ```shell
     # Example, 需要修改.py名字进行三次任务
-    cp diffusers/sdxl/train_text_to_image_sdxl_pretrain.py diffusers/examples/text_to_image/
+    cp ./sdxl/train_text_to_image_sdxl_pretrain.py ./examples/text_to_image/
     ```
 
     3.3【安装其余依赖库】
 
     ```shell
-    cd diffusers
     pip install e .
     vim examples/text_to_image/requirements_sdxl.txt #修改torchvision版本：torchvision==0.16.0, torch==2.1.0
     pip install -r examples/text_to_image/requirements_sdxl.txt # 安装diffusers原仓对应依赖
     pip install -r sdxl/requirements_sdxl_extra.txt #安装sdxl对应依赖
     ```
 
-## 训练与预训练
+### 预训练
 
 1. 【准备预训练数据集】
 
@@ -124,7 +115,7 @@
 
     laion_sx数据集格式如下:
 
-    ```
+    ```shell
     laion_sx数据集格式如下
     ├── 000000000.jpg
     ├── 000000000.json
@@ -133,12 +124,11 @@
 
     pokemon-blip-captions数据集格式如下:
 
-    ```
+    ```shell
     pokemon-blip-captions
     ├── dataset_infos.json
     ├── README.MD
     └── data
-          ├── dataset_infos.json
           └── train-001.parquet
     ```
 
@@ -190,8 +180,8 @@
     **train**模型主要来承担第一阶段的文生图的训练功能
 
     ```shell
-    sdxl/pretrain_sdxl_deepspeed_**16.sh
-    sdxl/train_sdxl_deepspeed_**16.sh
+    bash sdxl/pretrain_sdxl_deepspeed_**16.sh
+    bash sdxl/train_sdxl_deepspeed_**16.sh
     ```
 
 ### 性能

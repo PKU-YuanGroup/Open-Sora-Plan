@@ -24,9 +24,9 @@
 
 - 参考实现：
 
-  ```
+  ```shell
   url=https://github.com/huggingface/diffusers
-  commit_id=eda36c4c286d281f216dfeb79e64adad3f85d37a
+  commit_id=e2ead7cdcc00859533e6bec7b0707a6fb0efef0a
   ```
 
 ## 微调
@@ -52,15 +52,6 @@
 2. 克隆仓库到本地服务器
 
     ```shell
-    # 安装加速库
-    git clone https://gitee.com/ascend/MindSpeed.git
-    cd MindSpeed
-    git checkout core_r0.6.0
-    pip install -r requirements.txt
-    pip3 install -e .
-    cd ..
-
-    # 克隆仓库
     git clone https://gitee.com/ascend/MindSpeed-MM.git
     ```
 
@@ -70,20 +61,20 @@
 
     ```shell
     git clone https://github.com/huggingface/diffusers.git -b v0.30.0
-    git reset --hard eda36c4c286d281f216dfeb79e64adad3f85d37a
-    cp -r MindSpeed-MM/examples/diffusers/sd3 diffusers/sd3
+    cd diffusers
+    git reset --hard e2ead7cdcc00859533e6bec7b0707a6fb0efef0a
+    cp -r ../MindSpeed-MM/examples/diffusers/sd3 ./sd3
     ```
 
     【主要代码路径】
 
-    ```
+    ```shell
     code_path=examples/dreambooth/
     ```
 
     3.2【安装其余依赖库】
 
     ```shell
-    cd diffusers
     pip install e .
     vim examples/text_to_image/requirements_sdxl.txt #修改torchvision版本：torchvision==0.16.0, torch==2.1.0
     pip install -r examples/dreambooth/requirements_sd3.txt # 安装对应依赖
@@ -106,12 +97,11 @@
 
    - pokemon-blip-captions数据集格式如下:
 
-    ```
+    ```shell
     pokemon-blip-captions
     ├── dataset_infos.json
     ├── README.MD
     └── data
-          ├── dataset_infos.json
           └── train-001.parquet
     ```
 
@@ -121,7 +111,7 @@
     input_dir="dog" # 数据集路径
     ```
 
-    ```
+    ```shell
     dog
     ├── alvan-nee-*****.jpeg
     ├── alvan-nee-*****.jpeg
@@ -174,7 +164,7 @@
     本任务主要提供**混精fp16**和**混精bf16**dreambooth和dreambooth+lora的**8卡**训练脚本，使用与不使用**deepspeed**分布式训练。
 
     ```shell
-    bash sd3/finetuning_sd3_dreambooth_deepspeed_**16.sh #使用deepspeed,dreambooth微调
+    bash sd3/finetune_sd3_dreambooth_deepspeed_**16.sh #使用deepspeed,dreambooth微调
     bash sd3/finetune_sd3_dreambooth_fp16.sh #无使用deepspeed,dreambooth微调
     bash sd3/finetune_sd3_dreambooth_lora_fp16.sh #无使用deepspeed,dreambooth+lora微调
     ```
@@ -203,10 +193,11 @@ SD3 在 **昇腾芯片** 和 **参考芯片** 上的性能对比：
   **同微调对应章节**
 
  【运行推理的脚本】
- 
+
   图生图推理脚本需先准备图片：[下载地址](https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/cat.png)
   修改推理脚本中预训练模型路径以及图生图推理脚本中的本地图片加载路径
   调用推理脚本
+
   ```shell
   python sd3/infer_sd3_img2img_fp16.py   # 单卡推理，文生图
   python sd3/infer_sd3_text2img_fp16.py  # 单卡推理，图生图
