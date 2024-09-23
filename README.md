@@ -414,9 +414,7 @@ MindSpeed MM预训练支持张量并行、流水线并行等多种加速算法�
 
 **注意事项**
 
-1. 具体的预训练方法见[examples](./examples/)
-2. 如果需要开启MC2，需将 `modellink\arguments.py` 文件下，`validate_args_decorator`函数中的`args.use_mc2 = False`语句注释掉
-3. Legacy结构模型不支持MOE和长序列特性，可以在Mcore结构模型上使能MOE和长序列特性
+具体的预训练方法见[examples](./examples/)
 
 ---
 
