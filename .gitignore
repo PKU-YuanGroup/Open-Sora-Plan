@@ -152,3 +152,9 @@ cython_debug/
 
 # mindspeed core
 /mindspeed/
+
+# test 
+/tests/st/run_jsons/
+/tests/st/run_logs/
+
+fusion_result.json
