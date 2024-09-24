@@ -33,7 +33,19 @@
         "use_feature_data": false,
         "vid_img_fusion_by_splicing": false,
         "use_img_num": 4,
-        "use_img_from_vid": true
+        "use_img_from_vid": true,
+        "video_mask_ratios": {
+            "random": 0.05,
+            "intepolate": 0.005,
+            "quarter_random": 0.005,
+            "quarter_head": 0.005,
+            "quarter_tail": 0.005,
+            "quarter_head_tail": 0.005,
+            "image_random": 0.025,
+            "image_head": 0.05,
+            "image_tail": 0.025,
+            "image_head_tail": 0.025
+        }
     },
     "dataloader_param": {
         "dataloader_mode": "variable",

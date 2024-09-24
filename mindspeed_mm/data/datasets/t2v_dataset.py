@@ -27,6 +27,7 @@ from mindspeed_mm.data.data_utils.utils import (
 )
 from mindspeed_mm.data.datasets.mm_base_dataset import MMBaseDataset
 from mindspeed_mm.models import Tokenizer
+from mindspeed_mm.data.data_utils.data_transform import MaskGenerator
 
 
 T2VOutputData = {
@@ -309,6 +310,11 @@ class DynamicVideoTextDataset(MMBaseDataset):
             train_pipeline=self.train_pipeline,
             image_reader_type=self.image_reader_type,
         )
+        
+        if "video_mask_ratios" in kwargs:
+            self.video_mask_generator = MaskGenerator(kwargs["video_mask_ratios"])
+        else:
+            self.video_mask_generator = None
 
         if self.use_text_processer and tokenizer_config is not None:
             self.tokenizer = Tokenizer(tokenizer_config).get_tokenizer()
@@ -363,12 +369,16 @@ class DynamicVideoTextDataset(MMBaseDataset):
 
         ret = {
             "video": video,
+            "video_mask": None,
             "num_frames": num_frames,
             "height": height,
             "width": width,
             "ar": ar,
             "fps": video_fps,
         }
+        
+        if self.video_mask_generator is not None:
+            ret["video_mask"] = self.video_mask_generator.get_mask(video)
 
         if self.get_text:
             prompt_ids, prompt_mask = self.get_text_processer(sample["text"])

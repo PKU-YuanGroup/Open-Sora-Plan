@@ -353,7 +353,7 @@ class Attention(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         B, N, C = x.shape
         # flash attn is not memory efficient for small sequences, this is empirical
-        enable_flashattn = self.enable_flashattn and (N > B)
+        enable_flashattn = self.enable_flashattn
         qkv = self.qkv(x)
 
         if enable_flashattn:
@@ -379,7 +379,16 @@ class Attention(nn.Module):
             if self.rope:
                 q = self.rotary_emb(q)
                 k = self.rotary_emb(k)
-
+    
+        dtype = q.dtype
+        q = q * self.scale
+        attn = q @ k.transpose(-2, -1)  # translate attn to float32
+        attn = attn.to(torch.float32)
+        attn = attn.softmax(dim=-1)
+        attn = attn.to(dtype)  # cast back attn to original dtype
+        attn = self.attn_drop(attn)
+        x = attn @ v
+    
         x_output_shape = (B, N, C)
         if not enable_flashattn:
             x = x.transpose(1, 2)
