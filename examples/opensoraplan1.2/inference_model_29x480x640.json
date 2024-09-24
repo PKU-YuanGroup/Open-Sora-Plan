@@ -59,7 +59,7 @@
     },
     "predictor": {
         "dtype": "fp16",
-        "model_id": "dit",
+        "model_id": "videodit",
         "num_layers" : 32,
         "num_heads": 24,
         "head_dim":96,

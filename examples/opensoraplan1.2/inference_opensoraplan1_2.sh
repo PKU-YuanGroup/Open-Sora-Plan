@@ -18,7 +18,7 @@ PP=1
 CP=1
 MBS=1
 GBS=1
-MM_DATA="examples/opensora/data.json"
+MM_DATA="examples/opensoraplan1.2/data.json"
 MM_MODEL="examples/opensoraplan1.2/inference_model_29x480x640.json"
 
 DISTRIBUTED_ARGS="

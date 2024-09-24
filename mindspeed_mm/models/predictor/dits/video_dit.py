@@ -79,6 +79,7 @@ class VideoDiT(MultiModalModule):
                 )
         self.patch_size_t, self.patch_size_h, self.patch_size_w = patch_size
         self.norm_type = norm_type
+        self.in_channels = in_channels
         self.out_channels = out_channels
         self.num_layers = num_layers
         inner_dim = num_heads * head_dim
