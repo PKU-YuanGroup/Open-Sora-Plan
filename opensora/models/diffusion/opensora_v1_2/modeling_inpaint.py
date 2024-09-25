@@ -182,13 +182,15 @@ class OpenSoraInpaint_v1_2(OpenSoraT2V):
         self.transformer_model_custom_load_state_dict(pretrained_transformer_model_path)
 
 def OpenSoraInpaint_v1_2_L_122(**kwargs):
-    return OpenSoraInpaint_v1_2(num_layers=32, attention_head_dim=96, num_attention_heads=24, patch_size_t=1, patch_size=2,
-                       norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=2304, **kwargs)
+    return OpenSoraInpaint_v1_2(
+            num_layers=32, attention_head_dim=96, num_attention_heads=24, patch_size_t=1, patch_size=2,
+            caption_channels=4096, cross_attention_dim=2304, **kwargs
+        )
 
-OpenSoraInpaint_models = {
+OpenSoraInpaint_v1_2_models = {
     "OpenSoraInpaint_v1_2-L/122": OpenSoraInpaint_v1_2_L_122,  # 2.7B
 }
 
-OpenSoraInpaint_models_class = {
+OpenSoraInpaint_v1_2_models_class = {
     "OpenSoraInpaint_v1_2-L/122": OpenSoraInpaint_v1_2,
 }
