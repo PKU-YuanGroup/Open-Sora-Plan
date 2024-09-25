@@ -528,9 +528,9 @@ class OpenSoraPipeline(DiffusionPipeline):
         shape = (
             batch_size,
             num_channels_latents,
-            (math.ceil((int(num_frames) - 1) / self.vae.vae_scale_factor[0]) + 1) if int(num_frames) % 2 == 1 else math.ceil(int(num_frames) / self.vae.vae_scale_factor[0]), 
-            math.ceil(int(height) / self.vae.vae_scale_factor[1]),
-            math.ceil(int(width) / self.vae.vae_scale_factor[2]),
+            (math.ceil((int(num_frames) - 1) // self.vae.vae_scale_factor[0]) + 1) if int(num_frames) % 2 == 1 else math.ceil(int(num_frames) // self.vae.vae_scale_factor[0]), 
+            math.ceil(int(height) // self.vae.vae_scale_factor[1]),
+            math.ceil(int(width) // self.vae.vae_scale_factor[2]),
         )
         if isinstance(generator, list) and len(generator) != batch_size:
             raise ValueError(
@@ -816,6 +816,7 @@ class OpenSoraPipeline(DiffusionPipeline):
     def decode_latents(self, latents):
         # print(f'before vae decode {latents.shape}', torch.max(latents).item(), torch.min(latents).item(), torch.mean(latents).item(), torch.std(latents).item())
         video = self.vae.decode(latents.to(self.vae.vae.dtype))
+        # video = self.vae.decode(latents.to(torch.float16))
         # print(f'after vae decode {latents.shape}', torch.max(video).item(), torch.min(video).item(), torch.mean(video).item(), torch.std(video).item())
         video = ((video / 2.0 + 0.5).clamp(0, 1) * 255).to(dtype=torch.uint8).cpu().permute(0, 1, 3, 4, 2).contiguous() # b t h w c
         # we always cast to float32 as this does not cause significant overhead and is compatible with bfloa16

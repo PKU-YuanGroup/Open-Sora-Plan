@@ -4,14 +4,15 @@ from transformers import AutoTokenizer, AutoImageProcessor
 from torchvision import transforms
 from torchvision.transforms import Lambda
 
-
+import torch_npu
+from torch_npu.contrib import transfer_to_npu
 
 from opensora.dataset.t2v_datasets import T2V_dataset
 from opensora.models.causalvideovae import ae_norm, ae_denorm
 from opensora.dataset.transform import ToTensorVideo, TemporalRandomCrop, RandomHorizontalFlipVideo, CenterCropResizeVideo, LongSideResizeVideo, SpatialStrideCropVideo, NormalizeVideo, ToTensorAfterResize
 
 from opensora.dataset.inpaint_datasets import Inpaint_dataset
-
+from ultralytics import YOLO
 
 def getdataset(args):
     temporal_sample = TemporalRandomCrop(args.num_frames)  # 16 x
@@ -28,14 +29,18 @@ def getdataset(args):
         *resize, 
         norm_fun
     ])
+    inpaint_transform = transforms.Compose([
+        *resize 
+    ])
     tokenizer = AutoTokenizer.from_pretrained("/home/image_data/mt5-xxl", cache_dir=args.cache_dir)
+    YOLOmodel = YOLO("/home/image_data/hxy/Open-Sora-Plan/opensora/dataset/yolov9c-seg.pt")
     # tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/models--DeepFloyd--t5-v1_1-xxl/snapshots/c9c625d2ec93667ec579ede125fd3811d1f81d37", cache_dir=args.cache_dir)
     # tokenizer = AutoTokenizer.from_pretrained(args.text_encoder_name, cache_dir=args.cache_dir)
     if args.dataset == 't2v':
         return T2V_dataset(args, transform=transform, temporal_sample=temporal_sample, tokenizer=tokenizer)
     elif args.dataset == 'inpaint' or args.dataset == 'i2v':
         mask_processor = transforms.Compose([*resize])
-        return Inpaint_dataset(args, transform=transform, temporal_sample=temporal_sample, tokenizer=tokenizer, mask_processor=mask_processor)
+        return Inpaint_dataset(args, transform=inpaint_transform, temporal_sample=temporal_sample, tokenizer=tokenizer)
     raise NotImplementedError(args.dataset)
 
 

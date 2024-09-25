@@ -1,19 +1,23 @@
 export TASK_QUEUE_ENABLE=0
-torchrun --nnodes=1 --nproc_per_node=2 --master_port 29502 \
-    -m opensora.sample.sample_inpaint_ddp_on_npu  \
-    --model_path /home/image_data/gyy/Open-Sora-Plan/test_sparse_inpaint/checkpoint-10000/model \
+torchrun --nnodes=1 --nproc_per_node=1 --master_port 29502 \
+    -m opensora.sample.sample_inpaint_ddp  \
+    --model_path /home/save_dir/runs/allinpaint_stage1/checkpoint-18000/model \
     --num_frames 93 \
     --height 320 \
-    --width 160 \
+    --width 320 \
     --cache_dir "../cache_dir" \
     --text_encoder_name /home/image_data/mt5-xxl \
     --text_prompt /home/image_data/test_prompt.txt \
-    --conditional_images_path /home/image_data/test_cond_imgs_path.txt \
+    --conditional_images_path "/home/image_data/test_cond_imgs_path.txt" \
     --ae WFVAEModel_D8_4x8x8 \
     --ae_path "/home/image_data/lb/Open-Sora-Plan/WFVAE_DISTILL_FORMAL" \
-    --save_img_path "./test_video_new" \
-    --fps 18 \
+    --save_img_path "/home/image_data/hxy/data/video" \
+    --fps 24 \
     --guidance_scale 7.5 \
-    --num_sampling_steps 50 \
-    --sample_method PNDM \
+    --num_sampling_steps 100 \
+    --sample_method EulerAncestralDiscrete \
     --motion_score 0.9 \
+    --video_path "/home/image_data/hxy/data/video/000184_cut.mp4" \
+    --mask_path "/home/image_data/hxy/data/video/000001_bbox_cut.mp4" \
+    --prediction_type "v_prediction" \
+    --rescale_betas_zero_snr 

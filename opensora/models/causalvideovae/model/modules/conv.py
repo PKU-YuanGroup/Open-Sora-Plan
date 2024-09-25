@@ -82,7 +82,9 @@ class CausalConv3d(Block):
         self.causal_cached = None
 
     def forward(self, x):
+
         x_dtype = x.dtype
+
         if self.causal_cached is None:
             first_frame_pad = x[:, :, :1, :, :].repeat(
                 (1, 1, self.time_kernel_size - 1, 1, 1)
@@ -97,6 +99,10 @@ class CausalConv3d(Block):
                 self.causal_cached = x[:, :, -(self.time_kernel_size - 1) // self.stride[0]:, :, :]
             else:
                 self.causal_cached = x[:, :, 0:0, :, :]
+
+        # x = x.to(torch.float64)
+
+
 
         if npu_config is not None and npu_config.on_npu:
             return npu_config.run_conv3d(self.conv, x, x_dtype)

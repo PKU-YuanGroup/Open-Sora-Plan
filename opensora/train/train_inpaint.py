@@ -20,6 +20,9 @@ from einops import rearrange
 import torch.utils
 import torch.utils.data
 from tqdm import tqdm
+import torch.multiprocessing as mp
+import dill
+
 
 from opensora.adaptor.modules import replace_with_fp32_forwards
 
@@ -37,6 +40,9 @@ except:
     from opensora.utils.communications import prepare_parallel_data, broadcast
     pass
 import time
+# import cv2
+from ultralytics import YOLO
+
 from dataclasses import field, dataclass
 from torch.utils.data import DataLoader
 from copy import deepcopy
@@ -55,6 +61,7 @@ from diffusers import DDPMScheduler, PNDMScheduler, DPMSolverMultistepScheduler
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel, compute_snr
 from diffusers.utils import check_min_version, is_wandb_available
+# from torchvision import transforms
 
 from opensora.models.causalvideovae import ae_stride_config, ae_channel_config
 from opensora.models.causalvideovae import ae_norm, ae_denorm
@@ -65,17 +72,117 @@ from opensora.utils.dataset_utils import Collate, LengthGroupedSampler
 from opensora.sample.pipeline_opensora import OpenSoraPipeline
 from opensora.models.causalvideovae import ae_stride_config, ae_wrapper
 from opensora.utils.ema import EMAModel
+# from opensora.sample.pipeline_inpaint import OpenSoraInpaintPipeline
+# from opensora.dataset.transform import CenterCropResizeVideo
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
+
+
+
 check_min_version("0.24.0")
 logger = get_logger(__name__)
 
+# def get_video(video_path):
+#     cap = cv2.VideoCapture(video_path)
+#     frames = []
+#     while True:
+#         ret, frame = cap.read()
+#         if not ret:
+#             break  # 视频读取结束
+        
+#         # frame 是一个 (H, W, C) 的 numpy 数组，代表一帧
+#         frames.append(frame)
 
+#     # 释放视频文件
+#     cap.release()
+
+#     # 将帧列表转换为 numpy 数组，形状为 (T, H, W, C)
+#     video_numpy = np.array(frames)
+
+#     return video_numpy
 
 class ProgressInfo:
     def __init__(self, global_step, train_loss=0.0):
         self.global_step = global_step
         self.train_loss = train_loss
+
+
+# def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weight_dtype, global_step, motion_score, ema=False):
+#     positive_prompt = "(masterpiece), (best quality), (ultra-detailed), {}. emotional, harmonious, vignette, 4k epic detailed, shot on kodak, 35mm photo, sharp focus, high budget, cinemascope, moody, epic, gorgeous"
+#     negative_prompt = """nsfw, lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry, 
+#                         """
+    
+
+#     input_prompts = ["A man is riding a horse"]
+#     videos_path = ["/home/image_data/hxy/data/video/output_video.mp4"]
+#     masks_path = ["/home/image_data/hxy/data/video/output_mask.mp4"]
+#     model = accelerator.unwrap_model(model)
+#     scheduler = DPMSolverMultistepScheduler()
+
+#     inpaint_pipeline = OpenSoraInpaintPipeline(
+#         vae=vae,
+#         text_encoder=text_encoder,
+#         tokenizer=tokenizer,
+#         scheduler=scheduler,
+#         transformer=model
+#     ).to(device=accelerator.device)
+
+#     resize = [CenterCropResizeVideo((args.height, args.width)), ]
+#     resize_transform = transforms.Compose([*resize])
+
+#     inference_videos = []
+
+
+#     for index, (prompt, video_path, mask_path) in enumerate(zip(input_prompts, videos_path, masks_path)):
+#         video = get_video((video_path))
+#         mask = get_video(mask_path)
+
+#         video_tensor = resize_transform(torch.from_numpy(video.transpose(0,3,1,2)))
+#         mask_tensor = resize_transform(torch.from_numpy(mask.transpose(0,3,1,2)))
+
+#         video_resize = video_tensor.numpy()
+#         mask_resize = mask_tensor.numpy()
+
+
+#         inference_video = inpaint_pipeline(
+#         video = video_resize,
+#         masks = mask_resize,
+#         prompt=prompt, 
+#         negative_prompt=negative_prompt, 
+#         num_frames=args.num_frames,
+#         height=args.height,
+#         width=args.width,
+#         motion_score=motion_score, 
+#         num_inference_steps=args.num_sampling_steps,
+#         guidance_scale=args.guidance_scale,
+#         num_images_per_prompt=1,
+#         mask_feature=True,
+#         device=accelerator.device,
+#         max_sequence_length=args.max_sequence_length,
+#         ).images
+#         inference_videos.append(inference_video[0])
+#     videos = torch.stack(inference_videos).numpy()
+#     videos = rearrange(videos, 'b t h w c -> b t c h w')
+
+#     for tracker in accelerator.trackers:
+#         if tracker.name == "wandb":
+#             import wandb
+#             if videos.shape[1] == 1:
+#                 images = rearrange(videos, 'b 1 c h w -> (b 1) h w c')
+#                 logs = {
+#                     f"{'ema_' if ema else ''}validation": [
+#                         wandb.Image(image, caption=f"{i}: {prompt}")
+#                         for i, (image, prompt) in enumerate(zip(images, input_prompts))
+#                     ]
+#                 }
+#             else:
+#                 logs = {
+#                     f"{'ema_' if ema else ''}validation": [
+#                         wandb.Video(video, caption=f"{i}: {prompt}", fps=24)
+#                         for i, (video, prompt) in enumerate(zip(videos, input_prompts))
+#                     ]
+#                 }
+#             tracker.log(logs, step=global_step)
 
 
 #################################################################################
@@ -360,11 +467,14 @@ def main(args):
                 lengths=train_dataset.lengths, 
                 group_data=args.group_data, 
             )
+
+    Yolomodel = YOLO(args.yolomodel_pathorname).to(accelerator.device)
+    
     train_dataloader = DataLoader(
         train_dataset,
         shuffle=False,
         # pin_memory=True,
-        collate_fn=Collate(args),
+        collate_fn=Collate(args,Yolomodel),
         batch_size=args.train_batch_size,
         num_workers=args.dataloader_num_workers,
         sampler=sampler, 
@@ -635,6 +745,23 @@ def main(args):
         if accelerator.sync_gradients:
             sync_gradients_info(loss)
 
+        # if accelerator.is_main_process:
+
+        #     if progress_info.global_step % 1 == 0:
+
+        #         if args.enable_tracker:
+        #             log_validation(args, model, ae, text_enc.text_enc, train_dataset.tokenizer, accelerator,
+        #                            weight_dtype, progress_info.global_step)
+
+        #             if args.use_ema and npu_config is None:
+        #                 # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
+        #                 ema_model.store(model.parameters())
+        #                 ema_model.copy_to(model.parameters())
+        #                 log_validation(args, model, ae, text_enc.text_enc, train_dataset.tokenizer, accelerator,
+        #                             weight_dtype, progress_info.global_step, motion_score,ema=True)
+        #                 # Switch back to the original UNet parameters.
+        #                 ema_model.restore(model.parameters())
+
         if prof is not None:
             prof.step()
 
@@ -765,6 +892,11 @@ def main(args):
 
 
 if __name__ == "__main__":
+    # mp.set_start_method('spawn', force=True)
+    # mp.set_start_method('spawn',force=True)
+    # dill.settings['recurse'] = True
+    # 替换 multiprocessing 的序列化机制为 dill
+    # mp.get_context().reduction.dump = dill.dump
     parser = argparse.ArgumentParser()
 
     # dataset & dataloader
@@ -906,14 +1038,26 @@ if __name__ == "__main__":
     parser.add_argument("--train_sp_batch_size", type=int, default=1, help="Batch size for sequence parallel training")
 
     # inpaint
-    parser.add_argument("--t2v_ratio", type=float, default=0.1) # for inpainting mode
-    parser.add_argument("--i2v_ratio", type=float, default=0.4) # for inpainting mode
-    parser.add_argument("--transition_ratio", type=float, default=0.4) # for inpainting mode
-    parser.add_argument("--v2v_ratio", type=float, default=0.1) # for inpainting mode
+    parser.add_argument("--t2v_ratio", type=float, default=0.0) # for inpainting mode
+    parser.add_argument("--i2v_ratio", type=float, default=0.0) # for inpainting mode
+    parser.add_argument("--transition_ratio", type=float, default=0.05) # for inpainting mode
+    parser.add_argument("--v2v_ratio", type=float, default=0.05) # for inpainting mode
     parser.add_argument("--clear_video_ratio", type=float, default=0.0) # for inpainting mode
+    parser.add_argument("--Semantic_ratio", type=float, default=0.2) # for inpainting mode
+    parser.add_argument("--bbox_ratio", type=float, default=0.2) # for inpainting mode
+    parser.add_argument("--background_ratio", type=float, default=0.1) # for inpainting mode
+    parser.add_argument("--fixed_ratio", type=float, default=0.1) # for inpainting mode
+    parser.add_argument("--Semantic_expansion_ratio", type=float, default=0.1) # for inpainting mode
+    parser.add_argument("--fixed_bg_ratio", type=float, default=0.1) # for inpainting mode
     parser.add_argument("--min_clear_ratio", type=float, default=0.1) # for inpainting mode
     parser.add_argument("--default_text_ratio", type=float, default=0.5) # for inpainting mode
     parser.add_argument("--pretrained_transformer_model_path", type=str, default=None)
+    parser.add_argument("--yolomodel_pathorname",type=str,default="/home/image_data/hxy/Open-Sora-Plan/opensora/dataset/yolov9c-seg.pt")
+
+    #visualize
+    parser.add_argument("--max_sequence_length", type=int, default=512)
+
+
 
     args = parser.parse_args()
     main(args)

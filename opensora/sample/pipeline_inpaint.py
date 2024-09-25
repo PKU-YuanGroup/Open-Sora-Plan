@@ -5,6 +5,8 @@ from matplotlib import widgets
 import torch
 import torch.nn.functional as F
 from einops import rearrange
+import numpy as np
+
 
 from diffusers.utils import (
     BACKENDS_MAPPING,
@@ -32,10 +34,41 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
         self.image_transforms = transforms
         print('image transforms register')
     
+
+    def get_masked_video(self,video,masks):
+
+        masks = masks[:,0:1,:,:]
+
+        images = [video[i] for i in range(video.shape[0])]
+        masks_list = [masks[i] for i in range(masks.shape[0])]
+
+        masked_images = []
+
+        for index,(image,mask) in enumerate(zip(images,masks_list)):
+            mask = mask.astype(bool)
+            if len(mask.shape) == 2:
+                mask = np.expand_dims(mask, axis=2)
+            masked_img = image * (1-mask)
+            masked_images.append(masked_img)
+        
+        masked_video = np.stack(masked_images)   #[(H,W,C)] -> (T,H,W,C)
+
+        masked_video_tensor = torch.from_numpy(masked_video) #numpy->tensor
+
+        if len(masks.shape) == 3:
+            masks = np.expand_dims(masks,axis=3)
+        
+        masks = torch.from_numpy(masks)
+
+        return masked_video_tensor,masks
+
+
+
+
     def get_masked_video_mask(
         self, 
-        conditional_images,
-        conditional_images_indices, 
+        video,
+        mask, 
         batch_size, 
         num_images_per_prompt, 
         num_frames, 
@@ -46,41 +79,60 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
         device
     ):
         # NOTE inpaint
-        if isinstance(conditional_images, list) and isinstance(conditional_images[0], torch.Tensor):
-            if len(conditional_images[0].shape) == 3:
-                conditional_images = [condition_image.unsqueeze(0) for condition_image in conditional_images] # C H W -> 1 C H W
-            elif len(conditional_images[0].shape) == 4:
-                pass
-            conditional_images = torch.cat(conditional_images, dim=0).to(device=device) # F C H W
-        elif isinstance(conditional_images, torch.Tensor):
-            assert len(conditional_images.shape) == 4, "The shape of conditional_images should be a tensor with 4 dim"
-            conditional_images = conditional_images.to(device=device) # F C H W
-        else:
-            raise NotImplementedError
+        # if isinstance(conditional_images, list) and isinstance(conditional_images[0], torch.Tensor):
+        #     if len(conditional_images[0].shape) == 3:
+        #         conditional_images = [condition_image.unsqueeze(0) for condition_image in conditional_images] # C H W -> 1 C H W
+        #     elif len(conditional_images[0].shape) == 4:
+        #         pass
+        #     conditional_images = torch.cat(conditional_images, dim=0).to(device=device) # F C H W
+        # elif isinstance(conditional_images, torch.Tensor):
+        #     assert len(conditional_images.shape) == 4, "The shape of conditional_images should be a tensor with 4 dim"
+        #     conditional_images = conditional_images.to(device=device) # F C H W
+        # else:
+        #     raise NotImplementedError
 
-        input_video = torch.zeros([num_frames, 3, height, width], device=device)
-        input_video[conditional_images_indices] = conditional_images.to(input_video.dtype)
+        # input_video = torch.zeros([num_frames, 3, height, width], device=device)
+        # input_video[conditional_images_indices] = conditional_images.to(input_video.dtype)
 
-        print(conditional_images_indices)
+        # print(conditional_images_indices)
 
-        T, C, H, W = input_video.shape
-        mask = torch.ones([T, 1, H, W], device=device)
-        mask[conditional_images_indices] = 0
-        masked_video = input_video * (mask < 0.5) 
+        # T, C, H, W = input_video.shape
+        # mask = torch.ones([T, 1, H, W], device=device)
+        # mask[conditional_images_indices] = 0
+        # masked_video = input_video * (mask < 0.5) 
+
+        
+        # import ipdb; ipdb.set_trace()
+        masked_video,mask = self.get_masked_video(video,mask)  #video [T,H,W,C];mask [T,1,H,W];masked_video [T,C,H,W]
+
+        T = masked_video.shape[0]
+
+        masked_video = masked_video.to(device)
+        mask = mask.to(device,dtype=torch.float16)
+
+        import ipdb; ipdb.set_trace()
+        mask = mask/255.0
 
         try:
             masked_video = self.image_transforms(masked_video)
+
         except:
             raise ValueError("The image_transforms is not defined, please define it first")
         
         masked_video = masked_video.unsqueeze(0).repeat(batch_size * num_images_per_prompt, 1, 1, 1, 1).transpose(1, 2).contiguous() # b c t h w
         mask = mask.unsqueeze(0).repeat(batch_size * num_images_per_prompt, 1, 1, 1, 1).transpose(1, 2).contiguous() # b c t h w
         masked_video = masked_video.to(self.vae.vae.dtype)
+        # masked_video = masked_video.to(torch.float64)
+
+        # import ipdb; ipdb.set_trace()
+
         masked_video = self.vae.encode(masked_video)
 
         # not vae style
         mask = rearrange(mask, 'b c t h w -> (b c t) 1 h w')
         latent_size = (height // self.vae.vae_scale_factor[1], width // self.vae.vae_scale_factor[2])
+
+        # import ipdb; ipdb.set_trace()
         if num_frames % 2 == 1:
             latent_size_t = (num_frames - 1) // self.vae.vae_scale_factor[0] + 1
         else:
@@ -89,6 +141,7 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
         mask = rearrange(mask, '(b c t) 1 h w -> b c t h w', t=T, c=1)
         mask_first_frame = mask[:, :, 0:1].repeat(1, 1, self.vae.vae_scale_factor[0], 1, 1)
         mask = torch.cat([mask_first_frame, mask[:, :, 1:]], dim=2).contiguous()
+        # import ipdb; ipdb.set_trace()
         mask = mask.view(batch_size, latent_size_t, self.vae.vae_scale_factor[0], *latent_size)
         mask = mask.transpose(1, 2).contiguous()
     
@@ -104,8 +157,8 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
     def __call__(
         self,
         # NOTE inpaint
-        conditional_images: Optional[List[torch.FloatTensor]] = None,
-        conditional_images_indices: Optional[List[int]] = None,
+        video,
+        masks,
         prompt: Union[str, List[str]] = None,
         negative_prompt: str = "",
         num_inference_steps: int = 20,
@@ -215,8 +268,8 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
         num_warmup_steps = max(len(timesteps) - num_inference_steps * self.scheduler.order, 0)
 
         masked_video, mask = self.get_masked_video_mask(
-            conditional_images, 
-            conditional_images_indices, 
+            video, 
+            masks, 
             batch_size, 
             num_images_per_prompt, 
             num_frames, 
@@ -232,6 +285,7 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
                 latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
                 latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
                 # inpaint
+                # import ipdb; ipdb.set_trace()
                 latent_model_input = torch.cat([latent_model_input, masked_video, mask], dim=1)
 
                 current_timestep = t
@@ -258,6 +312,7 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
                 # b c t h w -> b t h w
                 attention_mask = torch.ones_like(latent_model_input)[:, 0]
                 # predict noise model_output
+                # import ipdb; ipdb.set_trace()
                 noise_pred = self.transformer(
                     latent_model_input,
                     attention_mask=attention_mask, 
@@ -268,7 +323,7 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
                     motion_score=motion_score, 
                     return_dict=False,
                 )[0]
-
+                # import ipdb; ipdb.set_trace()
                 # perform guidance
                 if do_classifier_free_guidance:
                     noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
@@ -281,6 +336,7 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
                     noise_pred = noise_pred
 
                 # compute previous image: x_t -> x_t-1
+                # import ipdb; ipdb.set_trace()
                 latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs, return_dict=False)[0]
                 # print(f'latents_{i}_{t}', torch.max(latents), torch.min(latents), torch.mean(latents), torch.std(latents))
                 # call the callback, if provided
@@ -291,6 +347,7 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
                         callback(step_idx, t, latents)
         # import ipdb;ipdb.set_trace()
         # latents = latents.squeeze(2)
+        # import ipdb; ipdb.set_trace()
         if not output_type == "latent":
             # b t h w c
             image = self.decode_latents(latents)

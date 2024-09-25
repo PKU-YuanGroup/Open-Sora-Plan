@@ -3,8 +3,8 @@ distributed_type: MULTI_GPU
 fsdp_config: {}
 main_process_port: 29501
 main_training_function: main
-num_machines: 50
-num_processes: 400
+num_machines: 1
+num_processes: 8
 rdzv_backend: static
 same_network: true
 tpu_env: []

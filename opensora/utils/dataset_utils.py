@@ -12,6 +12,8 @@ from typing import List
 from collections import Counter, defaultdict
 import random
 
+from opensora.utils.mask_utils import MaskProcessor
+
 
 IMG_EXTENSIONS = ['.jpg', '.JPG', '.jpeg', '.JPEG', '.png', '.PNG']
 
@@ -51,7 +53,7 @@ def pad_to_multiple(number, ds_stride):
         return number + padding
 
 class Collate:
-    def __init__(self, args):
+    def __init__(self, args,YOLOmodel):
         self.batch_size = args.train_batch_size
         self.group_data = args.group_data
         self.force_resolution = args.force_resolution
@@ -70,6 +72,9 @@ class Collate:
         self.use_image_num = args.use_image_num
         self.max_thw = (self.num_frames, self.max_height, self.max_width)
 
+        self.mask_processor = MaskProcessor(args,YOLOmodel)
+
+
     def package(self, batch):
         batch_tubes = [i['pixel_values'] for i in batch]  # b [c t h w]
         input_ids = [i['input_ids'] for i in batch]  # b [1 l]
@@ -82,14 +87,26 @@ class Collate:
 
     def __call__(self, batch):
         batch_tubes, input_ids, cond_mask, motion_score = self.package(batch)
+        # b 2c+1 * t * h * w
+        masked_batch_tubes = []
+
+        for pixed_values in batch_tubes:
+            masked_video,video,mask = self.mask_processor(pixed_values)
+            masked_batch_tube = torch.cat((video,masked_video,mask),dim=1)
+            masked_batch_tubes.append(masked_batch_tube)
 
         ds_stride = self.ae_stride * self.patch_size
         t_ds_stride = self.ae_stride_t * self.patch_size_t
         
-        pad_batch_tubes, attention_mask, input_ids, cond_mask, motion_score = self.process(batch_tubes, input_ids, 
+        pad_batch_tubes, attention_mask, input_ids, cond_mask, motion_score = self.process(masked_batch_tubes, input_ids, 
                                                                                            cond_mask, motion_score, 
                                                                                            t_ds_stride, ds_stride, 
                                                                                            self.max_thw, self.ae_stride_thw)
+        
+        # pad_batch_tubes, attention_mask, input_ids, cond_mask, motion_score = self.process(batch_tubes, input_ids, 
+        #                                                                                    cond_mask, motion_score, 
+        #                                                                                    t_ds_stride, ds_stride, 
+        #                                                                                    self.max_thw, self.ae_stride_thw)
         assert not torch.any(torch.isnan(pad_batch_tubes)), 'after pad_batch_tubes'
         return pad_batch_tubes, attention_mask, input_ids, cond_mask, motion_score
 
@@ -170,6 +187,8 @@ class Collate:
         motion_score = torch.tensor(motion_score) if motion_score is not None else motion_score # b
 
         return pad_batch_tubes, attention_mask, input_ids, cond_mask, motion_score
+
+
 
 
 def group_data_fun(lengths, generator=None):

@@ -16,6 +16,7 @@ from torchvision.utils import save_image
 from transformers import T5EncoderModel, T5Tokenizer, AutoTokenizer, MT5EncoderModel
 
 import os, sys
+import cv2
 
 from opensora.models.causalvideovae import ae_stride_config, ae_wrapper
 
@@ -79,6 +80,24 @@ def get_latest_path():
 
     return path
 
+def get_video(video_path):
+    cap = cv2.VideoCapture(video_path)
+    frames = []
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break  # 视频读取结束
+        
+        # frame 是一个 (H, W, C) 的 numpy 数组，代表一帧
+        frames.append(frame)
+
+    # 释放视频文件
+    cap.release()
+
+    # 将帧列表转换为 numpy 数组，形状为 (T, H, W, C)
+    video_numpy = np.array(frames)
+
+    return video_numpy
 
 def is_image_file(filepath):
     print(filepath)
@@ -160,15 +179,31 @@ def run_model_and_save_images(pipeline, model_path):
     low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry.
     """
     
+    text_prompt = ["A man is riding horse"]
+    video_paths = ["/home/image_data/hxy/data/video/000184_cut.mp4"]
+    mask_paths = ["/home/image_data/hxy/data/video/000001_bbox_cut.mp4"]
 
     video_grids = []
-    for index, (prompt, images) in enumerate(zip(text_prompt, conditional_images)):
+    for index, (prompt, video_path, mask_path) in enumerate(zip(text_prompt, video_paths, mask_paths)):
         if index % world_size != local_rank:
             continue
 
-        pre_results = preprocess_pixel_values(images)
-        cond_imgs = pre_results['conditional_images']
-        cond_imgs_indices = pre_results['conditional_images_indices']
+        video = get_video(video_path)
+        mask = get_video(mask_path)
+
+        video_tensor = resize_transform(torch.from_numpy(video.transpose(0,3,1,2)))
+        mask_tensor = resize_transform(torch.from_numpy(mask.transpose(0,3,1,2)))
+
+        video_resize = video_tensor.numpy()
+        mask_resize = mask_tensor.numpy()
+
+        # output_path = "/home/image_data/hxy/data/video/output_mask.mp4"
+        # fps = 30
+        # writer = imageio.get_writer(output_path, fps=fps, format='mp4')
+        # for i in range(mask_resize.shape[0]):
+        #     writer.append_data(mask_resize[i])
+        # writer.close()
+
 
         if args.refine_caption:
             q = f'Translate this brief generation prompt into a detailed caption: {prompt}'
@@ -185,8 +220,8 @@ def run_model_and_save_images(pipeline, model_path):
             print(f'Processing the origin prompt({prompt})\n  '
                   f'input_prompt ({input_prompt})\n device ({device})')
         videos = pipeline(
-            conditional_images=cond_imgs,
-            conditional_images_indices=cond_imgs_indices,
+            video = video_resize,
+            masks = mask_resize,
             prompt=input_prompt, 
             negative_prompt=negative_prompt, 
             num_frames=args.num_frames,
@@ -274,9 +309,13 @@ if __name__ == "__main__":
     parser.add_argument('--model_type', type=str, default="dit", choices=['sparsedit', 'dit', 'udit', 'latte'])
     parser.add_argument('--save_memory', action='store_true')
     parser.add_argument('--motion_score', type=float, default=None)
+    parser.add_argument("--prediction_type", type=str, default='epsilon', help="The prediction_type that shall be used for training. Choose between 'epsilon' or 'v_prediction' or leave `None`. If left to `None` the default prediction type of the scheduler: `noise_scheduler.config.prediciton_type` is chosen.")
+    parser.add_argument('--rescale_betas_zero_snr', action='store_true')
 
     parser.add_argument('--conditional_images_path', nargs='+')
     parser.add_argument('--force_resolution', action='store_true')
+    parser.add_argument('--video_path', type=str)
+    parser.add_argument('--mask_path', type=str)
     
 
     args = parser.parse_args()
@@ -287,7 +326,6 @@ if __name__ == "__main__":
     # 初始化分布式环境
     local_rank = int(os.getenv('RANK', 0))
     world_size = int(os.getenv('WORLD_SIZE', 1))
-    print('world_size', world_size)
     if torch_npu is not None and npu_config.on_npu:
         torch_npu.npu.set_device(local_rank)
     else:
@@ -295,10 +333,9 @@ if __name__ == "__main__":
     dist.init_process_group(backend='nccl', init_method='env://', world_size=world_size, rank=local_rank)
 
     torch.manual_seed(args.seed)
-    weight_dtype = torch.bfloat16
+    weight_dtype = torch.float16
     device = torch.cuda.current_device()
     vae = ae_wrapper[args.ae](args.ae_path)
-    print(args.ae)
     vae.vae = vae.vae.to(device=device, dtype=weight_dtype)
     if args.enable_tiling:
         vae.vae.enable_tiling()
@@ -314,10 +351,10 @@ if __name__ == "__main__":
             vae.vae.tile_latent_min_size_t = 8
     vae.vae_scale_factor = ae_stride_config[args.ae]
 
-    text_encoder = MT5EncoderModel.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", 
+    text_encoder = MT5EncoderModel.from_pretrained("/home/image_data/mt5-xxl", 
                                                    cache_dir=args.cache_dir, low_cpu_mem_usage=True, 
                                                    torch_dtype=weight_dtype).to(device)
-    tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", 
+    tokenizer = AutoTokenizer.from_pretrained("/home/image_data/mt5-xxl", 
                                               cache_dir=args.cache_dir)
     # text_encoder = T5EncoderModel.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/models--DeepFloyd--t5-v1_1-xxl/snapshots/c9c625d2ec93667ec579ede125fd3811d1f81d37", cache_dir=args.cache_dir, low_cpu_mem_usage=True, torch_dtype=weight_dtype)
     # tokenizer = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/models--DeepFloyd--t5-v1_1-xxl/snapshots/c9c625d2ec93667ec579ede125fd3811d1f81d37", cache_dir=args.cache_dir)
@@ -352,7 +389,7 @@ if __name__ == "__main__":
     elif args.sample_method == 'HeunDiscrete':  ########
         scheduler = HeunDiscreteScheduler()
     elif args.sample_method == 'EulerAncestralDiscrete':
-        scheduler = EulerAncestralDiscreteScheduler()
+        scheduler = EulerAncestralDiscreteScheduler(prediction_type=args.prediction_type, rescale_betas_zero_snr=args.rescale_betas_zero_snr, timestep_spacing="trailing")
     elif args.sample_method == 'DEISMultistep':
         scheduler = DEISMultistepScheduler()
     elif args.sample_method == 'KDPM2AncestralDiscrete':  #########

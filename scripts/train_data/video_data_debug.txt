@@ -1,1 +1,1 @@
-/storage/dataset/movie,/storage/dataset/filter_aes/filter_movie_all_4.5_json/TV01_clips_final_478625_364795_4.5plus.json
+/home/obs_data/20240426/20240704-02-bbc-01,/home/image_data/captions/TV01_clips_final_478625_llavanext_217405_aes478625.json
