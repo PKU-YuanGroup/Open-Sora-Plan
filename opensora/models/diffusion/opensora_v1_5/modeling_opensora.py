@@ -451,12 +451,27 @@ def OpenSoraT2V_v1_5_5B_122(**kwargs):
         caption_channels=4096, pooled_projection_dim=1280, **kwargs
     )
 
+def OpenSoraT2V_v1_5_7B_122(**kwargs):
+    if kwargs.get('sparse_n', None) is not None:
+        kwargs.pop('sparse_n')
+    if kwargs.get('use_motion', None) is not None:
+        kwargs.pop('use_motion')
+    return OpenSoraT2V_v1_5(
+        # num_layers=[2, 4, 6, 8, 6, 4, 2], sparse_n=[1, 4, 16, 64, 16, 4, 1], 
+        num_layers=[2, 4, 8, 12, 8, 4, 2], sparse_n=[1, 2, 4, 8, 4, 2, 1], 
+        attention_head_dim=96, num_attention_heads=32, cross_attention_dim=3072, 
+        timestep_embed_dim=768, patch_size_t=1, patch_size=2, 
+        caption_channels=4096, pooled_projection_dim=1280, **kwargs
+    )
+
 OpenSora_v1_5_models = {
     "OpenSoraT2V_v1_5-5B/122": OpenSoraT2V_v1_5_5B_122, 
+    "OpenSoraT2V_v1_5-7B/122": OpenSoraT2V_v1_5_7B_122, 
 }
 
 OpenSora_v1_5_models_class = {
     "OpenSoraT2V_v1_5-5B/122": OpenSoraT2V_v1_5,
+    "OpenSoraT2V_v1_5-7B/122": OpenSoraT2V_v1_5,
 }
 
 if __name__ == '__main__':
@@ -489,7 +504,7 @@ if __name__ == '__main__':
 
     # device = torch.device('cpu')
     device = torch.device('cuda:0')
-    model = OpenSoraT2V_v1_5_5B_122(
+    model = OpenSoraT2V_v1_5_7B_122(
         in_channels=c, 
         out_channels=c, 
         sample_size=latent_size, 

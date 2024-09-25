@@ -1,12 +1,12 @@
 CUDA_VISIBLE_DEVICES=1 python examples/rec_video.py \
     --ae WFVAEModel_D8_4x8x8 \
-    --ae_path "/storage/lcm/Causal-Video-VAE/results/WFVAE_DISTILL_FORMAL" \
+    --ae_path "/storage/lcm/wf-vae_trilinear" \
     --video_path /storage/dataset/mixkit-train-passing-the-rails-4462_resize1080p.mp4 \
     --rec_path rec_tile.mp4 \
-    --device cpu \
+    --device cuda \
     --sample_rate 1 \
-    --num_frames 17 \
-    --height 256 \
-    --width 256 \
+    --num_frames 93 \
+    --height 720 \
+    --width 1280 \
     --fps 30 \
     --enable_tiling

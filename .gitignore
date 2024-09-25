@@ -92,3 +92,6 @@ gpu_profiling*
 gyy_dense*
 torchelasti*
 *VEnhancer*
+*spdemo*
+i2v.txt
+run_i2v.py

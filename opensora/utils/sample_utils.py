@@ -379,6 +379,8 @@ def run_model_and_save_samples(args, pipeline, caption_refiner_model=None, enhan
                 )
         print('save path {}'.format(args.save_img_path))
 
+
+
 def run_model_and_save_samples_npu(args, pipeline, caption_refiner_model=None, enhance_video_model=None):
     
     # experimental_config = torch_npu.profiler._ExperimentalConfig(

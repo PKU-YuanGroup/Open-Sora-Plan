@@ -10,6 +10,8 @@
     "bf16": {
         "enabled": "auto"
     },
+    "communication_data_type": "fp32",
+    "gradient_clipping": 1.0,
     "train_micro_batch_size_per_gpu": "auto",
     "train_batch_size": "auto",
     "gradient_accumulation_steps": "auto",

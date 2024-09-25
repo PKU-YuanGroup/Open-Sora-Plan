@@ -44,9 +44,11 @@ import accelerate
 import torch
 from torch.nn import functional as F
 import transformers
+from transformers.utils import ContextManagers
 from accelerate import Accelerator
 from accelerate.logging import get_logger
 from accelerate.utils import DistributedType, ProjectConfiguration, set_seed
+from accelerate.state import AcceleratorState
 from packaging import version
 from tqdm.auto import tqdm
 
@@ -160,7 +162,6 @@ class ProgressInfo:
 def main(args):
     logging_dir = Path(args.output_dir, args.logging_dir)
 
-    # use LayerNorm, GeLu, SiLu always as fp32 mode
     if torch_npu is not None and npu_config is not None:
         npu_config.print_msg(args)
         npu_config.seed_everything(args.seed)
@@ -173,7 +174,7 @@ def main(args):
         project_config=accelerator_project_config,
     )
 
-    if args.num_frames != 1 and args.use_image_num == 0:
+    if args.num_frames != 1:
         initialize_sequence_parallel_state(args.sp_size)
 
     if args.report_to == "wandb":
@@ -212,21 +213,42 @@ def main(args):
         weight_dtype = torch.bfloat16
 
     # Create model:
-    kwargs = {}
-    ae = ae_wrapper[args.ae](args.ae_path, cache_dir=args.cache_dir, **kwargs).eval()
-    
-    if args.enable_tiling:
-        ae.vae.enable_tiling()
 
-    kwargs = {
-        'torch_dtype': weight_dtype, 
-        'low_cpu_mem_usage': True
-        }
-    text_enc_1 = get_text_warpper(args.text_encoder_name_1)(args, **kwargs).eval()
+    # Currently Accelerate doesn't know how to handle multiple models under Deepspeed ZeRO stage 3.
+    # For this to work properly all models must be run through `accelerate.prepare`. But accelerate
+    # will try to assign the same optimizer with the same weights to all models during
+    # `deepspeed.initialize`, which of course doesn't work.
+    #
+    # For now the following workaround will partially support Deepspeed ZeRO-3, by excluding the 2
+    # frozen models from being partitioned during `zero.Init` which gets called during
+    # `from_pretrained` So CLIPTextModel and AutoencoderKL will not enjoy the parameter sharding
+    # across multiple gpus and only UNet2DConditionModel will get ZeRO sharded.
+    def deepspeed_zero_init_disabled_context_manager():
+        """
+        returns either a context list that includes one that will disable zero.Init or an empty context list
+        """
+        deepspeed_plugin = AcceleratorState().deepspeed_plugin if accelerate.state.is_initialized() else None
+        if deepspeed_plugin is None:
+            return []
 
-    text_enc_2 = None
-    if args.text_encoder_name_2 is not None:
-        text_enc_2 = get_text_warpper(args.text_encoder_name_2)(args, **kwargs).eval()
+        return [deepspeed_plugin.zero3_init_context_manager(enable=False)]
+
+    with ContextManagers(deepspeed_zero_init_disabled_context_manager()):
+        kwargs = {}
+        ae = ae_wrapper[args.ae](args.ae_path, cache_dir=args.cache_dir, **kwargs).eval()
+        
+        if args.enable_tiling:
+            ae.vae.enable_tiling()
+
+        kwargs = {
+            'torch_dtype': weight_dtype, 
+            'low_cpu_mem_usage': False
+            }
+        text_enc_1 = get_text_warpper(args.text_encoder_name_1)(args, **kwargs).eval()
+
+        text_enc_2 = None
+        if args.text_encoder_name_2 is not None:
+            text_enc_2 = get_text_warpper(args.text_encoder_name_2)(args, **kwargs).eval()
 
     ae_stride_t, ae_stride_h, ae_stride_w = ae_stride_config[args.ae]
     ae.vae_scale_factor = (ae_stride_t, ae_stride_h, ae_stride_w)
@@ -303,8 +325,6 @@ def main(args):
     # Set model as trainable.
     model.train()
 
-    ae.vae.tile_sample_min_size = args.tile_sample_min_size
-    ae.vae.tile_sample_min_size_t = args.tile_sample_min_size_t
     if args.cogvideox_scheduler:
         noise_scheduler = CogVideoXDDIMScheduler(
             prediction_type=args.prediction_type, 
@@ -918,7 +938,6 @@ if __name__ == "__main__":
     parser.add_argument("--max_width_for_img", type=int, default=None)
     parser.add_argument("--ood_img_ratio", type=float, default=0.0)
     parser.add_argument("--use_img_from_vid", action="store_true")
-    parser.add_argument("--use_image_num", type=int, default=0)
     parser.add_argument("--model_max_length", type=int, default=512)
     parser.add_argument('--cfg', type=float, default=0.1)
     parser.add_argument("--dataloader_num_workers", type=int, default=10, help="Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process.")
@@ -946,8 +965,6 @@ if __name__ == "__main__":
     parser.add_argument("--pretrained", type=str, default=None)
     parser.add_argument('--sparse1d', action='store_true')
     parser.add_argument('--sparse_n', type=int, default=2)
-    parser.add_argument('--tile_sample_min_size', type=int, default=512)
-    parser.add_argument('--tile_sample_min_size_t', type=int, default=33)
     parser.add_argument('--adapt_vae', action='store_true')
     parser.add_argument('--cogvideox_scheduler', action='store_true')
     parser.add_argument('--use_motion', action='store_true')

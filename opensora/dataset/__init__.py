@@ -50,6 +50,7 @@ def getdataset(args):
             norm_fun
         ])
 
+    # tokenizer_1 = AutoTokenizer.from_pretrained(args.text_encoder_name_1, cache_dir=args.cache_dir)
     tokenizer_1 = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir)
     # tokenizer_1 = AutoTokenizer.from_pretrained('/storage/cache_dir/models--DeepFloyd--t5-v1_1-xxl/snapshots/c9c625d2ec93667ec579ede125fd3811d1f81d37', cache_dir=args.cache_dir)
     tokenizer_2 = None
@@ -84,7 +85,6 @@ if __name__ == "__main__":
         'hw_stride': 32, 
         'skip_low_resolution': True, 
         'num_frames': 93,
-        'use_image_num': 0, 
         'compress_kv_factor': 1, 
         'interpolation_scale_t': 1,
         'interpolation_scale_h': 1,
