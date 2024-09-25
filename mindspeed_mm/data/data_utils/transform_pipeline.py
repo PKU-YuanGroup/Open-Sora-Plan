@@ -11,6 +11,8 @@ from mindspeed_mm.data.data_utils.data_transform import (
     SpatialStrideCropVideo,
     ToTensorVideo,
     UCFCenterCropVideo,
+    Expand2Square,
+    JpegDegradationSimulator
 )
 
 VIDEO_TRANSFORM_MAPPING = {
@@ -36,6 +38,20 @@ IMAGE_TRANSFORM_MAPPING = {
     "ToTensor": transforms.ToTensor,
     "norm_fun": transforms.Normalize,
     "ae_norm": AENorm,
+    "DataAugment": JpegDegradationSimulator,
+    "Pad2Square": Expand2Square,
+    "Resize": transforms.Resize,
+}
+
+
+INTERPOLATIONMODE_MAPPING = {
+    "BICUBIC":  transforms.InterpolationMode.BICUBIC,
+    "BILINEAR": transforms.InterpolationMode.BILINEAR,
+    "NEAREST": transforms.InterpolationMode.NEAREST,
+    "NEAREST_EXACT": transforms.InterpolationMode.NEAREST_EXACT,
+    "BOX": transforms.InterpolationMode.BOX,
+    "HAMMING": transforms.InterpolationMode.HAMMING,
+    "LANCZOS": transforms.InterpolationMode.LANCZOS,
 }
 
 
@@ -83,6 +99,8 @@ class TransformMaping:
         else:
             if self.trans_type in IMAGE_TRANSFORM_MAPPING:
                 transforms_cls = IMAGE_TRANSFORM_MAPPING[self.trans_type]
+                if self.trans_type == "Resize" and "interpolation" in self.param:
+                    self.param["interpolation"] = INTERPOLATIONMODE_MAPPING[self.param["interpolation"]]
                 return transforms_cls(**self.param)
             else:
                 raise NotImplementedError(

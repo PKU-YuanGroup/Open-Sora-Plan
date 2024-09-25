@@ -12,6 +12,7 @@ from mindspeed_mm.data.dataloader.sampler import (
     StatefulDistributedSampler,
     VariableVideoBatchSampler
 )
+from mindspeed_mm.data.dataloader.data_collator import DATA_COLLATOR
 
 
 def prepare_base_dataloader(
@@ -22,6 +23,7 @@ def prepare_base_dataloader(
     drop_last=False,
     pin_memory=False,
     num_workers=0,
+    collate_param=None,
     **kwargs,
 ):
     """
@@ -42,6 +44,10 @@ def prepare_base_dataloader(
     Returns:
         :class:`torch.utils.data.DataLoader`: A DataLoader used for training or testing.
     """
+    collate_fn = None
+    if collate_param:
+        data_collate_type = collate_param.pop("model_name")
+        collate_fn = DATA_COLLATOR[data_collate_type](**collate_param)
 
     return DataLoader(
         dataset,
@@ -51,6 +57,7 @@ def prepare_base_dataloader(
         drop_last=drop_last,
         pin_memory=pin_memory,
         num_workers=num_workers,
+        collate_fn=collate_fn
     )
 
 
@@ -67,6 +74,7 @@ def prepare_sampler_dataloader(
     group_frame=False,
     group_resolution=False,
     world_size=-1,
+    collate_param=None,
     **kwargs,
 ):
     """
@@ -89,6 +97,11 @@ def prepare_sampler_dataloader(
         :class:`torch.utils.data.DataLoader`: A DataLoader used for training or testing.
     """
     if sampler_type == "stateful_distributed_sampler":
+        collate_fn = None
+        if collate_param:
+            data_collate_type = collate_param.pop("model_name")
+            collate_fn = DATA_COLLATOR[data_collate_type](**collate_param)
+
         process_group = process_group or _get_default_group()
         sampler = StatefulDistributedSampler(
             dataset,
@@ -104,6 +117,7 @@ def prepare_sampler_dataloader(
             drop_last=drop_last,
             pin_memory=pin_memory,
             num_workers=num_workers,
+            collate_fn=collate_fn
         )
     elif sampler_type == "LengthGroupedSampler":
         sampler = (
