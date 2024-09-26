@@ -1,5 +1,5 @@
 from typing import Union, Tuple, List, Callable
-
+from megatron.core import mpu
 import torch
 from torch import Tensor
 from tqdm.auto import tqdm
@@ -215,6 +215,8 @@ class DiffusersScheduler:
                 current_timestep = current_timestep.expand(latent_model_input.shape[0])
                 model_kwargs["hidden_states"] = latent_model_input
                 video_mask = torch.ones_like(latent_model_input)[:, 0]
+                if mpu.get_context_parallel_world_size() > 1:
+                    video_mask = video_mask.repeat(1, mpu.get_context_parallel_world_size(), 1, 1)
                 world_size = model_kwargs.get("world_size", 1)
                 video_mask = video_mask.repeat(1, world_size, 1, 1)
                 model_kwargs["attention_mask"] = video_mask
