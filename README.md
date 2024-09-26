@@ -79,8 +79,8 @@ MindSpeed-MM 通过模型并行与数据并行来训练各类多模态大模型�
       <td> 预训练 </td>
       <td> 1x8 </td>
       <td> BF16 </td>
-      <td> 3.18 (FPS) </td>
-      <td> 2.04 (FPS) </td>
+      <td> 3.18 (Samples per Second) </td>
+      <td> 2.04 (Samples per Second) </td>
       <td> 【昇腾】 </td>
       <td>【Pass】</td>
     </tr>
@@ -101,8 +101,8 @@ MindSpeed-MM 通过模型并行与数据并行来训练各类多模态大模型�
       <td>预训练</td>
       <td> 1x8</td>
       <td> BF16 </td>
-      <td> 29 (FPS) </td>
-      <td> 33 (FPS) </td>
+      <td> 0.42 (Samples per Second) </td>
+      <td> 0.37 (Samples per Second) </td>
       <td> 【昇腾】 </td>
       <td>【Pass】</td>
     </tr>
