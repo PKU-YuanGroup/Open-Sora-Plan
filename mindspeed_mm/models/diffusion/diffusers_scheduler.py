@@ -55,6 +55,7 @@ class DiffusersScheduler:
         self.num_train_steps = config.pop("num_train_steps", 1000)
         self.num_inference_steps = config.pop("num_inference_steps", None)
         self.prediction_type = config.pop("prediction_type", "epsilon")
+        self.rescale_betas_zero_snr = config.pop("rescale_betas_zero_snr", "False")
         self.noise_offset = config.pop("noise_offset", 0)
         self.snr_gamma = config.pop("snr_gamma", 5.0)
         self.device = get_device(config.pop("device", "npu"))
@@ -62,7 +63,11 @@ class DiffusersScheduler:
 
         if model_id in DIFFUSERS_SCHEDULE_MAPPINGS:
             model_cls = DIFFUSERS_SCHEDULE_MAPPINGS[model_id]
-            self.diffusion = model_cls(**config)
+            self.diffusion = model_cls(
+                prediction_type=self.prediction_type,
+                rescale_betas_zero_snr=self.rescale_betas_zero_snr,
+                timestep_spacing="trailing" if self.rescale_betas_zero_snr else 'leading',
+                )
 
         # Prepare timesteps for inference
         if self.num_inference_steps:
@@ -208,11 +213,11 @@ class DiffusersScheduler:
                 latent_model_input = self.diffusion.scale_model_input(latent_model_input, t)
                 current_timestep = t
                 current_timestep = current_timestep.expand(latent_model_input.shape[0])
-                model_kwargs["latents"] = latent_model_input
+                model_kwargs["hidden_states"] = latent_model_input
                 video_mask = torch.ones_like(latent_model_input)[:, 0]
                 world_size = model_kwargs.get("world_size", 1)
                 video_mask = video_mask.repeat(1, world_size, 1, 1)
-                model_kwargs["video_mask"] = video_mask
+                model_kwargs["attention_mask"] = video_mask
 
                 with torch.no_grad():
                     noise_pred = model(timestep=current_timestep, **model_kwargs)

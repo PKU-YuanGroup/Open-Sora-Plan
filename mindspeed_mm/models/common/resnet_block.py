@@ -3,7 +3,10 @@ from torch import nn
 
 from mindspeed_mm.utils.utils import video_to_image
 from .conv import CausalConv3d
+from ..common.normalize import Normalize
 
+def nonlinearity(x):
+    return x * torch.sigmoid(x)
 
 class ResnetBlock2D(nn.Module):
     def __init__(
@@ -18,19 +21,19 @@ class ResnetBlock2D(nn.Module):
         num_groups=32,
         eps=1e-6,
         affine=True,
+        norm_type="groupnorm",
     ):
         super().__init__()
         self.in_channels = in_channels
         self.out_channels = in_channels if out_channels is None else out_channels
         self.use_conv_shortcut = conv_shortcut
 
-        self.norm1 = nn.GroupNorm(num_groups=num_groups, num_channels=in_channels, eps=eps, affine=affine)
+        self.norm1 = Normalize(in_channels, num_groups, eps, affine, norm_type=norm_type)
         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding)
 
-        self.norm2 = nn.GroupNorm(num_groups=num_groups, num_channels=out_channels, eps=eps, affine=affine)
+        self.norm2 = Normalize(out_channels, num_groups, eps, affine, norm_type)
         self.dropout = torch.nn.Dropout(dropout)
         self.conv2 = torch.nn.Conv2d(out_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding)
-        self.activation = nn.SiLU()
         if self.in_channels != self.out_channels:
             if self.use_conv_shortcut:
                 self.conv_shortcut = torch.nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding)
@@ -41,10 +44,10 @@ class ResnetBlock2D(nn.Module):
     def forward(self, x):
         h = x
         h = self.norm1(h)
-        h = self.activation(h)
+        h = nonlinearity(h)
         h = self.conv1(h)
         h = self.norm2(h)
-        h = self.activation(h)
+        h = nonlinearity(h)
         h = self.dropout(h)
         h = self.conv2(h)
         if self.in_channels != self.out_channels:
@@ -68,20 +71,20 @@ class ResnetBlock3D(nn.Module):
         eps=1e-6,
         affine=True,
         conv_shortcut=False,
-        dropout=0
+        dropout=0,
+        norm_type="groupnorm",
     ):
         super().__init__()
         self.in_channels = in_channels
         self.out_channels = in_channels if out_channels is None else out_channels
         self.use_conv_shortcut = conv_shortcut
 
-        self.norm1 = nn.GroupNorm(num_groups=num_groups, num_channels=in_channels, eps=eps, affine=affine)
+        self.norm1 = Normalize(in_channels, num_groups, eps, affine, norm_type=norm_type)
         self.conv1 = CausalConv3d(in_channels, out_channels, kernel_size, stride=stride, padding=padding)
 
-        self.norm2 = nn.GroupNorm(num_groups=num_groups, num_channels=out_channels, eps=eps, affine=affine)
+        self.norm2 = Normalize(out_channels, num_groups, eps, affine, norm_type)
         self.dropout = torch.nn.Dropout(dropout)
         self.conv2 = CausalConv3d(out_channels, out_channels, kernel_size, padding=padding)
-        self.activation = nn.SiLU()
         if self.in_channels != self.out_channels:
             if self.use_conv_shortcut:
                 self.conv_shortcut = CausalConv3d(in_channels, out_channels, kernel_size, padding=padding)
@@ -91,10 +94,10 @@ class ResnetBlock3D(nn.Module):
     def forward(self, x):
         h = x
         h = self.norm1(h)
-        h = self.activation(h)
+        h = nonlinearity(h)
         h = self.conv1(h)
         h = self.norm2(h)
-        h = self.activation(h)
+        h = nonlinearity(h)
         h = self.dropout(h)
         h = self.conv2(h)
         if self.in_channels != self.out_channels:

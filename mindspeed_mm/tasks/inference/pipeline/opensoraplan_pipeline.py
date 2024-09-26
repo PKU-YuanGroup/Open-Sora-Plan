@@ -42,6 +42,7 @@ class OpenSoraPlanPipeline(MMPipeline, InputsCheckMixin, MMEncoderMixin):
                  enable_temporal_attentions: bool = True,
                  added_cond_kwargs: dict = None,
                  use_prompt_template: bool = True,
+                 motion_score: float = 1.0,
                  **kwargs,
                  ):
 
@@ -100,16 +101,16 @@ class OpenSoraPlanPipeline(MMPipeline, InputsCheckMixin, MMEncoderMixin):
             prompt_embeds = prompt_embeds.unsqueeze(1)  # b l d -> b 1 l d
         if prompt_embeds_attention_mask.ndim == 2:
             prompt_embeds_attention_mask = prompt_embeds_attention_mask.unsqueeze(1)  # b l -> b 1 l
-        model_kwargs = {"prompt": prompt_embeds,
+        model_kwargs = {"encoder_hidden_states": prompt_embeds,
                         "added_cond_kwargs": added_cond_kwargs,
                         "enable_temporal_attentions": enable_temporal_attentions,
-                        "prompt_mask": prompt_embeds_attention_mask,
+                        "encoder_attention_mask": prompt_embeds_attention_mask,
+                        "motion_score": motion_score,
                         "return_dict": False}
 
         latents = self.scheduler.sample(model=self.predict_model, shape=shape, latents=latents, model_kwargs=model_kwargs,
                                         extra_step_kwargs=extra_step_kwargs)
         video = self.decode_latents(latents.to(self.vae.dtype))
-        video = video.permute(0, 2, 1, 3, 4)  # [b,t,c,h,w -> [b,c,t,h,w]
 
         return video
 

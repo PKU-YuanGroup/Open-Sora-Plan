@@ -56,6 +56,7 @@ def main():
     image_size = args.image_size
     args.height, args.width = image_size
     num_frames = args.num_frames
+    motion_score = args.motion_score
     save_fps = args.fps // args.frame_interval
     os.makedirs(args.save_path, exist_ok=True)
 
@@ -69,13 +70,13 @@ def main():
         batch_prompts = prompts[i: i + args.micro_batch_size]
 
         videos = sora_pipeline(prompt=batch_prompts, height=args.height, width=args.width, num_frames=num_frames,
-                               fps=save_fps, device=device, dtype=dtype)
+                               fps=save_fps, device=device, dtype=dtype, motion_score=motion_score)
         video_grids.append(videos)
         start_idx += len(batch_prompts)
     video_grids = torch.cat(video_grids, dim=0)
     save_videos(video_grids, args.save_path, save_fps, value_range=(-1, 1), normalize=True)
     print("Inference finished.")
-    print("Saved %s samples to %s", start_idx, args.save_path)
+    print(f"Saved {start_idx} samples to {args.save_path}")
 
 
 if __name__ == "__main__":

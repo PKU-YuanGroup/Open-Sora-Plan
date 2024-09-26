@@ -18,9 +18,9 @@ dependencies = [
     "timm==1.0.8",
     "pandas==2.0.3",
     "torchvision",
-    "diffusers==0.29.2",
-    "transformers==4.36.2",
-    "accelerate==0.32.1",
+    "diffusers==0.30.2",
+    "transformers==4.44.2",
+    "accelerate==0.34.0",
 ]
 
 [build-system]

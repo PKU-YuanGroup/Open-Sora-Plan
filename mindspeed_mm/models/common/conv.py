@@ -46,64 +46,56 @@ class CausalConv3d(nn.Module):
         in_channels: int,
         out_channels: int,
         kernel_size: Union[int, Tuple[int, int, int]],
-        init_method: str = "random",
-        **kwargs
+        enable_cached=False,
+        bias=True,
+        **kwargs,
     ):
         super().__init__()
         self.kernel_size = cast_tuple(kernel_size, 3)
         self.time_kernel_size = self.kernel_size[0]
         self.in_channels = in_channels
         self.out_channels = out_channels
-        stride = kwargs.pop("stride", 1)
-        padding = kwargs.pop("padding", 0)
-        padding = list(cast_tuple(padding, 3))
-        padding[0] = 0
-        stride = cast_tuple(stride, 3)
-        self.conv = nn.Conv3d(in_channels, out_channels, self.kernel_size, stride=stride, padding=padding)
-        self.pad = nn.ReplicationPad2d((0, 0, self.time_kernel_size - 1, 0))
-        if init_method:
-            self._init_weights(init_method)
-
-    def _init_weights(self, init_method):
-        if init_method == "avg":
-            if not (self.kernel_size[1] == 1 and self.kernel_size[2] == 1):
-                raise AssertionError("only support temporal up/down sample")
-            if self.in_channels != self.out_channels:
-                raise AssertionError("in_channels must be equal to out_channels")
-            weight = torch.zeros((self.out_channels, self.in_channels, *self.kernel_size))
-
-            eyes = torch.concat(
-                [
-                    torch.eye(self.in_channels).unsqueeze(-1) * 1 / 3,
-                    torch.eye(self.in_channels).unsqueeze(-1) * 1 / 3,
-                    torch.eye(self.in_channels).unsqueeze(-1) * 1 / 3,
-                ],
-                dim=-1,
-            )
-            weight[:, :, :, 0, 0] = eyes
-
-            self.conv.weight = nn.Parameter(
-                weight,
-                requires_grad=True,
-            )
-        elif init_method == "zero":
-            self.conv.weight = nn.Parameter(
-                torch.zeros((self.out_channels, self.in_channels, *self.kernel_size)),
-                requires_grad=True,
-            )
-        if self.conv.bias is not None:
-            nn.init.constant_(self.conv.bias, 0)
+        self.stride = kwargs.pop("stride", 1)
+        self.padding = kwargs.pop("padding", 0)
+        self.padding = list(cast_tuple(self.padding, 3))
+        self.padding[0] = 0
+        self.stride = cast_tuple(self.stride, 3)
+        self.conv = nn.Conv3d(
+            in_channels,
+            out_channels,
+            self.kernel_size,
+            stride=self.stride,
+            padding=self.padding,
+            bias=bias
+        )
+        self.enable_cached = enable_cached
+        self.causal_cached = None
+        self.cache_offset = 0
 
     def forward(self, x):
+        x_dtype = x.dtype
+        if self.causal_cached is None:
+            first_frame_pad = x[:, :, :1, :, :].repeat(
+                (1, 1, self.time_kernel_size - 1, 1, 1)
+            )
+        else:
+            first_frame_pad = self.causal_cached
+        x = torch.concatenate((first_frame_pad, x), dim=2)
+
+        if self.enable_cached and self.time_kernel_size != 1:
+            if (self.time_kernel_size - 1) // self.stride[0] != 0:
+                if self.cache_offset == 0:
+                    self.causal_cached = x[:, :, -(self.time_kernel_size - 1) // self.stride[0]:]
+                else:
+                    self.causal_cached = x[:, :, :-self.cache_offset][:, :, -(self.time_kernel_size - 1) // self.stride[0]:]
+            else:
+                self.causal_cached = x[:, :, 0:0, :, :]
+
         if x.dtype not in [torch.float16, torch.bfloat16]:
             dtype = x.dtype
-            first_frame_pad = x[:, :, :1, :, :].repeat((1, 1, self.time_kernel_size - 1, 1, 1))  # b c t h w
-            x = torch.concatenate((first_frame_pad, x), dim=2)  # 3 + 16
             with torch.cuda.amp.autocast(enabled=False):
                 x = self.conv.to(device=x.device, dtype=torch.bfloat16)(x.to(torch.bfloat16))
                 x = x.to(dtype)
                 return torch_npu.npu_format_cast(x, 2)
         else:
-            first_frame_pad = x[:, :, :1, :, :].repeat((1, 1, self.time_kernel_size - 1, 1, 1))  # b c t h w
-            x = torch.concatenate((first_frame_pad, x), dim=2)  # 3 + 16
             return self.conv(x)

@@ -2,9 +2,10 @@ from torch import nn
 
 from megatron.training.utils import print_rank_0
 from ..common.checkpoint import load_checkpoint
-from .dits import VideoDiT, Latte, STDiT, STDiT3
+from .dits import VideoDiTSparse, VideoDiT, Latte, STDiT, STDiT3
 
 PREDICTOR_MODEL_MAPPINGS = {
+    "videoditsparse": VideoDiTSparse,
     "videodit": VideoDiT,
     "latte": Latte,
     "stdit": STDiT,

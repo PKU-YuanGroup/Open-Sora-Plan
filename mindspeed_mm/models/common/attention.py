@@ -1,12 +1,13 @@
 from typing import Tuple, Optional
-
+from einops import rearrange, repeat
+import torch.nn.functional as F
 import math
 import torch
 import torch.nn as nn
 import torch_npu
 from megatron.core import mpu
 from mindspeed_mm.utils.utils import video_to_image
-
+from ..common.normalize import Normalize
 from .embeddings.rope import RoPE3D, PositionGetter3D
 from .conv import CausalConv3d
 
@@ -16,7 +17,192 @@ from .communications import (
     all_to_all_SBH,
     split_forward_gather_backward,
 )
-        
+
+class MultiHeadSparseAttentionSBH(nn.Module):
+    """
+    A multi-head attention layer for both self-atten and cross-atten, layout "SBH".
+
+    Args:
+        query_dim: The number of channels in the query.
+        cross_attention_dim: The number of channels in the key, defaults to `query_dim`.
+        num_heads: The number of heads to use for multi-head attention.
+        head_dim: The number of channels in each head.
+        dropout: The dropout probability to use.
+        proj_qkv_bias: Whether to use bias in qkv projection.
+        proj_out_bias: Whether to use bias in out projection.
+        use_rope: Whether to use rope
+        interpolation_scale: The scale of interpolation.
+
+    """
+
+    def __init__(
+        self,
+        query_dim: int,
+        key_dim: int,
+        num_heads: int,
+        head_dim: int,
+        dropout: float = 0.0,
+        proj_qkv_bias: bool = False,
+        proj_out_bias: bool = True,
+        interpolation_scale: Tuple[int] = (1, 1, 1),
+        sparse1d=False,
+        sparse_n=None,
+        sparse_group=None,
+        is_cross_attn=False,
+    ):
+        super().__init__()
+        self.num_heads = num_heads
+        self.head_dim = head_dim
+        self.inner_dim = self.num_heads * self.head_dim
+        self.sparse1d = sparse1d
+        self.sparse_n = sparse_n
+        self.sparse_group = sparse_group
+        self.is_cross_attn = is_cross_attn
+        self.rope = RoPE3D(interpolation_scale=interpolation_scale)
+        self.position_getter = PositionGetter3D()
+
+        key_dim = key_dim if key_dim is not None else query_dim
+
+        self.proj_q = nn.Linear(query_dim, self.inner_dim, bias=proj_qkv_bias)
+        self.proj_k = nn.Linear(key_dim, self.inner_dim, bias=proj_qkv_bias)
+        self.proj_v = nn.Linear(key_dim, self.inner_dim, bias=proj_qkv_bias)
+
+        self.proj_out = nn.Linear(self.inner_dim, query_dim, bias=proj_out_bias)
+        self.dropout = nn.Dropout(dropout)
+
+    def _sparse_1d(self, x, frame, height, width):
+        """
+        require the shape of (ntokens x batch_size x dim)
+        """
+        l = x.shape[0]
+        assert l == frame * height * width
+        pad_len = 0
+        if l % (self.sparse_n * self.sparse_n) != 0:
+            pad_len = self.sparse_n * self.sparse_n - l % (self.sparse_n * self.sparse_n)
+        if pad_len != 0:
+            x = F.pad(x, (0, 0, 0, 0, 0, pad_len))
+        if not self.sparse_group:
+            x = rearrange(x, '(g k) b d -> g (k b) d', k=self.sparse_n)
+        else:
+            x = rearrange(x, '(n m k) b d -> (n k) (m b) d', m=self.sparse_n, k=self.sparse_n)
+        return x, pad_len
+
+    def _reverse_sparse_1d(self, x, frame, height, width, pad_len):
+        """
+        require the shape of (ntokens x batch_size x dim)
+        """
+        assert x.shape[0] == (frame * height * width + pad_len) // self.sparse_n
+        if not self.sparse_group:
+            x = rearrange(x, 'g (k b) d -> (g k) b d', k=self.sparse_n)
+        else:
+            x = rearrange(x, '(n k) (m b) d -> (n m k) b d', m=self.sparse_n, k=self.sparse_n)
+        x = x[:frame * height * width, :, :]
+        return x
+
+    def _sparse_1d_kv(self, x):
+        """
+        require the shape of (ntokens x batch_size x dim)
+        """
+        x = repeat(x, 's b d -> s (k b) d', k=self.sparse_n)
+        return x
+
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        encoder_hidden_states: Optional[torch.Tensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        frames: Optional[int] = None,
+        height: Optional[int] = None,
+        width: Optional[int] = None,
+    ) -> torch.Tensor:
+        """
+        Args:
+            query: The hidden states of the query.
+            key: The hidden states of the key.
+            mask: The attention mask to use.
+            **kwargs: Additional keyword arguments to pass along
+        """
+
+        residual = hidden_states
+
+        sequence_length, batch_size, _ = (
+            hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
+        )
+
+        query = self.proj_q(hidden_states)
+
+        if encoder_hidden_states is None:
+            encoder_hidden_states = hidden_states
+
+        key = self.proj_k(encoder_hidden_states)
+        value = self.proj_v(encoder_hidden_states)
+
+        FA_num_head = self.num_heads
+        total_frames = frames
+        sp_size = mpu.get_context_parallel_world_size()
+
+        if sp_size > 1:
+            FA_num_head = FA_num_head // sp_size
+            total_frames = frames * sp_size
+            sp_group = mpu.get_context_parallel_group()
+
+            # apply all_to_all to gather sequence and split attention heads [s // sp * b, h, d] -> [s * b, h // sp, d]
+            query = all_to_all_SBH(query.view(-1, self.num_heads, self.head_dim), sp_group, scatter_dim=1, gather_dim=0)
+            key = all_to_all_SBH(key.view(-1, self.num_heads, self.head_dim), sp_group, scatter_dim=1, gather_dim=0)
+            value = all_to_all_SBH(value.view(-1, self.num_heads, self.head_dim), sp_group, scatter_dim=1, gather_dim=0)
+        query = query.view(-1, batch_size, FA_num_head, self.head_dim)
+        key = key.view(-1, batch_size, FA_num_head, self.head_dim)
+
+        if not self.is_cross_attn:
+            # require the shape of (ntokens x batch_size x nheads x dim)
+            pos_thw = self.position_getter(batch_size, t=total_frames, h=height, w=width, device=query.device)
+            query = self.rope(query, pos_thw)
+            key = self.rope(key, pos_thw)
+
+        query = query.view(-1, batch_size, FA_num_head * self.head_dim)
+        key = key.view(-1, batch_size, FA_num_head * self.head_dim)
+        value = value.view(-1, batch_size, FA_num_head * self.head_dim)
+        if self.sparse1d:
+            query, pad_len = self._sparse_1d(query, total_frames, height, width)
+            if self.is_cross_attn:
+                key = self._sparse_1d_kv(key)
+                value = self._sparse_1d_kv(value)
+            else:
+                key, pad_len = self._sparse_1d(key, total_frames, height, width)
+                value, pad_len = self._sparse_1d(value, total_frames, height, width)
+
+        hidden_states = torch_npu.npu_fusion_attention(
+            query,
+            key,
+            value,
+            head_num=FA_num_head,
+            atten_mask=attention_mask,
+            input_layout="SBH",
+            scale=1 / math.sqrt(self.head_dim)
+        )[0]
+
+        if self.sparse1d:
+            hidden_states = self._reverse_sparse_1d(hidden_states, total_frames, height, width, pad_len)
+
+        # [s, b, h // sp * d] -> [s // sp * b, h, d] -> [s // sp, b, h * d]
+        if sp_size > 1:
+            sp_group = mpu.get_context_parallel_group()
+            hidden_states = all_to_all_SBH(hidden_states.reshape(-1, FA_num_head, self.head_dim), sp_group,
+                                           scatter_dim=0, gather_dim=1)
+            hidden_states = hidden_states.view(-1, batch_size, self.inner_dim)
+
+        hidden_states = hidden_states.to(query.dtype)
+
+        # linear proj
+        hidden_states = self.proj_out(hidden_states)
+        # dropout
+        hidden_states = self.dropout(hidden_states)
+
+        # if attn.residual_connection:
+        #     print('attn.residual_connection')
+        # hidden_states = hidden_states + residual
+
+        return hidden_states
 
 class MultiHeadAttentionBSH(nn.Module):
     """
@@ -689,11 +875,10 @@ class CausalConv3dAttnBlock(nn.Module):
         num_groups=32,
         eps=1e-6,
         affine=True,
+        norm_type="groupnorm",
     ):
         super().__init__()
-        self.norm = nn.GroupNorm(
-            num_groups=num_groups, num_channels=in_channels, eps=eps, affine=affine
-        )
+        self.norm = Normalize(in_channels, num_groups, eps, affine, norm_type=norm_type)
         self.q = CausalConv3d(
             in_channels, out_channels, kernel_size=kernel_size, stride=stride
         )
@@ -708,40 +893,36 @@ class CausalConv3dAttnBlock(nn.Module):
         )
 
     def forward(self, x):
-        y = x
-        y = self.norm(y)
-        q = self.q(y)
-        k = self.k(y)
-        v = self.v(y)
+        h_ = x
+        h_ = self.norm(h_)
+        q = self.q(h_)
+        k = self.k(h_)
+        v = self.v(h_)
 
-        # compute attention
-        # q: (b c t h w) -> (b t c h w) -> (b*t c h*w) -> (b*t h*w c)
         b, c, t, h, w = q.shape
-        q = torch_npu.npu_confusion_transpose(
-            q, (0, 2, 1, 3, 4), (b * t, c, h * w), True
-        )
-        q = q.permute(0, 2, 1)
+        q = q.permute(0, 2, 3, 4, 1).reshape(b * t, h * w, c).contiguous()
+        k = k.permute(0, 2, 3, 4, 1).reshape(b * t, h * w, c).contiguous()
+        v = v.permute(0, 2, 3, 4, 1).reshape(b * t, h * w, c).contiguous()
 
-        # k: (b c t h w) -> (b t c h w) -> (b*t c h*w)
-        k = torch_npu.npu_confusion_transpose(
-            k, (0, 2, 1, 3, 4), (b * t, c, h * w), True
-        )
+        if q.dtype == torch.float32:
+            dtype = torch.float32
+            q = q.to(torch.bfloat16)
+            k = k.to(torch.bfloat16)
+            v = v.to(torch.bfloat16)
+        else:
+            dtype = q.dtype
+        attn_output = torch_npu.npu_fusion_attention(
+            q,
+            k,
+            v,
+            head_num=1,
+            atten_mask=None,
+            input_layout="BSH",
+            scale=1 / math.sqrt(c)
+        )[0]
+        attn_output = attn_output.to(dtype)
 
-        # w: (b*t hw hw)
-        z = torch.bmm(q, k)
-        z = z * (int(c) ** (-0.5))
-        z = torch.nn.functional.softmax(z, dim=2)
+        attn_output = attn_output.reshape(b, t, h, w, c).permute(0, 4, 1, 2, 3)
+        h_ = self.proj_out(attn_output)
 
-        # attend to values
-        # v: (b c t h w) -> (b t c h w) -> (bt c hw)
-        # z: (bt hw hw) -> (bt hw hw)
-        v = torch_npu.npu_confusion_transpose(v, (0, 2, 1, 3, 4), (b * t, c, h * w), True)
-        z = z.permute(0, 2, 1)  # [b, hw, hw] (first hw of k, second of q)
-        y = torch.bmm(v, z)  # [b, c, hw] (hw of q)
-
-        # y: (b*t c hw) -> (b t c h w) -> (b c t h w)
-        y = torch_npu.npu_confusion_transpose(y, (0, 2, 1, 3, 4), (b, t, c, h, w), False)
-
-        y = self.proj_out(y)
-
-        return x + y
+        return x + h_
