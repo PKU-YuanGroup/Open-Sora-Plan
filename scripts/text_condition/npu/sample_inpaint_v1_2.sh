@@ -3,7 +3,7 @@ export TASK_QUEUE_ENABLE=0
 torchrun --nnodes=1 --nproc_per_node 8 --master_port 29513 \
     -m opensora.sample.sample \
     --model_type "inpaint" \
-    --model_path /home/save_dir/runs/inpaint_93x320x320_stage1/checkpoint-50000/model_ema \
+    --model_path /home/image_data/gyy/suv/Open-Sora-Plan/debug/checkpoint-4000/model \
     --version v1_2 \
     --num_frames 93 \
     --height 192 \
@@ -15,7 +15,7 @@ torchrun --nnodes=1 --nproc_per_node 8 --master_port 29513 \
     --text_prompt /home/image_data/gyy/suv/Open-Sora-Plan/validation_dir/prompt.txt \
     --ae WFVAEModel_D8_4x8x8 \
     --ae_path "/home/image_data/lb/Open-Sora-Plan/WFVAE_DISTILL_FORMAL" \
-    --save_img_path "./test_inpaint" \
+    --save_img_path "./test_inpaint_npu" \
     --fps 18 \
     --guidance_scale 7.5 \
     --num_sampling_steps 50 \

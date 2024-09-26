@@ -694,14 +694,11 @@ def main(args):
                 cond_2 = None
 
 
-            try:
-                # Map input images to latent space + normalize latents
-                x, masked_x, mask = x[:, :3], x[:, 3:6], x[:, 6:7]
-                x, masked_x = ae.encode(x), ae.encode(masked_x)
-                mask = mask_compressor(mask)
-                x = torch.cat([x, masked_x, mask], dim=1) 
-            except:
-                raise ValueError("masked_x and video_mask is None!")
+            # Map input images to latent space + normalize latents
+            x, masked_x, mask = x[:, :3], x[:, 3:6], x[:, 6:7]
+            x, masked_x = ae.encode(x), ae.encode(masked_x)
+            mask = mask_compressor(mask)
+            x = torch.cat([x, masked_x, mask], dim=1) 
 
 
         if args.extra_save_mem:

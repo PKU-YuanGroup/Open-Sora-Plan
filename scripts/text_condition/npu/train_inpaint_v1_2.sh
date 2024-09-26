@@ -6,6 +6,7 @@ export PROJECT=$PROJECT_NAME
 export HF_DATASETS_OFFLINE=1 
 export TRANSFORMERS_OFFLINE=1
 
+export TASK_QUEUE_ENABLE=0
 export HCCL_OP_BASE_FFTS_MODE_ENABLE=TRUE
 # export HCCL_ALGO="level0:NA;level1:H-D_R"
 # --machine_rank=${MACHINE_RANK} \ 
@@ -21,6 +22,7 @@ accelerate launch \
     --data "scripts/train_data/debug_on_npu.txt" \
     --ae WFVAEModel_D8_4x8x8 \
     --ae_path "/home/image_data/lb/Open-Sora-Plan/WFVAE_DISTILL_FORMAL" \
+    --vae_fp32 \
     --sample_rate 1 \
     --num_frames 93 \
     --max_height 512 \
@@ -59,15 +61,15 @@ accelerate launch \
     --prediction_type "v_prediction" \
     --rescale_betas_zero_snr \
     --output_dir="debug" \
-    --min_height 320 \
-    --min_width 320 \
-    --t2v_ratio 0.1 \
-    --i2v_ratio 0.0 \
-    --transition_ratio 0.0 \
-    --v2v_ratio 0.2 \
-    --clear_video_ratio 0.1 \
-    --min_clear_ratio 0.5 \
+    --t2v_ratio 0.02 \
+    --i2v_ratio 0.5 \
+    --transition_ratio 0.3 \
+    --v2v_ratio 0.0 \
+    --clear_video_ratio 0.0 \
+    --min_clear_ratio 0.0 \
     --max_clear_ratio 1.0 \
     --default_text_ratio 0.5 \
     --pretrained_transformer_model_path "/home/image_data/captions/vpre_latest_168k/model_ema" \
     # --resume_from_checkpoint="latest" \
+    # --min_height 0 \
+    # --min_width 0 \

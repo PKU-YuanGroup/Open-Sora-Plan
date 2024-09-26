@@ -102,7 +102,13 @@ class MaskCompressor:
         B, C, T, H, W = mask.shape
         new_H, new_W = H // self.ae_stride_h, W // self.ae_stride_w
         mask = rearrange(mask, 'b c t h w -> (b c t) 1 h w')
-        mask = F.interpolate(mask, size=(new_H, new_W), mode='bilinear')
+        if torch_npu is not None:
+            dtype = mask.dtype
+            mask = mask.to(dtype=torch.float32)
+            mask = F.interpolate(mask, size=(new_H, new_W), mode='bilinear')
+            mask = mask.to(dtype)
+        else:
+            mask = F.interpolate(mask, size=(new_H, new_W), mode='bilinear')
         mask = rearrange(mask, '(b c t) 1 h w -> b c t h w', t=T, b=B)
         if T % 2 == 1:
             new_T = T // self.ae_stride_t + 1
