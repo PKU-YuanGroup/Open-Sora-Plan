@@ -39,7 +39,6 @@ class ImageDataset(MMBaseDataset):
             self,
             basic_param: dict,
             img_process: dict,
-            constants: dict,
             use_text_processer: bool = False,
             tokenizer_config: Union[dict, None] = None,
             is_multimodal: bool = True,
@@ -57,7 +56,6 @@ class ImageDataset(MMBaseDataset):
             **kwargs,
     ):
         super().__init__(**basic_param)
-        self.constants = constants
         self.use_text_processer = use_text_processer
         self.template_name = template_name
         self.image_size = image_size
@@ -81,7 +79,9 @@ class ImageDataset(MMBaseDataset):
         self.mm_use_im_start_end = mm_use_im_start_end
         self.train_pipeline = img_process.get("train_pipeline", None)
         self.image_reader_type = img_process.get("image_reader_type", "torchvision")
+        self.image_processer_type = img_process.get("image_processer_type", "image2pixel")
         self.image_processer = ImageProcesser(train_pipeline=self.train_pipeline,
+                                              image_processer_type=self.image_processer_type,
                                               image_reader_type=self.image_reader_type,
                                               dynamic_image_size=self.dynamic_image_size,
                                               image_size=self.image_size,
@@ -103,7 +103,8 @@ class ImageDataset(MMBaseDataset):
             data_item["conversations"][0]["value"] = "<image>\n" + data_item["conversations"][0]["value"]
 
         image_path = os.path.join(self.data_folder, data_item["image"])
-        pixel_values = self.image_processer.image_to_pixel_values(image_path, train_pipeline=self.train_pipeline)
+        pixel_values = self.image_processer(image_path, train_pipeline=self.train_pipeline,
+                                            mode='single_image', num_image=1)
         num_patches = pixel_values.size(0)
 
         ret = preprocess(
@@ -113,8 +114,7 @@ class ImageDataset(MMBaseDataset):
             num_image_token_list=[self.num_image_token * num_patches],
             group_by_length=self.group_by_length,
             is_multimodal=self.is_multimodal,
-            mm_use_im_start_end=self.mm_use_im_start_end,
-            constants=self.constants
+            mm_use_im_start_end=self.mm_use_im_start_end
         )
 
         ret["pixel_values"] = pixel_values

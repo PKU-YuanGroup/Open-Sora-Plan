@@ -3,15 +3,16 @@ from dataclasses import dataclass
 
 import torch
 import numpy as np
+from mindspeed_mm.data.data_utils.constants import MODEL_CONSTANTS
 
 
 @dataclass
 class DataCollatorForLlava(object):
     """Collate examples for supervised fine-tuning."""
-    def __init__(self, pad_token_id, model_max_length, ignore_index):
+    def __init__(self, pad_token_id, model_max_length):
         self.pad_token_id = pad_token_id
         self.model_max_length = model_max_length
-        self.ignore_index = ignore_index
+        self.ignore_index = MODEL_CONSTANTS['llava']['IGNORE_INDEX']
 
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
         input_ids, labels = tuple([instance[key] for instance in instances]
@@ -42,9 +43,9 @@ class DataCollatorForLlava(object):
 
 
 class DataCollatorForInternvl(object):
-    def __init__(self, pad_id, ignore_index):
+    def __init__(self, pad_id):
         self.pad_id = pad_id
-        self.ignore_index = ignore_index
+        self.ignore_index = MODEL_CONSTANTS['internvl']['IGNORE_INDEX']
 
     def __call__(self, features):
         first = features[0]

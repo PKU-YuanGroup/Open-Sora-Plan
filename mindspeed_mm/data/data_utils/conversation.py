@@ -7,6 +7,7 @@ class SeparatorStyle(Enum):
     """Different separator style."""
     TWO = auto()
     MPT = auto()
+    PLAIN = auto()
 
 
 @dataclasses.dataclass
@@ -120,7 +121,6 @@ register_conv_template(
     )
 )
 
-
 register_conv_template(
     Conversation(
         name="llava-v1",
@@ -131,5 +131,16 @@ register_conv_template(
         sep_style=SeparatorStyle.TWO,
         sep=" ",
         sep2="</s>"
+    )
+)
+
+register_conv_template(
+    Conversation(
+        name="llava-plain",
+        system_message="",
+        roles=(),
+        offset=0,
+        sep_style=SeparatorStyle.PLAIN,
+        sep="\n"
     )
 )

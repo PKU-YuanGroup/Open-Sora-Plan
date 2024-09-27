@@ -50,9 +50,7 @@ except ImportError:
 from mindspeed_mm.data.data_utils.data_transform import TemporalRandomCrop, Expand2Square
 from mindspeed_mm.data.data_utils.transform_pipeline import get_transforms
 from mindspeed_mm.data.data_utils.conversation import get_conv_template
-
-# from mindspeed_mm.data.data_utils.constants import IGNORE_INDEX, IMAGE_TOKEN_INDEX, IMAGE_TOKEN, \
-#     IM_START_TOKEN, IM_END_TOKEN, IM_CONTEXT_TOKEN
+from mindspeed_mm.data.data_utils.constants import MODEL_CONSTANTS
 
 VID_EXTENSIONS = (".mp4", ".avi", ".mov", ".mkv")
 IS_TOKENIZER_GREATER_THAN_0_14 = version.parse(tokenizers.__version__) >= version.parse("0.14")
@@ -547,6 +545,7 @@ class ImageProcesser:
         self.video_transforms = get_transforms(
             is_video=True, train_pipeline=train_pipeline
         )
+        self.train_pipeline = train_pipeline
         self.image_reader_type = image_reader_type
         self.image_processer_type = image_processer_type
         self.dynamic_image_size = dynamic_image_size
@@ -555,11 +554,13 @@ class ImageProcesser:
         self.max_dynamic_patch = max_dynamic_patch
         self.use_thumbnail = use_thumbnail
 
-    def __call__(self, image_path):
+    def __call__(self, image_path, train_pipeline, mode, num_image):
         if self.image_processer_type == "image2video":
             image = self.image_to_video(image_path)
         elif self.image_processer_type == "image2image":
             image = self.image_to_image(image_path)
+        elif self.image_processer_type == "image2pixel":
+            image = self.image_to_pixel_values(image_path, train_pipeline, mode, num_image)
         else:
             raise NotImplementedError(
                 f"Unsupported image processer type: {self.image_processer_type}"
@@ -1023,12 +1024,13 @@ def preprocess_multimodal(
         sources: Sequence[str],
         is_multimodal,
         mm_use_im_start_end,
-        constants
 ) -> Dict:
     """
     Process multimodal sources by handling image tokens.
     """
-    image_token = constants["IMAGE_TOKEN"]
+    image_token = MODEL_CONSTANTS['llava']["IMAGE_TOKEN"]
+    img_start_token = MODEL_CONSTANTS['llava']["IMG_START_TOKEN"]
+    img_end_token = MODEL_CONSTANTS['llava']["IMG_END_TOKEN"]
 
     if not is_multimodal:
         return sources
@@ -1041,7 +1043,7 @@ def preprocess_multimodal(
                 sentence["value"] = sentence["value"].strip()
             replace_token = image_token
             if mm_use_im_start_end:
-                replace_token = image_token + replace_token + image_token
+                replace_token = img_start_token + replace_token + img_end_token
             sentence["value"] = sentence["value"].replace(image_token, replace_token)
 
     return sources
@@ -1049,7 +1051,6 @@ def preprocess_multimodal(
 
 def preprocess_v1(
         sources,
-        constants,
         is_multimodal,
         mm_use_im_start_end,
         tokenizer: transformers.PreTrainedTokenizer,
@@ -1058,10 +1059,10 @@ def preprocess_v1(
     """
     Process sources for llava-v1 of the preprocessing pipeline.
     """
-    sources = preprocess_multimodal(sources, is_multimodal, mm_use_im_start_end, constants)
+    sources = preprocess_multimodal(sources, is_multimodal, mm_use_im_start_end)
 
-    ignore_index = constants["IGNORE_INDEX"]
-    image_token_index = constants["IMAGE_TOKEN_INDEX"]
+    ignore_index = MODEL_CONSTANTS['llava']["IGNORE_INDEX"]
+    image_token_index = MODEL_CONSTANTS['llava']["IMAGE_TOKEN_INDEX"]
     conv = get_conv_template("llava-v1")
     roles = {"human": conv.roles[0], "gpt": conv.roles[1]}
     conversations = get_formatted_conversations(sources, roles, conv)
@@ -1130,7 +1131,6 @@ def preprocess_v1(
 
 def preprocess_plain(
         sources: Sequence[str],
-        constants,
         is_multimodal,
         mm_use_im_start_end,
         tokenizer: transformers.PreTrainedTokenizer
@@ -1138,12 +1138,12 @@ def preprocess_plain(
     """
     Process plain text sources for preprocessing.
     """
-    sources = preprocess_multimodal(sources, is_multimodal, mm_use_im_start_end, constants)
+    sources = preprocess_multimodal(sources, is_multimodal, mm_use_im_start_end)
 
-    image_token_index = constants["IMAGE_TOKEN_INDEX"]
-    image_token = constants["IMAGE_TOKEN"]
-    ignore_index = constants["IGNORE_INDEX"]
-    conv = get_conv_template("llava-v1")
+    image_token_index = MODEL_CONSTANTS['llava']["IMAGE_TOKEN_INDEX"]
+    image_token = MODEL_CONSTANTS['llava']["IMAGE_TOKEN"]
+    ignore_index = MODEL_CONSTANTS['llava']["IGNORE_INDEX"]
+    conv = get_conv_template("llava-plain")
     # add end signal and concatenate together
     conversations = []
     for source in sources:
@@ -1164,7 +1164,6 @@ def preprocess_plain(
 def preprocess_internlm(
         template_name,
         sources,
-        constants,
         tokenizer: transformers.PreTrainedTokenizer,
         num_image_token_list: list,
         text_only: bool = False,
@@ -1179,9 +1178,9 @@ def preprocess_internlm(
     roles = {"human": conv.roles[0], "gpt": conv.roles[1]}
     conversations = get_formatted_conversations(sources, roles, conv)
 
-    im_start_token = constants["IMG_START_TOKEN"]
-    im_context_token = constants["IMG_CONTEXT_TOKEN"]
-    im_end_token = constants["IMG_END_TOKEN"]
+    im_start_token = MODEL_CONSTANTS['internvl']["IMG_START_TOKEN"]
+    im_context_token = MODEL_CONSTANTS['internvl']["IMG_CONTEXT_TOKEN"]
+    im_end_token = MODEL_CONSTANTS['internvl']["IMG_END_TOKEN"]
 
     if not text_only:
         new_conversations = []
@@ -1293,20 +1292,18 @@ def preprocess(
         num_image_token_list,
         group_by_length,
         is_multimodal,
-        mm_use_im_start_end,
-        constants
+        mm_use_im_start_end
 ):
     """
     Select and run the appropriate preprocessing function based on template name.
     """
     if template_name == "internlm2-chat":
-        ret = preprocess_internlm(template_name, sources, constants,
+        ret = preprocess_internlm(template_name, sources,
                                   tokenizer, num_image_token_list,
                                   group_by_length=group_by_length)
     elif template_name == "llava-v1":
         ret = preprocess_v1(
             sources,
-            constants,
             is_multimodal,
             mm_use_im_start_end,
             tokenizer,
@@ -1314,7 +1311,6 @@ def preprocess(
     elif template_name == "llava-plain":
         ret = preprocess_plain(
             sources,
-            constants,
             is_multimodal,
             mm_use_im_start_end,
             tokenizer)
