@@ -400,7 +400,6 @@ class VideoProcesser:
         video = video.permute(1, 0, 2, 3)
         return video
 
-    # TODO
     def define_frame_index(self, cap_list):
         new_cap_list = []
         sample_num_frames = []
@@ -889,17 +888,6 @@ class DataSetProg(metaclass=SingletonMeta):
         return idx
 
 
-# TODO
-def get_batch_on_this_tp_rank(data_iterator):
-    """
-    :param data_iterator:
-    :return:
-    """
-
-    batch = data_iterator
-    return batch
-
-
 def format_numel_str(numel: int) -> str:
     B = 1024 ** 3
     M = 1024 ** 2
@@ -1317,3 +1305,38 @@ def preprocess(
     else:
         raise ValueError("%s preprocessor is not implemented" % type(template_name))
     return ret
+
+
+def build_iterations(train_dl=None, val_dl=None, test_dl=None, iterator_type="cyclic"):
+
+    def _cyclic_iter(dl):
+        while True:
+            for x in dl:
+                yield x
+    
+    def _get_iterator(dataloader, iter_type=iterator_type):
+        """Return dataset iterator."""
+        if iter_type == "single":
+            return iter(dataloader)
+        elif iter_type == "cyclic":
+            return iter(_cyclic_iter(dataloader))
+        else:
+            raise NotImplementedError("unexpected iterator type")
+    
+    if train_dl is not None:
+        train_data_iterator = _get_iterator(train_dl)
+    else:
+        train_data_iterator = None
+
+    if val_dl is not None:
+        valid_data_iterator = _get_iterator(val_dl)
+    else:
+        valid_data_iterator = None
+
+    if test_dl is not None:
+        test_data_iterator = _get_iterator(test_dl)
+    else:
+        test_data_iterator = None
+
+    return train_data_iterator, valid_data_iterator, test_data_iterator
+

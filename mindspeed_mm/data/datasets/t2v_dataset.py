@@ -178,9 +178,8 @@ class T2VDataset(MMBaseDataset):
             )
         return examples
 
-    # TODO: support soon
     def get_data_from_feature_data(self, sample):
-        return sample
+        raise NotImplementedError("Not implemented.")
 
     def get_merge_data(self, examples, index):
         sample = self.dataset_prog.cap_list[index]

@@ -40,7 +40,7 @@ def build_mm_dataset(dataset_param):
         raise NotImplementedError(dataset_type)
 
 
-def build_mm_dataloader(dataset, dataloader_param, process_group=None):
+def build_mm_dataloader(dataset, dataloader_param, process_group=None, consumed_samples=0):
     """
     Build a multimodal dataloader based on different tasks
 
@@ -64,7 +64,7 @@ def build_mm_dataloader(dataset, dataloader_param, process_group=None):
         return data_loader
     elif dataloader_mode == "sampler":
         data_loader = prepare_sampler_dataloader(
-            dataset, **dataloader_param, process_group=process_group
+            dataset, **dataloader_param, process_group=process_group, consumed_samples=consumed_samples,
         )
         return data_loader
     elif dataloader_mode == "variable":

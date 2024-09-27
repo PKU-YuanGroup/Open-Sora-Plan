@@ -10,7 +10,8 @@ from mindspeed_mm.data.dataloader.sampler import (
     Collate,
     LengthGroupedSampler,
     StatefulDistributedSampler,
-    VariableVideoBatchSampler
+    VariableVideoBatchSampler,
+    BaseRandomBatchSampler,
 )
 from mindspeed_mm.data.dataloader.data_collator import DATA_COLLATOR
 
@@ -70,6 +71,8 @@ def prepare_sampler_dataloader(
     pin_memory=False,
     num_workers=0,
     process_group: Optional[ProcessGroup] = None,
+    consumed_samples=0,
+    data_sharding=False,
     sampler_type="stateful_distributed_sampler",
     group_frame=False,
     group_resolution=False,
@@ -96,13 +99,13 @@ def prepare_sampler_dataloader(
     Returns:
         :class:`torch.utils.data.DataLoader`: A DataLoader used for training or testing.
     """
+    process_group = process_group if process_group is not None else _get_default_group()
     if sampler_type == "stateful_distributed_sampler":
         collate_fn = None
         if collate_param:
             data_collate_type = collate_param.pop("model_name")
             collate_fn = DATA_COLLATOR[data_collate_type](**collate_param)
 
-        process_group = process_group or _get_default_group()
         sampler = StatefulDistributedSampler(
             dataset,
             num_replicas=process_group.size(),
@@ -119,6 +122,7 @@ def prepare_sampler_dataloader(
             num_workers=num_workers,
             collate_fn=collate_fn
         )
+    
     elif sampler_type == "LengthGroupedSampler":
         sampler = (
             LengthGroupedSampler(
@@ -131,9 +135,7 @@ def prepare_sampler_dataloader(
             if (group_frame or group_resolution)
             else None
         )
-
         if sampler is None:
-            process_group = process_group or _get_default_group()
             sampler = StatefulDistributedSampler(
                 dataset,
                 num_replicas=process_group.size(),
@@ -154,6 +156,32 @@ def prepare_sampler_dataloader(
             num_workers=num_workers,
             sampler=sampler if sampler is not None else None,
             drop_last=drop_last,
+        )
+    
+    elif sampler_type == "BaseRandomBatchSampler":
+        batch_sampler = BaseRandomBatchSampler(
+            dataset,
+            batch_size=batch_size,
+            num_replicas=process_group.size(),
+            rank=process_group.rank(),
+            shuffle=shuffle,
+            drop_last=drop_last,
+            consumed_samples=consumed_samples,
+            data_sharding=data_sharding,
+        )
+
+        collate_param = kwargs.get("collate_param", None)
+        if collate_param is None:
+            raise ValueError("collate_param must be provided.")
+        collate_fn = Collate(**collate_param)
+
+        return DataLoader(
+            dataset,
+            pin_memory=pin_memory,
+            collate_fn=collate_fn,
+            worker_init_fn=get_seed_worker(seed),
+            num_workers=num_workers,
+            batch_sampler=batch_sampler,
         )
     else:
         raise NotImplementedError(f"sampler type: {sampler_type}")
