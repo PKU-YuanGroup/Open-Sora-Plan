@@ -89,7 +89,6 @@ class SoRAModel(nn.Module):
         model_output = self.predictor(
             noised_latents,
             timestep=timesteps,
-           # prompt=prompt,
             encoder_hidden_states=prompt,
             attention_mask=video_mask,
             encoder_attention_mask=prompt_mask,

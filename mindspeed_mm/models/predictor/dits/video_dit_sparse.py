@@ -12,7 +12,7 @@ from megatron.core import mpu, tensor_parallel
 from megatron.training import get_args
 from mindspeed_mm.models.common.attention import MultiHeadSparseAttentionSBH
 from mindspeed_mm.models.common.motion import MotionAdaLayerNormSingle
-from mindspeed_mm.models.common.module import MultiModalModule
+from mindspeed_mm.models.common.communications import split_forward_gather_backward, gather_forward_split_backward
 
 class VideoDiTSparse(ModelMixin, ConfigMixin):
     """
@@ -186,10 +186,17 @@ class VideoDiTSparse(ModelMixin, ConfigMixin):
         encoder_hidden_states: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         encoder_attention_mask: Optional[torch.Tensor] = None,
-        motion_score: Optional[torch.FloatTensor] = 0.1,
+        motion_score: Optional[torch.FloatTensor] = 1.0,
         **kwargs
     ) -> torch.Tensor:
         batch_size, c, frames, h, w = hidden_states.shape
+        if self.training and mpu.get_context_parallel_world_size() > 1:
+            frames //= mpu.get_context_parallel_world_size()
+            hidden_states = split_forward_gather_backward(hidden_states, mpu.get_context_parallel_group(), dim=2,
+                                                        grad_scale='down')
+            encoder_hidden_states = split_forward_gather_backward(encoder_hidden_states, mpu.get_context_parallel_group(),
+                                                      dim=2, grad_scale='down')
+
         # ensure attention_mask is a bias, and give it a singleton query_tokens dimension.
         #   we may have done this conversion already, e.g. if we came here via UNet2DConditionModel#forward.
         #   we can tell by counting dims; if ndim == 2: it's a mask rather than a bias.
@@ -249,22 +256,22 @@ class VideoDiTSparse(ModelMixin, ConfigMixin):
         width = torch.tensor(width)
         if self.recompute_granularity == "full":
             hidden_states = self._checkpointed_forward(
-            sparse_mask,
-            hidden_states,
-            attention_mask,
-            encoder_hidden_states,
-            encoder_attention_mask,
-            timestep,
-            frames,
-            height,
-            width
+                sparse_mask,
+                hidden_states,
+                attention_mask,
+                encoder_hidden_states,
+                encoder_attention_mask,
+                timestep,
+                frames,
+                height,
+                width
             )
         else:
             for i, block in enumerate(self.videodit_blocks):
                 if i > 1 and i < 30:
-                    attention_mask, encoder_attention_mask = self.sparse_mask[block.self_atten.sparse_n][block.self_atten.sparse_group]
+                    attention_mask, encoder_attention_mask = sparse_mask[block.self_atten.sparse_n][block.self_atten.sparse_group]
                 else:
-                    attention_mask, encoder_attention_mask = self.sparse_mask[1][block.self_atten.sparse_group]  
+                    attention_mask, encoder_attention_mask = sparse_mask[1][block.self_atten.sparse_group]
                 hidden_states = block(
                     hidden_states,
                     attention_mask=attention_mask,
@@ -288,6 +295,10 @@ class VideoDiTSparse(ModelMixin, ConfigMixin):
             height=height,
             width=width,
         )  # b c t h w
+
+        if self.training and mpu.get_context_parallel_world_size() > 1:
+            output = gather_forward_split_backward(output, mpu.get_context_parallel_group(), dim=2,
+                                                        grad_scale='up')
 
         return output
 

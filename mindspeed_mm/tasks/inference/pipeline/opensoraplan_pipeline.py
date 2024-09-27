@@ -2,7 +2,6 @@ from typing import Optional, Union, List, Callable
 import math
 import inspect
 import torch
-from einops import rearrange
 from megatron.core import mpu
 from mindspeed_mm.tasks.inference.pipeline.pipeline_base import MMPipeline
 from mindspeed_mm.tasks.inference.pipeline.pipeline_mixin.encode_mixin import MMEncoderMixin
@@ -99,15 +98,6 @@ class OpenSoraPlanPipeline(MMPipeline, InputsCheckMixin, MMEncoderMixin):
         # 6.1 Prepare micro-conditions.
         added_cond_kwargs = {"resolution": None, "aspect_ratio": None}
 
-        if mpu.get_context_parallel_world_size() > 1:
-            prompt_embeds = rearrange(
-                prompt_embeds,
-                'b (n x) h -> b n x h',
-                n=mpu.get_context_parallel_world_size(),
-                x=prompt_embeds.shape[1] // mpu.get_context_parallel_world_size()
-            ).contiguous()
-            prompt_embeds = prompt_embeds[:, mpu.get_context_parallel_rank(), :, :]
-
         if prompt_embeds.ndim == 3:
             prompt_embeds = prompt_embeds.unsqueeze(1)  # b l d -> b 1 l d
         if prompt_embeds_attention_mask.ndim == 2:
@@ -121,15 +111,6 @@ class OpenSoraPlanPipeline(MMPipeline, InputsCheckMixin, MMEncoderMixin):
 
         latents = self.scheduler.sample(model=self.predict_model, shape=shape, latents=latents, model_kwargs=model_kwargs,
                                         extra_step_kwargs=extra_step_kwargs)
-
-        if mpu.get_context_parallel_world_size() > 1:
-            latents_shape = list(latents.shape)  # b c t//sp h w
-            full_shape = [latents_shape[0] * mpu.get_context_parallel_world_size()] + latents_shape[1:]  # # b*sp c t//sp h w
-            all_latents = torch.zeros(full_shape, dtype=latents.dtype, device=latents.device)
-            torch.distributed.all_gather_into_tensor(all_latents, latents)
-            latents_list = list(all_latents.chunk(mpu.get_context_parallel_world_size(), dim=0))
-            latents = torch.cat(latents_list, dim=2)
-
         video = self.decode_latents(latents.to(self.vae.dtype))
 
         return video

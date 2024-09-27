@@ -2,7 +2,7 @@
 	"dataset_param": {
 		"dataset_type": "t2v",
 		"basic_parameters": {
-			"data_path": "/home/image_data/zyr/MindSpeed-MM/examples/opensoraplan1.3/data.txt",
+			"data_path": "./examples/opensoraplan1.3/data.txt",
 			"data_folder": "",
 			"data_storage_mode": "combine"
 		},

@@ -39,7 +39,7 @@
     "predictor": {
         "dtype": "bf16",
         "model_id": "videoditsparse",
-        "num_layers" : 8,
+        "num_layers" : 32,
         "num_heads": 24,
         "head_dim":96,
         "in_channels":8,

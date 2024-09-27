@@ -18,6 +18,7 @@ from diffusers.schedulers import (
 from diffusers.training_utils import compute_snr
 
 from mindspeed_mm.utils.utils import get_device
+from mindspeed_mm.models.common.communications import _split, _gather
 DIFFUSERS_SCHEDULE_MAPPINGS = {
     "DDIM": DDIMScheduler,
     "EulerDiscrete": EulerDiscreteScheduler,
@@ -205,6 +206,14 @@ class DiffusersScheduler:
         self.diffusion.set_timesteps(self.num_inference_steps, device=self.device)
         self.timesteps = self.diffusion.timesteps
 
+        video_mask = torch.ones_like(latents)[:, 0]
+        if self.do_classifier_free_guidance:
+            model_kwargs["attention_mask"] = video_mask.repeat(2, 1, 1, 1)
+        if mpu.get_context_parallel_world_size() > 1:
+            model_kwargs["attention_mask"] = model_kwargs["attention_mask"].repeat(1, int(mpu.get_context_parallel_world_size()), 1, 1)
+            model_kwargs["encoder_hidden_states"] = _split(model_kwargs["encoder_hidden_states"],
+                                          mpu.get_context_parallel_group(), dim=2)
+
         # for loop denoising to get latents
         with tqdm(total=self.num_inference_steps) as progress_bar:
             for i, t in enumerate(self.timesteps):
@@ -214,12 +223,6 @@ class DiffusersScheduler:
                 current_timestep = t
                 current_timestep = current_timestep.expand(latent_model_input.shape[0])
                 model_kwargs["hidden_states"] = latent_model_input
-                video_mask = torch.ones_like(latent_model_input)[:, 0]
-                if mpu.get_context_parallel_world_size() > 1:
-                    video_mask = video_mask.repeat(1, mpu.get_context_parallel_world_size(), 1, 1)
-                world_size = model_kwargs.get("world_size", 1)
-                video_mask = video_mask.repeat(1, world_size, 1, 1)
-                model_kwargs["attention_mask"] = video_mask
 
                 with torch.no_grad():
                     noise_pred = model(timestep=current_timestep, **model_kwargs)
@@ -243,4 +246,8 @@ class DiffusersScheduler:
                     if callback is not None and i % callback_steps == 0:
                         step_idx = i // getattr(self.diffusion, "order", 1)
                         callback(step_idx, t, latents)
+
+        if mpu.get_context_parallel_world_size() > 1:
+            latents = _gather(latents, mpu.get_context_parallel_group(), dim=2)
+
         return latents
