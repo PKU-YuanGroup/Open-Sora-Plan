@@ -2,7 +2,7 @@
 	"dataset_param": {
 		"dataset_type": "t2v",
 		"basic_parameters": {
-			"data_path": "data_path",
+			"data_path": "/home/image_data/zyr/MindSpeed-MM/examples/opensoraplan1.3/data.txt",
 			"data_folder": "",
 			"data_storage_mode": "combine"
 		},
@@ -60,7 +60,7 @@
 		"tokenizer_config": {
 			"hub_backend": "hf",
 			"autotokenizer_name": "AutoTokenizer",
-			"from_pretrained": "your model path"
+			"from_pretrained": "/home/image_data/mt5-xxl"
 		}
 	},
 	"dataloader_param": {

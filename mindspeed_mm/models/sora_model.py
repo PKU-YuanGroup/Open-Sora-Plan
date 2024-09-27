@@ -81,15 +81,18 @@ class SoRAModel(nn.Module):
                 prompt_mask = prompt_mask.view(-1, L)
                 hidden_states = self.text_encoder.encode(prompt_ids, prompt_mask)
                 prompt = hidden_states["last_hidden_state"].view(B, N, L, -1)
+        
+
 
         noised_latents, noise, timesteps = self.diffusion.q_sample(latents, model_kwargs=kwargs, mask=video_mask)
 
         model_output = self.predictor(
             noised_latents,
             timestep=timesteps,
-            prompt=prompt,
-            video_mask=video_mask,
-            prompt_mask=prompt_mask,
+           # prompt=prompt,
+            encoder_hidden_states=prompt,
+            attention_mask=video_mask,
+            encoder_attention_mask=prompt_mask,
             **kwargs,
         )
         return model_output, latents, noised_latents, timesteps, noise, video_mask

@@ -12,7 +12,7 @@ from megatron.core import mpu, tensor_parallel
 from megatron.training import get_args
 from mindspeed_mm.models.common.attention import MultiHeadSparseAttentionSBH
 from mindspeed_mm.models.common.motion import MotionAdaLayerNormSingle
-
+from mindspeed_mm.models.common.module import MultiModalModule
 
 class VideoDiTSparse(ModelMixin, ConfigMixin):
     """
@@ -82,6 +82,10 @@ class VideoDiTSparse(ModelMixin, ConfigMixin):
         self.config.hidden_size = self.config.num_heads * self.config.head_dim
 
         self._init_patched_inputs()
+
+
+    def set_input_tensor(self, _input):
+        pass
 
     def _init_patched_inputs(self):
 
@@ -181,7 +185,7 @@ class VideoDiTSparse(ModelMixin, ConfigMixin):
         encoder_hidden_states: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         encoder_attention_mask: Optional[torch.Tensor] = None,
-        motion_score: Optional[torch.FloatTensor] = None,
+        motion_score: Optional[torch.FloatTensor] = 0.1,
         **kwargs
     ) -> torch.Tensor:
         batch_size, c, frames, h, w = hidden_states.shape

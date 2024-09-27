@@ -2,84 +2,82 @@
     "frames": 93,
     "resolution": [480, 640],
     "allow_tf32": true,
-    "allow_internal_format":false,
+    "allow_internal_format": false,
     "load_video_features": false,
     "load_text_features": false,
-    "predictor": {
-        "model_id": "videoditsparse",
-        "from_pretrained": "your pretrined ckpt path",
+    "ae": {
+        "model_id": "wfvae",
+        "from_pretrained": "/home/image_data/captions/WFVAE_DISTILL_FORMAL/wfvae.ckpt",
         "dtype": "bf16",
-        "num_layers": 32,
-        "num_heads": 24,
-        "head_dim": 96,
-        "in_channels": 4,
-        "out_channels": 4,
+        "output_dtype": "bf16",
+        "base_channels": 128,
+        "decoder_energy_flow_hidden_size": 128,
+        "decoder_num_resblocks": 2,
         "dropout": 0.0,
-        "cross_attention_dim": 2304,
-        "attention_bias": true,
-        "input_size": [24, 60, 80],
-        "patch_size": [1, 2, 2],
-        "activation_fn": "gelu-approximate",
-        "num_embeds_ada_norm": 1000,
-        "norm_type": "ada_norm_single",
-        "norm_elementwise_affine": false,
-        "norm_eps": 1e-6,
-        "caption_channels": 4096,
-        "interpolation_scale": [1.0, 1.0, 1.0],
-        "use_rope": true
+        "encoder_energy_flow_hidden_size": 64,
+        "encoder_num_resblocks": 2,
+        "latent_dim": 8,
+        "use_attention": true,
+        "norm_type": "layernorm",
+        "t_interpolation": "nearest",
+        "vae_scale_factor":[4,8,8]
+    },
+    "text_encoder": {
+        "hub_backend": "hf",
+        "model_id": "MT5",
+        "from_pretrained": "/home/image_data/mt5-xxl",
+        "local_files_only": false,
+        "low_cpu_mem_usage": true,
+        "dtype": "bf16"
+    },
+    "tokenizer":{
+        "hub_backend": "hf",
+        "autotokenizer_name": "AutoTokenizer",
+        "from_pretrained": "/home/image_data/mt5-xxl",
+        "local_files_only": false
+    },
+    "predictor": {
+        "dtype": "bf16",
+        "model_id": "videoditsparse",
+        "num_layers" : 1,
+        "num_heads": 24,
+        "head_dim":96,
+        "in_channels":8,
+        "out_channels":8,
+        "dropout":0.0,
+        "cross_attention_dim":2304,
+        "attention_bias":true,
+        "patch_size":2,
+        "patch_size_t":1,
+        "activation_fn":"gelu-approximate",
+        "norm_elementwise_affine":false,
+        "norm_eps":1e-06,
+        "caption_channels":4096,
+        "interpolation_scale":[1.0, 1.0, 1.0],
+        "sparse1d":true,
+        "sparse_n":4,
+        "from_pretrained": "/home/image_data/captions/vpre_latest_168k/model_ema/diffusion_pytorch_model.safetensors"
     },
     "diffusion": {
         "model_id": "DDPM",
-        "num_train_steps": 1000,
-        "noise_offset": 0.02,
-        "snr_gamma": 5.0,
-        "prediction_type": "epsilon",
-        "guidance_scale": 4.5
+        "num_train_steps":1000,
+        "guidance_scale":7.5,
+        "prediction_type": "v_prediction",
+        "rescale_betas_zero_snr": true,
+        "device":"npu"
     },
-    "text_encoder": {
-        "model_id": "MT5",
-        "hub_backend": "hf",
-        "from_pretrained":"your config and pretrined ckpt path",
-        "dtype": "bf16",
-        "load_in_8bit": false,
-        "low_cpu_mem_usage": true
-    },
-    "ae": {
-        "model_id": "casualvae",
-        "from_pretrained": "your pretrined ckpt path",
-        "dtype": "fp32",
-        "decoder_spatial_upsample": [
-            "",
-            "SpatialUpsample2x",
-            "Spatial2xTime2x3DUpsample",
-            "Spatial2xTime2x3DUpsample"
-        ],
-        "decoder_temporal_upsample": [
-            "",
-            "",
-            "",
-            ""
-        ],
-        "encoder_conv_in": "Conv2d",
-        "encoder_resnet_blocks": [
-            "ResnetBlock2D",
-            "ResnetBlock2D",
-            "ResnetBlock3D",
-            "ResnetBlock3D"
-        ],
-        "encoder_spatial_downsample": [
-            "Downsample",
-            "Spatial2xTime2x3DDownsample",
-            "Spatial2xTime2x3DDownsample",
-            ""
-        ],
-        "encoder_temporal_downsample": [
-            "",
-            "",
-            "",
-            ""
-        ],
-        "use_tiling": true,
-        "tile_overlap_factor": 0.125
-    }
+    "num_frames": 93,
+    "image_size": [320, 320],
+    "input_size": [93, 320, 320],
+    "micro_batch_size": 1,
+    "frame_interval":1,
+    "model_max_length": 512,
+    "save_path":"./opensora_samples/samples/",
+    "fps":18,
+    "motion_score":0.95,
+    "prompt":"examples/opensoraplan1.3/prompts.txt",
+    "pipeline_class": "OpenSoraPlanPipeline",
+    "device":"npu",
+    "dtype": "bf16"
 }
+

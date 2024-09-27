@@ -7,6 +7,7 @@ export COMBINED_ENABLE=1
 export CPU_AFFINITY_CONF=1
 export HCCL_CONNECT_TIMEOUT=1200
 export CUDA_DEVICE_MAX_CONNECTIONS=1
+PYTHONPATH=$PYTHONPATH:/home/image_data/zyr/MindSpeed-MM/Megatron-LM/megatron
 
 GPUS_PER_NODE=8
 MASTER_ADDR=localhost
@@ -17,12 +18,12 @@ WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
 
 TP=1
 PP=1
-CP=4
+CP=1
 MBS=1
 GBS=$(($WORLD_SIZE*$MBS/$CP))
 
-MM_DATA="./examples/opensoraplan1.2/data.json"
-MM_MODEL="./examples/opensoraplan1.2/model_opensoraplan1_2.json"
+MM_DATA="./examples/opensoraplan1.3/data.json"
+MM_MODEL="./examples/opensoraplan1.3/model_opensoraplan1_3.json"
 
 DISTRIBUTED_ARGS="
     --nproc_per_node $GPUS_PER_NODE \
@@ -92,7 +93,7 @@ torchrun $DISTRIBUTED_ARGS pretrain_sora.py \
     $GPT_ARGS \
     $MM_ARGS \
     $OUTPUT_ARGS \
-    --distributed-backend nccl >> logs/train_${logfile}.log 2>&1
+    --distributed-backend nccl #>> logs/train_${logfile}.log 2>&1
 
 chmod 440 logs/train_${logfile}.log
 STEP_TIME=`grep "elapsed time per iteration" logs/train_${logfile}.log | awk -F ':' '{print$5}' | awk -F '|' '{print$1}' | head -n 200 | tail -n 100 | awk '{sum+=$1} END {if (NR != 0) printf("%.1f",sum/NR)}'`
