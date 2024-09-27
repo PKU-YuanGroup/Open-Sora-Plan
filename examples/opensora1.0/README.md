@@ -168,11 +168,24 @@
 
 
 #### <span id="jump5.1"> 1. 准备工作
+从Huggingface等网站下载开源模型权重
+
+* [stabilityai/sd-vae-ft-ema](https://huggingface.co/stabilityai/sd-vae-ft-mse-original)   - vae模型
+* [DeepFloyd/t5-v1_1-xxl](https://huggingface.co/DeepFloyd/t5-v1_1-xxl)       -  t5模型
+* [hpcai-tech/Open-Sora](https://huggingface.co/hpcai-tech/Open-Sora/resolve/main/OpenSora-v1-HQ-16x512x512.pth)        -  预训练权重
+
 
 #### <span id="jump5.2"> 2. 配置参数
-
+将上述权重传到json文件中 from_pretrained字段中，prompt字段可以自定义成自己的prompt
+```
+examples/opensora1.0/inference_model_120x256x256.json
+```
 #### <span id="jump5.3"> 3. 启动推理
 
-To be continued.
+执行下面的推理脚本即可进行推理
+
+```shell
+examples/opensora1.0/inference_opensora1_0.sh
+```
 
 ---

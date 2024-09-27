@@ -192,10 +192,17 @@ torch.save(new_checkpoint, "videodit.pth")
 
 #### <span id="jump5.1"> 1. 准备工作
 
+参考上述的权重下载及转换章节，需求的权重需要到huggingface中下载，以及参考上面的权重转换代码进行转换。
+链接参考: [predict_model](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0/tree/main/29x480p) [VAE](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0/tree/main/vae) [tokenizer/text_encoder](https://huggingface.co/google/mt5-xxl/tree/main)
+
 #### <span id="jump5.2"> 2. 配置参数
+将准备好的权重传入到inference_model_29x480x640.json中，更改其中的路径，包括from_pretrained，自定义的prompt可以传入到prompt字段中
 
 #### <span id="jump5.3"> 3. 启动推理
 
-To be continued.
+启动推理脚本
+```shell
+examples/opensoraplan1.2/inference_opensoraplan1_2.sh
+```
 
 ---

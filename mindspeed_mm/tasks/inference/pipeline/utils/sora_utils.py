@@ -31,25 +31,6 @@ def _sava_video(video, save_path, fps, value_range=(-1, 1), normalize=True):
     print(f"Saved video to {save_path}")
 
 
-def prepare_multi_resolution_info(info_type, batch_size, image_size, num_frames, fps, device, dtype):
-    if info_type is None:
-        return dict()
-    elif info_type == "PixArtMS":
-        hw = torch.tensor([image_size], device=device, dtype=dtype).repeat(batch_size, 1)
-        ar = torch.tensor([[image_size[0] / image_size[1]]], device=device, dtype=dtype).repeat(batch_size, 1)
-        return dict(ar=ar, hw=hw)
-    elif info_type in ["STDiT2", "OpenSora"]:
-        fps = fps if num_frames > 1 else IMG_FPS
-        fps = torch.tensor([fps], device=device, dtype=dtype).repeat(batch_size)
-        height = torch.tensor([image_size[0]], device=device, dtype=dtype).repeat(batch_size)
-        width = torch.tensor([image_size[1]], device=device, dtype=dtype).repeat(batch_size)
-        num_frames = torch.tensor([num_frames], device=device, dtype=dtype).repeat(batch_size)
-        ar = torch.tensor([image_size[0] / image_size[1]], device=device, dtype=dtype).repeat(batch_size)
-        return dict(height=height, width=width, num_frames=num_frames, ar=ar, fps=fps)
-    else:
-        raise NotImplementedError("only support PixArtMS, OpenSora, STDiT2 Model")
-
-
 def load_prompts(prompt):
     if os.path.exists(prompt):
         with open(prompt, "r") as f:

@@ -16,7 +16,6 @@ def fp32_silu_forward(self, inputs: torch.Tensor) -> torch.Tensor:
 def fp32_gelu_forward(self, inputs: torch.Tensor) -> torch.Tensor:
     return torch.nn.functional.gelu(inputs.float(), approximate=self.approximate).to(inputs.dtype)
 
-# TODO 后续GPU验证后删除patch
 def replace_with_fp32_forwards():
     nn.GELU.forward = fp32_gelu_forward
     nn.SiLU.forward = fp32_silu_forward
