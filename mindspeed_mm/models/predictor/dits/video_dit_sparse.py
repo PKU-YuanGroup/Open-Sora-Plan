@@ -80,6 +80,7 @@ class VideoDiTSparse(ModelMixin, ConfigMixin):
 
         self.out_channels = in_channels if out_channels is None else out_channels
         self.config.hidden_size = self.config.num_heads * self.config.head_dim
+        self.num_layers = num_layers
 
         self._init_patched_inputs()
 
@@ -243,21 +244,37 @@ class VideoDiTSparse(ModelMixin, ConfigMixin):
             sparse_mask[sparse_n] = self.prepare_sparse_mask(attention_mask, encoder_attention_mask, sparse_n)
 
         # 2. Blocks
-        for i, block in enumerate(self.videodit_blocks):
-            if i > 1 and i < 30:
-                attention_mask, encoder_attention_mask = sparse_mask[block.self_atten.sparse_n][block.self_atten.sparse_group]
-            else:
-                attention_mask, encoder_attention_mask = sparse_mask[1][block.self_atten.sparse_group]
-            hidden_states = block(
-                hidden_states,
-                attention_mask=attention_mask,
-                encoder_hidden_states=encoder_hidden_states,
-                encoder_attention_mask=encoder_attention_mask,
-                timestep=timestep,
-                frames=frames,
-                height=height,
-                width=width,
+        frames = torch.tensor(frames)
+        height = torch.tensor(height)
+        width = torch.tensor(width)
+        if self.recompute_granularity == "full":
+            hidden_states = self._checkpointed_forward(
+            sparse_mask,
+            hidden_states,
+            attention_mask,
+            encoder_hidden_states,
+            encoder_attention_mask,
+            timestep,
+            frames,
+            height,
+            width
             )
+        else:
+            for i, block in enumerate(self.videodit_blocks):
+                if i > 1 and i < 30:
+                    attention_mask, encoder_attention_mask = self.sparse_mask[block.self_atten.sparse_n][block.self_atten.sparse_group]
+                else:
+                    attention_mask, encoder_attention_mask = self.sparse_mask[1][block.self_atten.sparse_group]  
+                hidden_states = block(
+                    hidden_states,
+                    attention_mask=attention_mask,
+                    encoder_hidden_states=encoder_hidden_states,
+                    encoder_attention_mask=encoder_attention_mask,
+                    timestep=timestep,
+                    frames=frames,
+                    height=height,
+                    width=width,
+                )
 
         # To (b, t*h*w, h) or (b, t//sp*h*w, h)
         hidden_states = rearrange(hidden_states, 's b h -> b s h', b=batch_size).contiguous()
@@ -278,16 +295,16 @@ class VideoDiTSparse(ModelMixin, ConfigMixin):
         return self.videodit_blocks[layer_number]
 
     def _checkpointed_forward(
-        self,
-        latents,
-        video_mask,
-        prompt, 
-        prompt_mask,
-        timestep,
-        class_labels,
-        frames,
-        height,
-        width):
+            self,
+            sparse_mask,
+            hidden_states,
+            attention_mask,
+            encoder_hidden_states,
+            encoder_attention_mask,
+            timestep,
+            frames,
+            height,
+            width):
         """Forward method with activation checkpointing."""
 
         def custom(start, end):
@@ -308,12 +325,11 @@ class VideoDiTSparse(ModelMixin, ConfigMixin):
                 latents = tensor_parallel.checkpoint(
                     custom(layer_num, layer_num + self.recompute_num_layers),
                     self.distribute_saved_activations,
-                    latents,
-                    prompt,
-                    video_mask,
-                    prompt_mask,
+                    hidden_states,
+                    attention_mask,
+                    encoder_hidden_states,
+                    encoder_attention_mask,
                     timestep,
-                    class_labels,
                     frames,
                     height,
                     width
@@ -321,32 +337,35 @@ class VideoDiTSparse(ModelMixin, ConfigMixin):
                 layer_num += self.recompute_num_layers
         elif self.recompute_method == "block":
             for layer_num in range(self.num_layers):
+                block = self._get_block(layer_num)
+                if layer_num > 1 and layer_num < 30:
+                    attention_mask, encoder_attention_mask = sparse_mask[block.self_atten.sparse_n][block.self_atten.sparse_group]
+                else:
+                    attention_mask, encoder_attention_mask = sparse_mask[1][block.self_atten.sparse_group]  
                 if layer_num < self.recompute_num_layers:
                     latents = tensor_parallel.checkpoint(
                         custom(layer_num, layer_num + 1),
                         self.distribute_saved_activations,
-                        latents,
-                        prompt,
-                        video_mask,
-                        prompt_mask,
+                        hidden_states,
+                        attention_mask,
+                        encoder_hidden_states,
+                        encoder_attention_mask,
                         timestep,
-                        class_labels,
                         frames,
                         height,
                         width
                     )
                 else:
-                    block = self._get_block(layer_num)
+                    # block = self._get_block(layer_num)
                     latents = block(
-                        latents,
-                        video_mask=video_mask,
-                        prompt=prompt,
-                        prompt_mask=prompt_mask,
-                        timestep=timestep,
-                        class_labels=class_labels,
-                        frames=frames,
-                        height=height,
-                        width=width
+                        hidden_states,
+                        attention_mask,
+                        encoder_hidden_states,
+                        encoder_attention_mask,
+                        timestep,
+                        frames,
+                        height,
+                        width
                     )
         else:
             raise ValueError("Invalid activation recompute method.")
@@ -404,6 +423,7 @@ class VideoDiTSparse(ModelMixin, ConfigMixin):
                    width * self.config.patch_size)
         )
         return output
+
 
 class BasicTransformerBlock(nn.Module):
     def __init__(
