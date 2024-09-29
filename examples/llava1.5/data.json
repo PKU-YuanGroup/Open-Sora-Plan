@@ -1,0 +1,52 @@
+{
+    "dataset_param": {
+        "dataset_type": "image",
+        "basic_parameters": {
+            "data_path": "json_path", 
+            "data_folder": "root_path"
+        },
+        "preprocess_parameters": {
+            "image_reader_type": "CLIPImageProcessor",
+            "image_processer_type": "image2pixel",
+            "train_pipeline": {
+                "crop_size": {"height": 336, "width": 336},
+                "do_center_crop": true,
+                "do_convert_rgb":true,
+                "do_normalize": true,
+                "do_rescale": true,
+                "do_resize": true,
+                "pad2square": false,
+                "image_mean": [0.48145466, 0.4578275, 0.40821073],
+                "image_std": [0.26862954, 0.26130258, 0.27577711],
+                "resample": 3,
+                "rescale_factor": 0.00392156862745098,
+                "size": {"shortest_edge": 336}
+            }
+        },
+        "tokenizer_config": {
+            "hub_backend": "hf",
+            "autotokenizer_name": "AutoTokenizer",
+            "from_pretrained": "your model path",
+            "cache_dir":null,
+            "model_max_length": 2048,
+            "padding_side": "right",
+            "use_fast": false
+        },
+        "use_text_processer": true,
+        "template_name": "llava-plain",
+        "mm_use_im_start_end": false
+    },
+    "dataloader_param": {
+        "dataloader_mode": "base",
+        "batch_size": 1,
+        "num_workers": 0,
+        "shuffle": false,
+        "drop_last": false,
+        "pin_memory": true,
+        "collate_param": {
+            "model_name": "llava",
+            "pad_token_id": 0,
+            "model_max_length": 2048
+        }
+    }
+}

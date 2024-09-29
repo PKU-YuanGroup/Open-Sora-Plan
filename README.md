@@ -13,7 +13,7 @@
     </a>
 </p>
 
-MindSpeed-MM旨在为华为 [昇腾芯片](https://www.hiascend.com/) 上提供端到端的多模态大模型训练解决方案, 包含模型，加速，以及下游任务。
+MindSpeed-MM是面向大规模分布式训练的昇腾多模态大模型套件，同时支持多模态生成及多模态理解，旨在为华为 [昇腾芯片](https://www.hiascend.com/) 提供端到端的多模态训练解决方案, 包含预置业界主流模型，数据工程，分布式训练及加速，预训练、微调、在线推理任务等特性。
 
 ---
 
@@ -24,11 +24,11 @@ MindSpeed-MM旨在为华为 [昇腾芯片](https://www.hiascend.com/) 上提供�
 * [生成类多模态大模型](#jump1) 【昇腾】【NAIE】
 * [理解类多模态大模型](#jump1) 【昇腾】【NAIE】【GTS】
 * [预训练/全参微调/低参微调/在线推理](./examples/) 【昇腾】【NAIE】
-* 数据工程： 多模数据预处理及加载/动态分辨率数据分桶策略 【昇腾】
+* 数据工程： 多模数据预处理及加载/数据分桶策略 【昇腾】
 * 分布式训练: [加速算法/融合算子/并行策略](#jump2) 【昇腾】
 * 昇腾工具链: [Profiling采集](#jump3)【昇腾】
 
-各关键多模态模型等持续研发中....
+更多多模态模型持续研发中....
 
 ---
 
@@ -45,17 +45,15 @@ MindSpeed-MM旨在为华为 [昇腾芯片](https://www.hiascend.com/) 上提供�
 |           Torch           |            2.1.0            |
 |         Torch_npu         |           2.1.0           |
 
-【多模态大模型介绍】
 
-MindSpeed-MM 通过模型并行与数据并行来训练各类多模态大模型，通过端到端的训练来进行文生图、图生图、文生视频、图生视频等。训练与测量所涵盖的操作包括数据加载、优化器步骤、通信、与日志记录。
 
 【现版本实测性能（硬件信息：Atlas 900 A2 PODc）】
 
-下述列表中支持的模型，我们在[examples/README.md](./examples/README.md)中提供了相应的使用说明，里面有详细的模型训练、推理、微调、评估流程
+下述列表中支持的模型，我们在[examples/README.md](./examples/README.md)中提供了相应的使用说明，里面有详细的模型训练、推理、微调等流程
 
 `模型`列中的超链接指向各模型的文件夹地址， `参数量`列中的超链接指向模型的社区资源地址
 
-`认证`【Pass】表示经过昇腾官方版本测试的模型，【Test】表示待测试模型
+`认证`【Pass】表示已经过测试的模型，【Test】表示待测试模型
 
 <table>
   <caption>MindSpeed-MM模型列表</caption>
@@ -79,8 +77,8 @@ MindSpeed-MM 通过模型并行与数据并行来训练各类多模态大模型�
       <td> 预训练 </td>
       <td> 1x8 </td>
       <td> BF16 </td>
-      <td> 3.18 (Samples per Second) </td>
-      <td> 2.04 (Samples per Second) </td>
+      <td> 3.18 (Samples per Second)</td>
+      <td> 2.04 (Samples per Second)</td>
       <td> 【昇腾】 </td>
       <td>【Pass】</td>
     </tr>
@@ -129,7 +127,7 @@ MindSpeed-MM 通过模型并行与数据并行来训练各类多模态大模型�
     </tr>
     <tr>
       <td><a href="https://github.com/huggingface/diffusers/tree/eda36c4c286d281f216dfeb79e64adad3f85d37a">3.5B</a></td>
-      <td>SDXL 全参微调</td>
+      <td>全参微调</td>
       <td> 1x8</td>
       <td> FP16 </td>
       <td> 164.66 (FPS)</td>
@@ -188,11 +186,23 @@ MindSpeed-MM 通过模型并行与数据并行来训练各类多模态大模型�
       <td> / </td>
       <td> / </td>
       <td> 【昇腾】 </td>
-      <td>【Pass】</td>
+      <td>【Test】</td>
+    </tr>
+
+   <tr>
+      <td><a href="https://gitee.com/ascend/MindSpeed-MM/tree/master/examples/internvl2.0">Intern-VL-2.0</a></td>
+      <td><a href="https://github.com/OpenGVLab/InternVL">8B</a></td>
+      <td>预训练</td>
+      <td> 1x8</td>
+      <td> BF16 </td>
+      <td> / </td>
+      <td> / </td>
+      <td> 【昇腾】 </td>
+      <td>【Test】</td>
     </tr>
     <tr>
       <td><a href="https://gitee.com/ascend/MindSpeed-MM/tree/master/examples/internvl2.0">Intern-VL-2.0</a></td>
-      <td><a href="https://github.com/OpenGVLab/InternVL">26B</a></td>
+      <td><a href="https://github.com/OpenGVLab/InternVL2.0">26B</a></td>
       <td>/</td>
       <td> /</td>
       <td> / </td>
@@ -223,11 +233,22 @@ MindSpeed-MM 通过模型并行与数据并行来训练各类多模态大模型�
       <td> / </td>
       <td>【Coming Soon】</td>
     </tr>
+ <tr>
+      <td><a href="https://gitee.com/ascend/MindSpeed-MM/tree/master/examples/qwen2-vl">Qwen2-VL</a></td>
+      <td><a href="https://qwen2.org/vl/">72B</a></td>
+      <td>/</td>
+      <td> /</td>
+      <td> / </td>
+      <td> / </td>
+      <td> / </td>
+      <td> / </td>
+      <td>【Coming Soon】</td>
+    </tr>
     </tbody>
 </table>
 
 <table>
-  <caption><a href="https://gitee.com/ascend/ModelZoo-PyTorch">原ModelZoo仓内的多模态大模型</a>（后续将逐步迁移至MindSpeed-MM）</caption>
+  <caption><a href="https://gitee.com/ascend/ModelZoo-PyTorch">ModelZoo仓内的多模态大模型</a>（Q4逐步迁移至MindSpeed-MM）</caption>
   <thead>
     <tr>
       <th>模型</th>
@@ -251,7 +272,7 @@ MindSpeed-MM 通过模型并行与数据并行来训练各类多模态大模型�
       <td> 3.9 (s/it) </td>
       <td> 3.3 (s/it) </td>
       <td> 【GTS】 </td>
-      <td>【Test】</td>
+      <td>【Pass】</td>
     </tr>
     <tr>
       <td rowspan="2"><a href="https://gitee.com/ascend/ModelZoo-PyTorch/tree/master/PyTorch/built-in/mm/PLLaVA">PLLaVA</a></td>
@@ -283,7 +304,7 @@ MindSpeed-MM 通过模型并行与数据并行来训练各类多模态大模型�
       <td> 1046 (s) </td>
       <td> 847 (s) </td>
       <td> 【昇腾】 </td>
-      <td>【Test】</td>
+      <td>【Pass】</td>
     </tr>
     <tr>
       <td><a href="https://github.com/OpenBMB/MiniCPM-V">8B</a></td>
@@ -293,7 +314,7 @@ MindSpeed-MM 通过模型并行与数据并行来训练各类多模态大模型�
       <td> 603 (s) </td>
       <td> 490 (s) </td>
       <td> 【昇腾】 </td>
-      <td>【Test】</td>
+      <td>【Pass】</td>
     </tr>
     <tr>
       <td><a href="https://gitee.com/ascend/ModelZoo-PyTorch/tree/master/PyTorch/built-in/mm/HunyuanDiT">HunYuanDiT</a></td>
@@ -304,7 +325,7 @@ MindSpeed-MM 通过模型并行与数据并行来训练各类多模态大模型�
       <td> 1099.5 (ms/step) </td>
       <td> 1059.3 (ms/step) </td>
       <td> 【昇腾】 </td>
-      <td>【Test】</td>
+      <td>【Pass】</td>
     </tr>
   </tbody>
 </table>
@@ -313,7 +334,7 @@ MindSpeed-MM 通过模型并行与数据并行来训练各类多模态大模型�
 
 ## <span id="jump2"> 预训练加速算法与融合算子
 
-MindSpeed MM预训练支持张量并行、流水线并行等多种加速算法和融合算子，下表为各种加速特性对应的使能开关：
+MindSpeed MM预训练支持多种分布式并行算法和融合算子，下表为一些各种加速特性对应的使能开关（不同模型请参考各自对应的使用手册：[examples](./examples/)）：
 
 <table><thead>
   <tr>
@@ -324,8 +345,7 @@ MindSpeed MM预训练支持张量并行、流水线并行等多种加速算法�
 <tbody>
   <tr>
     <td rowspan="4">长序列并行</td>
-    <td>序列并行</td>
-    <td>--sequence-parallel</td>
+    
   </tr>
   <tr>
     <td>分布式优化器</td>
@@ -336,21 +356,17 @@ MindSpeed MM预训练支持张量并行、流水线并行等多种加速算法�
     <td>--context-parallel-size</td>
   </tr>
   <tr>
-    <td>多并行方案</td>
-    <td>--context-parallel-algo</td>
+    
   </tr>
   <tr>
     <td rowspan="7">显存优化</td>
-    <td>BF16 参数副本复用</td>
-    <td>--reuse-fp32-param</td>
+    
   </tr>
   <tr>
-    <td>激活函数重计算</td>
-    <td>--recompute-activation-function</td>
+   
   </tr>
  <tr>
-    <td>Swap Attention</td>
-    <td>--swap-attention</td>
+    
   </tr>
   <tr>
     <td>重计算程度</td>
@@ -365,56 +381,37 @@ MindSpeed MM预训练支持张量并行、流水线并行等多种加速算法�
     <td>--recompute-method</td>
   </tr>
   <tr>
-    <td>PP-Stage重计算</td>
-    <td>--enable-recompute-layers-per-pp-rank</td>
+    
   </tr>
   <tr>
     <td rowspan="5">融合算子</td>
     <td>Flash attention</td>
-    <td>--use-flash-attn</td>
+    <td>默认开启</td>
   </tr>
   <tr>
-    <td>Fused rms_norm</td>
-    <td>--use-fused-rmsnorm</td>
+   
   </tr>
   <tr>
-    <td>Fused swiglu</td>
-    <td>--use-fused-swiglu</td>
+    
   </tr>
   <tr>
-    <td>Fused rotary position embedding</td>
-    <td>--use-fused-rotary-pos-emb</td>
+  
   </tr>
   <tr>
-    <td>Sliding window attention</td>
-    <td>--sliding-window</td>
+
+
   </tr>
   <tr>
-    <td rowspan="5">通信</td>
-    <td>梯度reduce通算掩盖</td>
-    <td>--overlap-grad-reduce</td>
+    
   </tr>
   <tr>
-    <td>权重all-gather通算掩盖</td>
-    <td>--overlap-param-gather</td>
-  </tr>
-  <tr>
-    <td>MC2</td>
-    <td>--use-mc2</td>
-  </tr>
-  <tr>
-    <td>MLP通信隐藏</td>
-    <td>--use-pipe-experts</td>
-  </tr>
-  <tr>
-    <td>计算通信并行 CoC</td>
-    <td>--use-ascend-coc</td>
+
   </tr>
 </tbody></table>
 
 **注意事项**
 
-具体的预训练方法见[examples](./examples/)
+
 
 ---
 
@@ -439,13 +436,13 @@ MindSpeed-MM支持基于昇腾芯片采集profiling数据，以提供对模型�
 
 ## 致谢
 
-MindSpeed MM 由华为公司的下列部门联合贡献 ：
+MindSpeed-MM 由华为公司的下列部门联合贡献 ：
 
 * 昇腾计算产品部
 * 公共开发部：NAIE
 * 全球技术服务部：GTS
 
-感谢来自社区的每一个PR，欢迎贡献 MindSpeed MM
+感谢来自社区的每一个PR，欢迎贡献 MindSpeed-MM
 
 ---
 
