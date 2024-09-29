@@ -10,7 +10,7 @@ import random
 from enum import Enum, auto
 
 from einops import rearrange
-
+import cv2
 
 class MaskType(Enum):
     t2iv = auto()
@@ -19,6 +19,7 @@ class MaskType(Enum):
     v2v = auto()
     clear = auto()
     random_temporal = auto()
+    pos_mask = auto()
 
 TYPE_TO_STR = {
     MaskType.t2iv: 't2iv',
@@ -26,15 +27,37 @@ TYPE_TO_STR = {
     MaskType.transition: 'transition',
     MaskType.v2v: 'v2v',
     MaskType.clear: 'clear',
-    MaskType.random_temporal: 'random_temporal'
+    MaskType.random_temporal: 'random_temporal',
+    MaskType.pos_mask : 'pos_mask'
 }
 
 STR_TO_TYPE = {v: k for k, v in TYPE_TO_STR.items()}
 
+def read_video_to_tensor(video_path):
+    cap = cv2.VideoCapture(video_path)
+    frames = []
+    
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+        gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        frames.append(gray_frame)
+
+    cap.release()
+    
+    # 转换为tensor并调整形状
+    tensor = torch.tensor(frames).unsqueeze(1)  # 添加通道维度
+    tensor = tensor.permute(0, 1, 2, 3)  # 变换维度为 (T, 1, H, W)
+
+
+    return tensor
+
 class MaskProcessor:
-    def __init__(self, min_clear_ratio=0.0, max_clear_ratio=1.0, **kwargs):
+    def __init__(self, min_clear_ratio=0.0, max_clear_ratio=1.0, resize_transform, **kwargs):
         self.min_clear_ratio = min_clear_ratio
         self.max_clear_ratio = max_clear_ratio
+        self.resize_transform = resize_transform
         assert self.min_clear_ratio >= 0 and self.min_clear_ratio <= 1, 'min_clear_ratio should be in the range of [0, 1].'
         assert self.max_clear_ratio >= 0 and self.max_clear_ratio <= 1, 'max_clear_ratio should be in the range of [0, 1].'
         assert self.min_clear_ratio < self.max_clear_ratio, 'min_clear_ratio should be less than max_clear_ratio.'
@@ -69,6 +92,12 @@ class MaskProcessor:
         selected_indices = random.sample(range(num_frames), num_to_select)
         mask[selected_indices] = 0
         return mask
+    
+    def pos_mask(self, maskpath):
+        mask = read_video_to_tensor(maskpath)
+
+        mask = self.resize_transform(mask)
+        return mask
 
     def init_mask_func(self):
         self.mask_functions = {
@@ -77,17 +106,21 @@ class MaskProcessor:
             MaskType.transition: self.transition,
             MaskType.v2v: self.v2v,
             MaskType.clear: self.clear,
-            MaskType.random_temporal: self.random_temporal
+            MaskType.random_temporal: self.random_temporal,
+            MaskType.pos_mask : self.pos_mask
         }
     
-    def __call__(self, pixel_values, mask_type_ratio_dict={MaskType.random_temporal: 1.0}):
+    def __call__(self, pixel_values, maskpath, mask_type_ratio_dict={MaskType.random_temporal: 1.0}):
         T, C, H, W = pixel_values.shape
         mask = torch.ones([T, 1, H, W], device=pixel_values.device, dtype=pixel_values.dtype)
         assert isinstance(mask_type_ratio_dict, dict), 'mask_type_ratio_dict should be a dict.'
         assert mask_type_ratio_dict.keys() <= set(MaskType), f'Invalid mask type: {set(MaskType) - mask_type_ratio_dict.keys()}'
 
         mask_func_name = random.choices(list(mask_type_ratio_dict.keys()), list(mask_type_ratio_dict.values()))[0]
-        mask = self.mask_functions[mask_func_name](mask)
+        if mask_func_name == MaskType.pos_mask:
+            mask = self.mask_functions[mask_func_name](maskpath)
+        else:
+            mask = self.mask_functions[mask_func_name](mask)
 
         masked_pixel_values = pixel_values * (mask < 0.5)
         return dict(mask=mask, masked_pixel_values=masked_pixel_values)

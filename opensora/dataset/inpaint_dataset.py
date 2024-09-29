@@ -81,7 +81,7 @@ class Inpaint_dataset(T2V_dataset):
         min_clear_ratio = args.min_clear_ratio if args.min_clear_ratio is not None else 0.0
         max_clear_ratio = args.max_clear_ratio if args.max_clear_ratio is not None else 1.0
 
-        self.mask_processor = MaskProcessor(min_clear_ratio=min_clear_ratio, max_clear_ratio=max_clear_ratio)
+        self.mask_processor = MaskProcessor(min_clear_ratio=min_clear_ratio, max_clear_ratio=max_clear_ratio, resize_transform=self.resize_transform)
 
         self.default_text_ratio = args.default_text_ratio
 
@@ -123,7 +123,9 @@ class Inpaint_dataset(T2V_dataset):
         # import ipdb;ipdb.set_trace()
 
         video = self.resize_transform(video)  # T C H W -> T C H W
-        inpaint_cond_data = self.mask_processor(video, mask_type_ratio_dict=self.mask_type_ratio_dict_video)
+        mask_path = video_data["mask_path"]
+
+        inpaint_cond_data = self.mask_processor(video, mask_path, mask_type_ratio_dict=self.mask_type_ratio_dict_video)
         mask, masked_video = inpaint_cond_data['mask'], inpaint_cond_data['masked_pixel_values']
 
         video = self.transform(video)  # T C H W -> T C H W
