@@ -1,13 +1,15 @@
 # Copyright (c) 2024, NVIDIA CORPORATION. All rights reserved.
+import torch
 
 from megatron.core.fusions.fused_bias_dropout import get_bias_dropout_add
 from megatron.core.tensor_parallel.layers import ColumnParallelLinear, RowParallelLinear
 from megatron.core.transformer.attention import SelfAttention, SelfAttentionSubmodules
 from megatron.core.transformer.custom_layers.transformer_engine import (
-    TEDotProductAttention,
     TELayerNormColumnParallelLinear,
+    TENorm,
     TERowParallelLinear,
 )
+from megatron.core.transformer.dot_product_attention import DotProductAttention
 from megatron.core.transformer.enums import AttnMaskType
 from megatron.core.transformer.identity_op import IdentityOp
 from megatron.core.transformer.mlp import MLP, MLPSubmodules
@@ -18,34 +20,36 @@ from megatron.core.transformer.transformer_layer import (
 )
 
 
-# Use this spec to use lower level Transformer Engine modules (required for fp8 training)
-def get_vit_layer_with_transformer_engine_spec() -> ModuleSpec:
-    mlp = _get_mlp_module_spec(use_te=True)
+def get_layer_spec(is_vit) -> ModuleSpec:
+    attn_mask_type = AttnMaskType.no_mask if is_vit else AttnMaskType.causal
+
+    mlp = get_mlp_module_spec(use_te=False)
     return ModuleSpec(
         module=TransformerLayer,
         submodules=TransformerLayerSubmodules(
+            input_layernorm=TENorm,
             self_attention=ModuleSpec(
                 module=SelfAttention,
                 params={
-                    "attn_mask_type": AttnMaskType.causal
+                    "attn_mask_type": attn_mask_type
                 },
                 submodules=SelfAttentionSubmodules(
-                    linear_qkv=TELayerNormColumnParallelLinear,
-                    core_attention=TEDotProductAttention,
-                    linear_proj=TERowParallelLinear,
+                    linear_qkv=ColumnParallelLinear,
+                    core_attention=DotProductAttention,
+                    linear_proj=RowParallelLinear,
+                    q_layernorm=IdentityOp,
+                    k_layernorm=IdentityOp,
                 ),
             ),
             self_attn_bda=get_bias_dropout_add,
-            pre_mlp_layernorm=IdentityOp,
+            pre_mlp_layernorm=TENorm,
             mlp=mlp,
             mlp_bda=get_bias_dropout_add,
         ),
     )
 
 
-# Helper function to get module spec for MLP/MoE
-def _get_mlp_module_spec(use_te: bool = True,) -> ModuleSpec:
-    # Dense MLP w/ or w/o TE modules.
+def get_mlp_module_spec(use_te: bool = True,) -> ModuleSpec:
     return ModuleSpec(
         module=MLP,
         submodules=MLPSubmodules(
