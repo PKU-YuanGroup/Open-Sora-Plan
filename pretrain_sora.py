@@ -17,6 +17,7 @@ from mindspeed_mm.configs.config import mm_extra_args_provider
 from mindspeed_mm.training import pretrain
 from mindspeed_mm.data import build_mm_dataloader, build_mm_dataset
 from mindspeed_mm.data.data_utils.constants import VIDEO, PROMPT_IDS, PROMPT_MASK, VIDEO_MASK
+from mindspeed_mm.data.data_utils.utils import build_iterations
 from mindspeed_mm.models.sora_model import SoRAModel
 
 
@@ -77,7 +78,8 @@ def train_valid_test_datasets_provider(train_val_test_num_samples):
         args.mm.data.dataloader_param,
         process_group=mpu.get_data_parallel_group(),
     )
-    return iter(train_dataloader), None, None
+    data_iterator, _, _ = build_iterations(train_dl=train_dataloader)
+    return data_iterator, None, None
 
 
 if __name__ == "__main__":
