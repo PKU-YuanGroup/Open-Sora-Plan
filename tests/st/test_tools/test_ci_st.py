@@ -14,6 +14,7 @@ class TestCIST:
     def _get_baseline(self, baseline_json):
         # acquire expected results
         self.expected = read_json(baseline_json)
+        self.warm_up = self.expected.get("warm_up", WARM_UP)
 
     def _get_actual(self, generate_log, generate_json):
         # acquire actual results
@@ -65,12 +66,12 @@ class TestCIST:
 
     def _compare_time(self, expected_list, actual_list):
         # First few iterations might take a little longer. So we take the last 70 percent of the timings
-        expected_steps = len(expected_list) - WARM_UP
-        actual_steps = len(actual_list) - WARM_UP
+        expected_steps = len(expected_list) - self.warm_up
+        actual_steps = len(actual_list) - self.warm_up
         if expected_steps <= 0 or actual_steps <= 0:
             raise ValueError(f"Warm up steps must less than expected steps {len(expected_list)} or actual steps {len(actual_list)}")
-        expected_avg_time = sum(expected_list[WARM_UP:]) / expected_steps
-        actual_avg_time = sum(actual_list[WARM_UP:]) / actual_steps
+        expected_avg_time = sum(expected_list[self.warm_up:]) / expected_steps
+        actual_avg_time = sum(actual_list[self.warm_up:]) / actual_steps
 
         check_is_valid(
             actual_val=actual_avg_time,

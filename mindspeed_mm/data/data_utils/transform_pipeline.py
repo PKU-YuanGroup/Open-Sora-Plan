@@ -1,3 +1,4 @@
+import copy
 import torchvision.transforms as transforms
 
 from mindspeed_mm.data.data_utils.data_transform import (
@@ -59,9 +60,9 @@ def get_transforms(is_video=True, train_pipeline=None, image_size=None):
     if train_pipeline is None:
         return None
     train_pipeline_info = (
-        train_pipeline.get("video", list())
+        copy.deepcopy(train_pipeline.get("video", list()))
         if is_video
-        else train_pipeline.get("image", list())
+        else copy.deepcopy(train_pipeline.get("image", list()))
     )
     pipeline = []
     for pp_in in train_pipeline_info:

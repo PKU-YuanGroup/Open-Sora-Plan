@@ -1,10 +1,10 @@
+from typing import Iterator, List, Optional
 import math
 import logging
 import random
 from collections import Counter, OrderedDict, defaultdict
 from pprint import pformat
-
-from typing import Iterator, List, Optional
+from pandarallel import pandarallel
 
 import torch
 import torch.distributed as dist
@@ -660,8 +660,6 @@ class VariableVideoBatchSampler(DistributedSampler):
 
     def group_by_bucket(self) -> dict:
         bucket_sample_dict = OrderedDict()
-
-        from pandarallel import pandarallel
 
         pandarallel.initialize(nb_workers=self.num_bucket_build_workers, progress_bar=False)
         logging.info("Building buckets...")

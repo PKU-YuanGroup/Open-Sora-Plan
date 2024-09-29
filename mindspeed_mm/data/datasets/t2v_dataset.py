@@ -363,6 +363,9 @@ class DynamicVideoTextDataset(MMBaseDataset):
         index, num_frames, height, width = [int(val) for val in index.split("-")]
         sample = self.data_samples.iloc[index]
         video_or_image_path = sample["path"]
+        if self.data_folder:
+            video_or_image_path = os.path.join(self.data_folder, video_or_image_path)
+            
         video, video_fps = self.get_value_from_vid_or_img(num_frames, video_or_image_path, image_size=(height, width))
         ar = height / width
 
