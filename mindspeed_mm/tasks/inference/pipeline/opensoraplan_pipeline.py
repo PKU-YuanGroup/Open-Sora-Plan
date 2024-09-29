@@ -2,7 +2,7 @@ from typing import Optional, Union, List, Callable
 import math
 import inspect
 import torch
-from megatron.core import mpu
+
 from mindspeed_mm.tasks.inference.pipeline.pipeline_base import MMPipeline
 from mindspeed_mm.tasks.inference.pipeline.pipeline_mixin.encode_mixin import MMEncoderMixin
 from mindspeed_mm.tasks.inference.pipeline.pipeline_mixin.inputs_checks_mixin import InputsCheckMixin
@@ -81,12 +81,11 @@ class OpenSoraPlanPipeline(MMPipeline, InputsCheckMixin, MMEncoderMixin):
         # 5. Prepare latents
         latent_channels = self.predict_model.in_channels
         batch_size = batch_size * num_images_per_prompt
-        frames = (math.ceil((int(num_frames) - 1) / self.vae.vae_scale_factor[0]) + 1) if int(
-                num_frames) % 2 == 1 else math.ceil(int(num_frames) / self.vae.vae_scale_factor[0])
         shape = (
             batch_size,
             latent_channels,
-            frames // mpu.get_context_parallel_world_size(),
+            (math.ceil((int(num_frames) - 1) / self.vae.vae_scale_factor[0]) + 1) if int(
+                num_frames) % 2 == 1 else math.ceil(int(num_frames) / self.vae.vae_scale_factor[0]),
             math.ceil(int(height) / self.vae.vae_scale_factor[1]),
             math.ceil(int(width) / self.vae.vae_scale_factor[2]),
         )

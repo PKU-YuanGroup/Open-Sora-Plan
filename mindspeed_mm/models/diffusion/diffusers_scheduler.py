@@ -210,7 +210,7 @@ class DiffusersScheduler:
         if self.do_classifier_free_guidance:
             model_kwargs["attention_mask"] = video_mask.repeat(2, 1, 1, 1)
         if mpu.get_context_parallel_world_size() > 1:
-            model_kwargs["attention_mask"] = model_kwargs["attention_mask"].repeat(1, int(mpu.get_context_parallel_world_size()), 1, 1)
+            latents = _split(latents, mpu.get_context_parallel_group(), dim=2)
             model_kwargs["encoder_hidden_states"] = _split(model_kwargs["encoder_hidden_states"],
                                           mpu.get_context_parallel_group(), dim=2)
 
