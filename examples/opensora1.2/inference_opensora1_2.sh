@@ -1,4 +1,4 @@
-source /home/mhh/CANN-8.0.RC3.B020/Ascend/set_env.sh
+source /usr/local/Ascend/ascend-toolkit/set_env.sh
 export ASCEND_RT_VISIBLE_DEVICES="0"
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 export SCEND_LAUNCH_BLOCKING=1
@@ -27,7 +27,7 @@ DISTRIBUTED_ARGS="
     --master_port $MASTER_PORT
 "
 MM_ARGS="
- --mm-data "examples/opensora1.0/data.json"
+ --mm-data "examples/opensora1.2/data.json"
  --mm-model "examples/opensora1.2/inference_model_102x720x1280.json"
 "
 

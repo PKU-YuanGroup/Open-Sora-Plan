@@ -13,7 +13,8 @@ MODEL_CONSTANTS = {
         "IGNORE_INDEX": -100,
         "IMAGE_TOKEN_INDEX": -200,
         "IMG_START_TOKEN": "<im_start>",
-        "IMG_END_TOKEN": "<im_end>"
+        "IMG_END_TOKEN": "<im_end>",
+        "IMAGE_PATCH_TOKEN": "<im_patch>"
     },
     'internvl': {
         "IMG_CONTEXT_TOKEN": "<IMG_CONTEXT>",

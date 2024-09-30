@@ -39,8 +39,20 @@ class ConfigReader:
     def __str__(self) -> str:
         self.__repr__()
         return ""
-    
-    
+
+    def update_unuse(self, **kwargs):
+
+        to_remove = []
+        for key, value in kwargs.items():
+            if hasattr(self, key):
+                setattr(self, key, value)
+                to_remove.append(key)
+
+        # remove all the attributes that were updated, without modifying the input dict
+        unused_kwargs = {key: value for key, value in kwargs.items() if key not in to_remove}
+        return unused_kwargs
+
+
 class MMConfig:
     """ 
     MMconfig 

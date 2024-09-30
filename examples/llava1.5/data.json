@@ -2,7 +2,7 @@
     "dataset_param": {
         "dataset_type": "image",
         "basic_parameters": {
-            "data_path": "json_path", 
+            "data_path": "json_path",
             "data_folder": "root_path"
         },
         "preprocess_parameters": {
