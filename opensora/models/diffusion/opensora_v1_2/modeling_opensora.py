@@ -11,8 +11,8 @@ from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.models.modeling_utils import ModelMixin
 from diffusers.models.normalization import AdaLayerNormSingle
 from diffusers.models.embeddings import PixArtAlphaTextProjection
-from opensora.models.diffusion.opensora_v1_2.modules import MotionAdaLayerNormSingle, BasicTransformerBlock
-from opensora.models.diffusion.common import PatchEmbed2D, Attention
+from opensora.models.diffusion.opensora_v1_2.modules import MotionAdaLayerNormSingle, BasicTransformerBlock, Attention
+from opensora.models.diffusion.common import PatchEmbed2D
 from opensora.utils.utils import to_2tuple
 try:
     import torch_npu
