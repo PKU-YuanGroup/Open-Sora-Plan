@@ -22,6 +22,7 @@ class MMEncoderMixin:
                      clip_skip: Optional[int] = None,
                      clean_caption=True,
                      max_length: Optional[int] = None,
+                     prompt_to_lower=True
                      ):
         max_length = max_length if max_length else self.tokenizer.model_max_length
 
@@ -38,7 +39,7 @@ class MMEncoderMixin:
         if prompt_embeds is None:
             # textual inversion: process multi-vector tokens if necessary
             if isinstance(self, InputsCheckMixin):
-                prompt = self.preprocess_text(prompt, clean_caption)
+                prompt = self.preprocess_text(prompt, clean_caption, prompt_to_lower)
 
             text_inputs = self.tokenizer(
                 prompt,

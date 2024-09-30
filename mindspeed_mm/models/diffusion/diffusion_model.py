@@ -3,6 +3,7 @@ from torch import nn
 from .ddpm import DDPM
 from .iddpm import IDDPM
 from .rflow import RFlow
+from .cogvideox import CogVideoXScheduler
 from .diffusers_scheduler import DIFFUSERS_SCHEDULE_MAPPINGS, DiffusersScheduler
 
 
@@ -10,6 +11,7 @@ DIFFUSION_MODEL_MAPPINGS = {
     "ddpm": DDPM,
     "iddpm": IDDPM,
     "rflow": RFlow,
+    "cogvideox": CogVideoXScheduler
 }
 
 

@@ -13,7 +13,7 @@ from diffusers.schedulers import (
     HeunDiscreteScheduler,
     EulerAncestralDiscreteScheduler,
     DEISMultistepScheduler,
-    KDPM2AncestralDiscreteScheduler,
+    KDPM2AncestralDiscreteScheduler
 )
 from diffusers.training_utils import compute_snr
 
@@ -27,7 +27,7 @@ DIFFUSERS_SCHEDULE_MAPPINGS = {
     "HeunDiscrete": HeunDiscreteScheduler,
     "EulerAncestralDiscrete": EulerAncestralDiscreteScheduler,
     "DEISMultistep": DEISMultistepScheduler,
-    "KDPM2AncestralDiscrete": KDPM2AncestralDiscreteScheduler,
+    "KDPM2AncestralDiscrete": KDPM2AncestralDiscreteScheduler
 }
 
 
