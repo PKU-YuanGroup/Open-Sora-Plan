@@ -349,7 +349,7 @@ class STDiT3(MultiModalModule):
             y = y.squeeze(1).view(1, -1, self.hidden_size)
         return y, y_lens
 
-    def forward(self, video, timestep, prompt, mask=None, video_mask=None, fps=None, height=None, width=None, **kwargs):
+    def forward(self, video, timestep, prompt, prompt_mask=None, video_mask=None, fps=None, height=None, width=None, **kwargs):
         dtype = self.x_embedder.proj.weight.dtype
         B = video.size(0)
         video = video.to(dtype)
@@ -379,11 +379,11 @@ class STDiT3(MultiModalModule):
 
         # === get y embed ===
         if self.skip_y_embedder:
-            y_lens = mask
+            y_lens = prompt_mask
             if isinstance(y_lens, torch.Tensor):
                 y_lens = y_lens.long().tolist()
         else:
-            prompt, y_lens = self.encode_text(prompt, mask)
+            prompt, y_lens = self.encode_text(prompt, prompt_mask)
 
         # === get x embed ===
         video = self.x_embedder(video)  # [B, N, C]
@@ -396,8 +396,11 @@ class STDiT3(MultiModalModule):
             S = S // mpu.get_context_parallel_world_size()
 
         video = rearrange(video, "B T S C -> B (T S) C", T=T, S=S)
-        video_mask = video_mask[:, :, None, None].expand(B, T, S, video.shape[-1]).contiguous()
-        video_mask = video_mask.view(B, T * S, video.shape[-1]).to(video.dtype)
+        
+        if video_mask is not None:
+            video_mask = video_mask[:, :, None, None].expand(B, T, S, video.shape[-1]).contiguous()
+            video_mask = video_mask.view(B, T * S, video.shape[-1]).to(video.dtype)
+
         # === blocks ===
         for spatial_block, temporal_block in zip(self.spatial_blocks, self.temporal_blocks):
             video = auto_grad_checkpoint(spatial_block, video, prompt, t_mlp, y_lens, video_mask, t0_mlp, T, S)

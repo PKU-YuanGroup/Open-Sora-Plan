@@ -8,13 +8,15 @@
 import os
 import re
 import gc
+import sys
 import html
 import math
+import copy
 import random
 import urllib.parse as ul
 from fractions import Fraction
 from collections import Counter
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Union, Sequence
 
 import av
 import ftfy
@@ -34,15 +36,25 @@ from torchvision.io.video import (
     _read_from_stream,
     _video_opt,
 )
+import transformers
+from transformers.models.clip.image_processing_clip import CLIPImageProcessor
+from transformers.trainer_pt_utils import LabelSmoother
+from packaging import version
+import tokenizers
+
 try:
     import decord
 except ImportError:
     print("Failed to import decord module.")
 
-from mindspeed_mm.data.data_utils.data_transform import TemporalRandomCrop
+from mindspeed_mm.data.data_utils.data_transform import TemporalRandomCrop, Expand2Square
 from mindspeed_mm.data.data_utils.transform_pipeline import get_transforms
+from mindspeed_mm.data.data_utils.conversation import get_conv_template
+from mindspeed_mm.data.data_utils.constants import MODEL_CONSTANTS
 
 VID_EXTENSIONS = (".mp4", ".avi", ".mov", ".mkv")
+IS_TOKENIZER_GREATER_THAN_0_14 = version.parse(tokenizers.__version__) >= version.parse("0.14")
+IGNORE_TOKEN_ID = LabelSmoother.ignore_index
 
 
 class DataFileReader:
@@ -68,6 +80,9 @@ class DataFileReader:
                 return data_out
         elif data_path.endswith(".json"):
             data_out = pd.read_json(data_path)
+            return data_out.to_dict("records")
+        elif data_path.endswith(".jsonl"):
+            data_out = pd.read_json(data_path, lines=True)
             return data_out.to_dict("records")
         elif data_path.endswith(".parquat"):
             data_out = pd.read_parquat(data_path)
@@ -128,7 +143,7 @@ class VideoReader:
     def __call__(self, video_path):
         is_decord_read = False
         info = None
-        
+
         if self.video_reader_type == "decoder":
             vframes = self.v_decoder(video_path)
             is_decord_read = True
@@ -146,23 +161,23 @@ class VideoReader:
 
 
 def read_video_av(
-    filename: str,
-    start_pts: Union[float, Fraction] = 0,
-    end_pts: Optional[Union[float, Fraction]] = None,
-    pts_unit: str = "pts",
-    output_format: str = "THWC",
+        filename: str,
+        start_pts: Union[float, Fraction] = 0,
+        end_pts: Optional[Union[float, Fraction]] = None,
+        pts_unit: str = "pts",
+        output_format: str = "THWC",
 ) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, Any]]:
     """
     Reads a video from a file, returning both the video frames and the audio frames
 
     Args:
         filename (str): path to the video file
-        start_pts (int if pts_unit = 'pts', float / Fraction if pts_unit = 'sec', optional):
+        start_pts (int if pts_unit = "pts", float / Fraction if pts_unit = "sec", optional):
             The start presentation time of the video
-        end_pts (int if pts_unit = 'pts', float / Fraction if pts_unit = 'sec', optional):
+        end_pts (int if pts_unit = "pts", float / Fraction if pts_unit = "sec", optional):
             The end presentation time
         pts_unit (str, optional): unit in which start_pts and end_pts values will be interpreted,
-            either 'pts' or 'sec'. Defaults to 'pts'.
+            either "pts" or "sec". Defaults to "pts".
         output_format (str, optional): The format of the output video tensors. Can be either "THWC" (default) or "TCHW".
 
     Returns:
@@ -261,17 +276,17 @@ class VideoProcesser:
     """Used for video data preprocessing"""
 
     def __init__(
-        self,
-        num_frames=16,
-        frame_interval=1,
-        train_pipeline=None,
-        data_storage_mode="standard",
-        train_fps=24,
-        speed_factor=1.0,
-        drop_short_ratio=1.0,
-        max_height=480,
-        max_width=640,
-        **kwargs,
+            self,
+            num_frames=16,
+            frame_interval=1,
+            train_pipeline=None,
+            data_storage_mode="standard",
+            train_fps=24,
+            speed_factor=1.0,
+            drop_short_ratio=1.0,
+            max_height=480,
+            max_width=640,
+            **kwargs,
     ):
         self.num_frames = num_frames
         self.train_pipeline = train_pipeline
@@ -285,10 +300,11 @@ class VideoProcesser:
             self.max_height = max_height
             self.max_width = max_width
 
-    def __call__(self, vframes, num_frames=None, frame_interval=None, image_size=None, is_decord_read=False, predefine_num_frames=13):
+    def __call__(self, vframes, num_frames=None, frame_interval=None, image_size=None, is_decord_read=False,
+                 predefine_num_frames=13):
         if image_size:
             self.video_transforms = get_transforms(is_video=True, train_pipeline=self.train_pipeline,
-                                                    image_size=image_size)
+                                                   image_size=image_size)
         else:
             self.video_transforms = get_transforms(is_video=True, train_pipeline=self.train_pipeline)
         if self.data_storage_mode == "standard":
@@ -310,7 +326,6 @@ class VideoProcesser:
             else:
                 video = vframes[frame_indice]  # TCHW
 
-
             video = self.video_transforms(video)
             # TCHW -> CTHW
             video = video.permute(1, 0, 2, 3)
@@ -322,9 +337,8 @@ class VideoProcesser:
             )
         return video
 
-
     def combine_data_video_process(
-        self, vframes, is_decord_read=True, predefine_num_frames=13
+            self, vframes, is_decord_read=True, predefine_num_frames=13
     ):
         total_frames = len(vframes)
         fps = vframes.get_avg_fps() if vframes.get_avg_fps() > 0 else 30.0
@@ -386,7 +400,6 @@ class VideoProcesser:
         video = video.permute(1, 0, 2, 3)
         return video
 
-    # TODO
     def define_frame_index(self, cap_list):
         new_cap_list = []
         sample_num_frames = []
@@ -418,8 +431,8 @@ class VideoProcesser:
                     continue
                 else:
                     if (
-                        resolution.get("height", None) is None
-                        or resolution.get("width", None) is None
+                            resolution.get("height", None) is None
+                            or resolution.get("width", None) is None
                     ):
                         cnt_no_resolution += 1
                         continue
@@ -429,8 +442,8 @@ class VideoProcesser:
                     max_h_div_w_ratio = hw_aspect_thr * aspect
                     min_h_div_w_ratio = 1 / hw_aspect_thr * aspect
                     is_pick = (
-                        height / width <= max_h_div_w_ratio
-                        and height / width >= min_h_div_w_ratio
+                            height / width <= max_h_div_w_ratio
+                            and height / width >= min_h_div_w_ratio
                     )
                     if not is_pick:
                         cnt_resolution_mismatch += 1
@@ -450,8 +463,8 @@ class VideoProcesser:
 
                 # comment out it to enable dynamic frames training
                 if (
-                    len(frame_indices) < self.num_frames
-                    and random.random() < self.drop_short_ratio
+                        len(frame_indices) < self.num_frames
+                        and random.random() < self.drop_short_ratio
                 ):
                     cnt_too_short += 1
                     continue
@@ -465,7 +478,7 @@ class VideoProcesser:
                     len(frame_indices), vae_stride_t=4, model_ds_t=4
                 )
                 if (
-                    end_frame_idx == -1
+                        end_frame_idx == -1
                 ):  # too short that can not be encoded exactly by videovae
                     cnt_too_short += 1
                     continue
@@ -500,7 +513,7 @@ class VideoProcesser:
     def find_closest_y(self, x, vae_stride_t=4, model_ds_t=4):
         for y in range(x, 12, -1):
             if (y - 1) % vae_stride_t == 0 and (
-                (y - 1) // vae_stride_t + 1
+                    (y - 1) // vae_stride_t + 1
             ) % model_ds_t == 0:
                 # 4, 8: y in [29, 61, 93, 125, 157, 189, 221, 253, 285, 317, 349, 381, 413, 445, 477, 509, ...]
                 # 4, 4: y in [29, 45, 61, 77, 93, 109, 125, 141, 157, 173, 189, 205, 221, 237, 253, 269, 285, 301, 317, 333, 349, 365, 381, 397, 413, 429, 445, 461, 477, 493, 509, ...]
@@ -512,12 +525,17 @@ class ImageProcesser:
     """Used for image data preprocessing"""
 
     def __init__(
-        self,
-        num_frames=16,
-        train_pipeline=None,
-        image_reader_type="torchvision",
-        image_processer_type="image2video",
-        **kwargs,
+            self,
+            num_frames=16,
+            train_pipeline=None,
+            image_reader_type="torchvision",
+            image_processer_type="image2video",
+            dynamic_image_size=False,
+            image_size=224,
+            min_dynamic_patch=1,
+            max_dynamic_patch=6,
+            use_thumbnail=False,
+            **kwargs,
     ):
         self.num_frames = num_frames
         self.image_transforms = get_transforms(
@@ -526,14 +544,22 @@ class ImageProcesser:
         self.video_transforms = get_transforms(
             is_video=True, train_pipeline=train_pipeline
         )
+        self.train_pipeline = train_pipeline
         self.image_reader_type = image_reader_type
         self.image_processer_type = image_processer_type
+        self.dynamic_image_size = dynamic_image_size
+        self.image_size = image_size
+        self.min_dynamic_patch = min_dynamic_patch
+        self.max_dynamic_patch = max_dynamic_patch
+        self.use_thumbnail = use_thumbnail
 
-    def __call__(self, image_path):
+    def __call__(self, image_path, train_pipeline, mode, num_image):
         if self.image_processer_type == "image2video":
             image = self.image_to_video(image_path)
         elif self.image_processer_type == "image2image":
             image = self.image_to_image(image_path)
+        elif self.image_processer_type == "image2pixel":
+            image = self.image_to_pixel_values(image_path, train_pipeline, mode, num_image)
         else:
             raise NotImplementedError(
                 f"Unsupported image processer type: {self.image_processer_type}"
@@ -560,8 +586,29 @@ class ImageProcesser:
         image = image.permute(1, 0, 2, 3)
         return image
 
-    def image_reader(self, image_path):
+    def image_to_pixel_values(self, image_path, train_pipeline, mode="", num_image=1):
+        image = self.image_reader(image_path)
+        max_num = self.max_dynamic_patch // num_image if mode == "multi_image" else self.max_dynamic_patch
         if self.image_reader_type == "torchvision":
+            if self.dynamic_image_size:  # If dynamic image size is enabled, preprocess the image dynamically
+                images = dynamic_preprocess(image, min_num=self.min_dynamic_patch, max_num=max_num,
+                                            image_size=self.image_size, use_thumbnail=self.use_thumbnail)
+            else:  # Otherwise, use the original image as a single patch
+                images = [image]
+
+            # Apply the transformation to each image and stack the results into a tensor
+            pixel_values = [self.image_transforms(image) for image in images]
+            pixel_values = pixel_values if mode == "multi_image" else torch.stack(pixel_values)
+        else:
+            if train_pipeline["pad2square"]:
+                expand2square = Expand2Square(mean=train_pipeline["image_mean"])
+                image = expand2square(image)
+            processer = CLIPImageProcessor(**train_pipeline)
+            pixel_values = processer.preprocess(image, return_tensors="pt", **train_pipeline)["pixel_values"][0]
+        return pixel_values
+
+    def image_reader(self, image_path):
+        if self.image_reader_type in ["torchvision", "CLIPImageProcessor"]:
             image = pil_loader(image_path)
         elif self.image_reader_type == "Image":
             image = Image.open(image_path).convert("RGB")  # [h, w, c]
@@ -592,14 +639,14 @@ class TextProcesser:
     )
 
     def __init__(
-        self,
-        model_max_length=120,
-        tokenizer=None,
-        use_clean_caption=True,
-        enable_text_preprocessing=True,
-        padding_type="max_length",
-        support_chinese=False,
-        cfg=0.1,
+            self,
+            model_max_length=120,
+            tokenizer=None,
+            use_clean_caption=True,
+            enable_text_preprocessing=True,
+            padding_type="max_length",
+            support_chinese=False,
+            cfg=0.1,
     ):
         self.model_max_length = model_max_length
         self.padding = padding_type
@@ -836,25 +883,14 @@ class DataSetProg(metaclass=SingletonMeta):
 
         idx = self.worker_elements[worker_id][
             self.n_used_elements[worker_id] % len(self.worker_elements[worker_id])
-        ]
+            ]
         self.n_used_elements[worker_id] += 1
         return idx
 
 
-# TODO
-def get_batch_on_this_tp_rank(data_iterator):
-    """
-    :param data_iterator:
-    :return:
-    """
-
-    batch = data_iterator
-    return batch
-
-
 def format_numel_str(numel: int) -> str:
-    B = 1024**3
-    M = 1024**2
+    B = 1024 ** 3
+    M = 1024 ** 2
     K = 1024
     if numel >= B:
         return f"{numel / B:.2f} B"
@@ -887,3 +923,420 @@ def collate_fn_default(batch):
         ret["input_ids"] = input_ids
 
     return ret
+
+
+def find_closest_aspect_ratio(aspect_ratio, target_ratios, width, height, image_size):
+    """
+    This function finds the closest aspect ratio from a set of target aspect ratios based on the input
+    image's aspect ratio. It calculates the difference between the input image's aspect ratio and each
+    target aspect ratio, and returns the ratio that has the smallest difference. If two ratios have the same
+    difference, it chooses the one whose area is closer to a specific size threshold.
+    :param aspect_ratio: The aspect ratio of the input image, calculated as width / height.
+    :param target_ratios: A list of target aspect ratios in the form of tuples, where each tuple represents a width-height ratio.
+    :param width: The width of the input image.
+    :param height: The height of the input image.
+    :param image_size: A reference size used for comparing the areas of the input image and the target ratios.
+    :return:best_ratio (tuple): The target aspect ratio that is closest to the input image's aspect ratio.
+    """
+    best_ratio_diff = float("inf")
+    best_ratio = (1, 1)
+    area = width * height
+    for ratio in target_ratios:
+        target_aspect_ratio = ratio[0] / ratio[1]
+        ratio_diff = abs(aspect_ratio - target_aspect_ratio)
+        if ratio_diff < best_ratio_diff:
+            best_ratio_diff = ratio_diff
+            best_ratio = ratio
+        elif ratio_diff == best_ratio_diff:
+            if area > 0.5 * image_size * image_size * ratio[0] * ratio[1]:
+                best_ratio = ratio
+    return best_ratio
+
+
+def dynamic_preprocess(image, min_num=1, max_num=6, image_size=448, use_thumbnail=False):
+    """
+    This function dynamically preprocesses an input image by resizing it to match a closest target
+    aspect ratio and then splitting the resized image into smaller blocks. It optionally generates
+    a thumbnail version of the image. The preprocessing is useful for adjusting the input data for tasks like
+    data augmentation or image classification in machine learning.
+    :param image:The input image to be processed.
+    :param min_num: The minimum number of blocks used to create target aspect ratios.
+    :param max_num:The maximum number of blocks used to create target aspect ratios.
+    :param image_size:The size to which the image should be resized before splitting into blocks.
+    :param use_thumbnail: If True, a thumbnail version of the image will be generated and added to the list of
+                          processed images when the number of blocks is greater than 1.
+    :return:processed_images (list of PIL.Image): A list of processed images, including blocks of the resized image,
+                    and optionally a thumbnail image. The number of blocks is determined by the target aspect ratio.
+    """
+    orig_width, orig_height = image.size
+    aspect_ratio = orig_width / orig_height
+
+    # calculate the existing image aspect ratio
+    target_ratios = set()
+    for n in range(min_num, max_num + 1):
+        for i in range(1, n + 1):
+            for j in range(1, n + 1):
+                if min_num <= i * j <= max_num:
+                    target_ratios.add((i, j))
+    target_ratios = sorted(target_ratios, key=lambda x: x[0] * x[1])
+
+    # find the closest aspect ratio to the target
+    target_aspect_ratio = find_closest_aspect_ratio(
+        aspect_ratio, target_ratios, orig_width, orig_height, image_size)
+
+    # calculate the target width and height
+    target_width = image_size * target_aspect_ratio[0]
+    target_height = image_size * target_aspect_ratio[1]
+    blocks = target_aspect_ratio[0] * target_aspect_ratio[1]
+
+    # resize the image
+    resized_img = image.resize((target_width, target_height))
+    processed_images = []
+    for i in range(blocks):
+        box = (
+            (i % (target_width // image_size)) * image_size,
+            (i // (target_width // image_size)) * image_size,
+            ((i % (target_width // image_size)) + 1) * image_size,
+            ((i // (target_width // image_size)) + 1) * image_size
+        )
+        # split the image
+        split_img = resized_img.crop(box)
+        processed_images.append(split_img)
+    if use_thumbnail and len(processed_images) != 1:
+        thumbnail_img = image.resize((image_size, image_size))
+        processed_images.append(thumbnail_img)
+    return processed_images
+
+
+def preprocess_multimodal(
+        sources: Sequence[str],
+        is_multimodal,
+        mm_use_im_start_end,
+) -> Dict:
+    """
+    Process multimodal sources by handling image tokens.
+    """
+    image_token = MODEL_CONSTANTS['llava']["IMAGE_TOKEN"]
+    img_start_token = MODEL_CONSTANTS['llava']["IMG_START_TOKEN"]
+    img_end_token = MODEL_CONSTANTS['llava']["IMG_END_TOKEN"]
+
+    if not is_multimodal:
+        return sources
+
+    for source in sources:
+        for sentence in source:
+            if image_token in sentence["value"]:
+                sentence["value"] = sentence["value"].replace(image_token, "").strip()
+                sentence["value"] = image_token + "\n" + sentence["value"]
+                sentence["value"] = sentence["value"].strip()
+            replace_token = image_token
+            if mm_use_im_start_end:
+                replace_token = img_start_token + replace_token + img_end_token
+            sentence["value"] = sentence["value"].replace(image_token, replace_token)
+
+    return sources
+
+
+def preprocess_v1(
+        sources,
+        is_multimodal,
+        mm_use_im_start_end,
+        tokenizer: transformers.PreTrainedTokenizer,
+        has_image: bool = True
+) -> Dict:
+    """
+    Process sources for llava-v1 of the preprocessing pipeline.
+    """
+    sources = preprocess_multimodal(sources, is_multimodal, mm_use_im_start_end)
+
+    ignore_index = MODEL_CONSTANTS['llava']["IGNORE_INDEX"]
+    image_token_index = MODEL_CONSTANTS['llava']["IMAGE_TOKEN_INDEX"]
+    conv = get_conv_template("llava-v1")
+    roles = {"human": conv.roles[0], "gpt": conv.roles[1]}
+    conversations = get_formatted_conversations(sources, roles, conv)
+
+    if has_image:
+        input_ids = torch.stack(
+            [tokenizer_image_token(prompt, tokenizer, image_token_index=image_token_index, return_tensors="pt")
+             for prompt in conversations], dim=0)
+    else:
+        input_ids = tokenizer(
+            conversations,
+            return_tensors="pt",
+            padding="longest",
+            max_length=tokenizer.model_max_length,
+            truncation=True,
+        ).input_ids
+
+    targets = input_ids.clone()
+
+    # Mask targets
+    sep = conv.sep + conv.roles[1] + ": "
+    for conversation, target in zip(conversations, targets):
+        total_len = int(target.ne(tokenizer.pad_token_id).sum())
+
+        rounds = conversation.split(conv.sep2)
+        cur_len = 1
+        target[:cur_len] = ignore_index
+        for i, rou in enumerate(rounds):
+            if rou == "":
+                break
+
+            parts = rou.split(sep)
+            if len(parts) != 2:
+                break
+            parts[0] += sep
+
+            if has_image:
+                round_len = len(tokenizer_image_token(rou, tokenizer, image_token_index))
+                instruction_len = len(tokenizer_image_token(parts[0], tokenizer, image_token_index)) - 2
+            else:
+                round_len = len(tokenizer(rou).input_ids)
+                instruction_len = len(tokenizer(parts[0]).input_ids) - 2
+
+            if i != 0 and not tokenizer.legacy and IS_TOKENIZER_GREATER_THAN_0_14:
+                round_len -= 1
+                instruction_len -= 1
+
+            target[cur_len: cur_len + instruction_len] = ignore_index
+
+            cur_len += round_len
+        target[cur_len:] = ignore_index
+
+        if cur_len < tokenizer.model_max_length:
+            if cur_len != total_len:
+                target[:] = ignore_index
+                print(
+                    f"WARNING: tokenization mismatch: {cur_len} vs. {total_len}."
+                    f" (ignored)"
+                )
+
+    return dict(
+        input_ids=input_ids[0],
+        labels=targets[0],
+    )
+
+
+def preprocess_plain(
+        sources: Sequence[str],
+        is_multimodal,
+        mm_use_im_start_end,
+        tokenizer: transformers.PreTrainedTokenizer
+) -> Dict:
+    """
+    Process plain text sources for preprocessing.
+    """
+    sources = preprocess_multimodal(sources, is_multimodal, mm_use_im_start_end)
+
+    image_token_index = MODEL_CONSTANTS['llava']["IMAGE_TOKEN_INDEX"]
+    image_token = MODEL_CONSTANTS['llava']["IMAGE_TOKEN"]
+    ignore_index = MODEL_CONSTANTS['llava']["IGNORE_INDEX"]
+    conv = get_conv_template("llava-plain")
+    # add end signal and concatenate together
+    conversations = []
+    for source in sources:
+        source[0]["value"] = image_token
+        conversation = source[0]["value"] + source[1]["value"] + conv.sep
+        conversations.append(conversation)
+    # tokenize conversations
+    input_ids = [tokenizer_image_token(prompt, tokenizer, image_token_index=image_token_index, return_tensors="pt")
+                 for prompt in conversations]
+    targets = copy.deepcopy(input_ids)
+    for target, source in zip(targets, sources):
+        tokenized_len = len(tokenizer_image_token(source[0]["value"], tokenizer, image_token_index=image_token_index))
+        target[:tokenized_len] = ignore_index
+
+    return dict(input_ids=input_ids[0], labels=targets[0])
+
+
+def preprocess_internlm(
+        template_name,
+        sources,
+        tokenizer: transformers.PreTrainedTokenizer,
+        num_image_token_list: list,
+        text_only: bool = False,
+        group_by_length: bool = False,
+        use_packed_ds: bool = False,
+        num_image: int = 1
+) -> Dict:
+    """
+    Process sources for internvl model preprocessing.
+    """
+    conv = get_conv_template(template_name)
+    roles = {"human": conv.roles[0], "gpt": conv.roles[1]}
+    conversations = get_formatted_conversations(sources, roles, conv)
+
+    im_start_token = MODEL_CONSTANTS['internvl']["IMG_START_TOKEN"]
+    im_context_token = MODEL_CONSTANTS['internvl']["IMG_CONTEXT_TOKEN"]
+    im_end_token = MODEL_CONSTANTS['internvl']["IMG_END_TOKEN"]
+
+    if not text_only:
+        new_conversations = []
+        for conversation in conversations:
+            for i in range(num_image):
+                image_tokens = f"{im_start_token}{im_context_token * num_image_token_list[i]}{im_end_token}"
+                conversation = conversation.replace("<image>", image_tokens, 1)
+            new_conversations.append(conversation)
+        conversations = new_conversations
+
+    # Tokenize conversations
+    input_ids = tokenizer(
+        conversations,
+        return_tensors="pt",
+        padding=False if group_by_length or use_packed_ds else "max_length",
+        max_length=tokenizer.model_max_length,
+        truncation=True,
+    ).input_ids
+    targets = input_ids.clone()
+
+    for conversation, target in zip(conversations, targets):
+        total_len = int(target.ne(tokenizer.pad_token_id).sum())  # 浦语里面 pad_token_id = eos_token_id
+        cur_len = 1
+        target[:cur_len] = IGNORE_TOKEN_ID  # <s>
+        parts = conversation.split(conv.roles[1])  # [UNUSED_TOKEN_146]assistant\n
+        info = parts[0] + conv.roles[1]
+        temp_len = len(tokenizer(info).input_ids) - 1  # 去除tokenizer的<s>
+        target[cur_len: cur_len + temp_len] = IGNORE_TOKEN_ID
+        cur_len = cur_len + temp_len
+
+        for index in range(1, len(parts) - 1):
+            info = parts[index]
+            part1, part2 = info.split(conv.roles[0])
+            temp_len = len(tokenizer(part1).input_ids) - 1
+            cur_len = cur_len + temp_len
+            part = conv.roles[0] + part2 + conv.roles[1]
+            temp_len = len(tokenizer(part).input_ids) - 1
+            target[cur_len: cur_len + temp_len] = IGNORE_TOKEN_ID
+            cur_len = cur_len + temp_len
+        last_info = parts[-1]
+        temp_len = len(tokenizer(last_info).input_ids) - 1
+        cur_len = cur_len + temp_len
+
+        target[cur_len:] = IGNORE_TOKEN_ID
+        if cur_len < tokenizer.model_max_length:
+            if cur_len != total_len:
+                target[:] = IGNORE_TOKEN_ID
+                print(f"WARNING: tokenization mismatch: {cur_len} vs. {total_len}.", flush=True)
+
+    return dict(
+        input_ids=input_ids[0],
+        labels=targets[0],
+        attention_mask=input_ids.ne(tokenizer.pad_token_id)[0],
+    )
+
+
+def tokenizer_image_token(prompt, tokenizer, image_token_index, return_tensors=None):
+    """
+    Tokenize prompts with image tokens.
+    """
+    prompt_chunks = [tokenizer(chunk).input_ids for chunk in prompt.split("<image>")]
+
+    def insert_separator(X, sep):
+        return [ele for sublist in zip(X, [sep] * len(X)) for ele in sublist][:-1]
+
+    input_ids = []
+    offset = 0
+    if len(prompt_chunks) > 0 and len(prompt_chunks[0]) > 0 and prompt_chunks[0][0] == tokenizer.bos_token_id:
+        offset = 1
+        input_ids.append(prompt_chunks[0][0])
+
+    for x in insert_separator(prompt_chunks, [image_token_index] * (offset + 1)):
+        input_ids.extend(x[offset:])
+
+    if return_tensors is not None:
+        if return_tensors == "pt":
+            return torch.tensor(input_ids, dtype=torch.long)
+        raise ValueError(f"Unsupported tensor type: {return_tensors}")
+    return input_ids
+
+
+def get_formatted_conversations(sources, roles, conv):
+    """
+    Format conversations based on provided roles and conversation template.
+    """
+    # Apply prompt templates
+    conversations = []
+    for i, source in enumerate(sources):
+        if roles[source[0]["from"]] != conv.roles[0]:
+            # Skip the first one if it is not from human
+            source = source[1:]
+
+        conv.messages = []
+        for j, sentence in enumerate(source):
+            role = roles[sentence["from"]]
+            if role != conv.roles[j % 2]:
+                raise ValueError(
+                    f"Role mismatch at {sentence}, expected {conv.roles[j % 2]}, got {role}")
+            sentence["value"] = sentence["value"].strip()
+            conv.append_message(role, sentence["value"])
+        conversations.append(conv.get_prompt())
+    return conversations
+
+
+def preprocess(
+        template_name,
+        sources,
+        tokenizer,
+        num_image_token_list,
+        group_by_length,
+        is_multimodal,
+        mm_use_im_start_end
+):
+    """
+    Select and run the appropriate preprocessing function based on template name.
+    """
+    if template_name == "internlm2-chat":
+        ret = preprocess_internlm(template_name, sources,
+                                  tokenizer, num_image_token_list,
+                                  group_by_length=group_by_length)
+    elif template_name == "llava-v1":
+        ret = preprocess_v1(
+            sources,
+            is_multimodal,
+            mm_use_im_start_end,
+            tokenizer,
+            has_image=True)
+    elif template_name == "llava-plain":
+        ret = preprocess_plain(
+            sources,
+            is_multimodal,
+            mm_use_im_start_end,
+            tokenizer)
+    else:
+        raise ValueError("%s preprocessor is not implemented" % type(template_name))
+    return ret
+
+
+def build_iterations(train_dl=None, val_dl=None, test_dl=None, iterator_type="cyclic"):
+
+    def _cyclic_iter(dl):
+        while True:
+            for x in dl:
+                yield x
+    
+    def _get_iterator(dataloader, iter_type=iterator_type):
+        """Return dataset iterator."""
+        if iter_type == "single":
+            return iter(dataloader)
+        elif iter_type == "cyclic":
+            return iter(_cyclic_iter(dataloader))
+        else:
+            raise NotImplementedError("unexpected iterator type")
+    
+    if train_dl is not None:
+        train_data_iterator = _get_iterator(train_dl)
+    else:
+        train_data_iterator = None
+
+    if val_dl is not None:
+        valid_data_iterator = _get_iterator(val_dl)
+    else:
+        valid_data_iterator = None
+
+    if test_dl is not None:
+        test_data_iterator = _get_iterator(test_dl)
+    else:
+        test_data_iterator = None
+
+    return train_data_iterator, valid_data_iterator, test_data_iterator
+

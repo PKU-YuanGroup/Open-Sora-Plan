@@ -24,6 +24,7 @@ BASEPATH=$(cd `dirname $0`; cd ../../../; pwd)
 
 MM_DATA="$BASEPATH/tests/st/run_configs/pretrain_opensora1_0/data.json"
 MM_MODEL="$BASEPATH/tests/st/run_configs/pretrain_opensora1_0/model.json"
+MM_TOOL="$BASEPATH/mindspeed_mm/tools/tools.json"
 
 DISTRIBUTED_ARGS="
     --nproc_per_node $GPUS_PER_NODE \
@@ -69,7 +70,8 @@ GPT_ARGS="
 
 MM_ARGS="
     --mm-data $MM_DATA \
-    --mm-model $MM_MODEL
+    --mm-model $MM_MODEL \
+    --mm-tool $MM_TOOL
 "
 
 OUTPUT_ARGS="

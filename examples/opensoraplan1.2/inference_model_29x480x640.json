@@ -87,9 +87,10 @@
         "device":"npu"
 
     },
-    "num_frames": 29,
-    "image_size": [480, 640],
-    "input_size": [29, 480, 640],
+    "pipeline_config": {
+        "use_attention_mask": true,
+        "input_size": [29, 480, 640]
+    },
     "micro_batch_size": 1,
     "frame_interval":1,
     "model_max_length": 512,

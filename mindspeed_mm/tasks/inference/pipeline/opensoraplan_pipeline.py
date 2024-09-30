@@ -11,7 +11,7 @@ from mindspeed_mm.tasks.inference.pipeline.patchs.sora_patchs import replace_wit
 
 class OpenSoraPlanPipeline(MMPipeline, InputsCheckMixin, MMEncoderMixin):
 
-    def __init__(self, vae, text_encoder, tokenizer, scheduler, predict_model):
+    def __init__(self, vae, text_encoder, tokenizer, scheduler, predict_model, config=None):
         self.register_modules(tokenizer=tokenizer, text_encoder=text_encoder, vae=vae, scheduler=scheduler,
                               predict_model=predict_model)
 
@@ -20,6 +20,8 @@ class OpenSoraPlanPipeline(MMPipeline, InputsCheckMixin, MMEncoderMixin):
         self.tokenizer = tokenizer
         self.scheduler = scheduler
         self.predict_model = predict_model
+        text_encoder.use_attention_mask = config.use_attention_mask
+        self.num_frames, self.height, self.width = config.input_size
         replace_with_fp32_forwards()
 
     @torch.no_grad()
@@ -28,17 +30,13 @@ class OpenSoraPlanPipeline(MMPipeline, InputsCheckMixin, MMEncoderMixin):
                  prompt_embeds: Optional[torch.Tensor] = None,
                  negative_prompt: Optional[str] = None,
                  negative_prompt_embeds: Optional[torch.Tensor] = None,
-                 height: Optional[int] = None,
-                 width: Optional[int] = None,
                  eta: float = 0.0,
                  num_images_per_prompt: Optional[int] = 1,
-                 num_frames: Optional[int] = None,
                  guidance_scale: float = 4.5,
                  generator: Optional[Union[torch.Generator, List[torch.Generator]]] = None,
                  latents: Optional[torch.FloatTensor] = None,
                  max_sequence_length: Optional[int] = 300,
                  clean_caption: bool = True,
-                 mask_feature: bool = True,
                  enable_temporal_attentions: bool = True,
                  added_cond_kwargs: dict = None,
                  use_prompt_template: bool = True,
@@ -51,7 +49,7 @@ class OpenSoraPlanPipeline(MMPipeline, InputsCheckMixin, MMEncoderMixin):
         if use_prompt_template:
             prompt, negative_prompt = self.use_prompt_template(positive_prompt=prompt, negative_prompt=negative_prompt)
         self.text_prompt_checks(prompt, negative_prompt, prompt_embeds, negative_prompt_embeds)
-        self.generate_params_checks(height, width)
+        self.generate_params_checks(self.height, self.width)
 
         if prompt is not None and isinstance(prompt, str):
             batch_size = 1
@@ -84,10 +82,10 @@ class OpenSoraPlanPipeline(MMPipeline, InputsCheckMixin, MMEncoderMixin):
         shape = (
             batch_size,
             latent_channels,
-            (math.ceil((int(num_frames) - 1) / self.vae.vae_scale_factor[0]) + 1) if int(
-                num_frames) % 2 == 1 else math.ceil(int(num_frames) / self.vae.vae_scale_factor[0]),
-            math.ceil(int(height) / self.vae.vae_scale_factor[1]),
-            math.ceil(int(width) / self.vae.vae_scale_factor[2]),
+            (math.ceil((int(self.num_frames) - 1) / self.vae.vae_scale_factor[0]) + 1) if int(
+                self.num_frames) % 2 == 1 else math.ceil(int(self.num_frames) / self.vae.vae_scale_factor[0]),
+            math.ceil(int(self.height) / self.vae.vae_scale_factor[1]),
+            math.ceil(int(self.width) / self.vae.vae_scale_factor[2]),
         )
         latents = self.prepare_latents(shape, generator=generator, device=device, dtype=prompt_embeds.dtype,
                                        latents=latents)

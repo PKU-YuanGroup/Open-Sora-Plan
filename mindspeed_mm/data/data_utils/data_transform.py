@@ -1,11 +1,14 @@
 # Modified from Latte: https://github.com/Vchitect/Latte/blob/main/datasets/video_transforms.py
 
+import io
 import random
 import numbers
+import math
 
 import torch
 import numpy as np
 from PIL import Image
+import torchvision.transforms as T
 
 
 def _is_tensor_video_clip(clip):
@@ -36,7 +39,7 @@ def center_crop_arr(pil_image, image_size):
     crop_y = (arr.shape[0] - image_size) // 2
     crop_x = (arr.shape[1] - image_size) // 2
     return Image.fromarray(
-        arr[crop_y : crop_y + image_size, crop_x : crop_x + image_size]
+        arr[crop_y: crop_y + image_size, crop_x: crop_x + image_size]
     )
 
 
@@ -77,7 +80,7 @@ def crop(clip, i, j, h, w):
     """
     if len(clip.size()) != 4:
         raise ValueError("clip should be a 4D tensor")
-    return clip[..., i : i + h, j : j + w]
+    return clip[..., i: i + h, j: j + w]
 
 
 def resize(clip, target_size, interpolation_mode, align_corners=False, antialias=False):
@@ -343,10 +346,10 @@ class LongSideResizeVideo:
     """
 
     def __init__(
-        self,
-        size,
-        skip_low_resolution=False,
-        interpolation_mode="bilinear",
+            self,
+            size,
+            skip_low_resolution=False,
+            interpolation_mode="bilinear",
     ):
         self.size = size
         self.skip_low_resolution = skip_low_resolution
@@ -385,13 +388,13 @@ class CenterCropResizeVideo:
     """
 
     def __init__(
-        self,
-        size,
-        use_short_edge=False,
-        top_crop=False,
-        interpolation_mode="bilinear",
-        align_corners=False,
-        antialias=False,
+            self,
+            size,
+            use_short_edge=False,
+            top_crop=False,
+            interpolation_mode="bilinear",
+            align_corners=False,
+            antialias=False,
     ):
         if isinstance(size, list):
             size = tuple(size)
@@ -445,9 +448,9 @@ class UCFCenterCropVideo:
     """
 
     def __init__(
-        self,
-        size,
-        interpolation_mode="bilinear",
+            self,
+            size,
+            interpolation_mode="bilinear",
     ):
         if isinstance(size, list):
             size = tuple(size)
@@ -494,3 +497,168 @@ class TemporalRandomCrop:
         begin_index = random.randint(0, rand_end)
         end_index = min(begin_index + self.size, total_frames)
         return begin_index, end_index
+
+
+class Expand2Square:
+    """
+    Expand the given PIL image to a square by padding it with a background color.
+    Args:
+        mean (sequence): Sequence of means for each channel.
+    """
+
+    def __init__(self, mean):
+        self.background_color = tuple(int(x * 255) for x in mean)
+
+    def __call__(self, pil_img):
+        width, height = pil_img.size
+        if width == height:
+            return pil_img
+        elif width > height:
+            result = Image.new(pil_img.mode, (width, width), self.background_color)
+            result.paste(pil_img, (0, (width - height) // 2))
+            return result
+        else:
+            result = Image.new(pil_img.mode, (height, height), self.background_color)
+            result.paste(pil_img, ((height - width) // 2, 0))
+            return result
+
+
+class JpegDegradationSimulator:
+    """
+    Degrade an image based on the JPEG quality.
+    """
+
+    def __init__(self, min_quality=75, max_quality=101):
+        """
+        Initialize the simulator with a list of qualities.
+        """
+        self.qualities = list(range(min_quality, max_quality))
+        self.jpeg_degrade_functions = {
+            quality: self._simulate_jpeg_degradation(quality) for quality in self.qualities
+        }
+
+    def _simulate_jpeg_degradation(self, quality):
+        """
+        Create a function to degrade an image based on the JPEG quality.
+        """
+
+        def jpeg_degrade(img):
+            with io.BytesIO() as output:
+                img.convert("RGB").save(output, format="JPEG", quality=quality)
+                output.seek(0)  # Move the reading cursor to the start of the stream
+                img_jpeg = Image.open(output).copy()  # Use .copy() to make sure the image is loaded in memory
+            return img_jpeg
+
+        return jpeg_degrade
+
+    def __call__(self, img):
+        """
+        Apply a random JPEG degradation from the available qualities.
+        """
+        transform = T.RandomChoice([T.Lambda(self.jpeg_degrade_functions[quality]) for quality in self.qualities])
+        return transform(img)
+
+    def __repr__(self):
+        """
+        Represent the class instance.
+        """
+        return f"JpegDegradationSimulator(qualities={self.qualities})"
+
+
+class MaskGenerator:
+    def __init__(self, mask_ratios):
+        valid_mask_names = [
+            "identity",
+            "quarter_random",
+            "quarter_head",
+            "quarter_tail",
+            "quarter_head_tail",
+            "image_random",
+            "image_head",
+            "image_tail",
+            "image_head_tail",
+            "random",
+            "intepolate",
+        ]
+        if not all(
+                mask_name in valid_mask_names for mask_name in mask_ratios.keys()
+        ):
+            raise Exception(f"mask_name should be one of {valid_mask_names}, got {mask_ratios.keys()}")
+        if not all(
+                mask_ratio >= 0 for mask_ratio in mask_ratios.values()
+        ):
+            raise Exception(f"mask_ratio should be greater than or equal to 0, got {mask_ratios.values()}")
+        if not all(
+                mask_ratio <= 1 for mask_ratio in mask_ratios.values()
+        ):
+            raise Exception(f"mask_ratio should be less than or equal to 1, got {mask_ratios.values()}")
+        # sum of mask_ratios should be 1
+        if "identity" not in mask_ratios:
+            mask_ratios["identity"] = 1.0 - sum(mask_ratios.values())
+        if not math.isclose(
+                sum(mask_ratios.values()), 1.0, abs_tol=1e-6
+        ):
+            raise Exception(f"sum of mask_ratios should be 1, got {sum(mask_ratios.values())}")
+        self.mask_ratios = mask_ratios
+
+    def get_mask(self, x):
+        mask_type = random.random()
+        mask_name = None
+        prob_acc = 0.0
+        for mask, mask_ratio in self.mask_ratios.items():
+            prob_acc += mask_ratio
+            if mask_type < prob_acc:
+                mask_name = mask
+                break
+
+        vae_micro_frame_size = 17
+        video_frames = x.shape[1]
+        temporal_vae_downsample = 4
+        num_frames = (video_frames // vae_micro_frame_size) * \
+                     math.ceil(vae_micro_frame_size / temporal_vae_downsample)
+        # Hardcoded condition_frames
+        condition_frames_max = num_frames // 4
+
+        mask = torch.ones(num_frames, dtype=torch.bool, device=x.device)
+        if num_frames <= 1:
+            return mask
+
+        if mask_name == "quarter_random":
+            random_size = random.randint(1, condition_frames_max)
+            random_pos = random.randint(0, num_frames - random_size)
+            mask[random_pos: random_pos + random_size] = 0
+        elif mask_name == "image_random":
+            random_size = 1
+            random_pos = random.randint(0, num_frames - random_size)
+            mask[random_pos: random_pos + random_size] = 0
+        elif mask_name == "quarter_head":
+            random_size = random.randint(1, condition_frames_max)
+            mask[:random_size] = 0
+        elif mask_name == "image_head":
+            random_size = 1
+            mask[:random_size] = 0
+        elif mask_name == "quarter_tail":
+            random_size = random.randint(1, condition_frames_max)
+            mask[-random_size:] = 0
+        elif mask_name == "image_tail":
+            random_size = 1
+            mask[-random_size:] = 0
+        elif mask_name == "quarter_head_tail":
+            random_size = random.randint(1, condition_frames_max)
+            mask[:random_size] = 0
+            mask[-random_size:] = 0
+        elif mask_name == "image_head_tail":
+            random_size = 1
+            mask[:random_size] = 0
+            mask[-random_size:] = 0
+        elif mask_name == "intepolate":
+            random_start = random.randint(0, 1)
+            mask[random_start::2] = 0
+        elif mask_name == "random":
+            mask_ratio = random.uniform(0.1, 0.9)
+            mask = torch.rand(num_frames, device=x.device) > mask_ratio
+            # if mask is all False, set the last frame to True
+            if not mask.any():
+                mask[-1] = 1
+
+        return mask

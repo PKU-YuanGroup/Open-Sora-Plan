@@ -42,6 +42,7 @@ from megatron.training.utils import (
     unwrap_model,
 )
 from mindspeed_mm.configs.config import merge_mm_args
+from mindspeed_mm.tools.profiler import Profiler
 
 _TRAIN_START_TIME = time.time()
 
@@ -354,15 +355,10 @@ def train(
                 }
             )
 
-    while iteration < args.train_iters:
-        if (
-            args.profile
-            and iteration == args.profile_step_start
-            and torch.distributed.get_rank() in args.profile_ranks
-        ):
-            torch.cuda.cudart().cudaProfilerStart()
-            torch.autograd.profiler.emit_nvtx(record_shapes=True).__enter__()
+    prof = Profiler(args.mm.tool.profile)
+    prof.start()
 
+    while iteration < args.train_iters:
         # Update number of microbatches first without consistency check to decide if a
         # checkpoint should be saved. If the number of microbatches is different
         # from the previous iteration, save a checkpoint. Then run consistency check
@@ -535,19 +531,12 @@ def train(
             exit_flag = True
             break
 
-        if (
-            args.profile
-            and iteration == args.profile_step_end
-            and torch.distributed.get_rank() in args.profile_ranks
-        ):
-            torch.cuda.cudart().cudaProfilerStop()
-
         if args.manual_gc:
-            if (
-                args.manual_gc_interval != 0
-                and iteration % args.manual_gc_interval == 0
-            ):
+            if args.manual_gc_interval != 0 and iteration % args.manual_gc_interval == 0:
                 gc.collect()
+
+        prof.step()
+    prof.stop()
 
     track_e2e_metrics()
 

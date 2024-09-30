@@ -8,8 +8,7 @@ from megatron.core import mpu
 
 from mindspeed_mm.configs.config import merge_mm_args, mm_extra_args_provider
 from mindspeed_mm.tasks.inference.pipeline import SoraPipeline_dict
-from mindspeed_mm.tasks.inference.pipeline.utils.sora_utils import save_videos, prepare_multi_resolution_info
-from mindspeed_mm.tasks.inference.pipeline.utils.sora_utils import load_prompts
+from mindspeed_mm.tasks.inference.pipeline.utils.sora_utils import save_videos, load_prompts
 from mindspeed_mm.models.predictor import PredictModel
 from mindspeed_mm.models.diffusion import DiffusionModel
 from mindspeed_mm.models.ae import AEModel
@@ -24,7 +23,6 @@ if is_npu_available():
 
 
 def prepare_pipeline(args, device):
-    # TODO 目前不同模块有不同精度要求，soramodel支持后，统一soramodel
     vae = AEModel(args.ae).get_model().to(device, args.ae.dtype).eval()
     text_encoder = TextEncoder(args.text_encoder).get_model().to(device).eval()
     predict_model = PredictModel(args.predictor).get_model().to(device, args.predictor.dtype).eval()
@@ -33,12 +31,9 @@ def prepare_pipeline(args, device):
     if not hasattr(vae, 'dtype'):
         vae.dtype = args.ae.dtype
     tokenizer.model_max_length = args.model_max_length
-    if hasattr(args, 'use_y_embedder') and args.use_y_embedder:
-        text_encoder.y_embedder = predict_model.y_embedder
-    text_encoder.use_attention_mask = True
     sora_pipeline_class = SoraPipeline_dict[args.pipeline_class]
     sora_pipeline = sora_pipeline_class(vae=vae, text_encoder=text_encoder, tokenizer=tokenizer, scheduler=scheduler,
-                                     predict_model=predict_model)
+                                        predict_model=predict_model, config=args.pipeline_config)
     return sora_pipeline
 
 
@@ -54,9 +49,6 @@ def main():
 
     prompts = load_prompts(args.prompt)
     start_idx = 0
-    image_size = args.image_size
-    args.height, args.width = image_size
-    num_frames = args.num_frames
     motion_score = args.motion_score
     max_sequence_length = args.model_max_length
     save_fps = args.fps // args.frame_interval
@@ -73,9 +65,8 @@ def main():
         # == prepare batch prompts ==
         batch_prompts = prompts[i: i + args.micro_batch_size]
 
-        videos = sora_pipeline(prompt=batch_prompts, height=args.height, width=args.width, num_frames=num_frames,
-                               fps=save_fps, device=device, dtype=dtype, max_sequence_length=max_sequence_length,
-                               motion_score=motion_score)
+        videos = sora_pipeline(prompt=batch_prompts, fps=save_fps, device=device, dtype=dtype,
+                               max_sequence_length=max_sequence_length, motion_score=motion_score)
         video_grids.append(videos)
         start_idx += len(batch_prompts)
     video_grids = torch.cat(video_grids, dim=0)

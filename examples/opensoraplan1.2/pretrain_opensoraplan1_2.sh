@@ -23,6 +23,7 @@ GBS=$(($WORLD_SIZE*$MBS/$CP))
 
 MM_DATA="./examples/opensoraplan1.2/data.json"
 MM_MODEL="./examples/opensoraplan1.2/model_opensoraplan1_2.json"
+MM_TOOL="./mindspeed_mm/tools/tools.json"
 
 DISTRIBUTED_ARGS="
     --nproc_per_node $GPUS_PER_NODE \
@@ -39,8 +40,8 @@ GPT_ARGS="
     --micro-batch-size ${MBS} \
     --global-batch-size ${GBS} \
     --num-layers 32 \
-    --hidden-size 1152 \
-    --num-attention-heads 16 \
+    --hidden-size 2304 \
+    --num-attention-heads 24 \
     --seq-length 1024 \
     --max-position-embeddings 1024 \
     --attention-dropout 0.0 \
@@ -76,7 +77,8 @@ GPT_ARGS="
 
 MM_ARGS="
     --mm-data $MM_DATA \
-    --mm-model $MM_MODEL
+    --mm-model $MM_MODEL \
+    --mm-tool $MM_TOOL
 "
 
 OUTPUT_ARGS="
@@ -96,5 +98,5 @@ torchrun $DISTRIBUTED_ARGS pretrain_sora.py \
 
 chmod 440 logs/train_${logfile}.log
 STEP_TIME=`grep "elapsed time per iteration" logs/train_${logfile}.log | awk -F ':' '{print$5}' | awk -F '|' '{print$1}' | head -n 200 | tail -n 100 | awk '{sum+=$1} END {if (NR != 0) printf("%.1f",sum/NR)}'`
-FPS=`awk 'BEGIN{printf "%.3f\n", '${GBS}'*1000/'${STEP_TIME}'}'`
-echo "Elapsed Time Per iteration: $STEP_TIME, Average FPS: $FPS"
+PERF=`awk 'BEGIN{printf "%.3f\n", '${GBS}'*1000/'${STEP_TIME}'}'`
+echo "Elapsed Time Per iteration: $STEP_TIME, Average Samples per Second: $PERF"

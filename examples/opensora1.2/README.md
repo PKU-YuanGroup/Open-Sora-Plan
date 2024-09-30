@@ -163,9 +163,14 @@
 
 
 #### <span id="jump5.1"> 1. 准备工作
+参考上面模型准备环节，下载相应的权重到本地
+
+* [hpcai-tech/OpenSora-VAE-v1.2 ](https://huggingface.co/hpcai-tech/OpenSora-VAE-v1.2/tree/main)   - 3d vae模型
+* [DeepFloyd/t5-v1_1-xxl](https://huggingface.co/DeepFloyd/t5-v1_1-xxl)       -  t5模型
+* [hpcai-tech/OpenSora-STDiT-v3](https://huggingface.co/hpcai-tech/OpenSora-STDiT-v3/tree/main)   -  predict model
 
 #### <span id="jump5.2"> 2. 配置参数
-参数配置为json文件，地址在:
+将上述权重传到json文件中 from_pretrained字段中，prompt字段可以自定义成自己的prompt
 ```
 examples/opensora1.2/inference_model_102x720x1280.json
 ```

@@ -2,12 +2,15 @@
 
 import torch
 from torch import nn
+from torch.nn import CrossEntropyLoss
 
 from megatron.core import InferenceParams
 from megatron.core.models.gpt import GPTModel
 
 from .text_encoder.text_encoder import TextEncoder
 from .vision.vision_model import VisionModel
+from ..data.data_utils.constants import MODEL_CONSTANTS
+from ..utils.llava_layer_spec import get_layer_spec
 
 
 class VLModel(nn.Module):
@@ -31,49 +34,41 @@ class VLModel(nn.Module):
             "text_decoder": {...},  # Config for the text decoder.
         }
     """
+
     def __init__(self, config) -> None:
         super().__init__()
 
+        self.config = config.text_decoder
         self.pre_process = config.pre_process
         self.post_process = config.post_process
         self.add_text_encoder = config.text_encoder is not None
         self.add_image_encoder = config.image_encoder is not None
         self.add_video_encoder = config.video_encoder is not None
         self.add_text_decoder = config.text_decoder is not None
-        self.img_embedding_idx = config.img_embedding_idx
-        self.text_encoder = None
-        self.image_encoder = None
-        self.video_encoder = None
-        self.text_decoder = None
+        self.model_constants = MODEL_CONSTANTS.get(config.model_id)
+        if self.model_constants:
+            self.IGNORE_INDEX = self.model_constants.get("IGNORE_INDEX")
+            self.IMAGE_TOKEN_INDEX = self.model_constants.get("IMAGE_TOKEN_INDEX")
+        else:
+            self.IGNORE_INDEX = None
+            self.IMAGE_TOKEN_INDEX = None
 
-        #  This attribute is needed to check if an all-reduce is required
-        #  on the word embeddings inside 'finalize_model_grads._allreduce_word_embedding_grads'.
-        self.share_embeddings_and_output_weights = False
         if self.add_text_decoder:
+            language_tansformer_layer_spec = get_layer_spec(is_vit=False,
+                                                            normalization=config.text_decoder.normalization)
             self.text_decoder = GPTModel(
                 config=config.text_decoder,
-                transformer_layer_spec=config.language_tansformer_layer_spec,
-                vocab_size=config.language_vocab_size,
-                max_sequence_length=config.language_max_sequence_length,
-                parallel_output=config.parallel_output,
-                position_embedding_type=config.language_position_embedding_type,
-                rotary_percent=config.language_rotary_percent,
-                pre_process=self.pre_process,
-                post_process=self.post_process,
-                rotary_base=config.language_rotary_base
+                transformer_layer_spec=language_tansformer_layer_spec,
+                vocab_size=config.text_decoder.language_vocab_size,
+                max_sequence_length=config.text_decoder.language_max_sequence_length,
+                position_embedding_type=config.text_decoder.lm_position_embedding_type,
             )
-            self.share_embeddings_and_output_weights = self.text_decoder.share_embeddings_and_output_weights
         if self.add_image_encoder:
             self.image_encoder = VisionModel(config.image_encoder)
-        if self.add_text_encoder:
-            self.text_encoder = TextEncoder(config.text_encoder).get_model()
-        if self.add_video_encoder:
-            # TODO: video_encoder needs to be implemented
-            raise NotImplementedError("video_encoder module has not been implemented")
 
     def shared_embedding_or_output_weight(self):
         """
-        This is a convenience method to surface the language model's word embeddings, which is 
+        This is a convenience method to surface the language model's word embeddings, which is
         necessary for 'finalize_model_grads._allreduce_word_embedding_grads'.
         """
         if self.add_text_decoder:
@@ -93,11 +88,10 @@ class VLModel(nn.Module):
             self.text_decoder.set_input_tensor(input_tensor[0])
 
     def freeze(
-        self,
-        freeze_text_decoder: bool = False,
-        freeze_image_encoder: bool = False,
-        freeze_image_projection: bool = False,
-        freeze_video_encoder: bool = False
+            self,
+            freeze_text_decoder: bool = False,
+            freeze_image_encoder: bool = False,
+            freeze_image_projection: bool = False,
     ):
         """
         Freeze model modules.
@@ -114,16 +108,153 @@ class VLModel(nn.Module):
             for param in self.text_decoder.parameters():
                 param.requires_grad = False
         self.image_encoder.freeze(freeze_image_encoder, freeze_image_projection)
-        # TODO: freeze function of VideoEncoder needs to be implemented
+
+    def prepare_inputs_labels_for_multimodal(
+            self,
+            input_ids,
+            position_ids,
+            attention_mask,
+            past_key_values,
+            labels,
+            images,
+            image_sizes=None
+    ):
+        if self.IGNORE_INDEX is None or self.IMAGE_TOKEN_INDEX is None:
+            raise AssertionError("IGNORE_INDEX and IMAGE_TOKEN_INDEX shoule be provided for this model.")
+        if self.add_image_encoder == False or images is None or input_ids.shape[1] == 1:
+            return input_ids, position_ids, attention_mask, past_key_values, None, labels
+
+        image_features = self.image_encoder(images)
+        _labels = labels
+        _position_ids = position_ids
+        _attention_mask = attention_mask
+        if attention_mask is None:
+            attention_mask = torch.ones_like(input_ids, dtype=torch.bool)
+        else:
+            attention_mask = attention_mask.bool()
+        if position_ids is None:
+            position_ids = torch.arange(0, input_ids.shape[1], dtype=torch.long, device=input_ids.device)
+        if labels is None:
+            labels = torch.full_like(input_ids, self.IGNORE_INDEX)
+
+        _input_ids = input_ids
+        input_ids = [cur_input_ids[cur_attention_mask] for cur_input_ids, cur_attention_mask in
+                     zip(input_ids, attention_mask)]
+        labels = [cur_labels[cur_attention_mask] for cur_labels, cur_attention_mask in zip(labels, attention_mask)]
+
+        new_input_embeds = []
+        new_labels = []
+        cur_image_idx = 0
+        for batch_idx, cur_input_ids in enumerate(input_ids):
+            num_images = (cur_input_ids == self.IMAGE_TOKEN_INDEX).sum()
+            if num_images == 0:
+                cur_image_features = image_features[cur_image_idx]
+                cur_input_embeds_1 = self.text_decoder.embedding.word_embeddings(cur_input_ids)
+                cur_input_embeds = torch.cat([cur_input_embeds_1, cur_image_features[0:0]], dim=0)
+                new_input_embeds.append(cur_input_embeds)
+                new_labels.append(labels[batch_idx])
+                cur_image_idx += 1
+                continue
+
+            image_token_indices = [-1] + torch.where(cur_input_ids == self.IMAGE_TOKEN_INDEX)[0].tolist() + [
+                cur_input_ids.shape[0]]
+            cur_input_ids_noim = []
+            cur_labels = labels[batch_idx]
+            cur_labels_noim = []
+            for i in range(len(image_token_indices) - 1):
+                cur_input_ids_noim.append(cur_input_ids[image_token_indices[i] + 1:image_token_indices[i + 1]])
+                cur_labels_noim.append(cur_labels[image_token_indices[i] + 1:image_token_indices[i + 1]])
+            split_sizes = [x.shape[0] for x in cur_labels_noim]
+            cur_input_embeds = self.text_decoder.embedding.word_embeddings(torch.cat(cur_input_ids_noim))
+            cur_input_embeds_no_im = torch.split(cur_input_embeds, split_sizes, dim=0)
+            cur_new_input_embeds = []
+            cur_new_labels = []
+
+            for i in range(num_images + 1):
+                cur_new_input_embeds.append(cur_input_embeds_no_im[i])
+                cur_new_labels.append(cur_labels_noim[i])
+                if i < num_images:
+                    cur_image_features = image_features[cur_image_idx]
+                    cur_image_idx += 1
+                    cur_new_input_embeds.append(cur_image_features)
+                    cur_new_labels.append(
+                        torch.full((cur_image_features.shape[0],), self.IGNORE_INDEX, device=cur_labels.device,
+                                   dtype=cur_labels.dtype))
+
+            cur_new_input_embeds = [x for x in cur_new_input_embeds]
+
+            cur_new_input_embeds = torch.cat(cur_new_input_embeds)
+            cur_new_labels = torch.cat(cur_new_labels)
+
+            new_input_embeds.append(cur_new_input_embeds)
+            new_labels.append(cur_new_labels)
+
+        # Truncate sequences to max length as image embeddings can make the sequence longer
+        tokenizer_model_max_length = getattr(self.config, 'language_max_sequence_length', None)
+        if tokenizer_model_max_length is not None:
+            new_input_embeds = [x[:tokenizer_model_max_length] for x in new_input_embeds]
+            new_labels = [x[:tokenizer_model_max_length] for x in new_labels]
+
+        # Combine them
+        max_len = max(x.shape[0] for x in new_input_embeds)
+        batch_size = len(new_input_embeds)
+
+        new_input_embeds_padded = []
+        new_labels_padded = torch.full((batch_size, max_len), self.IGNORE_INDEX, dtype=new_labels[0].dtype,
+                                       device=new_labels[0].device)
+        attention_mask = torch.zeros((batch_size, max_len), dtype=attention_mask.dtype, device=attention_mask.device)
+        position_ids = torch.zeros((batch_size, max_len), dtype=position_ids.dtype, device=position_ids.device)
+
+        for i, (cur_new_embed, cur_new_labels) in enumerate(zip(new_input_embeds, new_labels)):
+            cur_len = cur_new_embed.shape[0]
+            if getattr(self.config, 'tokenizer_padding_side', 'right') == "left":
+                new_input_embeds_padded.append(torch.cat((
+                    torch.zeros((max_len - cur_len, cur_new_embed.shape[1]), dtype=cur_new_embed.dtype,
+                                device=cur_new_embed.device),
+                    cur_new_embed
+                ), dim=0))
+                if cur_len > 0:
+                    new_labels_padded[i, -cur_len:] = cur_new_labels
+                    attention_mask[i, -cur_len:] = True
+                    position_ids[i, -cur_len:] = torch.arange(0, cur_len, dtype=position_ids.dtype,
+                                                              device=position_ids.device)
+            else:
+                new_input_embeds_padded.append(torch.cat((
+                    cur_new_embed,
+                    torch.zeros((max_len - cur_len, cur_new_embed.shape[1]), dtype=cur_new_embed.dtype,
+                                device=cur_new_embed.device)
+                ), dim=0))
+                if cur_len > 0:
+                    new_labels_padded[i, :cur_len] = cur_new_labels
+                    attention_mask[i, :cur_len] = True
+                    position_ids[i, :cur_len] = torch.arange(0, cur_len, dtype=position_ids.dtype,
+                                                             device=position_ids.device)
+
+        new_input_embeds = torch.stack(new_input_embeds_padded, dim=0)
+
+        if _labels is None:
+            new_labels = None
+        else:
+            new_labels = new_labels_padded
+
+        if _attention_mask is None:
+            attention_mask = None
+        else:
+            attention_mask = attention_mask.to(dtype=_attention_mask.dtype)
+
+        if _position_ids is None:
+            position_ids = None
+
+        return None, position_ids, attention_mask, past_key_values, new_input_embeds, new_labels
 
     def forward(
-        self,
-        images: torch.Tensor,
-        input_ids: torch.Tensor,
-        position_ids: torch.Tensor,
-        attention_mask: torch.Tensor,
-        labels: torch.Tensor = None,
-        inference_params: InferenceParams = None
+            self,
+            images: torch.Tensor,
+            input_ids: torch.Tensor,
+            position_ids: torch.Tensor,
+            attention_mask: torch.Tensor,
+            labels: torch.Tensor = None,
+            inference_params: InferenceParams = None
     ) -> torch.Tensor:
         """
         Forward function of the VLModel.
@@ -139,40 +270,40 @@ class VLModel(nn.Module):
             output (torch.Tensor): Loss of shape [b, s] if labels are provided, otherwise logits of shape [b, s, vocab_size].
         """
 
-        if self.add_image_encoder:
-            image_embeddings = self.image_encoder(images)
-        else:
-            image_embeddings = None
+        input_ids, position_ids, attention_mask, past_key_value, combined_embeddings, labels = self.prepare_inputs_labels_for_multimodal(
+            input_ids, position_ids, attention_mask, None, labels, images, None
+        )
 
-        if not self.add_text_decoder:
-            return image_embeddings
+        causal_attention_mask = torch.triu(
+            torch.ones(combined_embeddings.shape[0], 1, combined_embeddings.shape[1], combined_embeddings.shape[1],
+                       device=combined_embeddings.device),
+            diagonal=1
+        ).bool()
+        attention_mask = ~attention_mask
+        expanded_attention_mask = attention_mask[:, None, None, :].expand(
+            combined_embeddings.shape[0], 1, combined_embeddings.shape[1], combined_embeddings.shape[1]
+        )
+        attention_mask = causal_attention_mask.masked_fill(expanded_attention_mask, True)
 
-        if self.pre_process:
-            language_embeddings = self.text_decoder.embedding(
-                input_ids=input_ids, position_ids=position_ids
-            )  # [text_seq_len, b, h_language]
-
-            # If running inference, we can skip image token computation if they were computed already earlier for this sample.
-
-            combined_embeddings = torch.cat(
-                [
-                    language_embeddings[: self.img_embedding_idx],
-                    image_embeddings,
-                    language_embeddings[self.img_embedding_idx :],
-                ],
-                dim=0,
-            )  # [combined_seq_len, b, h_language]
-        else:
-            combined_embeddings = None
-
-        output = self.text_decoder(
+        outputs = self.text_decoder(
             input_ids=None,
             position_ids=None,
             attention_mask=attention_mask,
-            decoder_input=combined_embeddings,
-            labels=labels,
-            inference_params=inference_params,
+            decoder_input=combined_embeddings.transpose(0, 1),
+            labels=None,
         )
+        logits = outputs.float()
+        loss = None
+        if labels is not None:
+            # Shift so that tokens < n predict n
+            shift_logits = logits[..., :-1, :].contiguous()
+            shift_labels = labels[..., 1:].contiguous()
+            # Flatten the tokens
+            loss_fct = CrossEntropyLoss()
+            shift_logits = shift_logits.view(-1, self.text_decoder.vocab_size)
+            shift_labels = shift_labels.view(-1)
+            # Enable model parallelism
+            shift_labels = shift_labels.to(shift_logits.device)
+            loss = loss_fct(shift_logits, shift_labels)
 
-        return output
-    
+        return loss

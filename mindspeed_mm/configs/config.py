@@ -1,3 +1,4 @@
+import os
 import json
 from mindspeed_mm.utils.utils import get_dtype
 
@@ -38,8 +39,20 @@ class ConfigReader:
     def __str__(self) -> str:
         self.__repr__()
         return ""
-    
-    
+
+    def update_unuse(self, **kwargs):
+
+        to_remove = []
+        for key, value in kwargs.items():
+            if hasattr(self, key):
+                setattr(self, key, value)
+                to_remove.append(key)
+
+        # remove all the attributes that were updated, without modifying the input dict
+        unused_kwargs = {key: value for key, value in kwargs.items() if key not in to_remove}
+        return unused_kwargs
+
+
 class MMConfig:
     """ 
     MMconfig 
@@ -47,8 +60,10 @@ class MMConfig:
     """
     def __init__(self, json_files: dict) -> None:
         for json_name, json_path in json_files.items():
-            config_dict = self.read_json(json_path)
-            setattr(self, json_name, ConfigReader(config_dict))
+            if os.path.exists(json_path):
+                real_path = os.path.realpath(json_path)
+                config_dict = self.read_json(real_path)
+                setattr(self, json_name, ConfigReader(config_dict))
     
     def read_json(self, json_path):
         with open(json_path, mode="r") as f:
@@ -61,6 +76,7 @@ def _add_mm_args(parser):
     group = parser.add_argument_group(title="multimodel")
     group.add_argument("--mm-data", type=str, default="")
     group.add_argument("--mm-model", type=str, default="")
+    group.add_argument("--mm-tool", type=str, default="")
     return parser
 
 
@@ -71,6 +87,6 @@ def mm_extra_args_provider(parser):
 
 def merge_mm_args(args):
     setattr(args, "mm", object)
-    json_files = {"model": args.mm_model, "data": args.mm_data}
+    json_files = {"model": args.mm_model, "data": args.mm_data, "tool": args.mm_tool}
     args.mm = MMConfig(json_files)
     

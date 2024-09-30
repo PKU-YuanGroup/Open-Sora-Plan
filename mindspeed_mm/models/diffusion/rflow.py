@@ -168,7 +168,7 @@ class RFlow:
         if not noise.shape == x_start.shape:
             raise Exception("noise must have the same shape as x_start")
         
-        x_t = self.add_noise(x_start, noise, t0)
+        x_t = self.add_noise(x_start, noise, t)
         
         if mask is not None:
             t0 = torch.zeros_like(t)

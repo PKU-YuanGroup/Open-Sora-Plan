@@ -14,12 +14,13 @@ class TestCIST:
     def _get_baseline(self, baseline_json):
         # acquire expected results
         self.expected = read_json(baseline_json)
+        self.warm_up = self.expected.get("warm_up", WARM_UP)
 
     def _get_actual(self, generate_log, generate_json):
         # acquire actual results
         transfer_logs_as_json(generate_log, generate_json)
         self.actual = read_json(generate_json)
-    
+
     def _test_helper(self, test_obj):
         """
         Core test function
@@ -35,7 +36,7 @@ class TestCIST:
             "time": self._compare_time,
             "memo info": self._compare_memory
         }
-        
+
         if test_obj in comparison_selection:
             print(f"===================== Begin comparing {test_obj} ===================")
             expected_list = self.expected[test_obj]
@@ -54,7 +55,7 @@ class TestCIST:
             compare_func(expected_list, actual_list)
         else:
             raise ValueError(f"Unsupported test object: {test_obj}")
-            
+
     def _compare_loss(self, expected_list, actual_list):
         # Because "deterministic computation" affects the throughput, so we just test
         # lm loss in case of approximation.
@@ -62,19 +63,20 @@ class TestCIST:
             print(f"Checking step {step + 1} for loss")
             if actual_val == pytest.approx(expected=expected_val, rel=self.margin_loss):
                 raise AssertionError(f"The loss at step {step} should be approximate to {expected_val} but it is {actual_val}.")
-            
+
     def _compare_time(self, expected_list, actual_list):
         # First few iterations might take a little longer. So we take the last 70 percent of the timings
-        expected_steps = len(expected_list) - WARM_UP
-        actual_steps = len(actual_list) - WARM_UP
+        expected_steps = len(expected_list) - self.warm_up
+        actual_steps = len(actual_list) - self.warm_up
         if expected_steps <= 0 or actual_steps <= 0:
             raise ValueError(f"Warm up steps must less than expected steps {len(expected_list)} or actual steps {len(actual_list)}")
-        expected_avg_time = sum(expected_list[WARM_UP:]) / expected_steps
-        actual_avg_time = sum(actual_list[WARM_UP:]) / actual_steps
+        expected_avg_time = sum(expected_list[self.warm_up:]) / expected_steps
+        actual_avg_time = sum(actual_list[self.warm_up:]) / actual_steps
 
         check_is_valid(
             actual_val=actual_avg_time,
             expected_val=expected_avg_time,
+            margin=self.margin_time_percent,
             greater=True,
             message=f"The actual avg time {actual_avg_time} exceed expected avg time {expected_avg_time}"
         )
@@ -84,16 +86,18 @@ class TestCIST:
             check_is_valid(
                 actual_val=actual_val["allocated memory"],
                 expected_val=expected_val["allocated memory"],
+                margin=self.margin_memory_percent,
                 greater=True,
                 message=f'The actual memory {actual_val["allocated memory"]} seems to be abnormal compare to expected {expected_val["allocated memory"]}.'
             )
             check_is_valid(
                 actual_val=actual_val["max allocated memory"],
                 expected_val=expected_val["max allocated memory"],
+                margin=self.margin_memory_percent,
                 greater=True,
                 message=f'The actual max memory {actual_val["max allocated memory"]} seems to be abnormal compare to expected {expected_val["max allocated memory"]}.'
             )
-    
+
     def test_time(self, baseline_json, generate_log, generate_json):
         self._get_baseline(baseline_json)
         self._get_actual(generate_log, generate_json)

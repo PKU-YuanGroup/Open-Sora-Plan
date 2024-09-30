@@ -3,12 +3,14 @@
 import torch
 from torch import nn
 
+from mindspeed_mm.models.common.module_spec.llava_layer_spec import get_layer_spec, get_mlp_module_spec
 from .projectors.multimodal_projector import MultimodalProjector
 from .vision_encoders.clip_vit_model import CLIPViT
 
+
 VISION_MODEL_MAPPINGS = {
     "clip": CLIPViT,
-    "projector": MultimodalProjector
+    "mlp": MultimodalProjector
 }
 
 
@@ -26,23 +28,27 @@ class VisionModel(nn.Module):
     """
     def __init__(self, config):
         super().__init__()
+        vision_transformer_layer_spec = get_layer_spec(is_vit=True)
         self.encoder = VISION_MODEL_MAPPINGS[config.vision_encoder.model_id](
             config.vision_encoder,
-            config.vision_transformer_layer_spec,
-            img_h=config.img_h,
-            img_w=config.img_w,
-            patch_dim=config.patch_dim,
+            vision_transformer_layer_spec,
+            add_class_token=config.add_class_token,
+            class_token_len=config.class_token_len,
+            image_size=config.image_size,
+            patch_size=config.patch_size,
         )
+        self.encoder.requires_grads_(False)
+        vision_projection_layer_spec = get_mlp_module_spec(use_te=False).submodules
         self.projector = VISION_MODEL_MAPPINGS[config.vision_projector.model_id](
             config.vision_projector,
-            config.vision_projection_layer_spec,
-            config.vision_projection_type,
+            vision_projection_layer_spec,
+            config.vision_projector.model_id,
             config.vision_encoder.hidden_size,
         )
-        self._drop_vision_class_token = config.drop_vision_class_token
+        self.projector.requires_grads_(True)
 
-    def get_model(self):
-        return self.encoder, self.projector
+    def set_input_tensor(self, input_tensor):
+        self.encoder.set_input_tensor(input_tensor)
 
     def freeze(
         self,
@@ -70,11 +76,8 @@ class VisionModel(nn.Module):
                 param.requires_grad = False
 
     def forward(self, images: torch.Tensor) -> torch.Tensor:
-        image_embeddings = self.encoder(images)  # [b, img_seq_len, h_vision]
-        if self._drop_vision_class_token:
-            image_embeddings = image_embeddings[:, self.encoder.class_token_len :, :]
-        image_embeddings = image_embeddings.permute(1, 0, 2).contiguous()  # [img_seq_len, b, h_vision]
-        image_embeddings = self.projector(image_embeddings)  # [img_seq_len, b, h_vision]
+        image_embeddings = self.encoder(images)
+        image_embeddings = self.projector(image_embeddings)
 
         return image_embeddings
     
