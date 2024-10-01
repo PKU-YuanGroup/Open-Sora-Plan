@@ -114,16 +114,28 @@ class Inpaint_dataset(T2V_dataset):
         frame_indice = dataset_prog.cap_list[idx]['sample_frame_index']
         sample_h = video_data['resolution']['sample_height']
         sample_w = video_data['resolution']['sample_width']
+        
+        mask = None
+
         if self.video_reader == 'decord':
             video = self.decord_read(video_path, predefine_frame_indice=frame_indice)
+            if video_data["mask_path"] is not None:
+                mask = self.decord_read(video_data['mask_path'], predefine_frame_indice=frame_indice)
         elif self.video_reader == 'opencv':
             video = self.opencv_read(video_path, predefine_frame_indice=frame_indice)
+            if video_data["mask_path"] is not None:
+                mask = self.opencv_read(video_data['mask_path'], predefine_frame_indice=frame_indice)
         else:
             NotImplementedError(f'Found {self.video_reader}, but support decord or opencv')
         # import ipdb;ipdb.set_trace()
 
+        # binary mask
+        if mask is not None:
+            mask = mask.mean(axis=1, keepdims=True)
+            mask = mask > 128
+
         video = self.resize_transform(video)  # T C H W -> T C H W
-        inpaint_cond_data = self.mask_processor(video, mask_type_ratio_dict=self.mask_type_ratio_dict_video)
+        inpaint_cond_data = self.mask_processor(video, mask=mask, mask_type_ratio_dict=self.mask_type_ratio_dict_video)
         mask, masked_video = inpaint_cond_data['mask'], inpaint_cond_data['masked_pixel_values']
 
         video = self.transform(video)  # T C H W -> T C H W
@@ -196,12 +208,17 @@ class Inpaint_dataset(T2V_dataset):
         image = torch.from_numpy(np.array(image))  # [h, w, c]
         image = rearrange(image, 'h w c -> c h w').unsqueeze(0)  #  [1 c h w]
 
+        mask = None
+        if image_data['mask_path'] is not None:
+            mask = Image.open(image_data['mask_path']).convert('L')
+            mask = torch.from_numpy(np.array(mask)).unsqueeze(0).unsqueeze(0) # [1 1 h w]
+
         if is_ood_img:
             image = self.resize_transform_img(image)
         else:
             image = self.resize_transform(image)
 
-        inpaint_cond_data = self.mask_processor(image, mask_type_ratio_dict=self.mask_type_ratio_dict_image)
+        inpaint_cond_data = self.mask_processor(image, mask=mask, mask_type_ratio_dict=self.mask_type_ratio_dict_image)
         mask, masked_image = inpaint_cond_data['mask'], inpaint_cond_data['masked_pixel_values']   
 
         image = self.transform(image)

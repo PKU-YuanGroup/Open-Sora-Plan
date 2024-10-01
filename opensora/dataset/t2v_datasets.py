@@ -37,6 +37,8 @@ from opensora.dataset.transform import get_params, longsideresize, add_masking_n
 import decord
 logger = get_logger(__name__)
 
+os.environ['DECORD_EOF_RETRY_MAX'] = 128
+
 def filter_json_by_existed_files(directory, data, postfix=".mp4"):
     # 构建搜索模式，以匹配指定后缀的文件
     pattern = os.path.join(directory, '**', f'*{postfix}')
@@ -462,7 +464,14 @@ class T2V_dataset(Dataset):
 
                     # resample in case high fps, such as 50/60/90/144 -> train_fps(e.g, 24)
                     frame_interval = fps / self.train_fps
-                    start_frame_idx = 10 if '/storage/dataset/movie' in i['path'] else 0  # special video
+                    if torch_npu is not None:
+                        movie_names = ['20240704-02-bbc-01', '20240704-03-bbc-0203', '20240704-04-bbc-0405']
+                        if any(name in path for name in movie_names):
+                            start_frame_idx = 10 
+                        else:
+                            start_frame_idx = 0
+                    else:
+                        start_frame_idx = 10 if '/storage/dataset/movie' in path else 0  # special video
                     frame_indices = np.arange(start_frame_idx, i['num_frames'], frame_interval).astype(int)
                     frame_indices = frame_indices[frame_indices < i['num_frames']]
 
@@ -543,8 +552,8 @@ class T2V_dataset(Dataset):
         video_data = decord_vr.get_batch(frame_indices).asnumpy()
         video_data = torch.from_numpy(video_data)
         video_data = video_data.permute(0, 3, 1, 2)  # (T, H, W, C) -> (T C H W)
-        # del decord_vr
-        # gc.collect()
+        del decord_vr
+        gc.collect()
         return video_data
     
     def opencv_read(self, path, predefine_frame_indice):
@@ -570,7 +579,14 @@ class T2V_dataset(Dataset):
     def get_actual_frame(self, fps, total_frames, path, predefine_num_frames, predefine_frame_indice):
         # resample in case high fps, such as 50/60/90/144 -> train_fps(e.g, 24)
         frame_interval = 1.0 if abs(fps - self.train_fps) < 0.1 else fps / self.train_fps
-        start_frame_idx = 10 if '/storage/dataset/movie' in path else 0  # special video
+        if torch_npu is not None:
+            movie_names = ['20240704-02-bbc-01', '20240704-03-bbc-0203', '20240704-04-bbc-0405']
+            if any(name in path for name in movie_names):
+                start_frame_idx = 10 
+            else:
+                start_frame_idx = 0
+        else:
+            start_frame_idx = 10 if '/storage/dataset/movie' in path else 0  # special video
         frame_indices = np.arange(start_frame_idx, total_frames, frame_interval).astype(int)
         frame_indices = frame_indices[frame_indices < total_frames]
         

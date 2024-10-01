@@ -6,8 +6,8 @@ deepspeed_config:
 fsdp_config: {}
 main_process_port: 29501
 main_training_function: main
-num_machines: 50
-num_processes: 400
+num_machines: 32
+num_processes: 256
 rdzv_backend: static
 same_network: true
 tpu_env: []

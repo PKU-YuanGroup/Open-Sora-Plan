@@ -13,20 +13,23 @@ export HCCL_OP_BASE_FFTS_MODE_ENABLE=TRUE
 # --main_process_ip=${MAIN_PROCESS_IP_VALUE} \ 
 
 accelerate launch \
-    --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
-    opensora/train/train_inpaint.py \
-    --model OpenSoraInpaint_v1_2-L/122 \
+    --config_file scripts/accelerate_configs/multi_node_example_by_deepspeed.yaml \
+    --machine_rank=${MACHINE_RANK} \
+    --main_process_ip=${MAIN_PROCESS_IP_VALUE} \
+    opensora/train/train_t2v_diffusers.py \
+    --model OpenSoraT2V_v1_2-L/122 \
     --text_encoder_name_1 google/mt5-xxl \
     --cache_dir "../../cache_dir/" \
-    --dataset inpaint \
-    --data "scripts/train_data/debug_on_npu.txt" \
+    --dataset t2v \
+    --data "scripts/train_data/lb_data.txt" \
     --ae WFVAEModel_D8_4x8x8 \
     --ae_path "/home/save_dir/lzj/wf-vae_trilinear" \
     --vae_fp32 \
     --sample_rate 1 \
     --num_frames 93 \
-    --max_height 512 \
-    --max_width 512 \
+    --max_height 352 \
+    --max_width 640 \
+    --force_resolution \
     --interpolation_scale_t 1.0 \
     --interpolation_scale_h 1.0 \
     --interpolation_scale_w 1.0 \
@@ -54,22 +57,14 @@ accelerate launch \
     --sparse1d --sparse_n 4 \
     --use_motion \
     --train_fps 16 \
-    --seed 1234 \
+    --seed 123456 \
     --trained_data_global_step 0 \
     --group_data \
     --use_decord \
     --prediction_type "v_prediction" \
     --rescale_betas_zero_snr \
-    --output_dir="debug" \
-    --t2v_ratio 0.02 \
-    --i2v_ratio 0.5 \
-    --transition_ratio 0.3 \
-    --v2v_ratio 0.0 \
-    --clear_video_ratio 0.0 \
-    --min_clear_ratio 0.0 \
-    --max_clear_ratio 1.0 \
-    --default_text_ratio 0.5 \
-    --pretrained_transformer_model_path "/home/image_data/captions/vpre_latest_168k/model_ema" \
-    # --resume_from_checkpoint="latest" \
-    # --min_height 0 \
-    # --min_width 0 \
+    --output_dir="/home/save_dir/runs/$PROJECT" \
+    --resume_from_checkpoint="latest" \
+    # --pretrained "/home/save_dir/pretrained/93x640x640_144k_ema/diffusion_pytorch_model.safetensors" \
+    # --min_height 320 \
+    # --min_width 320
