@@ -73,6 +73,9 @@ class Inpaint_dataset(T2V_dataset):
         self.mask_type_ratio_dict_image = {STR_TO_TYPE[k]: v for k, v in self.mask_type_ratio_dict_image.items()}
         self.mask_type_ratio_dict_image = type_ratio_normalize(self.mask_type_ratio_dict_image)
 
+        print(f"mask_type_ratio_dict_video: {self.mask_type_ratio_dict_video}")
+        print(f"mask_type_ratio_dict_image: {self.mask_type_ratio_dict_image}")
+
         self.mask_processor = MaskProcessor(
             max_height=args.max_height,
             max_width=args.max_width,

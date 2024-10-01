@@ -77,10 +77,12 @@ class BaseMaskGenerator(ABC):
         return torch.ones([num_frames, 1, height, width], device=device, dtype=dtype)
 
     def check_user_mask(self, mask):
-        assert mask is not None, 'mask should be provided.'
         assert len(mask.shape) == 4, 'mask should have 4 dimensions.' 
         assert mask.shape[1] == 1, 'mask should have 1 channel.'
         # assert torch.all((tensor == 0) | (tensor == 1)), 'mask should be binary.' # annotate this to save time, but this condition requires user confirmation
+
+    def process_for_null_mask(self, num_frames=None, height=None, width=None, device='cuda', dtype=torch.float32):
+        raise ValueError('mask should not be None.')
 
     @abstractmethod
     def process(self, mask):
@@ -91,7 +93,10 @@ class BaseMaskGenerator(ABC):
         if self.mask_init_type == MaskInitType.system:
             mask = self.create_system_mask(num_frames, height, width, device, dtype)
         elif self.mask_init_type == MaskInitType.user:
-            self.check_user_mask(mask)
+            if mask is not None:
+                self.check_user_mask(mask)
+            else:
+                mask = self.process_for_null_mask(num_frames, height, width, device, dtype) 
         return self.process(mask)
 
 class SemanticBaseMaskGenerator(BaseMaskGenerator):
@@ -103,6 +108,10 @@ class SemanticBaseMaskGenerator(BaseMaskGenerator):
     @abstractmethod
     def process_for_semantic_inheritance(self, mask):
         pass
+    
+    def process_for_null_mask(self, num_frames, height, width, device, dtype):
+        print('Mask is None, using random spatial mask as default.')
+        return self.generator_maybe_use(num_frames, height, width, mask=None, device=device, dtype=dtype)
 
     def process(self, mask):
         if not torch.any(mask):
@@ -405,16 +414,30 @@ if __name__ == '__main__':
     mask = read_video(semantic_mask_path)
     mask = mask[:, 0]
     mask = (mask > 128).unsqueeze(1).to(torch.float32)
-    generator = MaskMixer(
-                mask_generator_temporal=I2VMaskGenerator(), 
-                mask_generator_spatial=MaskCompose([
-                    SemanticMaskGenerator(),
-                    OutpaintMaskGenerator()
-                ]),
-                operation=torch.logical_or
-            )
+    processor = MaskProcessor()
+    ratio_dict = {
+        MaskType.t2iv: 0,
+        MaskType.i2v: 0,
+        MaskType.transition: 0,
+        MaskType.continuation: 0,
+        MaskType.clear: 0,
+        MaskType.random_temporal: 0,
+        MaskType.semantic: 1,
+        MaskType.dilate: 0,
+        MaskType.bbox: 0,
+        MaskType.random_spatial: 0,
+        MaskType.outpaint_random_spatial: 0,
+        MaskType.outpaint_semantic: 0,
+        MaskType.outpaint_bbox: 0,
+        MaskType.i2v_outpaint_semantic: 0
+    }
 
-    mask = generator(num_frames=mask.shape[0], height=mask.shape[2], width=mask.shape[3], mask=mask, device='cpu', dtype=torch.float32)
+    import yaml
+    with open('/home/image_data/gyy/suv/Open-Sora-Plan/scripts/train_configs/mask_config.yaml', 'r') as f:
+        yaml_config = yaml.safe_load(f)
+    print(yaml_config)
+
+    mask = processor(mask, mask=mask, mask_type_ratio_dict=ratio_dict)['mask']
     print(mask.shape)
     save_mask_to_video(mask, save_path='dilate_mask.mp4', fps=24)
     
