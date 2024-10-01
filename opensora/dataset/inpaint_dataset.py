@@ -34,12 +34,21 @@ from opensora.utils.utils import text_preprocessing
 from opensora.dataset.transform import get_params, longsideresize, add_masking_notice, motion_mapping_fun, calculate_statistics, \
     add_webvid_watermark_notice, clean_vidal, add_high_aesthetic_notice_image, add_aesthetic_notice_video, add_high_aesthetic_notice_image_human
 
-from opensora.utils.mask_utils import MaskProcessor, MaskType
+from opensora.utils.mask_utils import MaskProcessor, STR_TO_TYPE
 from opensora.dataset.t2v_datasets import T2V_dataset, DataSetProg
 
 logger = get_logger(__name__)
 
 dataset_prog = DataSetProg()
+
+def type_ratio_normalize(mask_type_ratio_dict):
+    for k, v in mask_type_ratio_dict.items():
+        assert v >= 0, f"mask_type_ratio_dict[{k}] should be non-negative, but got {v}"
+    total = sum(mask_type_ratio_dict.values())
+    length = len(mask_type_ratio_dict)
+    if total == 0:
+        return {k: 1.0 / length for k in mask_type_ratio_dict.keys()}
+    return {k: v / total for k, v in mask_type_ratio_dict.items()}
 
 class Inpaint_dataset(T2V_dataset):
     def __init__(self, args, resize_transform, transform, resize_transform_img, temporal_sample, tokenizer_1, tokenizer_2):
@@ -56,35 +65,25 @@ class Inpaint_dataset(T2V_dataset):
         self.resize_transform_img = resize_transform_img
 
         if self.num_frames != 1:
-            # inpaint
-            self.t2v_ratio = args.t2v_ratio
-            self.i2v_ratio = args.i2v_ratio
-            self.transition_ratio = args.transition_ratio
-            self.v2v_ratio = args.v2v_ratio
-            self.clear_video_ratio = args.clear_video_ratio
-            assert self.t2v_ratio + self.i2v_ratio + self.transition_ratio + self.v2v_ratio + self.clear_video_ratio <= 1, 'The sum of t2v_ratio, i2v_ratio, transition_ratio, v2v_ratio and clear video ratio should be less than 1.'
+            self.mask_type_ratio_dict_video = args.mask_type_ratio_dict_video if args.mask_type_ratio_dict_video is not None else {'random_temporal': 1.0}
+            self.mask_type_ratio_dict_video = {STR_TO_TYPE[k]: v for k, v in self.mask_type_ratio_dict_video.items()}
+            self.mask_type_ratio_dict_video = type_ratio_normalize(self.mask_type_ratio_dict_video)
+                
+        self.mask_type_ratio_dict_image = args.mask_type_ratio_dict_image if args.mask_type_ratio_dict_image is not None else {'random_spatial': 1.0}
+        self.mask_type_ratio_dict_image = {STR_TO_TYPE[k]: v for k, v in self.mask_type_ratio_dict_image.items()}
+        self.mask_type_ratio_dict_image = type_ratio_normalize(self.mask_type_ratio_dict_image)
 
-            self.mask_type_ratio_dict_video = {
-                MaskType.t2iv: self.t2v_ratio, 
-                MaskType.i2v: self.i2v_ratio, 
-                MaskType.transition: self.transition_ratio, 
-                MaskType.v2v: self.v2v_ratio, 
-                MaskType.clear: self.clear_video_ratio, 
-                MaskType.random_temporal: 1 - self.t2v_ratio - self.i2v_ratio - self.transition_ratio - self.v2v_ratio - self.clear_video_ratio
-            }
-
-        self.mask_type_ratio_dict_image = {
-            MaskType.t2iv: 0.9, 
-            MaskType.clear: 0.1
-        }
-
-        min_clear_ratio = args.min_clear_ratio if args.min_clear_ratio is not None else 0.0
-        max_clear_ratio = args.max_clear_ratio if args.max_clear_ratio is not None else 1.0
-
-        self.mask_processor = MaskProcessor(min_clear_ratio=min_clear_ratio, max_clear_ratio=max_clear_ratio)
+        self.mask_processor = MaskProcessor(
+            max_height=args.max_height,
+            max_width=args.max_width,
+            min_clear_ratio=args.min_clear_ratio,
+            max_clear_ratio=args.max_clear_ratio,
+            min_clear_ratio_hw=args.min_clear_ratio_hw,
+            max_clear_ratio_hw=args.max_clear_ratio_hw,
+            dilate_kernel_size=args.dilate_kernel_size,
+        )
 
         self.default_text_ratio = args.default_text_ratio
-
 
     def drop(self, text, is_video=True):
         rand_num = random.random()
@@ -119,22 +118,23 @@ class Inpaint_dataset(T2V_dataset):
 
         if self.video_reader == 'decord':
             video = self.decord_read(video_path, predefine_frame_indice=frame_indice)
-            if video_data["mask_path"] is not None:
+            if video_data.get('mask_path', None) is not None:
                 mask = self.decord_read(video_data['mask_path'], predefine_frame_indice=frame_indice)
         elif self.video_reader == 'opencv':
             video = self.opencv_read(video_path, predefine_frame_indice=frame_indice)
-            if video_data["mask_path"] is not None:
+            if video_data.get('mask_path', None) is not None:
                 mask = self.opencv_read(video_data['mask_path'], predefine_frame_indice=frame_indice)
         else:
             NotImplementedError(f'Found {self.video_reader}, but support decord or opencv')
         # import ipdb;ipdb.set_trace()
 
+        video = self.resize_transform(video)  # T C H W -> T C H W
+
         # binary mask
         if mask is not None:
-            mask = mask.mean(axis=1, keepdims=True)
-            mask = mask > 128
-
-        video = self.resize_transform(video)  # T C H W -> T C H W
+            mask = mask[:, 0:1]
+            mask = self.resize_transform(mask)  # T C H W -> T C H W
+            mask = (mask > 128).to(dtype=video.dtype, device=video.device)
         inpaint_cond_data = self.mask_processor(video, mask=mask, mask_type_ratio_dict=self.mask_type_ratio_dict_video)
         mask, masked_video = inpaint_cond_data['mask'], inpaint_cond_data['masked_pixel_values']
 
@@ -209,15 +209,18 @@ class Inpaint_dataset(T2V_dataset):
         image = rearrange(image, 'h w c -> c h w').unsqueeze(0)  #  [1 c h w]
 
         mask = None
-        if image_data['mask_path'] is not None:
+        if image_data.get('mask_path', None) is not None:
             mask = Image.open(image_data['mask_path']).convert('L')
-            mask = torch.from_numpy(np.array(mask)).unsqueeze(0).unsqueeze(0) # [1 1 h w]
 
         if is_ood_img:
             image = self.resize_transform_img(image)
         else:
             image = self.resize_transform(image)
 
+        if mask is not None:
+            mask = torch.from_numpy(np.array(mask)).unsqueeze(0).unsqueeze(0) # [1 1 h w]
+            mask = self.resize_transform(mask)
+            mask = (mask > 128).to(dtype=image.dtype, device=image.device)
         inpaint_cond_data = self.mask_processor(image, mask=mask, mask_type_ratio_dict=self.mask_type_ratio_dict_image)
         mask, masked_image = inpaint_cond_data['mask'], inpaint_cond_data['masked_pixel_values']   
 

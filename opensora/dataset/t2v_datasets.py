@@ -37,7 +37,6 @@ from opensora.dataset.transform import get_params, longsideresize, add_masking_n
 import decord
 logger = get_logger(__name__)
 
-os.environ['DECORD_EOF_RETRY_MAX'] = 128
 
 def filter_json_by_existed_files(directory, data, postfix=".mp4"):
     # 构建搜索模式，以匹配指定后缀的文件

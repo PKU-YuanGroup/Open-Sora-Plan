@@ -20,6 +20,7 @@ from einops import rearrange
 import torch.utils
 import torch.utils.data
 from tqdm import tqdm
+import yaml
 
 from opensora.adaptor.modules import replace_with_fp32_forwards
 
@@ -130,6 +131,8 @@ def main(args):
     if accelerator.is_main_process:
         if args.output_dir is not None:
             os.makedirs(args.output_dir, exist_ok=True)
+            # backup the config file
+            shutil.copy(args.mask_config, os.path.join(args.output_dir, "mask_config.yaml"))
 
     # For mixed precision training we cast all non-trainable weigths to half-precision
     # as these weights are only used for inference, keeping weights in full precision is not required.
@@ -962,15 +965,18 @@ if __name__ == "__main__":
     parser.add_argument("--train_sp_batch_size", type=int, default=1, help="Batch size for sequence parallel training")
 
     # inpaint
-    parser.add_argument("--t2v_ratio", type=float, default=0.1) # for inpainting mode
-    parser.add_argument("--i2v_ratio", type=float, default=0.4) # for inpainting mode
-    parser.add_argument("--transition_ratio", type=float, default=0.4) # for inpainting mode
-    parser.add_argument("--v2v_ratio", type=float, default=0.1) # for inpainting mode
-    parser.add_argument("--clear_video_ratio", type=float, default=0.0) # for inpainting mode
-    parser.add_argument("--min_clear_ratio", type=float, default=0.0) # for inpainting mode
-    parser.add_argument("--max_clear_ratio", type=float, default=1.0) # for inpainting mode
+    parser.add_argument("--mask_config", type=str, default=None)
     parser.add_argument("--default_text_ratio", type=float, default=0.5) # for inpainting mode
     parser.add_argument("--pretrained_transformer_model_path", type=str, default=None)
 
     args = parser.parse_args()
+
+    assert args.mask_config is not None, 'mask_config is required!'
+    with open(args.mask_config, 'r') as f:
+        yaml_config = yaml.safe_load(f)
+    
+    for key, value in yaml_config.items():
+        if not hasattr(args, key):
+            setattr(args, key, value)
+
     main(args)

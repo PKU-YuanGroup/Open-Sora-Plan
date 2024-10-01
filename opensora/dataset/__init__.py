@@ -64,14 +64,14 @@ def getdataset(args):
             temporal_sample=temporal_sample, tokenizer_1=tokenizer_1, tokenizer_2=tokenizer_2
             )
     elif args.dataset == 'i2v' or args.dataset == 'inpaint':
-        resize_transform = Compose([*resize])
+        resize_transform = Compose(resize)
         transform = Compose([
             ToTensorAfterResize(),
             norm_fun,
         ])
         resize_transform_img = None
         if resize_for_img is not None:
-            resize_transform_img = Compose([*resize_for_img])
+            resize_transform_img = Compose(resize_for_img)
         return Inpaint_dataset(
             args, resize_transform=resize_transform, transform=transform, resize_transform_img=resize_transform_img, 
             temporal_sample=temporal_sample, tokenizer_1=tokenizer_1, tokenizer_2=tokenizer_2

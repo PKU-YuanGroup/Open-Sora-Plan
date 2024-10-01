@@ -18,7 +18,7 @@ from enum import Enum, auto
 from einops import rearrange
 
 class MaskType(Enum):
-    # frame-level mask
+    # temporal-level mask
     t2iv = auto() # For video, execute t2v (all frames are masked), for image, execute t2i (the image are masked)
     i2v = auto() # Only for video, execute i2v (i.e. maintain the first frame and mask the rest)
     transition = auto() # Only for video, execute transition (i.e. maintain the first and last frame and mask the rest)
@@ -60,7 +60,27 @@ def read_video(video_path):
     reader.close()
     return video_tensor
 
+class MaskInitType(Enum):
+    system = auto()
+    user = auto()
+
 class BaseMaskGenerator(ABC):
+
+    def __init__(self, mask_init_type=MaskInitType.system):
+        if mask_init_type not in set(MaskInitType):
+            raise ValueError('mask_init_type should be an instance of MaskInitType.')
+        self.mask_init_type = mask_init_type
+
+    def create_system_mask(self, num_frames, height, width, device, dtype):
+        if num_frames is None or height is None or width is None:
+            raise ValueError('num_frames, height, and width should be provided.')
+        return torch.ones([num_frames, 1, height, width], device=device, dtype=dtype)
+
+    def check_user_mask(self, mask):
+        assert mask is not None, 'mask should be provided.'
+        assert len(mask.shape) == 4, 'mask should have 4 dimensions.' 
+        assert mask.shape[1] == 1, 'mask should have 1 channel.'
+        # assert torch.all((tensor == 0) | (tensor == 1)), 'mask should be binary.' # annotate this to save time, but this condition requires user confirmation
 
     @abstractmethod
     def process(self, mask):
@@ -68,17 +88,16 @@ class BaseMaskGenerator(ABC):
         pass
 
     def __call__(self, num_frames=None, height=None, width=None, mask=None, device='cuda', dtype=torch.float32):
-        if mask is None:
-            mask = torch.ones([num_frames, 1, height, width], device=device, dtype=dtype)
-        else:
-            assert len(mask.shape) == 4, 'mask should have 4 dimensions.' 
-            assert mask.shape[1] == 1, 'mask should have 1 channel.'
-            # assert torch.all((tensor == 0) | (tensor == 1)), 'mask should be binary.' # annotate this to save time, but this condition requires user confirmation
+        if self.mask_init_type == MaskInitType.system:
+            mask = self.create_system_mask(num_frames, height, width, device, dtype)
+        elif self.mask_init_type == MaskInitType.user:
+            self.check_user_mask(mask)
         return self.process(mask)
 
 class SemanticBaseMaskGenerator(BaseMaskGenerator):
 
-    def __init__(self, min_clear_ratio_hw=0.0, max_clear_ratio_hw=1.0):
+    def __init__(self, mask_init_type=MaskInitType.user, min_clear_ratio_hw=0.0, max_clear_ratio_hw=1.0):
+        super().__init__(mask_init_type=mask_init_type)
         self.generator_maybe_use = RandomSpatialMaskGenerator(min_clear_ratio_hw=min_clear_ratio_hw, max_clear_ratio_hw=max_clear_ratio_hw)
     
     @abstractmethod
@@ -110,11 +129,11 @@ class TransitionMaskGenerator(BaseMaskGenerator):
 
 class ContinuationMaskGenerator(BaseMaskGenerator):
     
-    def __init__(self, min_clear_ratio=0.0, max_clear_ratio=1.0):
-        super().__init__()
+    def __init__(self, mask_init_type=MaskInitType.system, min_clear_ratio=0.0, max_clear_ratio=1.0):
+        super().__init__(mask_init_type=mask_init_type)
         assert min_clear_ratio >= 0 and min_clear_ratio <= 1, 'min_clear_ratio should be in the range of [0, 1].'
         assert max_clear_ratio >= 0 and max_clear_ratio <= 1, 'max_clear_ratio should be in the range of [0, 1].'
-        assert min_clear_ratio < max_clear_ratio, 'min_clear_ratio should be less than max_clear_ratio.'
+        assert min_clear_ratio <= max_clear_ratio, 'min_clear_ratio should be less than max_clear_ratio.'
         self.min_clear_ratio = min_clear_ratio
         self.max_clear_ratio = max_clear_ratio
 
@@ -131,11 +150,11 @@ class ClearMaskGenerator(BaseMaskGenerator):
 
 class RandomTemporalMaskGenerator(BaseMaskGenerator):
 
-    def __init__(self, min_clear_ratio=0.0, max_clear_ratio=1.0):
-        super().__init__()
+    def __init__(self, mask_init_type=MaskInitType.system, min_clear_ratio=0.0, max_clear_ratio=1.0):
+        super().__init__(mask_init_type=mask_init_type)
         assert min_clear_ratio >= 0 and min_clear_ratio <= 1, 'min_clear_ratio should be in the range of [0, 1].'
         assert max_clear_ratio >= 0 and max_clear_ratio <= 1, 'max_clear_ratio should be in the range of [0, 1].'
-        assert min_clear_ratio < max_clear_ratio, 'min_clear_ratio should be less than max_clear_ratio.'
+        assert min_clear_ratio <= max_clear_ratio, 'min_clear_ratio should be less than max_clear_ratio.'
         self.min_clear_ratio = min_clear_ratio
         self.max_clear_ratio = max_clear_ratio
 
@@ -154,13 +173,13 @@ class SemanticMaskGenerator(SemanticBaseMaskGenerator):
     
 class DilateMaskGenerator(SemanticMaskGenerator):
 
-    def __init__(self, max_height=640, max_width=640, min_clear_ratio_hw=0.0, max_clear_ratio_hw=1.0, kernel_size=None):
-        super().__init__(min_clear_ratio_hw=min_clear_ratio_hw, max_clear_ratio_hw=max_clear_ratio_hw)
-        if kernel_size is not None:
+    def __init__(self, mask_init_type=MaskInitType.user, max_height=640, max_width=640, min_clear_ratio_hw=0.0, max_clear_ratio_hw=1.0, kernel_size=None):
+        super().__init__(mask_init_type=mask_init_type, min_clear_ratio_hw=min_clear_ratio_hw, max_clear_ratio_hw=max_clear_ratio_hw)
+        if max_height is not None and max_width is not None:
+            self.kernel_size = min(max_height, max_width) // 40 * 2 + 1
+        elif kernel_size is not None:
             assert kernel_size % 2 == 1 and kernel_size > 0, 'kernel_size should be an positive odd number.'
             self.kernel_size = kernel_size
-        elif max_height is not None and max_width is not None:
-            self.kernel_size = min(max_height, max_width) // 40 * 2 + 1
         else:
             raise ValueError('kernel_size or max_height and max_width should be provided.')
 
@@ -177,8 +196,8 @@ class DilateMaskGenerator(SemanticMaskGenerator):
 
 class BBoxMaskGenerator(SemanticMaskGenerator):
 
-    def __init__(self, min_clear_ratio_hw=0.0, max_clear_ratio_hw=1.0):
-        super().__init__(min_clear_ratio_hw=min_clear_ratio_hw, max_clear_ratio_hw=max_clear_ratio_hw)
+    def __init__(self, mask_init_type=MaskInitType.user, min_clear_ratio_hw=0.0, max_clear_ratio_hw=1.0):
+        super().__init__(mask_init_type=mask_init_type, min_clear_ratio_hw=min_clear_ratio_hw, max_clear_ratio_hw=max_clear_ratio_hw)
 
     def generate_bbox(self, mask):
         num_frames, _, height, width = mask.shape  # C 应该为 1
@@ -210,10 +229,11 @@ class BBoxMaskGenerator(SemanticMaskGenerator):
 
 class RandomSpatialMaskGenerator(BaseMaskGenerator):
 
-    def __init__(self, min_clear_ratio_hw=0.0, max_clear_ratio_hw=1.0):
+    def __init__(self, mask_init_type=MaskInitType.system, min_clear_ratio_hw=0.0, max_clear_ratio_hw=1.0):
+        super().__init__(mask_init_type=mask_init_type)
         assert min_clear_ratio_hw >= 0 and min_clear_ratio_hw <= 1, 'min_clear_ratio_hw should be in the range of [0, 1].'
         assert max_clear_ratio_hw >= 0 and max_clear_ratio_hw <= 1, 'max_clear_ratio_hw should be in the range of [0, 1].'
-        assert min_clear_ratio_hw < max_clear_ratio_hw, 'min_clear_ratio_hw should be less than max_clear_ratio_hw.'
+        assert min_clear_ratio_hw <= max_clear_ratio_hw, 'min_clear_ratio_hw should be less than max_clear_ratio_hw.'
         self.min_clear_ratio_hw = min_clear_ratio_hw
         self.max_clear_ratio_hw = max_clear_ratio_hw
 
@@ -228,6 +248,9 @@ class RandomSpatialMaskGenerator(BaseMaskGenerator):
         return mask
 
 class OutpaintMaskGenerator(BaseMaskGenerator):
+
+    def __init__(self):
+        super().__init__(mask_init_type=MaskInitType.user)
     def process(self, mask):
         return 1 - mask
 
@@ -265,16 +288,24 @@ class MaskMixer:
     
 
 class MaskProcessor:
-    def __init__(self, max_height=640, max_width=640, min_clear_ratio=0.0, max_clear_ratio=1.0, dilate_kernel_size=31, **kwargs):
+    def __init__(
+        self, 
+        max_height=640, 
+        max_width=640, 
+        min_clear_ratio=0.0, 
+        max_clear_ratio=1.0, 
+        min_clear_ratio_hw=0.1,
+        max_clear_ratio_hw=0.9,
+        dilate_kernel_size=31, 
+    ):
         
-        self.min_clear_ratio = min_clear_ratio
-        self.max_clear_ratio = max_clear_ratio
-        self.dilate_kernel_size = dilate_kernel_size
         self.max_height = max_height
         self.max_width = max_width
-
-        self.min_clear_ratio_hw = 0.1
-        self.max_clear_ratio_hw = 0.9
+        self.min_clear_ratio = min_clear_ratio
+        self.max_clear_ratio = max_clear_ratio
+        self.min_clear_ratio_hw = min_clear_ratio_hw
+        self.max_clear_ratio_hw = max_clear_ratio_hw
+        self.dilate_kernel_size = dilate_kernel_size
 
         self.init_mask_generators()
 
@@ -343,7 +374,7 @@ class MaskCompressor:
         self.ae_stride_w = ae_stride_w
         self.ae_stride_t = ae_stride_t
     
-    def compress_mask(self, mask):
+    def __call__(self, mask):
         B, C, T, H, W = mask.shape
         new_H, new_W = H // self.ae_stride_h, W // self.ae_stride_w
         mask = rearrange(mask, 'b c t h w -> (b c t) 1 h w')
@@ -365,9 +396,6 @@ class MaskCompressor:
         mask = mask.transpose(1, 2).contiguous()
         return mask
     
-    def __call__(self, mask):
-        return self.compress_mask(mask)
-    
 
 if __name__ == '__main__':
     video_path = '/home/image_data/hxy/data/video/000184.mp4'
@@ -377,7 +405,14 @@ if __name__ == '__main__':
     mask = read_video(semantic_mask_path)
     mask = mask[:, 0]
     mask = (mask > 128).unsqueeze(1).to(torch.float32)
-    generator = BBoxMaskGenerator()
+    generator = MaskMixer(
+                mask_generator_temporal=I2VMaskGenerator(), 
+                mask_generator_spatial=MaskCompose([
+                    SemanticMaskGenerator(),
+                    OutpaintMaskGenerator()
+                ]),
+                operation=torch.logical_or
+            )
 
     mask = generator(num_frames=mask.shape[0], height=mask.shape[2], width=mask.shape[3], mask=mask, device='cpu', dtype=torch.float32)
     print(mask.shape)
