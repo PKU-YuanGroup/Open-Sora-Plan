@@ -48,7 +48,6 @@ class PositionGetter3D(object):
             y = torch.arange(h, device=device)
             z = torch.arange(t, device=device)
             pos = torch.cartesian_prod(z, y, x)
-            # print('PositionGetter3D', PositionGetter3D)
             pos = pos.reshape(t * h * w, 3).transpose(0, 1).reshape(3, -1, 1).contiguous().expand(3, -1, b).clone()
             poses = (pos[0].contiguous(), pos[1].contiguous(), pos[2].contiguous())
             max_poses = (int(poses[0].max()), int(poses[1].max()), int(poses[2].max()))
@@ -170,79 +169,177 @@ class OpenSoraLayerNormZero(nn.Module):
         # return hidden_states, encoder_hidden_states, gate[:, None, :], enc_gate[:, None, :]
 
 
+
 class OpenSoraAttnProcessor2_0:
     r"""
     Processor for implementing scaled dot-product attention for the OpenSora model. It applies a rotary embedding on
     query and key vectors, but does not include spatial normalization.
     """
 
-    def __init__(self):
+    def __init__(self, sparse1d, sparse_n, sparse_group):
+        self.sparse1d = sparse1d
+        self.sparse_n = sparse_n
+        self.sparse_group = sparse_group
         if not hasattr(F, "scaled_dot_product_attention"):
             raise ImportError("OpenSoraAttnProcessor2_0 requires PyTorch 2.0, to use it, please upgrade PyTorch to 2.0.")
 
+    def _sparse_1d(self, x, frame, height, width):
+        """
+        require the shape of (ntokens x batch_size x dim)
+        """
+        l = x.shape[0]
+        assert l == frame*height*width
+        pad_len = 0
+        if l % (self.sparse_n * self.sparse_n) != 0:
+            pad_len = self.sparse_n * self.sparse_n - l % (self.sparse_n * self.sparse_n)
+        if pad_len != 0:
+            x = F.pad(x, (0, 0, 0, 0, 0, pad_len))
+        if not self.sparse_group:
+            x = rearrange(x, '(g k) b d -> g (k b) d', k=self.sparse_n)
+        else:
+            x = rearrange(x, '(n m k) b d -> (n k) (m b) d', m=self.sparse_n, k=self.sparse_n)
+        return x, pad_len
+    
+    def _reverse_sparse_1d(self, x, frame, height, width, pad_len):
+        """
+        require the shape of (ntokens x batch_size x dim)
+        """
+        assert x.shape[0] == (frame*height*width+pad_len) // self.sparse_n
+        if not self.sparse_group:
+            x = rearrange(x, 'g (k b) d -> (g k) b d', k=self.sparse_n)
+        else:
+            x = rearrange(x, '(n k) (m b) d -> (n m k) b d', m=self.sparse_n, k=self.sparse_n)
+        x = x[:frame*height*width, :, :]
+        return x
+    
+    def _sparse_1d_enc(self, x):
+        """
+        require the shape of (ntokens x batch_size x dim)
+        """
+        x = repeat(x, 's b d -> s (k b) d', k=self.sparse_n)
+        return x
+    
+    def _reverse_sparse_1d_enc(self, x):
+        """
+        require the shape of (ntokens x batch_size x dim)
+        """
+        x = rearrange(x, 's (k b) d -> s k b d', k=self.sparse_n).mean(1)
+        return x
+    
     def __call__(
         self,
         attn: Attention,
         hidden_states: torch.Tensor,
         encoder_hidden_states: torch.Tensor,
+        frame: int, 
+        height: int, 
+        width: int, 
         attention_mask: Optional[torch.Tensor] = None,
         video_rotary_emb: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        text_seq_length = encoder_hidden_states.size(0)
+        text_seq_length, batch_size, _  = encoder_hidden_states.shape
 
-        hidden_states = torch.cat([encoder_hidden_states, hidden_states], dim=0)
-
-        sequence_length, batch_size, _ = hidden_states.shape
-
-        if attention_mask is not None:
-            attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length, batch_size)
-            attention_mask = attention_mask.view(batch_size, attn.heads, -1, attention_mask.shape[-1])
-
+        # -----------------------------------------------
+        # Step 1, visual token projection
         query = attn.to_q(hidden_states)
         key = attn.to_k(hidden_states)
         value = attn.to_v(hidden_states)
+        # -----------------------------------------------
+
+        # -----------------------------------------------
+        # Step 2, text token projection
+        encoder_hidden_states_query_proj = attn.add_q_proj(encoder_hidden_states)
+        encoder_hidden_states_key_proj = attn.add_k_proj(encoder_hidden_states)
+        encoder_hidden_states_value_proj = attn.add_v_proj(encoder_hidden_states)
+        # -----------------------------------------------
 
         inner_dim = key.shape[-1]
         head_dim = inner_dim // attn.heads
         FA_head_num = attn.heads
+        total_frame = frame
 
-        # query = query.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
-        # key = key.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
-        # value = value.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
+        # -----------------------------------------------
+        # Step 3, apply qk norm and RoPE
         query = query.view(-1, batch_size, FA_head_num, head_dim)
         key = key.view(-1, batch_size, FA_head_num, head_dim)
-        value = value.view(-1, batch_size, FA_head_num, head_dim)
+        query = attn.norm_q(query)
+        key = attn.norm_k(key)
 
-        if attn.norm_q is not None:
-            query = attn.norm_q(query)
-        if attn.norm_k is not None:
-            key = attn.norm_k(key)
+        encoder_hidden_states_query_proj = encoder_hidden_states_query_proj.view(-1, batch_size, FA_head_num, head_dim)
+        encoder_hidden_states_key_proj = encoder_hidden_states_key_proj.view(-1, batch_size, FA_head_num, head_dim)
+        encoder_hidden_states_query_proj = attn.norm_added_q(encoder_hidden_states_query_proj)
+        encoder_hidden_states_key_proj = attn.norm_added_k(encoder_hidden_states_key_proj)
 
-        # Apply RoPE if needed
-        if video_rotary_emb is not None:
-            query[text_seq_length:] = apply_rotary_emb(query[text_seq_length:], video_rotary_emb)
-            if not attn.is_cross_attention:
-                key[text_seq_length:] = apply_rotary_emb(key[text_seq_length:], video_rotary_emb)
+        query = apply_rotary_emb(query, video_rotary_emb)
+        key = apply_rotary_emb(key, video_rotary_emb)
+
+        query = query.view(-1, batch_size, FA_head_num * head_dim)
+        key = key.view(-1, batch_size, FA_head_num * head_dim)
+
+        encoder_hidden_states_query_proj = encoder_hidden_states_query_proj.view(-1, batch_size, FA_head_num * head_dim)
+        encoder_hidden_states_key_proj = encoder_hidden_states_key_proj.view(-1, batch_size, FA_head_num * head_dim)
+        # -----------------------------------------------
 
         
-        query = rearrange(query, 's b h d -> b h s d', h=FA_head_num)
-        key = rearrange(key, 's b h d -> b h s d', h=FA_head_num)
-        value = rearrange(value, 's b h d -> b h s d', h=FA_head_num)
+        # -----------------------------------------------
+        # Step 4, sparse token
+        # print(f'dense v shape: query {query.shape}, key {key.shape}, value {value.shape}')
+        # print(f'dense t shape: encoder_hidden_states_query_proj {encoder_hidden_states_query_proj.shape}, encoder_hidden_states_key_proj {encoder_hidden_states_key_proj.shape}, encoder_hidden_states_value_proj {encoder_hidden_states_value_proj.shape}')
+        if self.sparse1d:
+            query, pad_len = self._sparse_1d(query, total_frame, height, width)
+            key, pad_len = self._sparse_1d(key, total_frame, height, width)
+            value, pad_len = self._sparse_1d(value, total_frame, height, width)
+            encoder_hidden_states_query_proj = self._sparse_1d_enc(encoder_hidden_states_query_proj)
+            encoder_hidden_states_key_proj = self._sparse_1d_enc(encoder_hidden_states_key_proj)
+            encoder_hidden_states_value_proj = self._sparse_1d_enc(encoder_hidden_states_value_proj)
+            # print(f'sparse v shape: query {query.shape}, key {key.shape}, value {value.shape}')
+            # print(f'sparse t shape: encoder_hidden_states_query_proj {encoder_hidden_states_query_proj.shape}, encoder_hidden_states_key_proj {encoder_hidden_states_key_proj.shape}, encoder_hidden_states_value_proj {encoder_hidden_states_value_proj.shape}')
+        
+        # -----------------------------------------------
 
-        hidden_states = F.scaled_dot_product_attention(
-            query, key, value, attn_mask=attention_mask, dropout_p=0.0, is_causal=False
+
+        # -----------------------------------------------
+        # Step 5, attention
+        query = torch.cat([query, encoder_hidden_states_query_proj], dim=0)
+        key = torch.cat([key, encoder_hidden_states_key_proj], dim=0)
+        value = torch.cat([value, encoder_hidden_states_value_proj], dim=0)
+        # print(f'cat shape: query {query.shape}, key {key.shape}, value {value.shape}')
+
+        if npu_config is not None:
+            hidden_states = npu_config.run_attention(query, key, value, attention_mask, "SBH", head_dim, FA_head_num)
+        else:
+            query = rearrange(query, 's b (h d) -> b h s d', h=FA_head_num)
+            key = rearrange(key, 's b (h d) -> b h s d', h=FA_head_num)
+            value = rearrange(value, 's b (h d) -> b h s d', h=FA_head_num)
+            hidden_states = F.scaled_dot_product_attention(
+                query, key, value, attn_mask=attention_mask, dropout_p=0.0, is_causal=False
+            )
+            hidden_states = rearrange(hidden_states, 'b h s d -> s b (h d)', h=FA_head_num)
+        # -----------------------------------------------
+
+
+        # -----------------------------------------------
+        # Step 6, split->reverse sparse->proj the attention outputs.
+        hidden_states, encoder_hidden_states = hidden_states.split(
+            [hidden_states.size(0) - text_seq_length, text_seq_length], dim=0
         )
-
-        hidden_states = rearrange(hidden_states, 'b h s d -> s b (h d)', h=FA_head_num)
+        # print(f'split v shape: hidden_states {hidden_states.shape}')
+        # print(f'split t shape: encoder_hidden_states {encoder_hidden_states.shape}')
+        if self.sparse1d:
+            hidden_states = self._reverse_sparse_1d(hidden_states, total_frame, height, width, pad_len)
+            encoder_hidden_states = self._reverse_sparse_1d_enc(encoder_hidden_states)
+            # print(f'split v shape: hidden_states {hidden_states.shape}')
+            # print(f'split t shape: encoder_hidden_states {encoder_hidden_states.shape}')
 
         # linear proj
         hidden_states = attn.to_out[0](hidden_states)
         # dropout
         hidden_states = attn.to_out[1](hidden_states)
+        if not attn.context_pre_only:
+            # linear proj for text feature
+            encoder_hidden_states = attn.to_add_out(encoder_hidden_states)
+        # -----------------------------------------------
 
-        encoder_hidden_states, hidden_states = hidden_states.split(
-            [text_seq_length, hidden_states.size(0) - text_seq_length], dim=0
-        )
         return hidden_states, encoder_hidden_states
 
 @maybe_allow_in_graph
@@ -262,6 +359,7 @@ class BasicTransformerBlock(nn.Module):
         ff_inner_dim: Optional[int] = None,
         ff_bias: bool = True,
         attention_out_bias: bool = True,
+        context_pre_only: bool = False,
         interpolation_scale_thw: Tuple[int] = (1, 1, 1), 
         sparse1d: bool = False,
         sparse_n: int = 2,
@@ -277,14 +375,17 @@ class BasicTransformerBlock(nn.Module):
         self.norm1 = OpenSoraLayerNormZero(timestep_embed_dim, dim, norm_elementwise_affine, norm_eps, bias=True)
         self.attn1 = Attention(
             query_dim=dim,
-            heads=num_attention_heads,
+            cross_attention_dim=None,
+            added_kv_proj_dim=dim, 
             dim_head=attention_head_dim, 
+            heads=num_attention_heads,
+            context_pre_only=context_pre_only,
             qk_norm="rms_norm",
             eps=1e-6,
             dropout=dropout,
             bias=attention_bias,
             out_bias=attention_out_bias,
-            processor=OpenSoraAttnProcessor2_0(),
+            processor=OpenSoraAttnProcessor2_0(sparse1d, sparse_n, sparse_group),
         )
 
         # 2. Feed-forward
@@ -300,7 +401,7 @@ class BasicTransformerBlock(nn.Module):
 
         self.rope = RoPE3D(interpolation_scale_thw=interpolation_scale_thw)
         self.position_getter = PositionGetter3D()
-
+    
     def forward(
         self,
         hidden_states: torch.FloatTensor,
@@ -312,34 +413,42 @@ class BasicTransformerBlock(nn.Module):
         height: int = None, 
         width: int = None, 
     ) -> torch.FloatTensor:
-        text_seq_length, batch_size = encoder_hidden_states.size(0), encoder_hidden_states.size(1)
+        
+        # 0. Prepare rope embedding
+        vis_seq_length, batch_size = hidden_states.size(0), hidden_states.size(1)
         pos_thw = self.position_getter(batch_size, t=frame, h=height, w=width, device=hidden_states.device)
         video_rotary_emb = self.rope(self.attention_head_dim, pos_thw, hidden_states.device, hidden_states.dtype)
-        attention_mask = torch.cat([encoder_attention_mask, attention_mask], dim=-1)
+        attention_mask = torch.cat([attention_mask, encoder_attention_mask], dim=-1)
 
-        # 0. Self-Attention
+        # 1. Self-Attention
+        # norm & scale & shift
         norm_hidden_states, norm_encoder_hidden_states, gate_msa, enc_gate_msa = self.norm1(
             hidden_states, encoder_hidden_states, embedded_timestep
             )
+        # attn
         attn_hidden_states, attn_encoder_hidden_states = self.attn1(
             norm_hidden_states,
             encoder_hidden_states=norm_encoder_hidden_states,
+            frame=frame, 
+            height=height, 
+            width=width, 
             attention_mask=attention_mask, 
             video_rotary_emb=video_rotary_emb, 
         )
+        # residual & gate
         hidden_states = hidden_states + gate_msa * attn_hidden_states
         encoder_hidden_states = encoder_hidden_states + enc_gate_msa * attn_encoder_hidden_states
 
-        # norm & modulate
+        # 1. Share Feed-Forward
+        # norm & scale & shift
         norm_hidden_states, norm_encoder_hidden_states, gate_ff, enc_gate_ff = self.norm2(
             hidden_states, encoder_hidden_states, embedded_timestep
         )
-
-        # 1. Feed-Forward
-        norm_hidden_states = torch.cat([norm_encoder_hidden_states, norm_hidden_states], dim=0)
+        # ffn
+        norm_hidden_states = torch.cat([norm_hidden_states, norm_encoder_hidden_states], dim=0)
         ff_output = self.ff(norm_hidden_states)
-
-        hidden_states = hidden_states + gate_ff * ff_output[text_seq_length:]
-        encoder_hidden_states = encoder_hidden_states + enc_gate_ff * ff_output[:text_seq_length]
+        # residual & gate
+        hidden_states = hidden_states + gate_ff * ff_output[:vis_seq_length]
+        encoder_hidden_states = encoder_hidden_states + enc_gate_ff * ff_output[vis_seq_length:]
 
         return hidden_states, encoder_hidden_states
