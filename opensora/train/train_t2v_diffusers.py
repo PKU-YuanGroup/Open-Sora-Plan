@@ -750,7 +750,7 @@ def main(args):
     def train_one_step(step_, data_item_, prof_=None):
         train_loss = 0.0
         x, attn_mask, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2, motion_score = data_item_
-        # print(f'step: {step_}, rank: {accelerator.process_index}, x: {x.shape}')
+        print(f'step: {step_}, rank: {accelerator.process_index}, x: {x.shape}')
         # assert not torch.any(torch.isnan(x)), 'torch.any(torch.isnan(x))'
 
         if args.extra_save_mem:

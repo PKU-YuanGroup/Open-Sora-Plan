@@ -1,7 +1,0 @@
-/storage/dataset/panda70m,/storage/dataset/filter_aes/filter_panda70m_json/panda_53473351_18923406_4.75plus.json
-/storage/dataset/movie,/storage/dataset/filter_aes/filter_movie_all_4.5_json/bbc01_clips_final_1610998_566004_4.5plus.json
-/storage/dataset/movie,/storage/dataset/filter_aes/filter_movie_all_4.5_json/bbc02_clips_final_1441415_663717_4.5plus.json
-/storage/dataset/movie,/storage/dataset/filter_aes/filter_movie_all_4.5_json/bbc03_clips_final_1905075_1178482_4.5plus.json
-/storage/dataset/movie,/storage/dataset/filter_aes/filter_movie_all_4.5_json/bbc04_clips_final_1718543_639395_4.5plus.json
-/storage/dataset/movie,/storage/dataset/filter_aes/filter_movie_all_4.5_json/bbc05_clips_final_2684681_1060985_4.5plus.json
-/storage/dataset/movie,/storage/dataset/filter_aes/filter_movie_all_4.5_json/TV01_clips_final_478625_364795_4.5plus.json

@@ -21,7 +21,7 @@ export NCCL_IB_RETRY_CNT=32
 # export NCCL_ALGO=Tree
 
 accelerate launch \
-    --config_file scripts/accelerate_configs/deepspeed_zero3_config.yaml \
+    --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
     opensora/train/train_t2v_diffusers.py \
     --model OpenSoraT2V_v1_5-5B/122 \
     --text_encoder_name_1 DeepFloyd/t5-v1_1-xxl \
@@ -29,13 +29,13 @@ accelerate launch \
     --text_encoder_name_2 laion/CLIP-ViT-bigG-14-laion2B-39B-b160k \
     --cache_dir "../../cache_dir/" \
     --dataset t2v \
-    --data "scripts/train_data/merge_data_debug.txt" \
+    --data "scripts/train_data/merge_data.txt" \
     --ae WFVAEModel_D8_4x8x8 \
     --ae_path "/storage/lcm/Causal-Video-VAE/results/WFVAE_DISTILL_FORMAL" \
     --sample_rate 1 \
     --num_frames 93 \
-    --max_height 480 \
-    --max_width 640 \
+    --max_height 432 \
+    --max_width 768 \
     --interpolation_scale_t 1.0 \
     --interpolation_scale_h 1.0 \
     --interpolation_scale_w 1.0 \
@@ -60,8 +60,7 @@ accelerate launch \
     --speed_factor 1.0 \
     --ema_decay 0.9999 \
     --drop_short_ratio 1.0 \
-    --pretrained "/storage/ongoing/new/7.19anyres/Open-Sora-Plan/bs32x8x2_anyx93x320x320_fps16_lr2e-6_snr5_ema9999_sparse1d4_dit_l_mt5xxl_alldata100m_vpred_zerosnr/checkpoint-45100/model_ema/diffusion_pytorch_model.safetensors" \
-    --hw_stride 32 \
+    --hw_stride 16 \
     --sparse1d \
     --train_fps 16 \
     --seed 1234 \
@@ -72,7 +71,6 @@ accelerate launch \
     --rescale_betas_zero_snr \
     --output_dir="debug" \
     --vae_fp32 \
-    --ood_img_ratio 0.5 \
     --min_height 320 \
     --min_width 320 \
     --force_resolution

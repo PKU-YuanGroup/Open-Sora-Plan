@@ -1,4 +1,0 @@
-/storage/dataset/civitai/Images_civitai_v1,/storage/anno_jsons/civitai_v1_1940032_resolution.json
-/storage/dataset/ideogram/Images_ideogram_v1,/storage/anno_jsons/ideogram_v1_71637_resolution.json
-/storage/dataset/image/tuzhan_mj,/storage/anno_jsons/tuzhan_mj_4615265_resolution.json
-/storage/dataset/image/human_images,/storage/anno_jsons/human_images_162094_resolution.json

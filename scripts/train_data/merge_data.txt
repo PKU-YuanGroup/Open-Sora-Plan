@@ -1,1 +1,1 @@
-/storage,/storage/anno_jsons/stage2_pandamovie18m_m0.96_aes4.5_sucai2m_m0.95_vidal2m_allimg15m_1_8_4744757_shuffle.json
+/storage/dataset/movie,/storage/lcm/ocr/final/bbc01_final_301476.json

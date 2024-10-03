@@ -32,9 +32,11 @@ import gc
 from opensora.utils.dataset_utils import DecordInit
 from opensora.utils.utils import text_preprocessing
 from opensora.dataset.transform import get_params, longsideresize, add_masking_notice, motion_mapping_fun, calculate_statistics, \
-    add_webvid_watermark_notice, clean_vidal, add_high_aesthetic_notice_image, add_aesthetic_notice_video, add_high_aesthetic_notice_image_human
+    add_aesthetic_notice_image, add_aesthetic_notice_video
 
 import decord
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
+
 logger = get_logger(__name__)
 
 def filter_json_by_existed_files(directory, data, postfix=".mp4"):
@@ -175,6 +177,8 @@ class T2V_dataset(Dataset):
         n_elements = len(cap_list)
         dataset_prog.set_cap_list(args.dataloader_num_workers, cap_list, n_elements)
         logger.info(f"Data length: {len(dataset_prog.cap_list)}")
+        self.executor = ThreadPoolExecutor(max_workers=1)
+        self.timeout = 5
 
     def set_checkpoint(self, n_used_elements):
         for i in range(len(dataset_prog.n_used_elements)):
@@ -185,9 +189,12 @@ class T2V_dataset(Dataset):
 
     def __getitem__(self, idx):
         try:
-            data = self.get_data(idx)
+            future = self.executor.submit(self.get_data, idx)
+            data = future.result(timeout=self.timeout) 
             return data
         except Exception as e:
+            if len(str(e)) < 2:
+                e = f"TimeoutError, {self.timeout}s timeout occur with {dataset_prog.cap_list[idx]['path']}"
             print(e)
             logger.info(f'Error with {e}')
             return self.__getitem__(random.randint(0, self.__len__() - 1))
@@ -209,13 +216,12 @@ class T2V_dataset(Dataset):
         video_data = dataset_prog.cap_list[idx]
         video_path = video_data['path']
         assert os.path.exists(video_path), f"file {video_path} do not exist!"
-        frame_indice = dataset_prog.cap_list[idx]['sample_frame_index']
         sample_h = video_data['resolution']['sample_height']
         sample_w = video_data['resolution']['sample_width']
         if self.video_reader == 'decord':
-            video = self.decord_read(video_path, predefine_frame_indice=frame_indice)
+            video = self.decord_read(video_data)
         elif self.video_reader == 'opencv':
-            video = self.opencv_read(video_path, predefine_frame_indice=frame_indice)
+            video = self.opencv_read(video_data)
         else:
             NotImplementedError(f'Found {self.video_reader}, but support decord or opencv')
         # import ipdb;ipdb.set_trace()
@@ -229,14 +235,10 @@ class T2V_dataset(Dataset):
         if not isinstance(text, list):
             text = [text]
         text = [random.choice(text)]
-        if '/VIDAL-10M/' in video_path:
-            text = [clean_vidal(text[0])]
-        if '/Webvid-10M/' in video_path:
-            text = [add_webvid_watermark_notice(text[0])]
-        if not (video_data.get('aesthetic', None) is None):
-            text = [add_aesthetic_notice_video(text[0], video_data['aesthetic'])]
+        if video_data.get('aesthetic', None) is not None or video_data.get('aes', None) is not None:
+            aes = video_data.get('aesthetic', None) or video_data.get('aes', None)
+            text = [add_aesthetic_notice_video(text[0], aes)]
 
-        text = [text[0].replace(' image ', ' video ').replace(' image,', ' video,')]
         text = text if random.random() > self.cfg else ""
 
         text_tokens_and_mask_1 = self.tokenizer_1(
@@ -299,12 +301,9 @@ class T2V_dataset(Dataset):
         caps = [random.choice(caps)]
         if '/sam/' in image_data['path']:
             caps = [add_masking_notice(caps[0])]
-        if 'ideogram' in image_data['path']:
-            caps = [add_high_aesthetic_notice_image(caps[0])]
-        if 'civitai' in image_data['path']:
-            caps = [add_high_aesthetic_notice_image(caps[0])]
-        if 'human_images' in image_data['path']:
-            caps = [add_high_aesthetic_notice_image_human(caps[0])]
+        if image_data.get('aesthetic', None) is not None or image_data.get('aes', None) is not None:
+            aes = image_data.get('aesthetic', None) or image_data.get('aes', None)
+            text = [add_aesthetic_notice_image(text[0], aes)]
         text = text_preprocessing(caps, support_Chinese=self.support_Chinese)
         text = text if random.random() > self.cfg else ""
 
@@ -377,10 +376,10 @@ class T2V_dataset(Dataset):
                 i['path'] = path
 
                 # ======no aesthetic=====
-                if i.get('aesthetic', None) is None:
+                if i.get('aesthetic', None) is None or i.get('aes', None) is None:
                     cnt_no_aesthetic += 1
                 else:
-                    aesthetic_score.append(i['aesthetic'])
+                    aesthetic_score.append(i.get('aesthetic', None) or i.get('aes', None))
 
                 # ======no caption=====
                 cap = i.get('cap', None)
@@ -445,15 +444,9 @@ class T2V_dataset(Dataset):
                         i['is_ood_img'] = is_ood_img
 
                 if path.endswith('.mp4'):
-                    # ======no fps and duration=====
-                    duration = i.get('duration', None)
-                    fps = i.get('fps', None)
-                    if fps is None or duration is None:
-                        continue
-
-                    i['num_frames'] = int(fps * duration)
+                    fps = i.get('fps', 24)
                     # max 5.0 and min 1.0 are just thresholds to filter some videos which have suitable duration. 
-                    if i['num_frames'] > 6.0 * (self.num_frames * fps / self.train_fps * self.speed_factor):  # too long video is not suitable for this training stage (self.num_frames)
+                    if i['num_frames'] > 5.0 * (self.num_frames * fps / self.train_fps * self.speed_factor):  # too long video is not suitable for this training stage (self.num_frames)
                         cnt_too_long += 1
                         continue
                     # if i['num_frames'] < 1.0/1 * (self.num_frames * fps / self.train_fps * self.speed_factor):  # too short video is not suitable for this training stage
@@ -462,8 +455,9 @@ class T2V_dataset(Dataset):
 
                     # resample in case high fps, such as 50/60/90/144 -> train_fps(e.g, 24)
                     frame_interval = fps / self.train_fps
-                    start_frame_idx = 10 if '/storage/dataset/movie' in i['path'] else 0  # special video
-                    frame_indices = np.arange(start_frame_idx, i['num_frames'], frame_interval).astype(int)
+                    start_frame_idx = i.get('cut', [0])[0]
+                    i['start_frame_idx'] = start_frame_idx
+                    frame_indices = np.arange(start_frame_idx, start_frame_idx+i['num_frames'], frame_interval).astype(int)
                     frame_indices = frame_indices[frame_indices < i['num_frames']]
 
                     # comment out it to enable dynamic frames training
@@ -486,7 +480,7 @@ class T2V_dataset(Dataset):
                     frame_indices = frame_indices[:end_frame_idx]
 
                     i['sample_frame_index'] = frame_indices.tolist()
-                    i['motion_score'] = i.get('motion_average', None) or i.get('motion')
+                    i['motion_score'] = i.get('motion_average', None) or i.get('motion', None)
 
                     new_cap_list.append(i)
                     cnt_vid += 1
@@ -529,33 +523,44 @@ class T2V_dataset(Dataset):
 
         return new_cap_list, sample_size, motion_score
     
-    def decord_read(self, path, predefine_frame_indice):
-        predefine_num_frames = len(predefine_frame_indice)
-        # decord_vr = self.v_decoder(path)
-        decord_vr = decord.VideoReader(path, ctx=decord.cpu(0), num_threads=1)
-        # with open(path, 'rb') as f:
-        #     decord_vr = decord.VideoReader(f, ctx=decord.cpu(0), num_threads=1)
-        total_frames = len(decord_vr)
-        fps = decord_vr.get_avg_fps() if decord_vr.get_avg_fps() > 0 else 24.0
+    def decord_read(self, video_data):
+        path = video_data['path']
+        predefine_frame_indice = video_data['sample_frame_index']
+        start_frame_idx = video_data['start_frame_idx']
+        clip_total_frames = video_data['num_frames']
+        fps = video_data['fps']
+        s_x, e_x, s_y, e_y = video_data['crop']
 
-        frame_indices = self.get_actual_frame(fps, total_frames, path, predefine_num_frames, predefine_frame_indice)
+        predefine_num_frames = len(predefine_frame_indice)
+        decord_vr = decord.VideoReader(path, ctx=decord.cpu(0), num_threads=1)
+
+        frame_indices = self.get_actual_frame(
+            fps, start_frame_idx, clip_total_frames, path, predefine_num_frames, predefine_frame_indice
+            )
         
         video_data = decord_vr.get_batch(frame_indices).asnumpy()
         video_data = torch.from_numpy(video_data)
         video_data = video_data.permute(0, 3, 1, 2)  # (T, H, W, C) -> (T C H W)
+        video_data = video_data[:, :, s_y: e_y, s_x: e_x]
         # del decord_vr
         # gc.collect()
         return video_data
     
-    def opencv_read(self, path, predefine_frame_indice):
+    def opencv_read(self, video_data):
+        path = video_data['path']
+        predefine_frame_indice = video_data['sample_frame_index']
+        start_frame_idx = video_data['start_frame_idx']
+        clip_total_frames = video_data['num_frames']
+        fps = video_data['fps']
+        s_x, e_x, s_y, e_y = video_data['crop']
+
         predefine_num_frames = len(predefine_frame_indice)
         cv2_vr = cv2.VideoCapture(path)
         if not cv2_vr.isOpened():
-            print(f'can not open {path}')
             raise ValueError(f'can not open {path}')
-        total_frames = int(cv2_vr.get(cv2.CAP_PROP_FRAME_COUNT))
-        fps = cv2_vr.get(cv2.CAP_PROP_FPS) if cv2_vr.get(cv2.CAP_PROP_FPS) > 0 else 24.0
-        frame_indices = self.get_actual_frame(fps, total_frames, path, predefine_num_frames, predefine_frame_indice)
+        frame_indices = self.get_actual_frame(
+            fps, start_frame_idx, clip_total_frames, path, predefine_num_frames, predefine_frame_indice
+            )
 
         video_data = []
         for frame_idx in frame_indices:
@@ -565,14 +570,14 @@ class T2V_dataset(Dataset):
             video_data.append(torch.from_numpy(frame).permute(2, 0, 1))
         cv2_vr.release()
         video_data = torch.stack(video_data)  # (T C H W)
+        video_data = video_data[:, :, s_y: e_y, s_x: e_x]
         return video_data
 
-    def get_actual_frame(self, fps, total_frames, path, predefine_num_frames, predefine_frame_indice):
+    def get_actual_frame(self, fps, start_frame_idx, clip_total_frames, path, predefine_num_frames, predefine_frame_indice):
         # resample in case high fps, such as 50/60/90/144 -> train_fps(e.g, 24)
         frame_interval = 1.0 if abs(fps - self.train_fps) < 0.1 else fps / self.train_fps
-        start_frame_idx = 10 if '/storage/dataset/movie' in path else 0  # special video
-        frame_indices = np.arange(start_frame_idx, total_frames, frame_interval).astype(int)
-        frame_indices = frame_indices[frame_indices < total_frames]
+        frame_indices = np.arange(start_frame_idx, start_frame_idx+clip_total_frames, frame_interval).astype(int)
+        frame_indices = frame_indices[frame_indices < clip_total_frames]
         
         # speed up
         max_speed_factor = len(frame_indices) / self.num_frames

@@ -1,7 +1,0 @@
-/storage/dataset/movie,/storage/dataset/filter_aes/filter_movie_json/bbc01_250508_117513_5.0plus.json
-/storage/dataset/movie,/storage/dataset/filter_aes/filter_movie_json/bbc02_289778_128670_5.0plus.json
-/storage/dataset/movie,/storage/dataset/filter_aes/filter_movie_json/bbc03_519184_281100_5.0plus.json
-/storage/dataset/movie,/storage/dataset/filter_aes/filter_movie_json/bbc04_249497_102768_5.0plus.json
-/storage/dataset/movie,/storage/dataset/filter_aes/filter_movie_json/bbc05_416548_207570_5.0plus.json
-/storage/dataset/movie,/storage/dataset/filter_aes/filter_movie_json/TV01_217419_141366_5.0plus.json
-/storage/dataset/panda70m,/storage/dataset/filter_aes/filter_panda70m_json/panda70m_last_6268414_flowValue_940432_5.4plus.json

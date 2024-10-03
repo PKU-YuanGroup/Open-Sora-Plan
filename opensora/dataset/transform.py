@@ -680,6 +680,19 @@ high_aesthetic_score_notices_image = [
     "The visual appeal of this image is outstanding.", 
 ]
 
+low_aesthetic_score_notices_image = [
+    "This image has a low aesthetic quality.", 
+    "The beauty of this image is minimal.", 
+    "This image scores low in aesthetic appeal.", 
+    "The aesthetic quality of this image is below average.", 
+    "This image ranks low for beauty.", 
+    "The artistic quality of this image is lacking.", 
+    "This image has a low score for aesthetic value.", 
+    "The visual appeal of this image is low.", 
+    "This image is rated low for beauty.", 
+    "The aesthetic quality of this image is poor.", 
+]
+
 high_aesthetic_score_notices_image_human = [
     "High-quality image with visible human features and high aesthetic score.", 
     "Clear depiction of an individual in a high-quality image with top aesthetics.", 
@@ -705,12 +718,22 @@ def add_webvid_watermark_notice(caption):
     return random.choice([caption + ' ' + notice, notice + ' ' + caption])
 
 def add_aesthetic_notice_video(caption, aesthetic_score):
-    assert add_aesthetic_notice_video is not None
-    if aesthetic_score <= 4.5:
+    if aesthetic_score <= 4.25:
         notice = random.choice(low_aesthetic_score_notices_video)
         return random.choice([caption + ' ' + notice, notice + ' ' + caption])
     if aesthetic_score >= 5.75:
         notice = random.choice(high_aesthetic_score_notices_video)
+        return random.choice([caption + ' ' + notice, notice + ' ' + caption])
+    return caption
+
+
+
+def add_aesthetic_notice_image(caption, aesthetic_score):
+    if aesthetic_score <= 4.25:
+        notice = random.choice(low_aesthetic_score_notices_image)
+        return random.choice([caption + ' ' + notice, notice + ' ' + caption])
+    if aesthetic_score >= 5.75:
+        notice = random.choice(high_aesthetic_score_notices_image)
         return random.choice([caption + ' ' + notice, notice + ' ' + caption])
     return caption
 
