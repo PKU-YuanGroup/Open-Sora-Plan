@@ -1,0 +1,1 @@
+/home/obs_data/open-sora-plan/recap_datacomp_1b_data/output,/home/save_dir/captions/old_captions/recap_64part_filter_aes_res160/debug.json

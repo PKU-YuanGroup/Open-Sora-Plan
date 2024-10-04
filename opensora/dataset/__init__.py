@@ -4,7 +4,10 @@ from transformers import AutoTokenizer, AutoImageProcessor
 from torchvision import transforms
 from torchvision.transforms import Lambda
 
-
+try:
+    import torch_npu
+except:
+    torch_npu = None
 
 from opensora.dataset.t2v_datasets import T2V_dataset
 from opensora.dataset.inpaint_dataset import Inpaint_dataset
@@ -37,14 +40,18 @@ def getdataset(args):
                 SpatialStrideCropVideo(stride=args.hw_stride), 
             ]
 
-
-    tokenizer_1 = AutoTokenizer.from_pretrained('/home/image_data/mt5-xxl', cache_dir=args.cache_dir)
-    # tokenizer_1 = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir)
-    # tokenizer_1 = AutoTokenizer.from_pretrained('/storage/cache_dir/models--DeepFloyd--t5-v1_1-xxl/snapshots/c9c625d2ec93667ec579ede125fd3811d1f81d37', cache_dir=args.cache_dir)
+    # tokenizer_1 = AutoTokenizer.from_pretrained(args.text_encoder_name_1, cache_dir=args.cache_dir)
+    if torch_npu is not None:
+        tokenizer_1 = AutoTokenizer.from_pretrained('/home/save_dir/pretrained/t5/t5-v1_1-xxl', cache_dir=args.cache_dir)
+    else:        
+        tokenizer_1 = AutoTokenizer.from_pretrained('/storage/cache_dir/models--DeepFloyd--t5-v1_1-xxl/snapshots/c9c625d2ec93667ec579ede125fd3811d1f81d37', cache_dir=args.cache_dir)
     tokenizer_2 = None
     if args.text_encoder_name_2 is not None:
-        tokenizer_2 = AutoTokenizer.from_pretrained('/home/image_data/mt5-xxl', cache_dir=args.cache_dir)
-        # tokenizer_2 = AutoTokenizer.from_pretrained('/storage/cache_dir/CLIP-ViT-bigG-14-laion2B-39B-b160k', cache_dir=args.cache_dir)
+        # tokenizer_2 = AutoTokenizer.from_pretrained(args.text_encoder_name_2, cache_dir=args.cache_dir)
+        if torch_npu is not None:
+            tokenizer_2 = AutoTokenizer.from_pretrained('/home/save_dir/pretrained/clip/models--laion--CLIP-ViT-bigG-14-laion2B-39B-b160k/snapshots/bc7788f151930d91b58474715fdce5524ad9a189', cache_dir=args.cache_dir)
+        else:
+            tokenizer_2 = AutoTokenizer.from_pretrained('/storage/cache_dir/CLIP-ViT-bigG-14-laion2B-39B-b160k', cache_dir=args.cache_dir)
     if args.dataset == 't2v':
         transform = transforms.Compose([
             ToTensorVideo(),
