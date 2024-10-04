@@ -39,6 +39,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError
 
 logger = get_logger(__name__)
 
+
 def filter_json_by_existed_files(directory, data, postfix=".mp4"):
     # 构建搜索模式，以匹配指定后缀的文件
     pattern = os.path.join(directory, '**', f'*{postfix}')

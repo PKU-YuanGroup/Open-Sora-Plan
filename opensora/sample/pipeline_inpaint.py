@@ -23,9 +23,10 @@ from diffusers.utils import logging, BaseOutput
 from diffusers.utils.torch_utils import randn_tensor
 from diffusers.pipelines.pipeline_utils import DiffusionPipeline
 
-from opensora.models.diffusion.opensora_v1_2.modeling_opensora import OpenSoraT2V_v1_2
+from opensora.models.diffusion.opensora_v1_2.modeling_inpaint import OpenSoraInpaint_v1_2
 from opensora.sample.pipeline_opensora import OpenSoraPipeline, OpenSoraPipelineOutput, rescale_noise_cfg
 from opensora.dataset.transform import CenterCropResizeVideo, LongSideResizeVideo, SpatialStrideCropVideo, ToTensorAfterResize
+from opensora.utils.mask_utils import MaskCompressor
 
 try:
     import torch_npu
@@ -37,6 +38,27 @@ except:
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
 class OpenSoraInpaintPipeline(OpenSoraPipeline):
+
+    def __init__(
+        self,
+        vae: AutoencoderKL,
+        text_encoder: T5EncoderModel,
+        tokenizer: MT5Tokenizer,
+        transformer: OpenSoraInpaint_v1_2,
+        scheduler: DDPMScheduler,
+        text_encoder_2: CLIPTextModelWithProjection = None,
+        tokenizer_2: CLIPTokenizer = None,
+    ):
+        super().__init__(
+            vae=vae,
+            text_encoder=text_encoder,
+            tokenizer=tokenizer,
+            transformer=transformer,
+            scheduler=scheduler,
+            text_encoder_2=text_encoder_2,
+            tokenizer_2=tokenizer_2,
+        )
+        self.mask_compressor = MaskCompressor(ae_stride_t=self.vae.vae_scale_factor[0], ae_stride_h=self.vae.vae_scale_factor[1], ae_stride_w=self.vae.vae_scale_factor[2])
 
     def get_resize_transform(
         self, 
@@ -108,19 +130,7 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
         masked_video = masked_video.to(self.vae.vae.dtype)
         masked_video = self.vae.encode(masked_video)
 
-        # not vae style
-        mask = rearrange(mask, 'b c t h w -> (b c t) 1 h w')
-        latent_size = (height // self.vae.vae_scale_factor[1], width // self.vae.vae_scale_factor[2])
-        if num_frames % 2 == 1:
-            latent_size_t = (num_frames - 1) // self.vae.vae_scale_factor[0] + 1
-        else:
-            latent_size_t = num_frames // self.vae.vae_scale_factor[0]
-        mask = F.interpolate(mask, size=latent_size, mode='bilinear')
-        mask = rearrange(mask, '(b c t) 1 h w -> b c t h w', t=T, c=1)
-        mask_first_frame = mask[:, :, 0:1].repeat(1, 1, self.vae.vae_scale_factor[0], 1, 1)
-        mask = torch.cat([mask_first_frame, mask[:, :, 1:]], dim=2).contiguous()
-        mask = mask.view(batch_size, latent_size_t, self.vae.vae_scale_factor[0], *latent_size)
-        mask = mask.transpose(1, 2).contiguous()
+        mask = self.mask_compressor(mask)
     
         masked_video = torch.cat([masked_video] * 2) if self.do_classifier_free_guidance else masked_video
         mask = torch.cat([mask] * 2) if self.do_classifier_free_guidance else mask

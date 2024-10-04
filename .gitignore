@@ -96,3 +96,5 @@ torchelasti*
 i2v.txt
 *run_i2v*
 *curope*
+run_i2v.py
+log*.txt

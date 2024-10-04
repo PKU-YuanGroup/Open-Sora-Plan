@@ -20,6 +20,7 @@ from einops import rearrange
 import torch.utils
 import torch.utils.data
 from tqdm import tqdm
+import yaml
 
 from opensora.adaptor.modules import replace_with_fp32_forwards
 
@@ -68,86 +69,13 @@ from opensora.models.diffusion import Diffusion_models, Diffusion_models_class
 from opensora.utils.dataset_utils import Collate, LengthGroupedSampler
 from opensora.sample.pipeline_opensora import OpenSoraPipeline
 from opensora.models.causalvideovae import ae_stride_config, ae_wrapper
+from opensora.utils.mask_utils import MaskCompressor
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 check_min_version("0.24.0")
 logger = get_logger(__name__)
 from torch.utils.data import _utils
 _utils.MP_STATUS_CHECK_INTERVAL = 1800.0  # dataloader timeout (default is 5.0s), we increase it to 1800s.
-
-@torch.inference_mode()
-def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weight_dtype, global_step, ema=False):
-    positive_prompt = "(masterpiece), (best quality), (ultra-detailed), {}. emotional, harmonious, vignette, 4k epic detailed, shot on kodak, 35mm photo, sharp focus, high budget, cinemascope, moody, epic, gorgeous"
-    negative_prompt = """nsfw, lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry, 
-                        """
-    validation_prompt = [
-        "a cat wearing sunglasses and working as a lifeguard at pool.",
-        "A serene underwater scene featuring a sea turtle swimming through a coral reef. The turtle, with its greenish-brown shell, is the main focus of the video, swimming gracefully towards the right side of the frame. The coral reef, teeming with life, is visible in the background, providing a vibrant and colorful backdrop to the turtle's journey. Several small fish, darting around the turtle, add a sense of movement and dynamism to the scene."
-        ]
-    logger.info(f"Running validation....\n")
-    model = accelerator.unwrap_model(model)
-    scheduler = DPMSolverMultistepScheduler()
-    opensora_pipeline = OpenSoraPipeline(vae=vae,
-                                         text_encoder_1=text_encoder[0],
-                                         text_encoder_2=text_encoder[1],
-                                         tokenizer=tokenizer,
-                                         scheduler=scheduler,
-                                         transformer=model).to(device=accelerator.device)
-    videos = []
-    for prompt in validation_prompt:
-        logger.info('Processing the ({}) prompt'.format(prompt))
-        video = opensora_pipeline(
-                                positive_prompt.format(prompt),
-                                negative_prompt=negative_prompt, 
-                                num_frames=args.num_frames,
-                                height=args.max_height,
-                                width=args.max_width,
-                                num_inference_steps=args.num_sampling_steps,
-                                guidance_scale=args.guidance_scale,
-                                enable_temporal_attentions=True,
-                                num_images_per_prompt=1,
-                                mask_feature=True,
-                                max_sequence_length=args.model_max_length,
-                                ).images
-        videos.append(video[0])
-    # import ipdb;ipdb.set_trace()
-    gc.collect()
-    torch.cuda.empty_cache()
-    videos = torch.stack(videos).numpy()
-    videos = rearrange(videos, 'b t h w c -> b t c h w')
-    for tracker in accelerator.trackers:
-        if tracker.name == "tensorboard":
-            if videos.shape[1] == 1:
-                assert args.num_frames == 1
-                images = rearrange(videos, 'b 1 c h w -> (b 1) h w c')
-                np_images = np.stack([np.asarray(img) for img in images])
-                tracker.writer.add_images(f"{'ema_' if ema else ''}validation", np_images, global_step, dataformats="NHWC")
-            else:
-                np_videos = np.stack([np.asarray(vid) for vid in videos])
-                tracker.writer.add_video(f"{'ema_' if ema else ''}validation", np_videos, global_step, fps=24)
-        if tracker.name == "wandb":
-            import wandb
-            if videos.shape[1] == 1:
-                images = rearrange(videos, 'b 1 c h w -> (b 1) h w c')
-                logs = {
-                    f"{'ema_' if ema else ''}validation": [
-                        wandb.Image(image, caption=f"{i}: {prompt}")
-                        for i, (image, prompt) in enumerate(zip(images, validation_prompt))
-                    ]
-                }
-            else:
-                logs = {
-                    f"{'ema_' if ema else ''}validation": [
-                        wandb.Video(video, caption=f"{i}: {prompt}", fps=24)
-                        for i, (video, prompt) in enumerate(zip(videos, validation_prompt))
-                    ]
-                }
-            tracker.log(logs, step=global_step)
-
-    del opensora_pipeline
-    gc.collect()
-    torch.cuda.empty_cache()
-
 
 class ProgressInfo:
     def __init__(self, global_step, train_loss=0.0):
@@ -203,6 +131,8 @@ def main(args):
     if accelerator.is_main_process:
         if args.output_dir is not None:
             os.makedirs(args.output_dir, exist_ok=True)
+            # backup the config file
+            shutil.copy(args.mask_config, os.path.join(args.output_dir, "mask_config.yaml"))
 
     # For mixed precision training we cast all non-trainable weigths to half-precision
     # as these weights are only used for inference, keeping weights in full precision is not required.
@@ -273,6 +203,11 @@ def main(args):
         args.latent_size_t = latent_size_t = (args.num_frames - 1) // ae_stride_t + 1
     else:
         latent_size_t = args.num_frames // ae_stride_t
+
+    mask_compressor = MaskCompressor(ae_stride_h=ae_stride_h, ae_stride_w=ae_stride_w, ae_stride_t=ae_stride_t)
+
+    model_kwargs = {'vae_scale_factor_t': ae_stride_t}
+
     model = Diffusion_models[args.model](
         in_channels=ae_channel_config[args.ae],
         out_channels=ae_channel_config[args.ae],
@@ -289,33 +224,15 @@ def main(args):
         interpolation_scale_w=args.interpolation_scale_w,
         interpolation_scale_t=args.interpolation_scale_t,
         sparse1d=args.sparse1d, 
-        sparse_n=args.sparse_n
+        sparse_n=args.sparse_n,
+        **model_kwargs,
     )
     model.gradient_checkpointing = args.gradient_checkpointing
 
-    # # use pretrained model?
-    if args.pretrained:
-        model_state_dict = model.state_dict()
-        if 'safetensors' in args.pretrained:  # pixart series
-            from safetensors.torch import load_file as safe_load
-            # import ipdb;ipdb.set_trace()
-            pretrained_checkpoint = safe_load(args.pretrained, device="cpu")
-            pretrained_keys = set(list(pretrained_checkpoint.keys()))
-            model_keys = set(list(model_state_dict.keys()))
-            common_keys = list(pretrained_keys & model_keys)
-            checkpoint = {k: pretrained_checkpoint[k] for k in common_keys if model_state_dict[k].numel() == pretrained_checkpoint[k].numel()}
-            # if checkpoint['pos_embed.proj.weight'].shape != model.pos_embed.proj.weight.shape and checkpoint['pos_embed.proj.weight'].ndim == 4:
-            #     logger.info(f"Resize pos_embed, {checkpoint['pos_embed.proj.weight'].shape} -> {model.pos_embed.proj.weight.shape}")
-            #     repeat = model.pos_embed.proj.weight.shape[2]
-            #     checkpoint['pos_embed.proj.weight'] = checkpoint['pos_embed.proj.weight'].unsqueeze(2).repeat(1, 1, repeat, 1, 1) / float(repeat)
-                # del checkpoint['proj_out.weight'], checkpoint['proj_out.bias']
-        else:  # latest stage training weight
-            checkpoint = torch.load(args.pretrained, map_location='cpu')
-            if 'model' in checkpoint:
-                checkpoint = checkpoint['model']
-        missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=False)
-        print(f'missing_keys {len(missing_keys)} {missing_keys}, unexpected_keys {len(unexpected_keys)}')
-        print(f'Successfully load {len(model_state_dict) - len(missing_keys)}/{len(model_state_dict)} keys from {args.pretrained}!')
+    pretrained_transformer_model_path = args.pretrained_transformer_model_path
+    pretrained_model_path = dict(transformer_model=pretrained_transformer_model_path)
+    if pretrained_transformer_model_path is not None:
+        model.custom_load_state_dict(pretrained_model_path)
 
     # Freeze vae and text encoders.
     ae.vae.requires_grad_(False)
@@ -521,8 +438,18 @@ def main(args):
 
     # We need to initialize the trackers we use, and also store our configuration.
     # The trackers initializes automatically on the main process.
+    # NOTE wandb
     if accelerator.is_main_process:
-        accelerator.init_trackers(os.path.basename(args.output_dir), config=vars(args))
+        logger.info("init trackers...")
+        project_name = os.getenv('PROJECT', os.path.basename(args.output_dir))
+        entity = os.getenv('ENTITY', None)
+        run_name = os.getenv('WANDB_NAME', None)
+        init_kwargs = {
+            "entity": entity,
+            "run_name": run_name,
+        }
+        accelerator.init_trackers(project_name=project_name, config=vars(args), init_kwargs=init_kwargs)
+    
 
     # Train!
     total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
@@ -600,7 +527,7 @@ def main(args):
 
         # DeepSpeed requires saving weights on every device; saving weights only on the main process would cause issues.
         if accelerator.distributed_type == DistributedType.DEEPSPEED or accelerator.is_main_process:
-            if progress_info.global_step % args.checkpointing_steps == 0:
+            if progress_info.global_step % args.checkpointing_steps == 0 or progress_info.global_step == args.after_one_epoch_global_step:
                 # _before_ saving state, check if this save would set us over the `checkpoints_total_limit`
                 if accelerator.is_main_process and args.checkpoints_total_limit is not None:
                     checkpoints = os.listdir(args.output_dir)
@@ -632,6 +559,12 @@ def main(args):
         global start_time
         start_time = time.time()
 
+        try:
+            in_channels = ae_channel_config[args.ae]
+            model_input, masked_input, video_mask = model_input[:, 0:in_channels], model_input[:, in_channels:2 * in_channels], model_input[:, 2 * in_channels:]
+        except:
+            raise ValueError("masked_x and video_mask is None!")
+
         noise = torch.randn_like(model_input)
         if args.noise_offset:
             # https://www.crosslabs.org//blog/diffusion-with-offset-noise
@@ -650,9 +583,9 @@ def main(args):
 
         noisy_model_input = noise_scheduler.add_noise(model_input, noise, timesteps)
         model_pred = model(
-            noisy_model_input,
+            torch.cat([noisy_model_input, masked_input, video_mask], dim=1),
             timesteps,
-            **model_kwargs
+            **model_kwargs,
         )[0]
         # Get the target for loss depending on the prediction type
         if noise_scheduler.config.prediction_type == "epsilon":
@@ -720,27 +653,6 @@ def main(args):
         if accelerator.sync_gradients:
             sync_gradients_info(loss)
 
-        if accelerator.is_main_process:
-
-            if progress_info.global_step % args.checkpointing_steps == 0:
-
-                if args.enable_tracker:
-                    log_validation(
-                        args, model, ae, [text_enc_1.text_enc, getattr(text_enc_2, 'text_enc', None)], 
-                        train_dataset.tokenizer, accelerator, weight_dtype, progress_info.global_step
-                    )
-
-                    if args.use_ema and npu_config is None:
-                        # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
-                        ema_model.store(model.parameters())
-                        ema_model.copy_to(model.parameters())
-                        log_validation(
-                            args, model, ae, [text_enc_1.text_enc, getattr(text_enc_2, 'text_enc', None)], 
-                            train_dataset.tokenizer, accelerator, weight_dtype, progress_info.global_step, ema=True
-                        )
-                        # Switch back to the original UNet parameters.
-                        ema_model.restore(model.parameters())
-
         if prof is not None:
             prof.step()
 
@@ -750,7 +662,7 @@ def main(args):
     def train_one_step(step_, data_item_, prof_=None):
         train_loss = 0.0
         x, attn_mask, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2, motion_score = data_item_
-        print(f'step: {step_}, rank: {accelerator.process_index}, x: {x.shape}')
+        # print(f'step: {step_}, rank: {accelerator.process_index}, x: {x.shape}')
         # assert not torch.any(torch.isnan(x)), 'torch.any(torch.isnan(x))'
 
         if args.extra_save_mem:
@@ -784,23 +696,14 @@ def main(args):
             else:
                 cond_2 = None
 
-            # Map input images to latent space + normalize latents
-            x = ae.encode(x)  # B C T H W
 
-            # def custom_to_video(x: torch.Tensor, fps: float = 2.0, output_file: str = 'output_video.mp4') -> None:
-            #     from examples.rec_video import array_to_video
-            #     x = x.detach().cpu()
-            #     x = torch.clamp(x, -1, 1)
-            #     x = (x + 1) / 2
-            #     x = x.permute(1, 2, 3, 0).numpy()
-            #     x = (255*x).astype(np.uint8)
-            #     array_to_video(x, fps=fps, output_file=output_file)
-            #     return
-            # videos = ae.decode(x)[0]
-            # videos = videos.transpose(0, 1)
-            # custom_to_video(videos.to(torch.float32), fps=24, output_file='tmp.mp4')
-            # import sys;sys.exit()
-        
+            # Map input images to latent space + normalize latents
+            x, masked_x, mask = x[:, :3], x[:, 3:6], x[:, 6:7]
+            x, masked_x = ae.encode(x), ae.encode(masked_x)
+            mask = mask_compressor(mask)
+            x = torch.cat([x, masked_x, mask], dim=1) 
+
+
         if args.extra_save_mem:
             ae.vae.to('cpu')
             text_enc_1.to('cpu')
@@ -867,6 +770,9 @@ def main(args):
         progress_info.train_loss = 0.0
         if progress_info.global_step >= args.max_train_steps:
             return True
+
+        args.after_one_epoch_global_step = progress_info.global_step + len(train_dataloader) // args.gradient_accumulation_steps - 1
+
         for step, data_item in enumerate(train_dataloader):
             if train_one_step(step, data_item, prof_):
                 break
@@ -1058,5 +964,19 @@ if __name__ == "__main__":
     parser.add_argument("--sp_size", type=int, default=1, help="For sequence parallel")
     parser.add_argument("--train_sp_batch_size", type=int, default=1, help="Batch size for sequence parallel training")
 
+    # inpaint
+    parser.add_argument("--mask_config", type=str, default=None)
+    parser.add_argument("--default_text_ratio", type=float, default=0.5) # for inpainting mode
+    parser.add_argument("--pretrained_transformer_model_path", type=str, default=None)
+
     args = parser.parse_args()
+
+    assert args.mask_config is not None, 'mask_config is required!'
+    with open(args.mask_config, 'r') as f:
+        yaml_config = yaml.safe_load(f)
+    
+    for key, value in yaml_config.items():
+        if not hasattr(args, key):
+            setattr(args, key, value)
+
     main(args)
