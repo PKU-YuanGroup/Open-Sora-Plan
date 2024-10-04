@@ -9,22 +9,22 @@ max_clear_ratio_hw: 0.8
 mask_type_ratio_dict_video:
   # temporal-level
   t2iv: 0
-  i2v: 0
-  transition: 0
+  i2v: 3
+  transition: 2
   continuation: 0
   clear: 0
-  random_temporal: 0
+  random_temporal: 1
   # spatial-level
   semantic: 0
   dilate: 0
   bbox: 0
-  random_spatial: 1.0
+  random_spatial: 1
   # outpainting
   outpaint_random_spatial: 0
   outpaint_semantic: 0
   outpaint_bbox: 0
   # mixed
-  i2v_outpaint_semantic: 0
+  i2v_outpaint_semantic: 3
 
 mask_type_ratio_dict_image:
   # temporal-level
@@ -34,7 +34,7 @@ mask_type_ratio_dict_image:
   semantic: 0
   dilate: 0
   bbox: 0
-  random_spatial: 1.0
+  random_spatial: 0
   # outpainting
   outpaint_random_spatial: 0
   outpaint_semantic: 0

@@ -5,7 +5,7 @@ export PROJECT=$PROJECT_NAME
 # export PROJECT='test'
 export HF_DATASETS_OFFLINE=1 
 export TRANSFORMERS_OFFLINE=1
-export DECORD_EOF_RETRY_MAX=256
+export DECORD_EOF_RETRY_MAX=2048
 
 export TASK_QUEUE_ENABLE=0
 export HCCL_OP_BASE_FFTS_MODE_ENABLE=TRUE
@@ -22,7 +22,7 @@ accelerate launch \
     --text_encoder_name_1 google/mt5-xxl \
     --cache_dir "../../cache_dir/" \
     --dataset inpaint \
-    --data "scripts/train_data/lb_data.txt" \
+    --data "scripts/train_data/video_data_sucai_on_npu.txt" \
     --ae WFVAEModel_D8_4x8x8 \
     --ae_path "/home/save_dir/lzj/wf-vae_trilinear" \
     --vae_fp32 \
@@ -66,7 +66,7 @@ accelerate launch \
     --output_dir="/home/save_dir/runs/$PROJECT" \
     --mask_config scripts/train_configs/mask_config.yaml \
     --default_text_ratio 0.2 \
-    --pretrained_transformer_model_path "/home/save_dir/pretrained/93x640x640_144k_ema" \
+    --pretrained_transformer_model_path "/home/save_dir/pretrained/i2v_ckpt14777_ema" \
     # --resume_from_checkpoint="latest" \
     # --min_height 0 \
     # --min_width 0 \
