@@ -189,8 +189,9 @@ class T2V_dataset(Dataset):
 
     def __getitem__(self, idx):
         try:
-            future = self.executor.submit(self.get_data, idx)
-            data = future.result(timeout=self.timeout) 
+            # future = self.executor.submit(self.get_data, idx)
+            # data = future.result(timeout=self.timeout) 
+            data = self.get_data(idx)
             return data
         except Exception as e:
             if len(str(e)) < 2:
@@ -303,7 +304,7 @@ class T2V_dataset(Dataset):
             caps = [add_masking_notice(caps[0])]
         if image_data.get('aesthetic', None) is not None or image_data.get('aes', None) is not None:
             aes = image_data.get('aesthetic', None) or image_data.get('aes', None)
-            text = [add_aesthetic_notice_image(text[0], aes)]
+            caps = [add_aesthetic_notice_image(caps[0], aes)]
         text = text_preprocessing(caps, support_Chinese=self.support_Chinese)
         text = text if random.random() > self.cfg else ""
 

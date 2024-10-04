@@ -488,8 +488,8 @@ def OpenSoraT2V_v1_5_5B_122(**kwargs):
     if kwargs.get('upcast_attention', None) is not None:
         kwargs.pop('upcast_attention')
     return OpenSoraT2V_v1_5(
-        num_layers=[2, 4, 6, 8, 6, 4, 2], sparse_n=[1, 2, 4, 8, 4, 2, 1], 
-        attention_head_dim=96, num_attention_heads=32, 
+        num_layers=[2, 6, 8, 12, 6, 4, 2], sparse_n=[1, 2, 4, 8, 4, 2, 1], 
+        attention_head_dim=72, num_attention_heads=32, 
         timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
         caption_channels=4096, pooled_projection_dim=1280, **kwargs
     )
