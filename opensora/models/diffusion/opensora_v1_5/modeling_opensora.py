@@ -47,6 +47,10 @@ def prepare_sparse_mask(attention_mask, encoder_attention_mask, sparse_n, head_n
         k=sparse_n
         )
     encoder_attention_mask_sparse = encoder_attention_mask.repeat(sparse_n, 1, 1, 1)
+
+    attention_mask_sparse_1d = torch.cat([attention_mask_sparse_1d, encoder_attention_mask_sparse], dim=-1)
+    attention_mask_sparse_1d_group = torch.cat([attention_mask_sparse_1d_group, encoder_attention_mask_sparse], dim=-1)
+
     if npu_config is not None:
         attention_mask_sparse_1d = npu_config.get_attention_mask(
             attention_mask_sparse_1d, attention_mask_sparse_1d.shape[-1]
@@ -54,21 +58,13 @@ def prepare_sparse_mask(attention_mask, encoder_attention_mask, sparse_n, head_n
         attention_mask_sparse_1d_group = npu_config.get_attention_mask(
             attention_mask_sparse_1d_group, attention_mask_sparse_1d_group.shape[-1]
             )
-        
-        encoder_attention_mask_sparse_1d = npu_config.get_attention_mask(
-            encoder_attention_mask_sparse, attention_mask_sparse_1d.shape[-1]
-            )
-        encoder_attention_mask_sparse_1d_group = encoder_attention_mask_sparse_1d
     else:
         attention_mask_sparse_1d = attention_mask_sparse_1d.repeat_interleave(head_num, dim=1)
         attention_mask_sparse_1d_group = attention_mask_sparse_1d_group.repeat_interleave(head_num, dim=1)
 
-        encoder_attention_mask_sparse_1d = encoder_attention_mask_sparse.repeat_interleave(head_num, dim=1)
-        encoder_attention_mask_sparse_1d_group = encoder_attention_mask_sparse_1d
-
     return {
-                False: (attention_mask_sparse_1d, encoder_attention_mask_sparse_1d),
-                True: (attention_mask_sparse_1d_group, encoder_attention_mask_sparse_1d_group)
+                False: attention_mask_sparse_1d,
+                True: attention_mask_sparse_1d_group
             }
 
 
@@ -288,20 +284,17 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
 
         # 2. Blocks
         hidden_states, encoder_hidden_states, skip_connections = self._operate_on_enc(
-            hidden_states, attention_mask, 
-            encoder_hidden_states, encoder_attention_mask, 
+            hidden_states, encoder_hidden_states, 
             embedded_timestep, frame, height, width
             )
         
         hidden_states, encoder_hidden_states = self._operate_on_mid(
-            hidden_states, attention_mask, 
-            encoder_hidden_states, encoder_attention_mask, 
+            hidden_states, encoder_hidden_states, 
             embedded_timestep, frame, height, width
             )
         
         hidden_states, encoder_hidden_states = self._operate_on_dec(
-            hidden_states, skip_connections, attention_mask, 
-            encoder_hidden_states, encoder_attention_mask, 
+            hidden_states, skip_connections, encoder_hidden_states, 
             embedded_timestep, frame, height, width
             )
 
@@ -319,8 +312,7 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
         return Transformer2DModelOutput(sample=output)
 
     def _operate_on_enc(
-            self, hidden_states, attention_mask, 
-            encoder_hidden_states, encoder_attention_mask, 
+            self, hidden_states, encoder_hidden_states, 
             embedded_timestep, frame, height, width
         ):
         
@@ -330,14 +322,13 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
                 # print(f'enc stage_block_{idx}, block_{idx_} ', 
                 #       f'sparse1d {block.sparse1d}, sparse_n {block.sparse_n}, sparse_group {block.sparse_group} '
                 #       f'sparse_mask {block.sparse_n}, sparse_group {block.sparse_group}')
-                attention_mask, encoder_attention_mask = self.sparse_mask[block.sparse_n][block.sparse_group]
+                attention_mask = self.sparse_mask[block.sparse_n][block.sparse_group]
                 if self.training and self.gradient_checkpointing:
                     hidden_states, encoder_hidden_states = torch.utils.checkpoint.checkpoint(
                         create_custom_forward(block),
                         hidden_states,
                         attention_mask,
                         encoder_hidden_states,
-                        encoder_attention_mask,
                         embedded_timestep,
                         frame, 
                         height, 
@@ -349,7 +340,6 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
                         hidden_states,
                         attention_mask=attention_mask,
                         encoder_hidden_states=encoder_hidden_states,
-                        encoder_attention_mask=encoder_attention_mask,
                         embedded_timestep=embedded_timestep,
                         frame=frame, 
                         height=height, 
@@ -360,8 +350,7 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
         return hidden_states, encoder_hidden_states, skip_connections
 
     def _operate_on_mid(
-            self, hidden_states, attention_mask, 
-            encoder_hidden_states, encoder_attention_mask, 
+            self, hidden_states, encoder_hidden_states, 
             embedded_timestep, frame, height, width
         ):
         
@@ -369,14 +358,13 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
             # print(f'mid, block_{idx_} ', 
             #         f'sparse1d {block.sparse1d}, sparse_n {block.sparse_n}, sparse_group {block.sparse_group} '
             #         f'sparse_mask {block.sparse_n}, sparse_group {block.sparse_group}')
-            attention_mask, encoder_attention_mask = self.sparse_mask[block.sparse_n][block.sparse_group]
+            attention_mask = self.sparse_mask[block.sparse_n][block.sparse_group]
             if self.training and self.gradient_checkpointing:
                 hidden_states, encoder_hidden_states = torch.utils.checkpoint.checkpoint(
                     create_custom_forward(block),
                     hidden_states,
                     attention_mask,
                     encoder_hidden_states,
-                    encoder_attention_mask,
                     embedded_timestep,
                     frame, 
                     height, 
@@ -388,7 +376,6 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
                     hidden_states,
                     attention_mask=attention_mask,
                     encoder_hidden_states=encoder_hidden_states,
-                    encoder_attention_mask=encoder_attention_mask,
                     embedded_timestep=embedded_timestep,
                     frame=frame, 
                     height=height, 
@@ -398,8 +385,7 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
 
 
     def _operate_on_dec(
-            self, hidden_states, skip_connections, attention_mask, 
-            encoder_hidden_states, encoder_attention_mask, 
+            self, hidden_states, skip_connections, encoder_hidden_states, 
             embedded_timestep, frame, height, width
         ):
         
@@ -413,14 +399,13 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
                 # print(f'dec stage_block_{idx}, block_{idx_} ', 
                 #       f'sparse1d {block.sparse1d}, sparse_n {block.sparse_n}, sparse_group {block.sparse_group} '
                 #       f'sparse_mask {block.sparse_n}, sparse_group {block.sparse_group}')
-                attention_mask, encoder_attention_mask = self.sparse_mask[block.sparse_n][block.sparse_group]
+                attention_mask = self.sparse_mask[block.sparse_n][block.sparse_group]
                 if self.training and self.gradient_checkpointing:
                     hidden_states, encoder_hidden_states = torch.utils.checkpoint.checkpoint(
                         create_custom_forward(block),
                         hidden_states,
                         attention_mask,
                         encoder_hidden_states,
-                        encoder_attention_mask,
                         embedded_timestep,
                         frame, 
                         height, 
@@ -432,7 +417,6 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
                         hidden_states,
                         attention_mask=attention_mask,
                         encoder_hidden_states=encoder_hidden_states,
-                        encoder_attention_mask=encoder_attention_mask,
                         embedded_timestep=embedded_timestep,
                         frame=frame, 
                         height=height, 
@@ -488,9 +472,9 @@ def OpenSoraT2V_v1_5_5B_122(**kwargs):
     if kwargs.get('upcast_attention', None) is not None:
         kwargs.pop('upcast_attention')
     return OpenSoraT2V_v1_5(
-        num_layers=[2, 4, 6, 8, 6, 4, 2], sparse_n=[1, 2, 4, 8, 4, 2, 1], 
-        attention_head_dim=96, num_attention_heads=32, 
-        timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
+        num_layers=[2, 6, 8, 12, 6, 4, 2], sparse_n=[1, 2, 4, 8, 4, 2, 1], 
+        attention_head_dim=72, num_attention_heads=32, 
+        timestep_embed_dim=1024, patch_size_t=1, patch_size=2, 
         caption_channels=4096, pooled_projection_dim=1280, **kwargs
     )
 
@@ -528,7 +512,7 @@ if __name__ == '__main__':
     from opensora.models import CausalVAEModelWrapper
     args = type('args', (), 
     {
-        'ae': 'WFVAEModel_D8_4x8x8', 
+        'ae': 'WFVAEModel_D32_4x8x8', 
         'model_max_length': 300, 
         'max_height': 480,
         'max_width': 640,
@@ -552,7 +536,7 @@ if __name__ == '__main__':
 
     # device = torch.device('cpu')
     device = torch.device('cuda:0')
-    model = OpenSoraT2V_v1_5_11B_122(
+    model = OpenSoraT2V_v1_5_5B_122(
         in_channels=c, 
         out_channels=c, 
         sample_size=latent_size, 
@@ -579,16 +563,16 @@ if __name__ == '__main__':
     print(model)
     print(f'{sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e9} B')
     # import sys;sys.exit()
-    x = torch.randn(b, c,  1+(args.num_frames-1)//ae_stride_t, args.max_height//ae_stride_h, args.max_width//ae_stride_w).to(device)
-    cond = torch.randn(b, 1, args.model_max_length, cond_c).to(device)
-    attn_mask = torch.randint(0, 2, (b, 1+(args.num_frames-1)//ae_stride_t, args.max_height//ae_stride_h, args.max_width//ae_stride_w)).to(device)  # B L or B 1+num_images L
-    cond_mask = torch.randint(0, 2, (b, 1, args.model_max_length)).to(device)  # B 1 L
-    timestep = torch.randint(0, 1000, (b,), device=device)
-    pooled_projections = torch.randn(b, 1, cond_c1).to(device)
-    model_kwargs = dict(hidden_states=x, encoder_hidden_states=cond, attention_mask=attn_mask, pooled_projections=pooled_projections, 
-                        encoder_attention_mask=cond_mask, timestep=timestep)
-    with torch.no_grad():
-        output = model(**model_kwargs)
+    # x = torch.randn(b, c,  1+(args.num_frames-1)//ae_stride_t, args.max_height//ae_stride_h, args.max_width//ae_stride_w).to(device)
+    # cond = torch.randn(b, 1, args.model_max_length, cond_c).to(device)
+    # attn_mask = torch.randint(0, 2, (b, 1+(args.num_frames-1)//ae_stride_t, args.max_height//ae_stride_h, args.max_width//ae_stride_w)).to(device)  # B L or B 1+num_images L
+    # cond_mask = torch.randint(0, 2, (b, 1, args.model_max_length)).to(device)  # B 1 L
+    # timestep = torch.randint(0, 1000, (b,), device=device)
+    # pooled_projections = torch.randn(b, 1, cond_c1).to(device)
+    # model_kwargs = dict(hidden_states=x, encoder_hidden_states=cond, attention_mask=attn_mask, pooled_projections=pooled_projections, 
+    #                     encoder_attention_mask=cond_mask, timestep=timestep)
+    # with torch.no_grad():
+    #     output = model(**model_kwargs)
     print(output[0].shape)
     # model.save_pretrained('./test_v1_5')
 

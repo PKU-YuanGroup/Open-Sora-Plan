@@ -407,7 +407,6 @@ class BasicTransformerBlock(nn.Module):
         hidden_states: torch.FloatTensor,
         attention_mask: Optional[torch.FloatTensor] = None,
         encoder_hidden_states: Optional[torch.FloatTensor] = None,
-        encoder_attention_mask: Optional[torch.FloatTensor] = None,
         embedded_timestep: Optional[torch.LongTensor] = None,
         frame: int = None, 
         height: int = None, 
@@ -418,7 +417,6 @@ class BasicTransformerBlock(nn.Module):
         vis_seq_length, batch_size = hidden_states.size(0), hidden_states.size(1)
         pos_thw = self.position_getter(batch_size, t=frame, h=height, w=width, device=hidden_states.device)
         video_rotary_emb = self.rope(self.attention_head_dim, pos_thw, hidden_states.device, hidden_states.dtype)
-        attention_mask = torch.cat([attention_mask, encoder_attention_mask], dim=-1)
 
         # 1. Self-Attention
         # norm & scale & shift

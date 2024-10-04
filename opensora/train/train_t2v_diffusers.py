@@ -752,6 +752,8 @@ def main(args):
         x, attn_mask, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2, motion_score = data_item_
         print(f'step: {step_}, rank: {accelerator.process_index}, x: {x.shape}')
         # assert not torch.any(torch.isnan(x)), 'torch.any(torch.isnan(x))'
+        # print('after data collate')
+        # print(f'x: {x.shape}, attn_mask: {attn_mask.shape}, input_ids_1: {input_ids_1.shape}, cond_mask_1: {cond_mask_1.shape}, input_ids_2: {input_ids_2.shape}, cond_mask_2: {cond_mask_2.shape}')
 
         if args.extra_save_mem:
             torch.cuda.empty_cache()

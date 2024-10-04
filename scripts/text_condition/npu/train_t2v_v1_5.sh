@@ -11,9 +11,12 @@ export HCCL_OP_BASE_FFTS_MODE_ENABLE=TRUE
 # export HCCL_ALGO="level0:NA;level1:H-D_R"
 # --machine_rank=${MACHINE_RANK} \ 
 # --main_process_ip=${MAIN_PROCESS_IP_VALUE} \ 
+# --multi_node_example_by_deepspeed.yaml
 
 accelerate launch \
-    --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
+    --config_file scripts/accelerate_configs/multi_node_example_by_deepspeed.yaml \
+    --machine_rank=${MACHINE_RANK} \
+    --main_process_ip=${MAIN_PROCESS_IP_VALUE} \
     opensora/train/train_t2v_diffusers.py \
     --model OpenSoraT2V_v1_5-5B/122 \
     --text_encoder_name_1 DeepFloyd/t5-v1_1-xxl \
@@ -22,8 +25,8 @@ accelerate launch \
     --cache_dir "../../cache_dir/" \
     --dataset t2v \
     --data "scripts/train_data/image_data_debug_on_npu.txt" \
-    --ae WFVAEModel_D8_4x8x8 \
-    --ae_path "/home/save_dir/lzj/wf-vae_32dim" \
+    --ae WFVAEModel_D32_4x8x8 \
+    --ae_path "/home/save_dir/lzj/formal_32dim" \
     --vae_fp32 \
     --sample_rate 1 \
     --num_frames 1 \
@@ -35,7 +38,7 @@ accelerate launch \
     --interpolation_scale_h 1.0 \
     --interpolation_scale_w 1.0 \
     --gradient_checkpointing \
-    --train_batch_size=8 \
+    --train_batch_size=1 \
     --dataloader_num_workers 8 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
@@ -64,5 +67,5 @@ accelerate launch \
     --prediction_type "v_prediction" \
     --rescale_betas_zero_snr \
     --output_dir="debug" \
+    --force_resolution
     # --resume_from_checkpoint="latest" \
-    # --force_resolution

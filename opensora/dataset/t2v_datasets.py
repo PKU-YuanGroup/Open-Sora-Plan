@@ -190,9 +190,9 @@ class T2V_dataset(Dataset):
 
     def __getitem__(self, idx):
         try:
-            future = self.executor.submit(self.get_data, idx)
-            data = future.result(timeout=self.timeout) 
-            return data
+            # future = self.executor.submit(self.get_data, idx)
+            # data = future.result(timeout=self.timeout) 
+            return self.get_data(idx)
         except Exception as e:
             if len(str(e)) < 2:
                 e = f"TimeoutError, {self.timeout}s timeout occur with {dataset_prog.cap_list[idx]['path']}"
@@ -298,14 +298,14 @@ class T2V_dataset(Dataset):
         # image = [torch.rand(1, 3, 480, 640) for i in image_data]
         image = image.transpose(0, 1)  # [1 C H W] -> [C 1 H W]
 
-        caps = image_data['cap'] if isinstance(image_data['cap'], list) else [image_data['cap']]
-        caps = [random.choice(caps)]
+        text = image_data['cap'] if isinstance(image_data['cap'], list) else [image_data['cap']]
+        text = [random.choice(text)]
         if '/sam/' in image_data['path']:
-            caps = [add_masking_notice(caps[0])]
+            text = [add_masking_notice(text[0])]
         if image_data.get('aesthetic', None) is not None or image_data.get('aes', None) is not None:
             aes = image_data.get('aesthetic', None) or image_data.get('aes', None)
             text = [add_aesthetic_notice_image(text[0], aes)]
-        text = text_preprocessing(caps, support_Chinese=self.support_Chinese)
+        text = text_preprocessing(text, support_Chinese=self.support_Chinese)
         text = text if random.random() > self.cfg else ""
 
         text_tokens_and_mask_1 = self.tokenizer_1(

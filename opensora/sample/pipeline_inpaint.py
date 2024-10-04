@@ -1,16 +1,18 @@
 
 import inspect
+import os
 from typing import Callable, Dict, List, Optional, Tuple, Union
 from dataclasses import dataclass
 from altair import condition
 import numpy as np
 import torch
 from einops import rearrange
-from transformers import CLIPTextModelWithProjection, CLIPTokenizer, CLIPImageProcessor, MT5Tokenizer, T5EncoderModel
+from PIL import Image
+import decord
 
+from transformers import CLIPTextModelWithProjection, CLIPTokenizer, CLIPImageProcessor, MT5Tokenizer, T5EncoderModel
 import torch.nn.functional as F
 from torchvision.transforms import Compose, Lambda, Resize
-from PIL import Image
 
 from diffusers.pipelines.stable_diffusion import StableDiffusionPipelineOutput
 from diffusers.callbacks import MultiPipelineCallbacks, PipelineCallback
@@ -26,7 +28,7 @@ from diffusers.pipelines.pipeline_utils import DiffusionPipeline
 from opensora.models.diffusion.opensora_v1_2.modeling_inpaint import OpenSoraInpaint_v1_2
 from opensora.sample.pipeline_opensora import OpenSoraPipeline, OpenSoraPipelineOutput, rescale_noise_cfg
 from opensora.dataset.transform import CenterCropResizeVideo, LongSideResizeVideo, SpatialStrideCropVideo, ToTensorAfterResize
-from opensora.utils.mask_utils import MaskCompressor
+from opensora.utils.mask_utils import MaskProcessor, MaskCompressor, MaskType, STR_TO_TYPE
 
 try:
     import torch_npu
@@ -36,6 +38,39 @@ except:
     from opensora.utils.parallel_states import get_sequence_parallel_state, nccl_info
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
+
+def is_video_file(file_path):
+    video_extensions = {'.mp4', '.avi', '.mov', '.mkv', '.flv', '.wmv', '.webm', '.mpeg', '.mpg', '.3gp'}
+    file_extension = os.path.splitext(file_path)[1].lower()
+    return file_extension in video_extensions
+
+def is_image_file(file_path):
+    image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff', '.webp'}
+    file_extension = os.path.splitext(file_path)[1].lower()
+    return file_extension in image_extensions
+
+def open_image(file_path):
+    try:
+        image = Image.open(file_path).convert("RGB")
+        return image
+    except Exception as e:
+        print(f"Failed to open image: {e}")
+        return None
+
+def open_video(file_path, start_frame_idx, num_frames, frame_interval=):
+    # 尝试使用 decord 打开视频
+    try:
+        decord_vr = decord.VideoReader(file_path, ctx=decord.cpu(0), num_threads=1)
+
+
+        
+        video_data = decord_vr.get_batch(frame_indices).asnumpy()
+        video_data = torch.from_numpy(video_data)
+        video_data = video_data.permute(0, 3, 1, 2)  # (T, H, W, C) -> (T C H W)
+        return video_data
+    except Exception as e:
+        print(f"Failed to open video: {e}")
+        return None
 
 class OpenSoraInpaintPipeline(OpenSoraPipeline):
 
@@ -58,7 +93,50 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
             text_encoder_2=text_encoder_2,
             tokenizer_2=tokenizer_2,
         )
+        
+        self.mask_processor = MaskProcessor()
+
         self.mask_compressor = MaskCompressor(ae_stride_t=self.vae.vae_scale_factor[0], ae_stride_h=self.vae.vae_scale_factor[1], ae_stride_w=self.vae.vae_scale_factor[2])
+        
+    def check_inputs(
+        self,
+        conditional_pixel_values_path,
+        mask_type,
+        prompt,
+        num_frames,
+        height,
+        width,
+        negative_prompt=None,
+        prompt_embeds=None,
+        negative_prompt_embeds=None,
+        prompt_attention_mask=None,
+        negative_prompt_attention_mask=None,
+        prompt_embeds_2=None,
+        negative_prompt_embeds_2=None,
+        prompt_attention_mask_2=None,
+        negative_prompt_attention_mask_2=None,
+        callback_on_step_end_tensor_inputs=None,
+    ):
+        if not isinstance(conditional_pixel_values_path, str) and not isinstance(conditional_pixel_values_path, list):
+            raise ValueError("conditional_pixel_values_path should be a string or a list of strings")
+            
+        
+        super().check_inputs(
+            prompt,
+            num_frames,
+            height,
+            width,
+            negative_prompt,
+            prompt_embeds,
+            negative_prompt_embeds,
+            prompt_attention_mask,
+            negative_prompt_attention_mask,
+            prompt_embeds_2,
+            negative_prompt_embeds_2,
+            prompt_attention_mask_2,
+            negative_prompt_attention_mask_2,
+            callback_on_step_end_tensor_inputs,
+        )
 
     def get_resize_transform(
         self, 
@@ -143,8 +221,8 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
     @torch.no_grad()
     def __call__(
         self,
-        conditional_images: Union[str, List[str]] = None,
-        conditional_images_indices: Optional[List[int]] = None,
+        conditional_pixel_values_path: Union[str, List[str]] = None,
+        mask_type: Union[str, MaskType] = MaskType.t2iv,
         crop_for_hw: bool = False,
         max_hw_square: int = 1024 * 1024,
         prompt: Union[str, List[str]] = None,
@@ -188,6 +266,8 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
 
         # 1. Check inputs. Raise error if not correct
         self.check_inputs(
+            conditional_pixel_values_path,
+            mask_type,
             prompt,
             num_frames, 
             height,
