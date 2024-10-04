@@ -313,6 +313,7 @@ class WFVAEModel(VideoBaseAE):
         dropout: float = 0.0,
         norm_type: str = "groupnorm",
         t_interpolation: str = "nearest",
+        connect_res_layer_num: int = 1
     ) -> None:
         super().__init__()
         self.use_tiling = False
@@ -340,6 +341,7 @@ class WFVAEModel(VideoBaseAE):
             use_attention=use_attention,
             norm_type=norm_type,
             t_interpolation=t_interpolation,
+            connect_res_layer_num=connect_res_layer_num
         )
 
         # Set cache offset for trilinear lossless upsample.
