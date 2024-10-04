@@ -35,7 +35,7 @@ from copy import deepcopy
 import os
 from ..registry import ModelRegistry
 from einops import rearrange
-
+from typing import List
 
 class Encoder(VideoBaseAE):
 
@@ -313,7 +313,9 @@ class WFVAEModel(VideoBaseAE):
         dropout: float = 0.0,
         norm_type: str = "groupnorm",
         t_interpolation: str = "nearest",
-        connect_res_layer_num: int = 1
+        connect_res_layer_num: int = 1,
+        scale: List[float] = [1, 1, 1, 1, 1, 1, 1, 1],
+        shift: List[float] = [0, 0, 0, 0, 0, 0, 0, 0]
     ) -> None:
         super().__init__()
         self.use_tiling = False

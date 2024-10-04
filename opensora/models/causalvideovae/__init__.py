@@ -2,12 +2,13 @@ from torchvision.transforms import Lambda
 from .model.vae import CausalVAEModel, WFVAEModel
 from einops import rearrange
 import torch.nn as nn
+import torch
 
 class CausalVAEModelWrapper(nn.Module):
     def __init__(self, model_path, subfolder=None, cache_dir=None, use_ema=False, **kwargs):
         super(CausalVAEModelWrapper, self).__init__()
         self.vae = CausalVAEModel.from_pretrained(model_path, subfolder=subfolder, cache_dir=cache_dir, **kwargs)
-
+        
     def encode(self, x):
         x = self.vae.encode(x).sample().mul_(0.18215)
         return x
@@ -20,16 +21,19 @@ class CausalVAEModelWrapper(nn.Module):
         return self.vae.dtype
     
 class WFVAEModelWrapper(nn.Module):
-    def __init__(self, model_path, subfolder=None, cache_dir=None, use_ema=False, **kwargs):
+    def __init__(self, model_path, subfolder=None, cache_dir=None, **kwargs):
         super(WFVAEModelWrapper, self).__init__()
         self.vae = WFVAEModel.from_pretrained(model_path, subfolder=subfolder, cache_dir=cache_dir, **kwargs)
-
+        self.register_buffer('shift', torch.tensor(self.vae.config.shift)[None, :, None, None, None])
+        self.register_buffer('scale', torch.tensor(self.vae.config.scale)[None, :, None, None, None])
+        
     def encode(self, x):
-        x = self.vae.encode(x).sample().mul_(0.18215)
+        x = (self.vae.encode(x).sample() - self.shift) * self.scale
         return x
     
     def decode(self, x):
-        x = self.vae.decode(x / 0.18215)
+        x = x / self.scale + self.shift
+        x = self.vae.decode(x)
         x = rearrange(x, 'b c t h w -> b t c h w').contiguous()
         return x
 
