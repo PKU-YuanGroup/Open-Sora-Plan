@@ -600,12 +600,12 @@ class T2V_dataset(Dataset):
             len(frame_indices), vae_stride_t=4, model_ds_t=8 if self.sp_size == 8 else 4
             )
         if end_frame_idx == -1:  # too short that can not be encoded exactly by videovae
-            raise IndexError(f'video ({path}) has {total_frames} frames, but need to sample {len(frame_indices)} frames ({frame_indices})')
+            raise IndexError(f'video ({path}) has {clip_total_frames} frames, but need to sample {len(frame_indices)} frames ({frame_indices})')
         frame_indices = frame_indices[:end_frame_idx]
         if predefine_num_frames != len(frame_indices):
             raise ValueError(f'video ({path}) predefine_num_frames ({predefine_num_frames}) ({predefine_frame_indice}) is not equal with frame_indices ({len(frame_indices)}) ({frame_indices})')
         if len(frame_indices) < self.num_frames and self.drop_short_ratio >= 1:
-            raise IndexError(f'video ({path}) has {total_frames} frames, but need to sample {len(frame_indices)} frames ({frame_indices})')
+            raise IndexError(f'video ({path}) has {clip_total_frames} frames, but need to sample {len(frame_indices)} frames ({frame_indices})')
         return frame_indices
     
     def get_cap_list(self):
