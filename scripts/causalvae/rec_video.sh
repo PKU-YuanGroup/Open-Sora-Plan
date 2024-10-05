@@ -5,8 +5,7 @@ CUDA_VISIBLE_DEVICES=1 python examples/rec_video.py \
     --rec_path rec_tile.mp4 \
     --device cuda \
     --sample_rate 1 \
-    --num_frames 33 \
-    --height 256 \
-    --width 256 \
-    --fps 30 \
-    --enable_tiling
+    --num_frames 61 \
+    --height 512 \
+    --width 512 \
+    --fps 30 

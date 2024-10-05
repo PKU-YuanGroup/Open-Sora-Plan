@@ -85,7 +85,7 @@ class Encoder(VideoBaseAE):
             l1_channels = 12
         else:
             l1_channels = 24
-            
+
         self.connect_l1 = Conv2d(
             l1_channels, energy_flow_hidden_size, kernel_size=3, stride=1, padding=1
         )
@@ -112,29 +112,28 @@ class Encoder(VideoBaseAE):
                 1, AttnBlock3DFix(in_channels=base_channels * 4, norm_type=norm_type)
             )
         self.mid = nn.Sequential(*mid_layers)
-
         self.norm_out = Normalize(base_channels * 4, norm_type=norm_type)
         self.conv_out = CausalConv3d(
             base_channels * 4, latent_dim * 2, kernel_size=3, stride=1, padding=1
         )
-        
+
         self.wavelet_tranform_l1 = resolve_str_to_obj(l1_downsample_wavelet)()
         self.wavelet_tranform_l2 = resolve_str_to_obj(l2_downsample_wavelet)()
-        
-        
+
+
     def forward(self, coeffs):
         l1_coeffs = coeffs[:, :3]
         l1_coeffs = self.wavelet_tranform_l1(l1_coeffs)
         l1 = self.connect_l1(l1_coeffs)
         l2_coeffs = self.wavelet_tranform_l2(l1_coeffs[:, :3])
         l2 = self.connect_l2(l2_coeffs)
-        
+
         h = self.down1(coeffs)
         h = torch.concat([h, l1], dim=1)
         h = self.down2(h)
         h = torch.concat([h, l2], dim=1)
         h = self.mid(h)
-        
+
         if npu_config is None:
             h = self.norm_out(h)
         else:
@@ -143,10 +142,7 @@ class Encoder(VideoBaseAE):
         h = nonlinearity(h)
         h = self.conv_out(h)
         return h
-
-
 class Decoder(VideoBaseAE):
-
     @register_to_config
     def __init__(
         self,
@@ -189,7 +185,6 @@ class Decoder(VideoBaseAE):
                 1, AttnBlock3DFix(in_channels=base_channels * 4, norm_type=norm_type)
             )
         self.mid = nn.Sequential(*mid_layers)
-
         self.up2 = nn.Sequential(
             *[
                 ResnetBlock3D(
@@ -274,22 +269,22 @@ class Decoder(VideoBaseAE):
 
         self.inverse_wavelet_tranform_l1 = resolve_str_to_obj(l1_upsample_wavelet)()
         self.inverse_wavelet_tranform_l2 = resolve_str_to_obj(l2_upsample_wavelet)()
-        
+
     def forward(self, z):
         h = self.conv_in(z)
         h = self.mid(h)
         l2_coeffs = self.connect_l2(h[:, -self.energy_flow_hidden_size :])
         l2 = self.inverse_wavelet_tranform_l2(l2_coeffs)
-        
+
         h = self.up2(h[:, : -self.energy_flow_hidden_size])
-        
+
         l1_coeffs = h[:, -self.energy_flow_hidden_size :]
         l1_coeffs = self.connect_l1(l1_coeffs)
         l1_coeffs[:, :3] = l1_coeffs[:, :3] + l2
         l1 = self.inverse_wavelet_tranform_l1(l1_coeffs)
 
         h = self.up1(h[:, : -self.energy_flow_hidden_size])
-        
+
         h = self.layer(h)
         if npu_config is None:
             h = self.norm_out(h)
@@ -303,7 +298,6 @@ class Decoder(VideoBaseAE):
 
 @ModelRegistry.register("WFVAE")
 class WFVAEModel(VideoBaseAE):
-
     @register_to_config
     def __init__(
         self,
@@ -337,7 +331,6 @@ class WFVAEModel(VideoBaseAE):
         self.t_upsample_times = 4 // 2
         self.t_chunk_dec = 4
         self.use_quant_layer = False
-
         self.encoder = Encoder(
             latent_dim=latent_dim,
             base_channels=base_channels,
@@ -370,17 +363,15 @@ class WFVAEModel(VideoBaseAE):
         # Set cache offset for trilinear lossless upsample.
         self._set_cache_offset([self.decoder.up2, self.decoder.connect_l2, self.decoder.conv_in, self.decoder.mid], 1)
         self._set_cache_offset([self.decoder.up2[-2:], self.decoder.up1, self.decoder.connect_l1, self.decoder.layer], self.t_upsample_times)
-        
+
     def get_encoder(self):
         if self.use_quant_layer:
             return [self.quant_conv, self.encoder]
         return [self.encoder]
-
     def get_decoder(self):
         if self.use_quant_layer:
             return [self.post_quant_conv, self.decoder]
         return [self.decoder]
-
     def _empty_causal_cached(self, parent):
         for name, module in parent.named_modules():
             if hasattr(module, 'causal_cached'):
@@ -445,8 +436,6 @@ class WFVAEModel(VideoBaseAE):
             result.append(chunk)
             
         return torch.cat(result, dim=2)
-
-
     def decode(self, z):
         self._empty_causal_cached(self.decoder)
         
@@ -491,7 +480,6 @@ class WFVAEModel(VideoBaseAE):
                 result.append(chunk.clone())
             
         return torch.cat(result, dim=2)
-
     def forward(self, input, sample_posterior=True):
         posterior = self.encode(input)
         if sample_posterior:
@@ -500,24 +488,20 @@ class WFVAEModel(VideoBaseAE):
             z = posterior.mode()
         dec = self.decode(z)
         return dec, posterior
-
     def get_last_layer(self):
         if hasattr(self.decoder.conv_out, "conv"):
             return self.decoder.conv_out.conv.weight
         else:
             return self.decoder.conv_out.weight
-
     def enable_tiling(self, use_tiling: bool = True):
         self.use_tiling = use_tiling
         self._set_causal_cached(use_tiling)
         
     def disable_tiling(self):
         self.enable_tiling(False)
-
     def init_from_ckpt(self, path, ignore_keys=list()):
         sd = torch.load(path, map_location="cpu")
         print("init from " + path)
-
         if (
             "ema_state_dict" in sd
             and len(sd["ema_state_dict"]) > 0
@@ -532,9 +516,7 @@ class WFVAEModel(VideoBaseAE):
                 sd = sd["state_dict"]["gen_model"]
             else:
                 sd = sd["state_dict"]
-
         keys = list(sd.keys())
-
         for k in keys:
             for ik in ignore_keys:
                 if k.startswith(ik):

@@ -9,7 +9,7 @@ from opensora.models.diffusion.common import PatchEmbed2D
 from opensora.utils.utils import to_2tuple
 
 
-from opensora.models.diffusion.opensora_v1_2.modeling_opensora import OpenSoraT2V_v1_2 as OpenSoraT2V
+from opensora.models.diffusion.opensora_v1_3.modeling_opensora import OpenSoraT2V_v1_3 as OpenSoraT2V
 
 import glob
 
@@ -26,7 +26,7 @@ def reconstitute_checkpoint(pretrained_checkpoint, model_state_dict):
     return checkpoint
 
 
-class OpenSoraInpaint_v1_2(OpenSoraT2V):
+class OpenSoraInpaint_v1_3(OpenSoraT2V):
     _supports_gradient_checkpointing = True
 
     @register_to_config
@@ -181,14 +181,16 @@ class OpenSoraInpaint_v1_2(OpenSoraT2V):
 
         self.transformer_model_custom_load_state_dict(pretrained_transformer_model_path)
 
-def OpenSoraInpaint_v1_2_L_122(**kwargs):
-    return OpenSoraInpaint_v1_2(num_layers=32, attention_head_dim=96, num_attention_heads=24, patch_size_t=1, patch_size=2,
-                       norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=2304, activation_fn="gelu-approximate", **kwargs)
+def OpenSoraInpaint_v1_3_2B_122(**kwargs):
+    return OpenSoraInpaint_v1_3(
+        num_layers=32, attention_head_dim=96, num_attention_heads=24, patch_size_t=1, patch_size=2,
+        norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=2304, 
+        activation_fn="gelu-approximate", **kwargs)
 
 OpenSoraInpaint_models = {
-    "OpenSoraInpaint_v1_2-L/122": OpenSoraInpaint_v1_2_L_122,  # 2.7B
+    "OpenSoraInpaint_v1_3-2B/122": OpenSoraInpaint_v1_3_2B_122,  # 2.7B
 }
 
 OpenSoraInpaint_models_class = {
-    "OpenSoraInpaint_v1_2-L/122": OpenSoraInpaint_v1_2,
+    "OpenSoraInpaint_v1_3-2B/122": OpenSoraInpaint_v1_3,
 }
