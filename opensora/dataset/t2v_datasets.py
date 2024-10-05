@@ -111,12 +111,17 @@ class DataSetProg(metaclass=SingletonMeta):
 dataset_prog = DataSetProg()
 
 def find_closest_y(x, vae_stride_t=4, model_ds_t=1):
-    if x < 29:
+    min_num_frames = 29
+    if x < min_num_frames:
         return -1  
-    for y in range(x, 29 - 1, -1):
+    for y in range(x, min_num_frames - 1, -1):
         if (y - 1) % vae_stride_t == 0 and ((y - 1) // vae_stride_t + 1) % model_ds_t == 0:
             # 4, 8: y in [29, 61, 93, 125, 157, 189, 221, 253, 285, 317, 349, 381, 413, 445, 477, 509, ...]
             # 4, 4: y in [29, 45, 61, 77, 93, 109, 125, 141, 157, 173, 189, 205, 221, 237, 253, 269, 285, 301, 317, 333, 349, 365, 381, 397, 413, 429, 445, 461, 477, 493, 509, ...]
+            # 8, 1: y in [33, 41, 49, 57, 65, 73, 81, 89, 97, 105]
+            # 8, 2: y in [41, 57, 73, 89, 105]
+            # 8, 4: y in [57, 89]
+            # 8, 8: y in [57]
             return y
     return -1 
 
@@ -160,6 +165,7 @@ class T2V_dataset(Dataset):
         assert self.speed_factor >= 1
         self.video_reader = 'decord' if args.use_decord else 'opencv'
         self.ae_stride_t = args.ae_stride_t
+        self.total_batch_size = args.total_batch_size
         self.seed = 42
         self.generator = torch.Generator().manual_seed(self.seed) 
 
@@ -179,7 +185,7 @@ class T2V_dataset(Dataset):
         dataset_prog.set_cap_list(args.dataloader_num_workers, cap_list, n_elements)
         logger.info(f"Data length: {len(dataset_prog.cap_list)}")
         self.executor = ThreadPoolExecutor(max_workers=1)
-        self.timeout = 5
+        self.timeout = 500
 
     def set_checkpoint(self, n_used_elements):
         for i in range(len(dataset_prog.n_used_elements)):
@@ -475,7 +481,7 @@ class T2V_dataset(Dataset):
                         # frame_indices = frame_indices[:self.num_frames]  # head crop
                     # to find a suitable end_frame_idx, to ensure we do not need pad video
                     end_frame_idx = find_closest_y(
-                        len(frame_indices), vae_stride_t=self.ae_stride_t, model_ds_t=self.sp_size
+                        len(frame_indices), vae_stride_t=self.ae_stride_t, model_ds_t=self.sp_size if self.sp_size != 1 else 2
                         )
                     if end_frame_idx == -1:  # too short that can not be encoded exactly by videovae
                         cnt_too_short += 1
@@ -500,11 +506,20 @@ class T2V_dataset(Dataset):
                 sample_size.append(f"{len(i['sample_frame_index'])}x{sample_h}x{sample_w}")
                 if self.use_motion:
                     motion_score.append(i['motion_score'])
-        
+                # import ipdb;ipdb.set_trace()
+
+        counter = Counter(sample_size)
+        len_before_filter_major = len(sample_size)
+        filter_major_num = 8 * self.total_batch_size
+        if self.use_motion:
+            new_cap_list, sample_size, motion_score = zip(*[[i, j, k] for i, j, k in zip(new_cap_list, sample_size, motion_score) if counter[j] >= filter_major_num])
+        else:
+            new_cap_list, sample_size = zip(*[[i, j] for i, j in zip(new_cap_list, sample_size) if counter[j] >= filter_major_num])
+        cnt_filter_minority = len_before_filter_major - len(sample_size) 
         counter = Counter(sample_size)
         logger.info(f'no_cap: {cnt_no_cap}, too_long: {cnt_too_long}, too_short: {cnt_too_short}, '
                 f'no_resolution: {cnt_no_resolution}, resolution_mismatch: {cnt_resolution_mismatch}, '
-                f'cnt_resolution_too_small: {cnt_resolution_too_small}, '
+                f'cnt_resolution_too_small: {cnt_resolution_too_small}, cnt_filter_minority: {cnt_filter_minority} '
                 f'Counter(sample_size): {counter}, cnt_vid: {cnt_vid}, cnt_img: {cnt_img}, '
                 f'before filter: {cnt}, after filter: {len(new_cap_list)}')
         
@@ -523,11 +538,6 @@ class T2V_dataset(Dataset):
                         f"{len([i for i in aesthetic_score if i>=5.75])} > 5.75, 4.5 > {len([i for i in aesthetic_score if i<=4.5])} "
                         f"Mean: {stats_aesthetic['mean']}, Var: {stats_aesthetic['variance']}, Std: {stats_aesthetic['std_dev']}, "
                         f"Min: {stats_aesthetic['min']}, Max: {stats_aesthetic['max']}")
-        # import ipdb;ipdb.set_trace()
-        if self.use_motion:
-            new_cap_list, sample_size, motion_score = zip(*[[i, j, k] for i, j, k in zip(new_cap_list, sample_size, motion_score) if counter[j] >= len(new_cap_list)*0.01])
-        else:
-            new_cap_list, sample_size = zip(*[[i, j] for i, j in zip(new_cap_list, sample_size) if counter[j] >= len(new_cap_list)*0.01])
 
         return new_cap_list, sample_size, motion_score
     
@@ -604,7 +614,7 @@ class T2V_dataset(Dataset):
 
         # to find a suitable end_frame_idx, to ensure we do not need pad video
         end_frame_idx = find_closest_y(
-            len(frame_indices), vae_stride_t=self.ae_stride_t, model_ds_t=self.sp_size
+            len(frame_indices), vae_stride_t=self.ae_stride_t, model_ds_t=self.sp_size if self.sp_size != 1 else 2
             )
         if end_frame_idx == -1:  # too short that can not be encoded exactly by videovae
             raise IndexError(f'video ({path}) has {clip_total_frames} frames, but need to sample {len(frame_indices)} frames ({frame_indices})')

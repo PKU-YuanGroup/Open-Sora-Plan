@@ -1,1 +1,1 @@
-/storage/dataset/movie,/storage/lcm/ocr/final/bbc01_final_301476.json
+/storage/dataset/aiqiyi,/storage/lcm/ocr/final/aiqiyi_final_30345.json

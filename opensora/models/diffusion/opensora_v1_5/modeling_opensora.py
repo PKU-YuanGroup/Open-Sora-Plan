@@ -491,7 +491,7 @@ def OpenSoraT2V_v1_5_2B_122(**kwargs):
         num_layers=[2, 4, 6, 10, 6, 4, 2], sparse_n=[1, 2, 4, 8, 4, 2, 1], 
         attention_head_dim=72, num_attention_heads=24, 
         timestep_embed_dim=768, patch_size_t=1, patch_size=2, 
-        caption_channels=4096, pooled_projection_dim=1280, **kwargs
+        caption_channels=2048, pooled_projection_dim=1280, **kwargs
     )
 
 def OpenSoraT2V_v1_5_7B_122(**kwargs):
@@ -509,7 +509,7 @@ def OpenSoraT2V_v1_5_7B_122(**kwargs):
         num_layers=[2, 4, 8, 10, 8, 4, 2], sparse_n=[1, 2, 4, 8, 4, 2, 1], 
         attention_head_dim=96, num_attention_heads=32, 
         timestep_embed_dim=1024, patch_size_t=1, patch_size=2, 
-        caption_channels=4096, pooled_projection_dim=1280, **kwargs
+        caption_channels=2048, pooled_projection_dim=1280, **kwargs
     )
 
 def OpenSoraT2V_v1_5_8B_122(**kwargs):
@@ -527,7 +527,7 @@ def OpenSoraT2V_v1_5_8B_122(**kwargs):
         num_layers=[2, 6, 8, 12, 8, 6, 2], sparse_n=[1, 2, 4, 8, 4, 2, 1], 
         attention_head_dim=96, num_attention_heads=32, 
         timestep_embed_dim=1024, patch_size_t=1, patch_size=2, 
-        caption_channels=4096, pooled_projection_dim=1280, **kwargs
+        caption_channels=2048, pooled_projection_dim=1280, **kwargs
     )
 
 OpenSora_v1_5_models = {

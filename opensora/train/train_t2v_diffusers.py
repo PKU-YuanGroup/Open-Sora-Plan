@@ -472,7 +472,11 @@ def main(args):
         initial_global_step_for_sampler = args.trained_data_global_step
     else:
         initial_global_step_for_sampler = 0
-        
+    
+
+    total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
+    total_batch_size = total_batch_size // args.sp_size * args.train_sp_batch_size
+    args.total_batch_size = total_batch_size
     train_dataset = getdataset(args)
     sampler = LengthGroupedSampler(
                 args.train_batch_size,
@@ -541,8 +545,6 @@ def main(args):
         accelerator.init_trackers(os.path.basename(args.output_dir), config=vars(args))
 
     # Train!
-    total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
-    total_batch_size = total_batch_size // args.sp_size * args.train_sp_batch_size
 
     logger.info("***** Running training *****")
     logger.info(f"  Model = {model}")
@@ -766,7 +768,7 @@ def main(args):
     def train_one_step(step_, data_item_, prof_=None):
         train_loss = 0.0
         x, attn_mask, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2, motion_score = data_item_
-        print(f'step: {step_}, rank: {accelerator.process_index}, x: {x.shape}')
+        # print(f'step: {step_}, rank: {accelerator.process_index}, x: {x.shape}, dtype: {x.dtype}')
         # assert not torch.any(torch.isnan(x)), 'torch.any(torch.isnan(x))'
 
         if args.extra_save_mem:
@@ -803,6 +805,7 @@ def main(args):
 
             # Map input images to latent space + normalize latents
             x = ae.encode(x)  # B C T H W
+            # print(f'step: {step_}, rank: {accelerator.process_index}, after vae.encode, x: {x.shape}, dtype: {x.dtype}, mean: {x.mean()}, std: {x.std()}')
             # x = torch.rand(1, 32, 14, 80, 80).to(x.device, dtype=x.dtype)
             # def custom_to_video(x: torch.Tensor, fps: float = 2.0, output_file: str = 'output_video.mp4') -> None:
             #     from examples.rec_video import array_to_video

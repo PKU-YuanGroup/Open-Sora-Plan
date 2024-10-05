@@ -30,6 +30,8 @@ from opensora.sample.pipeline_opensora import OpenSoraPipeline
 from opensora.sample.pipeline_inpaint import OpenSoraInpaintPipeline
 from opensora.models.diffusion.opensora_v1_2.modeling_opensora import OpenSoraT2V_v1_2
 from opensora.models.diffusion.opensora_v1_2.modeling_inpaint import OpenSoraInpaint_v1_2
+from opensora.models.diffusion.opensora_v1_3.modeling_opensora import OpenSoraT2V_v1_3
+from opensora.models.diffusion.opensora_v1_3.modeling_inpaint import OpenSoraInpaint_v1_3
 from transformers import T5EncoderModel, T5Tokenizer, AutoTokenizer, MT5EncoderModel, CLIPTextModelWithProjection
 
 def get_scheduler(args):
@@ -103,6 +105,17 @@ def prepare_pipeline(args, dtype, device):
                 ).eval()
         else:
             transformer_model = OpenSoraT2V_v1_2.from_pretrained(
+                args.model_path, cache_dir=args.cache_dir,
+                device_map=None, torch_dtype=weight_dtype
+                ).eval()
+    elif args.version == 'v1_3':
+        if args.model_type == 'inpaint' or args.model_type == 'i2v':
+            transformer_model = OpenSoraInpaint_v1_3.from_pretrained(
+                args.model_path, cache_dir=args.cache_dir,
+                device_map=None, torch_dtype=weight_dtype
+                ).eval()
+        else:
+            transformer_model = OpenSoraT2V_v1_3.from_pretrained(
                 args.model_path, cache_dir=args.cache_dir,
                 device_map=None, torch_dtype=weight_dtype
                 ).eval()
@@ -410,7 +423,7 @@ def run_model_and_save_samples_npu(args, pipeline, caption_refiner_model=None, e
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_path", type=str, default='LanguageBind/Open-Sora-Plan-v1.0.0')
-    parser.add_argument("--version", type=str, default='v1_2', choices=['v1_2', 'v1_5'])
+    parser.add_argument("--version", type=str, default='v1_2', choices=['v1_2', 'v1_3', 'v1_5'])
     parser.add_argument("--model_type", type=str, default='t2v', choices=['t2v', 'inpaint', 'i2v'])
     parser.add_argument("--num_frames", type=int, default=1)
     parser.add_argument("--height", type=int, default=512)
