@@ -110,10 +110,10 @@ class DataSetProg(metaclass=SingletonMeta):
 
 dataset_prog = DataSetProg()
 
-def find_closest_y(x, vae_stride_t=4, model_ds_t=4):
+def find_closest_y(x, vae_stride_t=4, model_ds_t=1):
     if x < 29:
         return -1  
-    for y in range(x, 12, -1):
+    for y in range(x, 29 - 1, -1):
         if (y - 1) % vae_stride_t == 0 and ((y - 1) // vae_stride_t + 1) % model_ds_t == 0:
             # 4, 8: y in [29, 61, 93, 125, 157, 189, 221, 253, 285, 317, 349, 381, 413, 445, 477, 509, ...]
             # 4, 4: y in [29, 45, 61, 77, 93, 109, 125, 141, 157, 173, 189, 205, 221, 237, 253, 269, 285, 301, 317, 333, 349, 365, 381, 397, 413, 429, 445, 461, 477, 493, 509, ...]
@@ -159,6 +159,7 @@ class T2V_dataset(Dataset):
         self.sp_size = args.sp_size
         assert self.speed_factor >= 1
         self.video_reader = 'decord' if args.use_decord else 'opencv'
+        self.ae_stride_t = args.ae_stride_t
         self.seed = 42
         self.generator = torch.Generator().manual_seed(self.seed) 
 
@@ -189,9 +190,9 @@ class T2V_dataset(Dataset):
 
     def __getitem__(self, idx):
         try:
-            # future = self.executor.submit(self.get_data, idx)
-            # data = future.result(timeout=self.timeout) 
-            data = self.get_data(idx)
+            future = self.executor.submit(self.get_data, idx)
+            data = future.result(timeout=self.timeout) 
+            # data = self.get_data(idx)
             return data
         except Exception as e:
             if len(str(e)) < 2:
@@ -214,6 +215,7 @@ class T2V_dataset(Dataset):
         # input_ids = torch.ones(1, 120).to(torch.long).squeeze(0)
         # cond_mask = torch.cat([torch.ones(1, 60).to(torch.long), torch.ones(1, 60).to(torch.long)], dim=1).squeeze(0)
         # logger.info(f'Now we use t2v dataset {idx}')
+
         video_data = dataset_prog.cap_list[idx]
         video_path = video_data['path']
         assert os.path.exists(video_path), f"file {video_path} do not exist!"
@@ -229,7 +231,7 @@ class T2V_dataset(Dataset):
         video = self.transform(video)  # T C H W -> T C H W
         assert video.shape[2] == sample_h and video.shape[3] == sample_w, f'sample_h ({sample_h}), sample_w ({sample_w}), video ({video.shape})'
 
-        # video = torch.rand(221, 3, 480, 640)
+        # video = torch.rand(105, 3, 640, 640)
 
         video = video.transpose(0, 1)  # T C H W -> C T H W
         text = video_data['cap']
@@ -473,7 +475,7 @@ class T2V_dataset(Dataset):
                         # frame_indices = frame_indices[:self.num_frames]  # head crop
                     # to find a suitable end_frame_idx, to ensure we do not need pad video
                     end_frame_idx = find_closest_y(
-                        len(frame_indices), vae_stride_t=4, model_ds_t=8 if self.sp_size == 8 else 4
+                        len(frame_indices), vae_stride_t=self.ae_stride_t, model_ds_t=self.sp_size
                         )
                     if end_frame_idx == -1:  # too short that can not be encoded exactly by videovae
                         cnt_too_short += 1
@@ -498,11 +500,12 @@ class T2V_dataset(Dataset):
                 sample_size.append(f"{len(i['sample_frame_index'])}x{sample_h}x{sample_w}")
                 if self.use_motion:
                     motion_score.append(i['motion_score'])
-                    
+        
+        counter = Counter(sample_size)
         logger.info(f'no_cap: {cnt_no_cap}, too_long: {cnt_too_long}, too_short: {cnt_too_short}, '
                 f'no_resolution: {cnt_no_resolution}, resolution_mismatch: {cnt_resolution_mismatch}, '
                 f'cnt_resolution_too_small: {cnt_resolution_too_small}, '
-                f'Counter(sample_size): {Counter(sample_size)}, cnt_vid: {cnt_vid}, cnt_img: {cnt_img}, '
+                f'Counter(sample_size): {counter}, cnt_vid: {cnt_vid}, cnt_img: {cnt_img}, '
                 f'before filter: {cnt}, after filter: {len(new_cap_list)}')
         
         if self.use_motion:
@@ -520,7 +523,11 @@ class T2V_dataset(Dataset):
                         f"{len([i for i in aesthetic_score if i>=5.75])} > 5.75, 4.5 > {len([i for i in aesthetic_score if i<=4.5])} "
                         f"Mean: {stats_aesthetic['mean']}, Var: {stats_aesthetic['variance']}, Std: {stats_aesthetic['std_dev']}, "
                         f"Min: {stats_aesthetic['min']}, Max: {stats_aesthetic['max']}")
-        
+        # import ipdb;ipdb.set_trace()
+        if self.use_motion:
+            new_cap_list, sample_size, motion_score = zip(*[[i, j, k] for i, j, k in zip(new_cap_list, sample_size, motion_score) if counter[j] >= len(new_cap_list)*0.01])
+        else:
+            new_cap_list, sample_size = zip(*[[i, j] for i, j in zip(new_cap_list, sample_size) if counter[j] >= len(new_cap_list)*0.01])
 
         return new_cap_list, sample_size, motion_score
     
@@ -597,15 +604,15 @@ class T2V_dataset(Dataset):
 
         # to find a suitable end_frame_idx, to ensure we do not need pad video
         end_frame_idx = find_closest_y(
-            len(frame_indices), vae_stride_t=4, model_ds_t=8 if self.sp_size == 8 else 4
+            len(frame_indices), vae_stride_t=self.ae_stride_t, model_ds_t=self.sp_size
             )
         if end_frame_idx == -1:  # too short that can not be encoded exactly by videovae
-            raise IndexError(f'video ({path}) has {total_frames} frames, but need to sample {len(frame_indices)} frames ({frame_indices})')
+            raise IndexError(f'video ({path}) has {clip_total_frames} frames, but need to sample {len(frame_indices)} frames ({frame_indices})')
         frame_indices = frame_indices[:end_frame_idx]
         if predefine_num_frames != len(frame_indices):
             raise ValueError(f'video ({path}) predefine_num_frames ({predefine_num_frames}) ({predefine_frame_indice}) is not equal with frame_indices ({len(frame_indices)}) ({frame_indices})')
         if len(frame_indices) < self.num_frames and self.drop_short_ratio >= 1:
-            raise IndexError(f'video ({path}) has {total_frames} frames, but need to sample {len(frame_indices)} frames ({frame_indices})')
+            raise IndexError(f'video ({path}) has {clip_total_frames} frames, but need to sample {len(frame_indices)} frames ({frame_indices})')
         return frame_indices
     
     def get_cap_list(self):

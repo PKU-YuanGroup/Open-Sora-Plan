@@ -213,7 +213,7 @@ def main(args):
         weight_dtype = torch.bfloat16
 
     # Create model:
-
+    
     # Currently Accelerate doesn't know how to handle multiple models under Deepspeed ZeRO stage 3.
     # For this to work properly all models must be run through `accelerate.prepare`. But accelerate
     # will try to assign the same optimizer with the same weights to all models during
@@ -249,6 +249,22 @@ def main(args):
         text_enc_2 = None
         if args.text_encoder_name_2 is not None:
             text_enc_2 = get_text_warpper(args.text_encoder_name_2)(args, **kwargs).eval()
+    
+    # kwargs = {}
+    # # ae = ae_wrapper[args.ae](args.ae_path, cache_dir=args.cache_dir, **kwargs).eval()
+    
+    # # if args.enable_tiling:
+    # #     ae.vae.enable_tiling()
+
+    # kwargs = {
+    #     'torch_dtype': weight_dtype, 
+    #     'low_cpu_mem_usage': False
+    #     }
+    # text_enc_1 = get_text_warpper(args.text_encoder_name_1)(args, **kwargs).eval()
+
+    # text_enc_2 = None
+    # if args.text_encoder_name_2 is not None:
+    #     text_enc_2 = get_text_warpper(args.text_encoder_name_2)(args, **kwargs).eval()
 
     ae_stride_t, ae_stride_h, ae_stride_w = ae_stride_config[args.ae]
     ae.vae_scale_factor = (ae_stride_t, ae_stride_h, ae_stride_w)
@@ -761,6 +777,7 @@ def main(args):
                 text_enc_2.to(accelerator.device, dtype=weight_dtype)
 
         x = x.to(accelerator.device, dtype=ae.vae.dtype)  # B C T H W
+        # x = x.to(accelerator.device, dtype=torch.float32)  # B C T H W
         attn_mask = attn_mask.to(accelerator.device)  # B T H W
         input_ids_1 = input_ids_1.to(accelerator.device)  # B 1 L
         cond_mask_1 = cond_mask_1.to(accelerator.device)  # B 1 L
@@ -786,7 +803,7 @@ def main(args):
 
             # Map input images to latent space + normalize latents
             x = ae.encode(x)  # B C T H W
-
+            # x = torch.rand(1, 32, 14, 80, 80).to(x.device, dtype=x.dtype)
             # def custom_to_video(x: torch.Tensor, fps: float = 2.0, output_file: str = 'output_video.mp4') -> None:
             #     from examples.rec_video import array_to_video
             #     x = x.detach().cpu()

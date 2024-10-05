@@ -320,7 +320,7 @@ class WFVAEModel(VideoBaseAE):
         super().__init__()
         self.use_tiling = False
         # Hardcode for now
-        self.t_chunk_enc = 16
+        self.t_chunk_enc = 8
         self.t_upsample_times = 4 // 2
         self.t_chunk_dec = 4
         self.use_quant_layer = False

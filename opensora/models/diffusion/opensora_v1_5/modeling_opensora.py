@@ -476,7 +476,7 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
         )
         return output
 
-def OpenSoraT2V_v1_5_5B_122(**kwargs):
+def OpenSoraT2V_v1_5_2B_122(**kwargs):
     if kwargs.get('sparse_n', None) is not None:
         kwargs.pop('sparse_n')
     if kwargs.get('use_motion', None) is not None:
@@ -487,39 +487,59 @@ def OpenSoraT2V_v1_5_5B_122(**kwargs):
         kwargs.pop('double_self_attention')
     if kwargs.get('upcast_attention', None) is not None:
         kwargs.pop('upcast_attention')
-    return OpenSoraT2V_v1_5(
-        num_layers=[2, 6, 8, 12, 6, 4, 2], sparse_n=[1, 2, 4, 8, 4, 2, 1], 
-        attention_head_dim=72, num_attention_heads=32, 
-        timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
-        caption_channels=4096, pooled_projection_dim=1280, **kwargs
-    )
-
-def OpenSoraT2V_v1_5_11B_122(**kwargs):
-    if kwargs.get('sparse_n', None) is not None:
-        kwargs.pop('sparse_n')
-    if kwargs.get('use_motion', None) is not None:
-        kwargs.pop('use_motion')
-    if kwargs.get('only_cross_attention', None) is not None:
-        kwargs.pop('only_cross_attention')
-    if kwargs.get('double_self_attention', None) is not None:
-        kwargs.pop('double_self_attention')
-    if kwargs.get('upcast_attention', None) is not None:
-        kwargs.pop('upcast_attention')
-    return OpenSoraT2V_v1_5(
-        num_layers=[2, 4, 8, 12, 8, 4, 2], sparse_n=[1, 4, 8, 8, 8, 4, 1], 
-        attention_head_dim=96, num_attention_heads=40, 
+    return OpenSoraT2V_v1_5(  # 34 layers
+        num_layers=[2, 4, 6, 10, 6, 4, 2], sparse_n=[1, 2, 4, 8, 4, 2, 1], 
+        attention_head_dim=72, num_attention_heads=24, 
         timestep_embed_dim=768, patch_size_t=1, patch_size=2, 
         caption_channels=4096, pooled_projection_dim=1280, **kwargs
     )
 
+def OpenSoraT2V_v1_5_7B_122(**kwargs):
+    if kwargs.get('sparse_n', None) is not None:
+        kwargs.pop('sparse_n')
+    if kwargs.get('use_motion', None) is not None:
+        kwargs.pop('use_motion')
+    if kwargs.get('only_cross_attention', None) is not None:
+        kwargs.pop('only_cross_attention')
+    if kwargs.get('double_self_attention', None) is not None:
+        kwargs.pop('double_self_attention')
+    if kwargs.get('upcast_attention', None) is not None:
+        kwargs.pop('upcast_attention')
+    return OpenSoraT2V_v1_5(  # 38 layers
+        num_layers=[2, 4, 8, 10, 8, 4, 2], sparse_n=[1, 2, 4, 8, 4, 2, 1], 
+        attention_head_dim=96, num_attention_heads=32, 
+        timestep_embed_dim=1024, patch_size_t=1, patch_size=2, 
+        caption_channels=4096, pooled_projection_dim=1280, **kwargs
+    )
+
+def OpenSoraT2V_v1_5_8B_122(**kwargs):
+    if kwargs.get('sparse_n', None) is not None:
+        kwargs.pop('sparse_n')
+    if kwargs.get('use_motion', None) is not None:
+        kwargs.pop('use_motion')
+    if kwargs.get('only_cross_attention', None) is not None:
+        kwargs.pop('only_cross_attention')
+    if kwargs.get('double_self_attention', None) is not None:
+        kwargs.pop('double_self_attention')
+    if kwargs.get('upcast_attention', None) is not None:
+        kwargs.pop('upcast_attention')
+    return OpenSoraT2V_v1_5(  # 44 layers
+        num_layers=[2, 6, 8, 12, 8, 6, 2], sparse_n=[1, 2, 4, 8, 4, 2, 1], 
+        attention_head_dim=96, num_attention_heads=32, 
+        timestep_embed_dim=1024, patch_size_t=1, patch_size=2, 
+        caption_channels=4096, pooled_projection_dim=1280, **kwargs
+    )
+
 OpenSora_v1_5_models = {
-    "OpenSoraT2V_v1_5-5B/122": OpenSoraT2V_v1_5_5B_122, 
-    "OpenSoraT2V_v1_5-11B/122": OpenSoraT2V_v1_5_11B_122, 
+    "OpenSoraT2V_v1_5-2B/122": OpenSoraT2V_v1_5_2B_122, 
+    "OpenSoraT2V_v1_5-7B/122": OpenSoraT2V_v1_5_7B_122, 
+    "OpenSoraT2V_v1_5-8B/122": OpenSoraT2V_v1_5_8B_122, 
 }
 
 OpenSora_v1_5_models_class = {
-    "OpenSoraT2V_v1_5-5B/122": OpenSoraT2V_v1_5,
-    "OpenSoraT2V_v1_5-11B/122": OpenSoraT2V_v1_5,
+    "OpenSoraT2V_v1_5-2B/122": OpenSoraT2V_v1_5,
+    "OpenSoraT2V_v1_5-7B/122": OpenSoraT2V_v1_5,
+    "OpenSoraT2V_v1_5-8B/122": OpenSoraT2V_v1_5,
 }
 
 if __name__ == '__main__':
@@ -528,11 +548,11 @@ if __name__ == '__main__':
     from opensora.models import CausalVAEModelWrapper
     args = type('args', (), 
     {
-        'ae': 'WFVAEModel_D8_4x8x8', 
+        'ae': 'WFVAEModel_D32_8x8x8', 
         'model_max_length': 300, 
-        'max_height': 480,
+        'max_height': 640,
         'max_width': 640,
-        'num_frames': 29,
+        'num_frames': 105,
         'compress_kv_factor': 1, 
         'interpolation_scale_t': 1,
         'interpolation_scale_h': 1,
@@ -541,8 +561,8 @@ if __name__ == '__main__':
         "rank": 64, 
     }
     )
-    b = 2
-    c = 8
+    b = 1
+    c = 32
     cond_c = 4096
     cond_c1 = 1280
     num_timesteps = 1000
@@ -552,7 +572,7 @@ if __name__ == '__main__':
 
     # device = torch.device('cpu')
     device = torch.device('cuda:0')
-    model = OpenSoraT2V_v1_5_11B_122(
+    model = OpenSoraT2V_v1_5_7B_122(
         in_channels=c, 
         out_channels=c, 
         sample_size=latent_size, 
