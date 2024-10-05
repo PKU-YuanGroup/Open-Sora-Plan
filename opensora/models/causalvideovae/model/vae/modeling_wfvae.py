@@ -28,6 +28,7 @@ import os
 from ..registry import ModelRegistry
 from einops import rearrange
 from ..utils.module_utils import resolve_str_to_obj, Module
+from typing import List
 
 class Encoder(VideoBaseAE):
 
@@ -311,6 +312,8 @@ class WFVAEModel(VideoBaseAE):
         norm_type: str = "groupnorm",
         t_interpolation: str = "nearest",
         connect_res_layer_num: int = 1,
+        scale: List[float] = [1, 1, 1, 1, 1, 1, 1, 1],
+        shift: List[float] = [0, 0, 0, 0, 0, 0, 0, 0],
         # Module config
         l1_dowmsample_block: str = "Downsample",
         l1_downsample_wavelet: str = "HaarWaveletTransform2D",
