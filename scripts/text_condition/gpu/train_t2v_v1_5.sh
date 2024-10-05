@@ -29,18 +29,18 @@ accelerate launch \
     --text_encoder_name_2 laion/CLIP-ViT-bigG-14-laion2B-39B-b160k \
     --cache_dir "../../cache_dir/" \
     --dataset t2v \
-    --data "scripts/train_data/merge_data.txt" \
+    --data "scripts/train_data/image_data_stage1_part1.txt" \
     --ae WFVAEModel_D32_8x8x8 \
     --ae_path "/storage/lcm/WF-VAE/results/new888" \
     --sample_rate 1 \
-    --num_frames 105 \
-    --max_height 768 \
-    --max_width 768 \
+    --num_frames 1 \
+    --max_height 384 \
+    --max_width 384 \
     --interpolation_scale_t 1.0 \
     --interpolation_scale_h 1.0 \
     --interpolation_scale_w 1.0 \
     --gradient_checkpointing \
-    --train_batch_size=1 \
+    --train_batch_size=8 \
     --dataloader_num_workers 10 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
@@ -69,7 +69,7 @@ accelerate launch \
     --use_decord \
     --prediction_type "v_prediction" \
     --rescale_betas_zero_snr \
-    --output_dir="debug" \
-    --min_height 384 \
-    --min_width 384 \
+    --output_dir="any1x384x384_min160_lr2e-5_bs2048_mmdit8b_vpred_fp32vae32" \
+    --min_height 160 \
+    --min_width 160 \
     --vae_fp32

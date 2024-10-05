@@ -377,8 +377,12 @@ class T2V_dataset(Dataset):
             folder_anno = [i.strip().split(',') for i in f.readlines() if len(i.strip()) > 0]
         for sub_root, anno in tqdm(folder_anno):
             logger.info(f'Building {anno}...')
-            with open(anno, 'r') as f:
-                sub_list = json.load(f)
+            if anno.endswith('.json'):
+                with open(anno, 'r') as f:
+                    sub_list = json.load(f)
+            elif anno.endswith('.pkl'):
+                with open(anno, "rb") as f: 
+                    sub_list = pickle.load(f)
             for i in tqdm(sub_list):
                 cnt += 1
                 path = os.path.join(sub_root, i['path'])
@@ -522,7 +526,7 @@ class T2V_dataset(Dataset):
                 f'cnt_resolution_too_small: {cnt_resolution_too_small}, cnt_filter_minority: {cnt_filter_minority} '
                 f'Counter(sample_size): {counter}, cnt_vid: {cnt_vid}, cnt_img: {cnt_img}, '
                 f'before filter: {cnt}, after filter: {len(new_cap_list)}')
-        
+        # import ipdb;ipdb.set_trace()
         if self.use_motion:
             stats_motion = calculate_statistics(motion_score)
             logger.info(f"before filter: {cnt}, after filter: {len(new_cap_list)} | "
@@ -624,16 +628,4 @@ class T2V_dataset(Dataset):
         if len(frame_indices) < self.num_frames and self.drop_short_ratio >= 1:
             raise IndexError(f'video ({path}) has {clip_total_frames} frames, but need to sample {len(frame_indices)} frames ({frame_indices})')
         return frame_indices
-    
-    def get_cap_list(self):
-        data_roots = []
-        cap_lists = []
-        with open(self.data, 'r') as f:
-            folder_anno = [i.strip().split(',') for i in f.readlines() if len(i.strip()) > 0]
-        for folder, anno in tqdm(folder_anno):
-            logger.info(f'Building {anno}...')
-            with open(anno, 'r') as f:
-                sub_list = json.load(f)
-            data_roots.append(folder)
-            cap_lists.append(sub_list)
-        return data_roots, cap_lists
+

@@ -1,7 +1,7 @@
 compute_environment: LOCAL_MACHINE
 distributed_type: DEEPSPEED
 deepspeed_config:
- deepspeed_config_file: scripts/accelerate_configs/zero3.json
+ deepspeed_config_file: scripts/accelerate_configs/zero2.json
  deepspeed_hostfile: scripts/accelerate_configs/hostfile
 fsdp_config: {}
 machine_rank: 0

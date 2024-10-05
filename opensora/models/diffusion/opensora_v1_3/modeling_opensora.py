@@ -36,7 +36,7 @@ class OpenSoraT2V_v1_3(ModelMixin, ConfigMixin):
         num_layers: int = 1,
         dropout: float = 0.0,
         cross_attention_dim: Optional[int] = None,
-        attention_bias: bool = False,
+        attention_bias: bool = True,
         sample_size: Optional[int] = None,
         sample_size_t: Optional[int] = None,
         patch_size: Optional[int] = None,
@@ -45,8 +45,8 @@ class OpenSoraT2V_v1_3(ModelMixin, ConfigMixin):
         only_cross_attention: bool = False,
         double_self_attention: bool = False,
         upcast_attention: bool = False,
-        norm_elementwise_affine: bool = True,
-        norm_eps: float = 1e-5,
+        norm_elementwise_affine: bool = False,
+        norm_eps: float = 1e-6,
         caption_channels: int = None,
         interpolation_scale_h: float = 1.0,
         interpolation_scale_w: float = 1.0,
@@ -290,7 +290,7 @@ class OpenSoraT2V_v1_3(ModelMixin, ConfigMixin):
 def OpenSoraT2V_v1_3_2B_122(**kwargs):
     return OpenSoraT2V_v1_3(
         num_layers=32, attention_head_dim=96, num_attention_heads=24, patch_size_t=1, patch_size=2,
-        caption_channels=4096, cross_attention_dim=2304, **kwargs
+        caption_channels=4096, cross_attention_dim=2304, activation_fn="gelu-approximate", **kwargs
         )
 
 OpenSora_v1_3_models = {

@@ -66,6 +66,9 @@ def getdataset(args):
 
 
 if __name__ == "__main__":
+    '''
+    python opensora/dataset/__init__.py
+    '''
     from accelerate import Accelerator
     from opensora.dataset.t2v_datasets import dataset_prog
     from opensora.utils.dataset_utils import LengthGroupedSampler, Collate
@@ -75,14 +78,14 @@ if __name__ == "__main__":
     from tqdm import tqdm
     args = type('args', (), 
     {
-        'ae': 'CausalVAEModel_D8_4x8x8', 
+        'ae': 'WFVAEModel_D32_8x8x8', 
         'dataset': 't2v', 
         'attention_mode': 'xformers', 
         'use_rope': True, 
         'model_max_length': 300, 
-        'max_height': 320,
-        'max_width': 320,
-        'hw_stride': 32, 
+        'max_height': 384,
+        'max_width': 384,
+        'hw_stride': 16, 
         'skip_low_resolution': True, 
         'num_frames': 93,
         'compress_kv_factor': 1, 
@@ -90,13 +93,14 @@ if __name__ == "__main__":
         'interpolation_scale_h': 1,
         'interpolation_scale_w': 1,
         'cache_dir': '../cache_dir', 
-        'data': 'scripts/train_data/merge_data_debug.txt', 
+        'data': 'scripts/train_data/image_data_debug.txt', 
         'train_fps': 16, 
         'drop_short_ratio': 0.0, 
         'use_img_from_vid': False, 
         'speed_factor': 1.0, 
         'cfg': 0.1, 
-        'text_encoder_name': 'google/mt5-xxl', 
+        'text_encoder_name_1': 'google/mt5-xxl', 
+        'text_encoder_name_2': 'google/mt5-xxl', 
         'dataloader_num_workers': 10,
         'use_motion': False, 
         'force_resolution': False, 
@@ -105,9 +109,16 @@ if __name__ == "__main__":
         'train_batch_size': 1, 
         'gradient_accumulation_steps': 1, 
         'ae_stride': 8, 
-        'ae_stride_t': 4, 
+        'ae_stride_t': 8, 
         'patch_size': 2, 
         'patch_size_t': 1, 
+        'total_batch_size': 256, 
+        'min_height': 160, 
+        'min_width': 160, 
+        'ood_img_ratio': 0, 
+        'sp_size': 1, 
+        'max_height_for_img': None, 
+        'max_width_for_img': None, 
     }
     )
     accelerator = Accelerator()
