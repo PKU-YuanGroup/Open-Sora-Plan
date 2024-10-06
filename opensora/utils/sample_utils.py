@@ -259,7 +259,6 @@ def run_model_and_save_samples(args, pipeline, caption_refiner_model=None, enhan
                 num_frames=args.num_frames,
                 height=args.height,
                 width=args.width,
-                motion_score=args.motion_score, 
                 num_inference_steps=args.num_sampling_steps,
                 guidance_scale=args.guidance_scale,
                 num_samples_per_prompt=args.num_samples_per_prompt,
@@ -272,7 +271,6 @@ def run_model_and_save_samples(args, pipeline, caption_refiner_model=None, enhan
                 num_frames=args.num_frames,
                 height=args.height,
                 width=args.width,
-                motion_score=args.motion_score, 
                 num_inference_steps=args.num_sampling_steps,
                 guidance_scale=args.guidance_scale,
                 num_samples_per_prompt=args.num_samples_per_prompt,
@@ -448,8 +446,7 @@ def get_args():
     parser.add_argument('--enable_tiling', action='store_true')
     parser.add_argument('--refine_caption', action='store_true')
     parser.add_argument('--compile', action='store_true')
-    parser.add_argument('--save_memory', action='store_true')
-    parser.add_argument('--motion_score', type=float, default=None)    
+    parser.add_argument('--save_memory', action='store_true') 
     parser.add_argument("--prediction_type", type=str, default='epsilon', help="The prediction_type that shall be used for training. Choose between 'epsilon' or 'v_prediction' or leave `None`. If left to `None` the default prediction type of the scheduler: `noise_scheduler.config.prediciton_type` is chosen.")
     parser.add_argument('--rescale_betas_zero_snr', action='store_true')
     parser.add_argument('--local_rank', type=int, default=-1)    

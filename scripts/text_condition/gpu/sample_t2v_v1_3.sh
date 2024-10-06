@@ -1,7 +1,7 @@
 
 CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun --nnodes=1 --nproc_per_node 8 --master_port 29513 \
     -m opensora.sample.sample \
-    --model_path /storage/ongoing/9.29/mmdit/Open-Sora-Plan/train_1_3_nomotion_fps18/checkpoint-1000/model_ema \
+    --model_path /storage/ongoing/9.29/mmdit/Open-Sora-Plan/train_1_3_nomotion_fps18/checkpoint-10000/model_ema \
     --version v1_3 \
     --num_frames 93 \
     --height 352 \
@@ -11,10 +11,10 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun --nnodes=1 --nproc_per_node 8 --ma
     --text_prompt examples/sora_refine.txt \
     --ae WFVAEModel_D8_4x8x8 \
     --ae_path "/storage/lcm/WF-VAE/results/latent8" \
-    --save_img_path "./test_v1_3_93x352x640_ckpt3k_sora_s400" \
+    --save_img_path "./test_v1_3_93x352x640_ckpt10k_sora_s200" \
     --fps 18 \
     --guidance_scale 7.5 \
-    --num_sampling_steps 400 \
+    --num_sampling_steps 200 \
     --max_sequence_length 512 \
     --sample_method EulerAncestralDiscrete \
     --seed 1234 \

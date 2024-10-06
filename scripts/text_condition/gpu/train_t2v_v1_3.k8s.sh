@@ -45,8 +45,8 @@ accelerate launch \
     --ae_path "/storage/lcm/WF-VAE/results/latent8" \
     --sample_rate 1 \
     --num_frames 93 \
-    --max_height 640 \
-    --max_width 640 \
+    --max_hxw 236544 \
+    --min_hxw 102400 \
     --interpolation_scale_t 1.0 \
     --interpolation_scale_h 1.0 \
     --interpolation_scale_w 1.0 \
@@ -76,11 +76,9 @@ accelerate launch \
     --sparse1d --sparse_n 4 \
     --train_fps 18 \
     --seed 1234 \
-    --trained_data_global_step 3000 \
+    --trained_data_global_step 0 \
     --group_data \
     --use_decord \
     --prediction_type "v_prediction" \
     --rescale_betas_zero_snr \
-    --output_dir="train_1_3_nomotion_fps18" \
-    --min_height 320 \
-    --min_width 320
+    --output_dir="train_v1_3_any93x352x640_min320_vpre_nomotion_fps18" 

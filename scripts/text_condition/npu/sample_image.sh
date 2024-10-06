@@ -14,5 +14,4 @@ torchrun --nproc_per_node=1 opensora/sample/sample_t2v_on_npu.py \
     --guidance_scale 5.0 \
     --num_sampling_steps 24 \
     --sample_method PNDM \
-    --model_type "sparsedit" \
-    --motion_score 0.9 \
+    --model_type "sparsedit" 

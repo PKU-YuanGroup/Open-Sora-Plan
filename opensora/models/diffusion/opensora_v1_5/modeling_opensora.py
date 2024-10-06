@@ -489,8 +489,6 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
 def OpenSoraT2V_v1_5_2B_122(**kwargs):
     if kwargs.get('sparse_n', None) is not None:
         kwargs.pop('sparse_n')
-    if kwargs.get('use_motion', None) is not None:
-        kwargs.pop('use_motion')
     return OpenSoraT2V_v1_5(  # 34 layers
         num_layers=[2, 4, 6, 10, 6, 4, 2], sparse_n=[1, 2, 4, 8, 4, 2, 1], 
         attention_head_dim=72, num_attention_heads=24, 
@@ -501,8 +499,6 @@ def OpenSoraT2V_v1_5_2B_122(**kwargs):
 def OpenSoraT2V_v1_5_7B_122(**kwargs):
     if kwargs.get('sparse_n', None) is not None:
         kwargs.pop('sparse_n')
-    if kwargs.get('use_motion', None) is not None:
-        kwargs.pop('use_motion')
     return OpenSoraT2V_v1_5(  # 38 layers
         num_layers=[2, 4, 8, 10, 8, 4, 2], sparse_n=[1, 2, 4, 8, 4, 2, 1], 
         attention_head_dim=96, num_attention_heads=32, 
@@ -513,8 +509,6 @@ def OpenSoraT2V_v1_5_7B_122(**kwargs):
 def OpenSoraT2V_v1_5_8B_122(**kwargs):
     if kwargs.get('sparse_n', None) is not None:
         kwargs.pop('sparse_n')
-    if kwargs.get('use_motion', None) is not None:
-        kwargs.pop('use_motion')
     return OpenSoraT2V_v1_5(  # 44 layers
         num_layers=[2, 6, 8, 12, 8, 6, 2], sparse_n=[1, 2, 4, 8, 4, 2, 1], 
         attention_head_dim=96, num_attention_heads=32, 

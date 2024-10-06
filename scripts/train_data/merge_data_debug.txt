@@ -1,1 +1,1 @@
-/storage/dataset/panda70m,/storage/lcm/ocr/final/panda_part1_final_1193638.pkl
+/storage,/storage/lcm/ocr/10.6_filtervid_hq_aes5.25img/1_16_7770168_shuffle.pkl

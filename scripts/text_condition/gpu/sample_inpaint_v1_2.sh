@@ -19,7 +19,6 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun --nnodes=1 --nproc_per_node 8 --ma
     --num_sampling_steps 50 \
     --max_sequence_length 512 \
     --sample_method EulerAncestralDiscrete \
-    --motion_score 0.95 \
     --seed 1234 \
     --num_samples_per_prompt 1 \
     --prediction_type "v_prediction" \

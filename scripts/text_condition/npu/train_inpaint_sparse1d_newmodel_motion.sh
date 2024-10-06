@@ -54,7 +54,6 @@ accelerate launch \
     --drop_short_ratio 0.0 \
     --hw_stride 32 \
     --sparse1d --sparse_n 4 \
-    --use_motion \
     --train_fps 16 \
     --seed 1234 \
     --trained_data_global_step 0 \

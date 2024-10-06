@@ -116,7 +116,7 @@ class OpenSoraInpaint_v1_2(OpenSoraT2V):
             ]
         )
 
-    def _operate_on_patched_inputs(self, hidden_states, encoder_hidden_states, timestep, motion_score, batch_size, frame):
+    def _operate_on_patched_inputs(self, hidden_states, encoder_hidden_states, timestep, batch_size, frame):
         # inpaint
         assert hidden_states.shape[1] == 2 * self.config.in_channels + self.vae_scale_factor_t
         in_channels = self.config.in_channels
@@ -137,9 +137,6 @@ class OpenSoraInpaint_v1_2(OpenSoraT2V):
         timestep, embedded_timestep = self.adaln_single(
             timestep, added_cond_kwargs, batch_size=batch_size, hidden_dtype=self.dtype
         )  # b 6d, b d
-
-        motion_embed = self.motion_projection(motion_score, batch_size=batch_size, hidden_dtype=self.dtype)  # b 6d
-        timestep = timestep + motion_embed
             
         encoder_hidden_states = self.caption_projection(encoder_hidden_states)  # b, 1, l, d or b, 1, l, d
         assert encoder_hidden_states.shape[1] == 1

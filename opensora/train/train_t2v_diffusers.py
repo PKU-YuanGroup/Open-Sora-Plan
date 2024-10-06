@@ -471,6 +471,8 @@ def main(args):
     total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
     total_batch_size = total_batch_size // args.sp_size * args.train_sp_batch_size
     args.total_batch_size = total_batch_size
+    if args.min_hxw is None:
+        args.min_hxw = args.max_hxw // 2
     train_dataset = getdataset(args)
     sampler = LengthGroupedSampler(
                 args.train_batch_size,
@@ -661,7 +663,7 @@ def main(args):
                 rank=accelerator.process_index, 
                 bsz=bsz, device=model_input.device, 
                 )
-        print(f'rank: {accelerator.process_index}, timesteps: {timesteps}')
+        # print(f'rank: {accelerator.process_index}, timesteps: {timesteps}')
         if get_sequence_parallel_state():  # image do not need sp, disable when image batch
             broadcast(timesteps)
 
@@ -715,7 +717,7 @@ def main(args):
             )[0]
             mse_loss_weights = mse_loss_weights / snr
             loss = F.mse_loss(model_pred.float(), target.float(), reduction="none")
-            print(f'args.snr_gamma {args.snr_gamma}, snr {snr}, timesteps {timesteps}, loss {loss.mean()}, mse_loss_weights {mse_loss_weights}')
+            # print(f'args.snr_gamma {args.snr_gamma}, snr {snr}, timesteps {timesteps}, loss {loss.mean()}, mse_loss_weights {mse_loss_weights}')
             loss = loss.reshape(b, -1)
             mse_loss_weights = mse_loss_weights.reshape(b, 1)
             if mask is not None:
@@ -769,7 +771,7 @@ def main(args):
 
     def train_one_step(step_, data_item_, prof_=None):
         train_loss = 0.0
-        x, attn_mask, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2, motion_score = data_item_
+        x, attn_mask, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2 = data_item_
         # print(f'step: {step_}, rank: {accelerator.process_index}, x: {x.shape}, dtype: {x.dtype}')
         # assert not torch.any(torch.isnan(x)), 'torch.any(torch.isnan(x))'
 
@@ -787,7 +789,6 @@ def main(args):
         cond_mask_1 = cond_mask_1.to(accelerator.device)  # B 1 L
         input_ids_2 = input_ids_2.to(accelerator.device) if input_ids_2 is not None else input_ids_2 # B 1 L
         cond_mask_2 = cond_mask_2.to(accelerator.device) if cond_mask_2 is not None else cond_mask_2 # B 1 L
-        motion_score = motion_score.to(accelerator.device) if motion_score is not None else motion_score # B 1
 
         with torch.no_grad():
             B, N, L = input_ids_1.shape  # B 1 L
@@ -838,14 +839,13 @@ def main(args):
             else:
                 set_sequence_parallel_state(True)
         if get_sequence_parallel_state():
-            x, cond_1, attn_mask, cond_mask_1, motion_score, cond_2 = prepare_parallel_data(
-                x, cond_1, attn_mask, cond_mask_1, motion_score, cond_2
+            x, cond_1, attn_mask, cond_mask_1, cond_2 = prepare_parallel_data(
+                x, cond_1, attn_mask, cond_mask_1, cond_2
                 )        
             # x            (b c t h w)   -gather0-> (sp*b c t h w)   -scatter2-> (sp*b c t//sp h w)
             # cond_1       (b sp l/sp d) -gather0-> (sp*b sp l/sp d) -scatter1-> (sp*b 1 l/sp d)
             # attn_mask    (b t*sp h w)  -gather0-> (sp*b t*sp h w)  -scatter1-> (sp*b t h w)
             # cond_mask_1  (b sp l)      -gather0-> (sp*b sp l)      -scatter1-> (sp*b 1 l)
-            # motion_score (b sp)        -gather0-> (sp*b sp)        -scatter1-> (sp*b 1)
             # cond_2       (b sp d)      -gather0-> (sp*b sp d)      -scatter1-> (sp*b 1 d)
             for iter in range(args.train_batch_size * args.sp_size // args.train_sp_batch_size):
                 with accelerator.accumulate(model):
@@ -853,7 +853,6 @@ def main(args):
                     # cond_1       (sp_bs*b 1 l/sp d)
                     # attn_mask    (sp_bs*b t h w)
                     # cond_mask_1  (sp_bs*b 1 l)
-                    # motion_score (sp_bs*b 1)
                     # cond_2       (sp_bs*b 1 d)
                     st_idx = iter * args.train_sp_batch_size
                     ed_idx = (iter + 1) * args.train_sp_batch_size
@@ -861,7 +860,6 @@ def main(args):
                         encoder_hidden_states=cond_1[st_idx: ed_idx],
                         attention_mask=attn_mask[st_idx: ed_idx],
                         encoder_attention_mask=cond_mask_1[st_idx: ed_idx], 
-                        motion_score=motion_score[st_idx: ed_idx] if motion_score is not None else None, 
                         pooled_projections=cond_2[st_idx: ed_idx] if cond_2 is not None else None, 
                         )
                     run(x[st_idx: ed_idx], model_kwargs, prof_)
@@ -872,7 +870,7 @@ def main(args):
                 x = x.to(weight_dtype)
                 model_kwargs = dict(
                     encoder_hidden_states=cond_1, attention_mask=attn_mask, 
-                    motion_score=motion_score, encoder_attention_mask=cond_mask_1, 
+                    encoder_attention_mask=cond_mask_1, 
                     pooled_projections=cond_2
                     )
                 run(x, model_kwargs, prof_)
@@ -954,10 +952,8 @@ if __name__ == "__main__":
     parser.add_argument("--num_frames", type=int, default=65)
     parser.add_argument("--max_height", type=int, default=320)
     parser.add_argument("--max_width", type=int, default=240)
-    parser.add_argument("--min_height", type=int, default=None)
-    parser.add_argument("--min_width", type=int, default=None)
-    parser.add_argument("--max_height_for_img", type=int, default=None)
-    parser.add_argument("--max_width_for_img", type=int, default=None)
+    parser.add_argument("--max_hxw", type=int, default=240)
+    parser.add_argument("--min_hxw", type=int, default=None)
     parser.add_argument("--ood_img_ratio", type=float, default=0.0)
     parser.add_argument("--use_img_from_vid", action="store_true")
     parser.add_argument("--model_max_length", type=int, default=512)
@@ -989,7 +985,6 @@ if __name__ == "__main__":
     parser.add_argument('--sparse_n', type=int, default=2)
     parser.add_argument('--adapt_vae', action='store_true')
     parser.add_argument('--cogvideox_scheduler', action='store_true')
-    parser.add_argument('--use_motion', action='store_true')
     parser.add_argument("--gradient_checkpointing", action="store_true", help="Whether or not to use gradient checkpointing to save memory at the expense of slower backward pass.")
 
     # diffusion setting

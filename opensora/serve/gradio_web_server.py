@@ -54,7 +54,6 @@ def generate(
             num_frames=num_frames,
             height=352,
             width=640,
-            motion_score=0.9, 
             num_inference_steps=num_inference_steps,
             guidance_scale=guidance_scale,
             num_samples_per_prompt=num_samples,

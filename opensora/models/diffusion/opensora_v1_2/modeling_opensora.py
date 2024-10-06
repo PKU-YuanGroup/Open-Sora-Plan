@@ -11,7 +11,7 @@ from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.models.modeling_utils import ModelMixin
 from diffusers.models.normalization import AdaLayerNormSingle
 from diffusers.models.embeddings import PixArtAlphaTextProjection
-from opensora.models.diffusion.opensora_v1_2.modules import MotionAdaLayerNormSingle, BasicTransformerBlock, Attention
+from opensora.models.diffusion.opensora_v1_2.modules import BasicTransformerBlock, Attention
 from opensora.models.diffusion.common import PatchEmbed2D
 from opensora.utils.utils import to_2tuple
 try:
@@ -73,7 +73,6 @@ class OpenSoraT2V_v1_2(ModelMixin, ConfigMixin):
         self.caption_projection = PixArtAlphaTextProjection(
             in_features=self.config.caption_channels, hidden_size=self.config.hidden_size
         )
-        self.motion_projection = MotionAdaLayerNormSingle(self.config.hidden_size)
 
         self.pos_embed = PatchEmbed2D(
             patch_size=self.config.patch_size,
@@ -122,7 +121,6 @@ class OpenSoraT2V_v1_2(ModelMixin, ConfigMixin):
         encoder_hidden_states: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         encoder_attention_mask: Optional[torch.Tensor] = None,
-        motion_score: Optional[torch.FloatTensor] = None,
         return_dict: bool = True,
         **kwargs, 
     ):
@@ -169,7 +167,7 @@ class OpenSoraT2V_v1_2(ModelMixin, ConfigMixin):
 
 
         hidden_states, encoder_hidden_states, timestep, embedded_timestep = self._operate_on_patched_inputs(
-            hidden_states, encoder_hidden_states, timestep, motion_score, batch_size, frame
+            hidden_states, encoder_hidden_states, timestep, batch_size, frame
         )
 
         # To
@@ -251,7 +249,7 @@ class OpenSoraT2V_v1_2(ModelMixin, ConfigMixin):
         return Transformer2DModelOutput(sample=output)
 
 
-    def _operate_on_patched_inputs(self, hidden_states, encoder_hidden_states, timestep, motion_score, batch_size, frame):
+    def _operate_on_patched_inputs(self, hidden_states, encoder_hidden_states, timestep, batch_size, frame):
         
         hidden_states = self.pos_embed(hidden_states.to(self.dtype))
 
@@ -259,9 +257,6 @@ class OpenSoraT2V_v1_2(ModelMixin, ConfigMixin):
         timestep, embedded_timestep = self.adaln_single(
             timestep, added_cond_kwargs, batch_size=batch_size, hidden_dtype=self.dtype
         )  # b 6d, b d
-
-        motion_embed = self.motion_projection(motion_score, batch_size=batch_size, hidden_dtype=self.dtype)  # b 6d
-        timestep = timestep + motion_embed
             
         encoder_hidden_states = self.caption_projection(encoder_hidden_states)  # b, 1, l, d or b, 1, l, d
         assert encoder_hidden_states.shape[1] == 1
@@ -373,10 +368,9 @@ if __name__ == '__main__':
     attn_mask = torch.randint(0, 2, (b, 1+(args.num_frames-1)//ae_stride_t, args.max_height//ae_stride_h, args.max_width//ae_stride_w)).to(device)  # B L or B 1+num_images L
     cond_mask = torch.randint(0, 2, (b, 1, args.model_max_length)).to(device)  # B L or B 1+num_images L
     timestep = torch.randint(0, 1000, (b,), device=device)
-    motion_score = torch.FloatTensor([1]*b).unsqueeze(1).to(device)
     model_kwargs = dict(
         hidden_states=x, encoder_hidden_states=cond, attention_mask=attn_mask, 
-        motion_score=motion_score, encoder_attention_mask=cond_mask, timestep=timestep
+        encoder_attention_mask=cond_mask, timestep=timestep
         )
     with torch.no_grad():
         output = model(**model_kwargs)

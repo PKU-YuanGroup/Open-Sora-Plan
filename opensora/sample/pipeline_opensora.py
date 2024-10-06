@@ -430,7 +430,6 @@ class OpenSoraPipeline(DiffusionPipeline):
         callback_on_step_end_tensor_inputs: List[str] = ["latents"],
         guidance_rescale: float = 0.0,
         max_sequence_length: int = 512,
-        motion_score: float = None, 
         device = None, 
     ):
         
@@ -598,9 +597,6 @@ class OpenSoraPipeline(DiffusionPipeline):
                     prompt_embeds = prompt_embeds.unsqueeze(1)  # b d -> b 1 d
                 
                 attention_mask = torch.ones_like(latent_model_input)[:, 0].to(device=device)
-                motion_score_tensor = None
-                if motion_score is not None:
-                    motion_score_tensor = torch.tensor([motion_score] * latent_model_input.shape[0]).to(device=device)
                 # ==================prepare my shape=====================================
 
                 # ==================make sp=====================================
@@ -608,14 +604,12 @@ class OpenSoraPipeline(DiffusionPipeline):
                     attention_mask = attention_mask.repeat(1, world_size, 1, 1)
                 # ==================make sp=====================================
 
-                import ipdb;ipdb.set_trace()
                 noise_pred = self.transformer(
                     latent_model_input,
                     attention_mask=attention_mask, 
                     encoder_hidden_states=prompt_embeds,
                     encoder_attention_mask=prompt_attention_mask,
                     timestep=t_expand,
-                    motion_score=motion_score_tensor, 
                     pooled_projections=prompt_embeds_2,
                     return_dict=False,
                 )[0]

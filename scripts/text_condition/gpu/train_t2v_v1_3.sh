@@ -21,19 +21,19 @@ export NCCL_IB_RETRY_CNT=32
 # export NCCL_ALGO=Tree
 
 accelerate launch \
-    --config_file scripts/accelerate_configs/multi_node_example.yaml \
+    --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
     opensora/train/train_t2v_diffusers.py \
     --model OpenSoraT2V_v1_3-2B/122 \
     --text_encoder_name_1 google/mt5-xxl \
     --cache_dir "../../cache_dir/" \
     --dataset t2v \
-    --data "scripts/train_data/merge_data.txt" \
+    --data "scripts/train_data/merge_data_debug.txt" \
     --ae WFVAEModel_D8_4x8x8 \
     --ae_path "/storage/lcm/WF-VAE/results/latent8" \
     --sample_rate 1 \
     --num_frames 93 \
-    --max_height 640 \
-    --max_width 640 \
+    --max_hxw 236544 \
+    --min_hxw 102400 \
     --interpolation_scale_t 1.0 \
     --interpolation_scale_h 1.0 \
     --interpolation_scale_w 1.0 \
@@ -68,6 +68,4 @@ accelerate launch \
     --use_decord \
     --prediction_type "v_prediction" \
     --rescale_betas_zero_snr \
-    --output_dir="train_1_3_nomotion_fps18" \
-    --min_height 320 \
-    --min_width 320
+    --output_dir="debug" 

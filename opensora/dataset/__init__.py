@@ -8,7 +8,7 @@ from torchvision.transforms import Lambda
 
 from opensora.dataset.t2v_datasets import T2V_dataset
 from opensora.models.causalvideovae import ae_norm, ae_denorm
-from opensora.dataset.transform import ToTensorVideo, TemporalRandomCrop, RandomHorizontalFlipVideo, CenterCropResizeVideo, LongSideResizeVideo, SpatialStrideCropVideo, NormalizeVideo, ToTensorAfterResize
+from opensora.dataset.transform import ToTensorVideo, TemporalRandomCrop, MaxHWResizeVideo, CenterCropResizeVideo, LongSideResizeVideo, SpatialStrideCropVideo, NormalizeVideo, ToTensorAfterResize
 
 
 
@@ -17,38 +17,16 @@ def getdataset(args):
     norm_fun = ae_norm[args.ae]
     if args.force_resolution:
         resize = [CenterCropResizeVideo((args.max_height, args.max_width)), ]
-        resize_for_img = None
-        assert args.max_height_for_img is None
-        assert args.max_width_for_img is None
     else:
-        assert (args.min_height is not None and args.skip_low_resolution) or (args.min_height is None)
-        assert (args.min_width is not None and args.skip_low_resolution) or (args.min_width is None)
         resize = [
-            LongSideResizeVideo((args.max_height, args.max_width), skip_low_resolution=args.skip_low_resolution), 
+            MaxHWResizeVideo(args.max_hxw), 
             SpatialStrideCropVideo(stride=args.hw_stride), 
         ]
-        resize_for_img = None
-        if args.max_height_for_img is not None and args.max_width_for_img is not None:
-            assert args.max_height_for_img > 0 and args.max_width_for_img > 0
-            assert args.max_height_for_img > args.max_height and args.max_width_for_img > args.max_width
-            resize_for_img = [
-                LongSideResizeVideo((args.max_height_for_img, args.max_width_for_img), skip_low_resolution=args.skip_low_resolution), 
-                SpatialStrideCropVideo(stride=args.hw_stride), 
-            ]
-
     transform = transforms.Compose([
         ToTensorVideo(),
         *resize, 
         norm_fun
     ])  # also work for img, because img is video when frame=1
-
-    transform_img = None
-    if resize_for_img is not None:
-        transform_img = transforms.Compose([
-            ToTensorVideo(),
-            *resize_for_img, 
-            norm_fun
-        ])
 
     # tokenizer_1 = AutoTokenizer.from_pretrained(args.text_encoder_name_1, cache_dir=args.cache_dir)
     tokenizer_1 = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir)
@@ -59,8 +37,8 @@ def getdataset(args):
         tokenizer_2 = AutoTokenizer.from_pretrained('/storage/cache_dir/CLIP-ViT-bigG-14-laion2B-39B-b160k', cache_dir=args.cache_dir)
     if args.dataset == 't2v':
         return T2V_dataset(
-            args, transform=transform, transform_img=transform_img, 
-            temporal_sample=temporal_sample, tokenizer_1=tokenizer_1, tokenizer_2=tokenizer_2
+            args, transform=transform, temporal_sample=temporal_sample, 
+            tokenizer_1=tokenizer_1, tokenizer_2=tokenizer_2
             )
     raise NotImplementedError(args.dataset)
 
@@ -80,29 +58,24 @@ if __name__ == "__main__":
     {
         'ae': 'WFVAEModel_D32_4x8x8', 
         'dataset': 't2v', 
-        'attention_mode': 'xformers', 
-        'use_rope': True, 
-        'model_max_length': 300, 
+        'model_max_length': 512, 
         'max_height': 640,
         'max_width': 640,
-        'hw_stride': 16, 
-        'skip_low_resolution': True, 
+        'hw_stride': 32, 
         'num_frames': 93,
         'compress_kv_factor': 1, 
         'interpolation_scale_t': 1,
         'interpolation_scale_h': 1,
         'interpolation_scale_w': 1,
         'cache_dir': '../cache_dir', 
-        'data': 'scripts/train_data/merge_data.txt', 
+        'data': 'scripts/train_data/merge_data_debug.txt', 
         'train_fps': 18, 
         'drop_short_ratio': 0.0, 
-        'use_img_from_vid': False, 
         'speed_factor': 1.0, 
         'cfg': 0.1, 
         'text_encoder_name_1': 'google/mt5-xxl', 
         'text_encoder_name_2': 'google/mt5-xxl', 
         'dataloader_num_workers': 10,
-        'use_motion': False, 
         'force_resolution': False, 
         'use_decord': True, 
         'group_data': True, 
@@ -113,12 +86,9 @@ if __name__ == "__main__":
         'patch_size': 2, 
         'patch_size_t': 1, 
         'total_batch_size': 256, 
-        'min_height': 160, 
-        'min_width': 160, 
-        'ood_img_ratio': 0, 
         'sp_size': 1, 
-        'max_height_for_img': None, 
-        'max_width_for_img': None, 
+        'max_hxw': 352*672, 
+        'min_hxw': 320*320, 
     }
     )
     accelerator = Accelerator()
