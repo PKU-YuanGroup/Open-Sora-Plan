@@ -1,1 +1,6 @@
-/storage/dataset/aiqiyi,/storage/lcm/ocr/final/aiqiyi_final_30345.json
+/storage,/storage/lcm/ocr/10.6_filtervid_hq_aes5.25img/1_16_7770168_shuffle.pkl
+/storage,/storage/lcm/ocr/10.6_filtervid_hq_aes5.25img/2_16_7770168_shuffle.pkl
+/storage,/storage/lcm/ocr/10.6_filtervid_hq_aes5.25img/3_16_7770168_shuffle.pkl
+/storage,/storage/lcm/ocr/10.6_filtervid_hq_aes5.25img/4_16_7770168_shuffle.pkl
+/storage,/storage/lcm/ocr/10.6_filtervid_hq_aes5.25img/5_16_7770168_shuffle.pkl
+/storage,/storage/lcm/ocr/10.6_filtervid_hq_aes5.25img/6_16_7770168_shuffle.pkl

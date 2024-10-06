@@ -367,7 +367,8 @@ class T2V_dataset(Dataset):
         cnt_no_motion = 0
         cnt_no_aesthetic = 0
         cnt_resolution_mismatch = 0
-        cnt_resolution_too_small = 0
+        cnt_img_res_too_small = 0
+        cnt_vid_res_too_small = 0
         cnt_vid = 0
         cnt_img = 0
         cnt = 0
@@ -437,7 +438,10 @@ class T2V_dataset(Dataset):
                                 continue
                             if self.min_height is not None and self.min_width is not None:
                                 if sample_h < self.min_height or sample_w < self.min_width:
-                                    cnt_resolution_too_small += 1
+                                    if path.endswith('.jpg'):
+                                        cnt_img_res_too_small += 1
+                                    elif path.endswith('.mp4'):
+                                        cnt_vid_res_too_small += 1
                                     continue
                             i['resolution'].update(dict(sample_height=sample_h, sample_width=sample_w))
                             
@@ -471,7 +475,7 @@ class T2V_dataset(Dataset):
                     start_frame_idx = i.get('cut', [0])[0]
                     i['start_frame_idx'] = start_frame_idx
                     frame_indices = np.arange(start_frame_idx, start_frame_idx+i['num_frames'], frame_interval).astype(int)
-                    frame_indices = frame_indices[frame_indices < i['num_frames']]
+                    frame_indices = frame_indices[frame_indices < start_frame_idx+i['num_frames']]
 
                     # comment out it to enable dynamic frames training
                     if len(frame_indices) < self.num_frames and random.random() < self.drop_short_ratio:
@@ -485,7 +489,7 @@ class T2V_dataset(Dataset):
                         # frame_indices = frame_indices[:self.num_frames]  # head crop
                     # to find a suitable end_frame_idx, to ensure we do not need pad video
                     end_frame_idx = find_closest_y(
-                        len(frame_indices), vae_stride_t=self.ae_stride_t, model_ds_t=self.sp_size if self.sp_size != 1 else 2
+                        len(frame_indices), vae_stride_t=self.ae_stride_t, model_ds_t=self.sp_size
                         )
                     if end_frame_idx == -1:  # too short that can not be encoded exactly by videovae
                         cnt_too_short += 1
@@ -513,20 +517,22 @@ class T2V_dataset(Dataset):
                 # import ipdb;ipdb.set_trace()
 
         counter = Counter(sample_size)
+        counter_cp = counter
         len_before_filter_major = len(sample_size)
-        filter_major_num = 8 * self.total_batch_size
+        filter_major_num = 4 * self.total_batch_size
         if self.use_motion:
             new_cap_list, sample_size, motion_score = zip(*[[i, j, k] for i, j, k in zip(new_cap_list, sample_size, motion_score) if counter[j] >= filter_major_num])
         else:
             new_cap_list, sample_size = zip(*[[i, j] for i, j in zip(new_cap_list, sample_size) if counter[j] >= filter_major_num])
         cnt_filter_minority = len_before_filter_major - len(sample_size) 
         counter = Counter(sample_size)
+        import ipdb;ipdb.set_trace()
         logger.info(f'no_cap: {cnt_no_cap}, too_long: {cnt_too_long}, too_short: {cnt_too_short}, '
                 f'no_resolution: {cnt_no_resolution}, resolution_mismatch: {cnt_resolution_mismatch}, '
-                f'cnt_resolution_too_small: {cnt_resolution_too_small}, cnt_filter_minority: {cnt_filter_minority} '
+                f'cnt_img_res_too_small: {cnt_img_res_too_small}, cnt_vid_res_too_small: {cnt_vid_res_too_small}, '
+                f'cnt_filter_minority: {cnt_filter_minority} '
                 f'Counter(sample_size): {counter}, cnt_vid: {cnt_vid}, cnt_img: {cnt_img}, '
                 f'before filter: {cnt}, after filter: {len(new_cap_list)}')
-        # import ipdb;ipdb.set_trace()
         if self.use_motion:
             stats_motion = calculate_statistics(motion_score)
             logger.info(f"before filter: {cnt}, after filter: {len(new_cap_list)} | "
@@ -599,7 +605,7 @@ class T2V_dataset(Dataset):
         # resample in case high fps, such as 50/60/90/144 -> train_fps(e.g, 24)
         frame_interval = 1.0 if abs(fps - self.train_fps) < 0.1 else fps / self.train_fps
         frame_indices = np.arange(start_frame_idx, start_frame_idx+clip_total_frames, frame_interval).astype(int)
-        frame_indices = frame_indices[frame_indices < clip_total_frames]
+        frame_indices = frame_indices[frame_indices < start_frame_idx+clip_total_frames]
         
         # speed up
         max_speed_factor = len(frame_indices) / self.num_frames
@@ -618,7 +624,7 @@ class T2V_dataset(Dataset):
 
         # to find a suitable end_frame_idx, to ensure we do not need pad video
         end_frame_idx = find_closest_y(
-            len(frame_indices), vae_stride_t=self.ae_stride_t, model_ds_t=self.sp_size if self.sp_size != 1 else 2
+            len(frame_indices), vae_stride_t=self.ae_stride_t, model_ds_t=self.sp_size
             )
         if end_frame_idx == -1:  # too short that can not be encoded exactly by videovae
             raise IndexError(f'video ({path}) has {clip_total_frames} frames, but need to sample {len(frame_indices)} frames ({frame_indices})')

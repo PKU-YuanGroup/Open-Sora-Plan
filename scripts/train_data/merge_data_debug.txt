@@ -1,1 +1,1 @@
-/storage/dataset,/storage/zhubin/liuyihang/add_aes/output/sucai_aes.json
+/storage/dataset/panda70m,/storage/lcm/ocr/final/panda_part1_final_1193638.pkl

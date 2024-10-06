@@ -56,7 +56,7 @@ import diffusers
 from diffusers import DDPMScheduler, PNDMScheduler, DPMSolverMultistepScheduler, CogVideoXDDIMScheduler
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel, compute_snr
-from diffusers.utils import check_min_version, is_wandb_available
+from diffusers.utils import check_min_version, is_wandb_available, explicit_uniform_sampling
 
 from opensora.models.causalvideovae import ae_stride_config, ae_channel_config
 from opensora.models.causalvideovae import ae_norm, ae_denorm
@@ -651,8 +651,16 @@ def main(args):
 
         bsz = model_input.shape[0]
         # Sample a random timestep for each image without bias.
-        timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=model_input.device)
-        # print('accelerator.process_index, timesteps', accelerator.process_index, timesteps)
+        if accelerator.num_processes > noise_scheduler.config.num_train_timesteps: 
+            timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=model_input.device)
+        else:
+            timesteps = explicit_uniform_sampling(
+                T=noise_scheduler.config.num_train_timesteps, 
+                n=accelerator.num_processes, 
+                rank=accelerator.process_index
+                bsz=bsz, device=model_input.device
+                )
+        print(f'rank: {accelerator.process_index}, timesteps: {timesteps}')
         if get_sequence_parallel_state():  # image do not need sp, disable when image batch
             broadcast(timesteps)
 

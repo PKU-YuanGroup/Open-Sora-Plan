@@ -569,7 +569,7 @@ if __name__ == '__main__':
         out_channels=c, 
         sample_size=latent_size, 
         sample_size_t=num_frames, 
-        norm_cls='layer_norm', 
+        norm_cls='rms_norm', 
         interpolation_scale_t=args.interpolation_scale_t, 
         interpolation_scale_h=args.interpolation_scale_h, 
         interpolation_scale_w=args.interpolation_scale_w, 

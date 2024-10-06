@@ -8,4 +8,5 @@ CUDA_VISIBLE_DEVICES=1 python examples/rec_video.py \
     --num_frames 61 \
     --height 512 \
     --width 512 \
-    --fps 30 
+    --fps 30 \
+    --enable_tiling

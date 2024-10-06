@@ -312,7 +312,7 @@ class WFVAEModel(VideoBaseAE):
         norm_type: str = "groupnorm",
         t_interpolation: str = "nearest",
         connect_res_layer_num: int = 1,
-        scale: List[float] = [1, 1, 1, 1, 1, 1, 1, 1],
+        scale: List[float] = [0.18215, 0.18215, 0.18215, 0.18215, 0.18215, 0.18215, 0.18215, 0.18215],
         shift: List[float] = [0, 0, 0, 0, 0, 0, 0, 0],
         # Module config
         l1_dowmsample_block: str = "Downsample",

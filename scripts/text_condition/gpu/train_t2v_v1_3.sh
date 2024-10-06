@@ -21,7 +21,7 @@ export NCCL_IB_RETRY_CNT=32
 # export NCCL_ALGO=Tree
 
 accelerate launch \
-    --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
+    --config_file scripts/accelerate_configs/multi_node_example.yaml \
     opensora/train/train_t2v_diffusers.py \
     --model OpenSoraT2V_v1_3-2B/122 \
     --text_encoder_name_1 google/mt5-xxl \
@@ -29,7 +29,7 @@ accelerate launch \
     --dataset t2v \
     --data "scripts/train_data/merge_data.txt" \
     --ae WFVAEModel_D8_4x8x8 \
-    --ae_path "/storage/lcm/Causal-Video-VAE/results/WFVAE_DISTILL_FORMAL" \
+    --ae_path "/storage/lcm/WF-VAE/results/latent8" \
     --sample_rate 1 \
     --num_frames 93 \
     --max_height 640 \
@@ -42,7 +42,7 @@ accelerate launch \
     --dataloader_num_workers 8 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
-    --learning_rate=1e-5 \
+    --learning_rate=2e-5 \
     --lr_scheduler="constant" \
     --lr_warmup_steps=0 \
     --mixed_precision="bf16" \
@@ -61,13 +61,13 @@ accelerate launch \
     --pretrained "/storage/ongoing/new/7.19anyres/Open-Sora-Plan/bs32x8x1_anyx93x640x640_fps16_lr1e-5_snr5_ema9999_sparse1d4_dit_l_mt5xxl_vpred_zerosnr/checkpoint-144000/model_ema/diffusion_pytorch_model.safetensors" \
     --hw_stride 32 \
     --sparse1d --sparse_n 4 \
-    --train_fps 16 \
+    --train_fps 18 \
     --seed 1234 \
     --trained_data_global_step 0 \
     --group_data \
     --use_decord \
     --prediction_type "v_prediction" \
     --rescale_betas_zero_snr \
-    --output_dir="debug" \
+    --output_dir="train_1_3_nomotion_fps18" \
     --min_height 320 \
     --min_width 320
