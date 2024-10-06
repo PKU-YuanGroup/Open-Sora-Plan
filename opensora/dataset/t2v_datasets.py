@@ -185,7 +185,7 @@ class T2V_dataset(Dataset):
         dataset_prog.set_cap_list(args.dataloader_num_workers, cap_list, n_elements)
         logger.info(f"Data length: {len(dataset_prog.cap_list)}")
         self.executor = ThreadPoolExecutor(max_workers=1)
-        self.timeout = 500
+        self.timeout = 180
 
     def set_checkpoint(self, n_used_elements):
         for i in range(len(dataset_prog.n_used_elements)):
@@ -526,7 +526,7 @@ class T2V_dataset(Dataset):
             new_cap_list, sample_size = zip(*[[i, j] for i, j in zip(new_cap_list, sample_size) if counter[j] >= filter_major_num])
         cnt_filter_minority = len_before_filter_major - len(sample_size) 
         counter = Counter(sample_size)
-        import ipdb;ipdb.set_trace()
+        # import ipdb;ipdb.set_trace()
         logger.info(f'no_cap: {cnt_no_cap}, too_long: {cnt_too_long}, too_short: {cnt_too_short}, '
                 f'no_resolution: {cnt_no_resolution}, resolution_mismatch: {cnt_resolution_mismatch}, '
                 f'cnt_img_res_too_small: {cnt_img_res_too_small}, cnt_vid_res_too_small: {cnt_vid_res_too_small}, '

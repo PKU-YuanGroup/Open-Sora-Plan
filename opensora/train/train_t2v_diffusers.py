@@ -56,7 +56,7 @@ import diffusers
 from diffusers import DDPMScheduler, PNDMScheduler, DPMSolverMultistepScheduler, CogVideoXDDIMScheduler
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel, compute_snr
-from diffusers.utils import check_min_version, is_wandb_available, explicit_uniform_sampling
+from diffusers.utils import check_min_version, is_wandb_available
 
 from opensora.models.causalvideovae import ae_stride_config, ae_channel_config
 from opensora.models.causalvideovae import ae_norm, ae_denorm
@@ -66,6 +66,7 @@ from opensora.dataset import getdataset
 from opensora.models import CausalVAEModelWrapper
 from opensora.models.diffusion import Diffusion_models, Diffusion_models_class
 from opensora.utils.dataset_utils import Collate, LengthGroupedSampler
+from opensora.utils.utils import explicit_uniform_sampling
 from opensora.sample.pipeline_opensora import OpenSoraPipeline
 from opensora.models.causalvideovae import ae_stride_config, ae_wrapper
 
@@ -657,8 +658,8 @@ def main(args):
             timesteps = explicit_uniform_sampling(
                 T=noise_scheduler.config.num_train_timesteps, 
                 n=accelerator.num_processes, 
-                rank=accelerator.process_index
-                bsz=bsz, device=model_input.device
+                rank=accelerator.process_index, 
+                bsz=bsz, device=model_input.device, 
                 )
         print(f'rank: {accelerator.process_index}, timesteps: {timesteps}')
         if get_sequence_parallel_state():  # image do not need sp, disable when image batch

@@ -608,6 +608,7 @@ class OpenSoraPipeline(DiffusionPipeline):
                     attention_mask = attention_mask.repeat(1, world_size, 1, 1)
                 # ==================make sp=====================================
 
+                import ipdb;ipdb.set_trace()
                 noise_pred = self.transformer(
                     latent_model_input,
                     attention_mask=attention_mask, 
@@ -618,7 +619,7 @@ class OpenSoraPipeline(DiffusionPipeline):
                     pooled_projections=prompt_embeds_2,
                     return_dict=False,
                 )[0]
-
+                assert not torch.any(torch.isnan(noise_pred))
                 # perform guidance
                 if self.do_classifier_free_guidance:
                     noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
