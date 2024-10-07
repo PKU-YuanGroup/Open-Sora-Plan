@@ -18,15 +18,15 @@ accelerate launch \
     --machine_rank=${MACHINE_RANK} \
     --main_process_ip=${MAIN_PROCESS_IP_VALUE} \
     opensora/train/train_t2v_diffusers.py \
-    --model OpenSoraT2V_v1_5-5B/122 \
+    --model OpenSoraT2V_v1_5-2B/122 \
     --text_encoder_name_1 DeepFloyd/t5-v1_1-xxl \
     --cache_dir "../../cache_dir/" \
     --text_encoder_name_2 laion/CLIP-ViT-bigG-14-laion2B-39B-b160k \
     --cache_dir "../../cache_dir/" \
     --dataset t2v \
-    --data "scripts/train_data/image_data_debug_on_npu.txt" \
+    --data "scripts/train_data/image_data_on_npu.txt" \
     --ae WFVAEModel_D32_4x8x8 \
-    --ae_path "/home/save_dir/lzj/formal_32dim" \
+    --ae_path "/home/save_dir/pretrained/mt5-xxl" \
     --vae_fp32 \
     --sample_rate 1 \
     --num_frames 1 \
@@ -38,7 +38,7 @@ accelerate launch \
     --interpolation_scale_h 1.0 \
     --interpolation_scale_w 1.0 \
     --gradient_checkpointing \
-    --train_batch_size=16 \
+    --train_batch_size=1 \
     --dataloader_num_workers 8 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
@@ -47,7 +47,7 @@ accelerate launch \
     --lr_warmup_steps=0 \
     --mixed_precision="bf16" \
     --report_to="wandb" \
-    --checkpointing_steps=1000 \
+    --checkpointing_steps=500 \
     --allow_tf32 \
     --model_max_length 512 \
     --use_ema \
@@ -66,6 +66,6 @@ accelerate launch \
     --use_decord \
     --prediction_type "v_prediction" \
     --rescale_betas_zero_snr \
-    --output_dir="debug" \
-    --force_resolution
+    --output_dir="/home/save_dir/runs/$PROJECT" \
     # --resume_from_checkpoint="latest" \
+    # --force_resolution

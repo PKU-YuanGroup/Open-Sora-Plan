@@ -358,6 +358,9 @@ class MaskProcessor:
             )
         }
     
+    def get_mask(self, mask_generator_type, num_frames, height, width, mask=None, device='cuda', dtype=torch.float32):
+        return self.mask_generators[mask_generator_type](num_frames, height, width, mask, device=device, dtype=dtype)
+    
     def __call__(self, pixel_values, mask=None, mask_type=None, mask_type_ratio_dict=None):
 
         num_frames, _, height, width = pixel_values.shape   
@@ -367,12 +370,12 @@ class MaskProcessor:
             assert mask_type_ratio_dict.keys() <= set(MaskType), f'Invalid mask type: {set(MaskType) - mask_type_ratio_dict.keys()}'
             mask_generator_type = random.choices(list(mask_type_ratio_dict.keys()), list(mask_type_ratio_dict.values()))[0]
         elif mask_type is not None:
-            assert mask_type in MaskType or mask_type in STR_TO_TYPE.keys(), f'Invalid mask type: {mask_type}'
+            assert mask_type in STR_TO_TYPE.keys() or mask_type in STR_TO_TYPE.values(), f'Invalid mask type: {mask_type}'
             mask_generator_type = mask_type if mask_type in MaskType else STR_TO_TYPE[mask_type]
         else:
             raise ValueError('mask_type or mask_type_ratio_dict should be provided.')
         
-        mask = self.mask_generators[mask_generator_type](num_frames, height, width, mask, device=pixel_values.device, dtype=pixel_values.dtype)
+        mask = self.get_mask(mask_generator_type, num_frames, height, width, mask, device=pixel_values.device, dtype=pixel_values.dtype)
 
         masked_pixel_values = pixel_values * (mask < 0.5)
         return dict(mask=mask, masked_pixel_values=masked_pixel_values)
@@ -440,5 +443,4 @@ if __name__ == '__main__':
     mask = processor(mask, mask=mask, mask_type_ratio_dict=ratio_dict)['mask']
     print(mask.shape)
     save_mask_to_video(mask, save_path='dilate_mask.mp4', fps=24)
-    
     

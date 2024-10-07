@@ -30,6 +30,7 @@ from opensora.sample.pipeline_opensora import OpenSoraPipeline
 from opensora.sample.pipeline_inpaint import OpenSoraInpaintPipeline
 from opensora.models.diffusion.opensora_v1_2.modeling_opensora import OpenSoraT2V_v1_2
 from opensora.models.diffusion.opensora_v1_2.modeling_inpaint import OpenSoraInpaint_v1_2
+from opensora.utils.utils import set_seed
 from transformers import T5EncoderModel, T5Tokenizer, AutoTokenizer, MT5EncoderModel, CLIPTextModelWithProjection
 
 def get_scheduler(args):
@@ -201,7 +202,7 @@ def save_video_grid(video, nrow=None):
 
 def run_model_and_save_samples(args, pipeline, caption_refiner_model=None, enhance_video_model=None):
     if args.seed is not None:
-        torch.manual_seed(args.seed)
+        set_seed(args.seed, rank=args.local_rank, device_specific=True)
     if args.local_rank >= 0:
         torch.manual_seed(args.seed + args.local_rank)
     if not os.path.exists(args.save_img_path):
@@ -215,11 +216,20 @@ def run_model_and_save_samples(args, pipeline, caption_refiner_model=None, enhan
         args.text_prompt = [i.strip() for i in text_prompt]
     
     if args.model_type == 'inpaint' or args.model_type == 'i2v':
-        if not isinstance(args.conditional_images_path, list):
-            args.conditional_images_path = [args.conditional_images_path]
-        if len(args.conditional_images_path) == 1 and args.conditional_images_path[0].endswith('txt'):
-            temp = open(args.conditional_images_path[0], 'r').readlines()
-            conditional_images = [i.strip().split(',') for i in temp]
+        if not isinstance(args.conditional_pixel_values_path, list):
+            args.conditional_pixel_values_path = [args.conditional_pixel_values_path]
+        if len(args.conditional_pixel_values_path) == 1 and args.conditional_pixel_values_path[0].endswith('txt'):
+            temp = open(args.conditional_pixel_values_path[0], 'r').readlines()
+            conditional_pixel_values_path = [i.strip().split(',') for i in temp]
+        
+        mask_type = args.mask_type if args.mask_type is not None else None
+        if args.mask_path is None:
+            mask_path = []
+        elif args.mask_path is not None and not isinstance(args.mask_path, list):
+            args.mask_path = [args.mask_path]
+        if len(args.mask_path) == 1 and args.mask_path[0].endswith('txt'):
+            temp = open(args.mask_path[0], 'r').readlines()
+            mask_path = [i.strip().split(',') for i in temp]
 
     positive_prompt = """
     high quality, high aesthetic, {}
@@ -230,15 +240,20 @@ def run_model_and_save_samples(args, pipeline, caption_refiner_model=None, enhan
     low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry.
     """
     
-    def generate(prompt, images=None):
+    def generate(prompt, conditional_pixel_values_path=None, mask_path=None, mask_type=None):
         if args.caption_refiner is not None:
             refine_prompt = caption_refiner_model.get_refiner_output(prompt)
             print(f'\nOrigin prompt: {prompt}\n->\nRefine prompt: {refine_prompt}')
             prompt = refine_prompt
         input_prompt = positive_prompt.format(prompt)
         if args.model_type == 'inpaint' or args.model_type == 'i2v':
+            print(f'\nConditional pixel values path: {conditional_pixel_values_path}')
+            print(f'\nMask path: {mask_path}')
+            print(f'\nMask type: {mask_type}')
             videos = pipeline(
-                conditional_images=images,
+                conditional_pixel_values_path=conditional_pixel_values_path,
+                mask_path=mask_path,
+                mask_type=mask_type,
                 crop_for_hw=args.crop_for_hw,
                 max_hw_square=args.max_hw_square,
                 prompt=input_prompt, 
@@ -329,10 +344,13 @@ def run_model_and_save_samples(args, pipeline, caption_refiner_model=None, enhan
             video_grids.append(videos)
 
     if args.model_type == 'inpaint' or args.model_type == 'i2v':
-        for index, (prompt, images) in enumerate(zip(args.text_prompt, conditional_images)):
+        for index, (prompt, cond_path) in enumerate(zip(args.text_prompt, conditional_pixel_values_path)):
             if not args.sp and args.local_rank != -1 and index % args.world_size != args.local_rank:
                 continue
-            generate(prompt, images)
+            if len(mask_path) > 0:
+                generate(prompt, cond_path, mask_path[index], mask_type)
+            else:
+                generate(prompt, cond_path, None, mask_type)
     else:
         for index, prompt in enumerate(args.text_prompt):
             if not args.sp and args.local_rank != -1 and index % args.world_size != args.local_rank:
@@ -443,7 +461,9 @@ def get_args():
     parser.add_argument('--world_size', type=int, default=1)    
     parser.add_argument('--sp', action='store_true')
 
-    parser.add_argument('--conditional_images_path', type=str, default=None)
+    parser.add_argument('--conditional_pixel_values_path', type=str, default=None)
+    parser.add_argument('--mask_path', type=str, default=None)
+    parser.add_argument('--mask_type', type=str, default=None)
     parser.add_argument('--crop_for_hw', action='store_true')
     parser.add_argument('--max_hw_square', type=int, default=1024 * 1024)
     args = parser.parse_args()

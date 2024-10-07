@@ -65,8 +65,8 @@ accelerate launch \
     --rescale_betas_zero_snr \
     --output_dir="/home/save_dir/runs/$PROJECT" \
     --mask_config scripts/train_configs/mask_config.yaml \
-    --default_text_ratio 0.2 \
-    --pretrained_transformer_model_path "/home/save_dir/pretrained/i2v_ckpt14777_ema" \
+    --default_text_ratio 0.5 \
+    --pretrained_transformer_model_path "/home/save_dir/pretrained/93x640x640_144k_ema" \
     # --resume_from_checkpoint="latest" \
     # --min_height 0 \
     # --min_width 0 \

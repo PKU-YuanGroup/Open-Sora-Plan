@@ -28,13 +28,15 @@ from diffusers.pipelines.pipeline_utils import DiffusionPipeline
 from opensora.models.diffusion.opensora_v1_2.modeling_inpaint import OpenSoraInpaint_v1_2
 from opensora.sample.pipeline_opensora import OpenSoraPipeline, OpenSoraPipelineOutput, rescale_noise_cfg
 from opensora.dataset.transform import CenterCropResizeVideo, LongSideResizeVideo, SpatialStrideCropVideo, ToTensorAfterResize
-from opensora.utils.mask_utils import MaskProcessor, MaskCompressor, MaskType, STR_TO_TYPE
+from opensora.utils.mask_utils import MaskProcessor, MaskCompressor, MaskType, STR_TO_TYPE, TYPE_TO_STR
 
 try:
     import torch_npu
+    from opensora.npu_config import npu_config
     from opensora.acceleration.parallel_states import get_sequence_parallel_state, hccl_info
 except:
     torch_npu = None
+    npu_config = None
     from opensora.utils.parallel_states import get_sequence_parallel_state, nccl_info
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
@@ -50,27 +52,37 @@ def is_image_file(file_path):
     return file_extension in image_extensions
 
 def open_image(file_path):
-    try:
-        image = Image.open(file_path).convert("RGB")
-        return image
-    except Exception as e:
-        print(f"Failed to open image: {e}")
-        return None
+    image = Image.open(file_path).convert("RGB")
+    return image
 
-def open_video(file_path, start_frame_idx, num_frames, frame_interval=):
-    # 尝试使用 decord 打开视频
-    try:
-        decord_vr = decord.VideoReader(file_path, ctx=decord.cpu(0), num_threads=1)
+def open_video(file_path, start_frame_idx, num_frames, frame_interval=1):
 
+    decord_vr = decord.VideoReader(file_path, ctx=decord.cpu(0), num_threads=1)
 
+    total_frames = len(decord_vr)
+    frame_indices = list(range(start_frame_idx, min(start_frame_idx + num_frames * frame_interval, total_frames), frame_interval))
+
+    if len(frame_indices) == 0:
+        raise ValueError("No frames selected. Check your start_frame_idx and num_frames.")
+    
+    if len(frame_indices) < num_frames:
+        raise ValueError(f"Requested {num_frames} frames but only {len(frame_indices)} frames are available, please adjust the start_frame_idx and num_frames or decrease the frame_interval.")
         
-        video_data = decord_vr.get_batch(frame_indices).asnumpy()
-        video_data = torch.from_numpy(video_data)
-        video_data = video_data.permute(0, 3, 1, 2)  # (T, H, W, C) -> (T C H W)
-        return video_data
-    except Exception as e:
-        print(f"Failed to open video: {e}")
-        return None
+    video_data = decord_vr.get_batch(frame_indices).asnumpy()
+    video_data = torch.from_numpy(video_data)
+    video_data = video_data.permute(0, 3, 1, 2)  # (T, H, W, C) -> (T C H W)
+    return video_data
+
+
+def get_pixel_values(file_path, num_frames):
+    if is_image_file(file_path[0]):
+        pixel_values = [open_image(path) for path in file_path]
+        pixel_values = [torch.from_numpy(np.array(image)) for image in pixel_values]
+        pixel_values = [rearrange(image, 'h w c -> c h w').unsqueeze(0) for image in pixel_values]
+    elif is_video_file(file_path[0]):
+        pixel_values = [open_video(video_path, 0, num_frames) for video_path in file_path]
+    return pixel_values
+
 
 class OpenSoraInpaintPipeline(OpenSoraPipeline):
 
@@ -101,6 +113,8 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
     def check_inputs(
         self,
         conditional_pixel_values_path,
+        conditional_pixel_values_indices,
+        mask_path,
         mask_type,
         prompt,
         num_frames,
@@ -117,9 +131,33 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
         negative_prompt_attention_mask_2=None,
         callback_on_step_end_tensor_inputs=None,
     ):
-        if not isinstance(conditional_pixel_values_path, str) and not isinstance(conditional_pixel_values_path, list):
-            raise ValueError("conditional_pixel_values_path should be a string or a list of strings")
-            
+        if conditional_pixel_values_path is None:
+            raise ValueError("conditional_pixel_values_path should be provided")
+        else:
+            if not isinstance(conditional_pixel_values_path, list) or not isinstance(conditional_pixel_values_path[0], str):
+                raise ValueError("conditional_pixel_values_path should be a list of strings")
+    
+        if not is_image_file(conditional_pixel_values_path[0]) and not is_video_file(conditional_pixel_values_path[0]):
+            raise ValueError("conditional_pixel_values_path should be an image or video file path")  
+        
+        if is_video_file(conditional_pixel_values_path[0]) and len(conditional_pixel_values_path) > 1:
+            raise ValueError("conditional_pixel_values_path should be a list of image file paths or a single video file path")
+        
+        if mask_path is not None:
+            if not isinstance(mask_path, list) or not isinstance(mask_path[0], str) or len(mask_path) != len(conditional_pixel_values_path):
+                raise ValueError("mask_path should be a list of strings with the same length as conditional_pixel_values_path")
+        
+            if not (is_image_file(conditional_pixel_values_path[0]) and is_image_file(mask_path[0])) \
+                and not (is_video_file(conditional_pixel_values_path[0]) and is_video_file(mask_path[0])):
+                raise ValueError("conditional_pixel_values_path and mask_path should be both image files or both video files")
+        
+        if conditional_pixel_values_indices is not None \
+            and (not isinstance(conditional_pixel_values_indices, list) or not isinstance(conditional_pixel_values_indices[0], int) \
+                 or len(conditional_pixel_values_indices) != len(conditional_pixel_values_path)):
+            raise ValueError("conditional_pixel_values_indices should be a list of integers with the same length as conditional_pixel_values_path")
+        
+        if mask_type is not None and not mask_type in STR_TO_TYPE.keys() and not mask_type in STR_TO_TYPE.values():
+            raise ValueError(f"Invalid mask type: {mask_type}")
         
         super().check_inputs(
             prompt,
@@ -176,11 +214,35 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
         ])
         return transform
 
-    
-    def get_masked_video_mask(
+    def get_mask_type_cond_indices(self, mask_type, conditional_pixel_values_path, conditional_pixel_values_indices, num_frames):
+        if mask_type is not None and mask_type in STR_TO_TYPE.keys():
+            mask_type = STR_TO_TYPE[mask_type]
+        if is_image_file(conditional_pixel_values_path[0]):
+            if len(conditional_pixel_values_path) == 1:
+                mask_type = MaskType.t2iv if mask_type is None else mask_type
+                if num_frames > 1:
+                    conditional_pixel_values_indices = [0] if conditional_pixel_values_indices is None else conditional_pixel_values_indices
+                    assert len(conditional_pixel_values_indices) == 1, "conditional_pixel_values_indices should be a list of integers with the same length as conditional_pixel_values_path"
+            elif len(conditional_pixel_values_path) == 2:
+                mask_type = MaskType.transition if mask_type is None else mask_type
+                if num_frames > 1:
+                    conditional_pixel_values_indices = [0, -1] if conditional_pixel_values_indices is None else conditional_pixel_values_indices
+                    assert len(conditional_pixel_values_indices) == 2, "conditional_pixel_values_indices should be a list of integers with the same length as conditional_pixel_values_path"
+            else:
+                if num_frames > 1:
+                    assert conditional_pixel_values_indices is not None and len(conditional_pixel_values_path) == len(conditional_pixel_values_indices), "conditional_pixel_values_indices should be a list of integers with the same length as conditional_pixel_values_path"
+                    mask_type = MaskType.random_temporal if mask_type is None else mask_type
+        elif is_video_file(conditional_pixel_values_path[0]):
+            mask_type = MaskType.random_spatial if mask_type is None else mask_type
+        return mask_type, conditional_pixel_values_indices
+
+
+    def get_masked_pixel_values_mask(
         self, 
-        conditional_images,
-        conditional_images_indices, 
+        conditional_pixel_values,
+        conditional_pixel_values_indices,
+        mask,
+        mask_type, 
         batch_size, 
         num_samples_per_prompt, 
         num_frames, 
@@ -190,39 +252,50 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
         weight_dtype,
         device
     ):
-        
-        input_video = torch.zeros([num_frames, 3, height, width], device=device)
-        input_video[conditional_images_indices] = conditional_images.to(device=device, dtype=input_video.dtype)
+        if device is None:
+            device = getattr(self, '_execution_device', None) or getattr(self, 'device', None) or torch.device('cuda')
 
-        print(conditional_images_indices)
+        conditional_pixel_values = conditional_pixel_values.to(device=device, dtype=weight_dtype)
+        mask = mask.to(device=device, dtype=weight_dtype) if mask is not None else None
 
-        T, C, H, W = input_video.shape
-        mask = torch.ones([T, 1, H, W], device=device)
-        mask[conditional_images_indices] = 0
-        masked_video = input_video * (mask < 0.5) 
+        if conditional_pixel_values.shape[0] == num_frames:
+            inpaint_cond_data = self.mask_processor(conditional_pixel_values, mask, mask_type)
+            masked_pixel_values, mask = inpaint_cond_data['masked_pixel_values'], inpaint_cond_data['mask']
+        else:
+            input_pixel_values = torch.zeros([num_frames, 3, height, width], device=device, dtype=weight_dtype)
+            input_mask = torch.ones([num_frames, 1, height, width], device=device, dtype=weight_dtype)
+            input_pixel_values[conditional_pixel_values_indices] = conditional_pixel_values
+            input_mask[conditional_pixel_values_indices] = 0 if mask is None else mask
+            masked_pixel_values = input_pixel_values * (input_mask < 0.5)
+            mask = input_mask
 
-        masked_video = video_transform(masked_video)
+        print('conditional_pixel_values_indices', conditional_pixel_values_indices)
+        print('mask_type', TYPE_TO_STR[mask_type])
 
-        masked_video = masked_video.unsqueeze(0).repeat(batch_size * num_samples_per_prompt, 1, 1, 1, 1).transpose(1, 2).contiguous() # b c t h w
+        masked_pixel_values = video_transform(masked_pixel_values)
+
+        masked_pixel_values = masked_pixel_values.unsqueeze(0).repeat(batch_size * num_samples_per_prompt, 1, 1, 1, 1).transpose(1, 2).contiguous() # b c t h w
         mask = mask.unsqueeze(0).repeat(batch_size * num_samples_per_prompt, 1, 1, 1, 1).transpose(1, 2).contiguous() # b c t h w
-        masked_video = masked_video.to(self.vae.vae.dtype)
-        masked_video = self.vae.encode(masked_video)
+        masked_pixel_values = masked_pixel_values.to(self.vae.vae.dtype)
+        masked_pixel_values = self.vae.encode(masked_pixel_values)
 
         mask = self.mask_compressor(mask)
     
-        masked_video = torch.cat([masked_video] * 2) if self.do_classifier_free_guidance else masked_video
+        masked_pixel_values = torch.cat([masked_pixel_values] * 2) if self.do_classifier_free_guidance else masked_pixel_values
         mask = torch.cat([mask] * 2) if self.do_classifier_free_guidance else mask
 
-        masked_video = masked_video.to(weight_dtype)
+        masked_pixel_values = masked_pixel_values.to(weight_dtype)
         mask = mask.to(weight_dtype)
 
-        return masked_video, mask
+        return masked_pixel_values, mask
     
     @torch.no_grad()
     def __call__(
         self,
         conditional_pixel_values_path: Union[str, List[str]] = None,
-        mask_type: Union[str, MaskType] = MaskType.t2iv,
+        conditional_pixel_values_indices: Union[int, List[int]] = None,
+        mask_path: Union[str, List[str]] = None,
+        mask_type: Union[str, MaskType] = None,
         crop_for_hw: bool = False,
         max_hw_square: int = 1024 * 1024,
         prompt: Union[str, List[str]] = None,
@@ -267,6 +340,8 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
         # 1. Check inputs. Raise error if not correct
         self.check_inputs(
             conditional_pixel_values_path,
+            conditional_pixel_values_indices,
+            mask_path,
             mask_type,
             prompt,
             num_frames, 
@@ -346,30 +421,17 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
             negative_prompt_attention_mask_2 = None
 
         # ==================prepare inpaint data=====================================
-        assert conditional_images is not None, "conditional_images should not be None"
-        assert conditional_images_indices is None \
-            or (isinstance(conditional_images_indices, list) and isinstance(conditional_images_indices[0], int)) 
-            
-        if isinstance(conditional_images, str):
-            conditional_images = [conditional_images]
-            conditional_images_indices = [0] if conditional_images_indices is None or len(conditional_images_indices) != 1 else conditional_images_indices
-        elif isinstance(conditional_images, list) and isinstance(conditional_images[0], str):
-            if len(conditional_images) == 1:
-                conditional_images_indices = [0] if conditional_images_indices is None or len(conditional_images_indices) != 1 else conditional_images_indices
-            elif len(conditional_images) == 2:
-                conditional_images_indices = [0, -1] if conditional_images_indices is None or len(conditional_images_indices) != 2 else conditional_images_indices
-            else:
-                assert conditional_images_indices is not None and len(conditional_images) == len(conditional_images_indices)
-        else:
-            raise ValueError("conditional_images should be a str or a list of str")
-        
+        mask_type, conditional_pixel_values_indices = self.get_mask_type_cond_indices(mask_type, conditional_pixel_values_path, conditional_pixel_values_indices, num_frames)
 
-        conditional_images = [Image.open(image).convert("RGB") for image in conditional_images]
-        conditional_images = [torch.from_numpy(np.copy(np.array(image))) for image in conditional_images]
-        conditional_images = [rearrange(image, 'h w c -> c h w').unsqueeze(0) for image in conditional_images]
+        conditional_pixel_values = get_pixel_values(conditional_pixel_values_path, num_frames)
+        mask = get_pixel_values(mask_path, num_frames) if mask_path is not None else None
 
-        min_height = min([image.shape[2] for image in conditional_images])
-        min_width = min([image.shape[3] for image in conditional_images])
+        if mask is not None:
+            for p, m in zip(conditional_pixel_values, mask):
+                assert p.shape == m.shape, f"conditional_pixel_values and mask should have the same shape, got {p.shape} and {m.shape}"
+
+        min_height = min([pixels.shape[2] for pixels in conditional_pixel_values])
+        min_width = min([pixels.shape[3] for pixels in conditional_pixel_values])
 
         resize_transform = self.get_resize_transform(
             ori_height=min_height, 
@@ -381,8 +443,12 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
         )
 
         video_transform = self.get_video_transform()
-        conditional_images = torch.cat([resize_transform(image) for image in conditional_images])
-        real_height, real_width = conditional_images.shape[-2], conditional_images.shape[-1]
+        conditional_pixel_values = torch.cat([resize_transform(pixels) for pixels in conditional_pixel_values])
+        if mask is not None:
+            mask = torch.cat([resize_transform(pixels) for pixels in mask])
+            mask = mask[:, 0:1]
+            mask = (mask > 128)
+        real_height, real_width = conditional_pixel_values.shape[-2], conditional_pixel_values.shape[-1]
         # ==================prepare inpaint data=====================================
         
         # 4. Prepare timesteps
@@ -405,14 +471,14 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
             latents,
         )
 
-        print('latents', latents.shape)
-
         # 6. Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline
         extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
 
-        masked_video, mask = self.get_masked_video_mask(
-            conditional_images,
-            conditional_images_indices, 
+        masked_pixel_values, mask = self.get_masked_pixel_values_mask(
+            conditional_pixel_values,
+            conditional_pixel_values_indices,
+            mask,
+            mask_type, 
             batch_size, 
             num_samples_per_prompt, 
             num_frames, 
@@ -449,7 +515,7 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
             prompt_embeds = prompt_embeds[:, rank, :, :]
 
             latents_num_frames = latents.shape[2]
-            masked_video = masked_video[:, :, latents_num_frames * rank: latents_num_frames * (rank + 1)]
+            masked_pixel_values = masked_pixel_values[:, :, latents_num_frames * rank: latents_num_frames * (rank + 1)]
             mask = mask[:, :, latents_num_frames * rank: latents_num_frames * (rank + 1)]
         # ==================make sp=====================================
 
@@ -466,7 +532,7 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
                 latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
 
                 # inpaint
-                latent_model_input = torch.cat([latent_model_input, masked_video, mask], dim=1)
+                latent_model_input = torch.cat([latent_model_input, masked_pixel_values, mask], dim=1)
 
                 # expand scalar t to 1-D tensor to match the 1st dim of latent_model_input
                 t_expand = torch.tensor([t] * latent_model_input.shape[0], device=device).to(

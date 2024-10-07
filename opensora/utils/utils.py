@@ -241,6 +241,18 @@ def cleanup():
     dist.destroy_process_group()
 
 
+# adapted from https://github.com/huggingface/accelerate/blob/main/src/accelerate/utils/random.py#L31
+def set_seed(seed, rank, device_specific=True):
+    if device_specific:
+        seed += rank
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
 def setup_distributed(backend="nccl", port=None):
     """Initialize distributed training environment.
     support both slurm and torch.distributed.launch

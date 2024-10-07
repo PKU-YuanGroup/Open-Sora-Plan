@@ -36,14 +36,14 @@ class WFVAEModelWrapper(nn.Module):
         self.register_buffer('scale', torch.tensor(self.vae.config.scale)[None, :, None, None, None])
         
     def encode(self, x):
-        self.shift = self.shift.to(device=x.device)
-        self.scale = self.scale.to(device=x.device)
+        self.shift = self.shift.to(device=x.device, dtype=x.dtype)
+        self.scale = self.scale.to(device=x.device, dtype=x.dtype)
         x = (self.vae.encode(x).sample() - self.shift) * self.scale
         return x
     
     def decode(self, x):
-        self.shift = self.shift.to(device=x.device)
-        self.scale = self.scale.to(device=x.device)
+        self.shift = self.shift.to(device=x.device, dtype=x.dtype)
+        self.scale = self.scale.to(device=x.device, dtype=x.dtype)
         x = x / self.scale + self.shift
         x = self.vae.decode(x)
         x = rearrange(x, 'b c t h w -> b t c h w').contiguous()
