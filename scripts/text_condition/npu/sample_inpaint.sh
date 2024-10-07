@@ -15,5 +15,4 @@ torchrun --nnodes=1 --nproc_per_node=2 --master_port 29502 \
     --fps 18 \
     --guidance_scale 7.5 \
     --num_sampling_steps 50 \
-    --sample_method PNDM \
-    --motion_score 0.9 \
+    --sample_method PNDM 

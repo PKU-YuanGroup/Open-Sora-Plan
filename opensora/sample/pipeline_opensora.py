@@ -430,7 +430,6 @@ class OpenSoraPipeline(DiffusionPipeline):
         callback_on_step_end_tensor_inputs: List[str] = ["latents"],
         guidance_rescale: float = 0.0,
         max_sequence_length: int = 512,
-        motion_score: float = None, 
         device = None, 
     ):
         
@@ -598,9 +597,6 @@ class OpenSoraPipeline(DiffusionPipeline):
                     prompt_embeds = prompt_embeds.unsqueeze(1)  # b d -> b 1 d
                 
                 attention_mask = torch.ones_like(latent_model_input)[:, 0].to(device=device)
-                motion_score_tensor = None
-                if motion_score is not None:
-                    motion_score_tensor = torch.tensor([motion_score] * latent_model_input.shape[0]).to(device=device)
                 # ==================prepare my shape=====================================
 
                 # ==================make sp=====================================
@@ -614,11 +610,10 @@ class OpenSoraPipeline(DiffusionPipeline):
                     encoder_hidden_states=prompt_embeds,
                     encoder_attention_mask=prompt_attention_mask,
                     timestep=t_expand,
-                    motion_score=motion_score_tensor, 
                     pooled_projections=prompt_embeds_2,
                     return_dict=False,
                 )[0]
-
+                assert not torch.any(torch.isnan(noise_pred))
                 # perform guidance
                 if self.do_classifier_free_guidance:
                     noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
@@ -674,8 +669,8 @@ class OpenSoraPipeline(DiffusionPipeline):
 
     
     def decode_latents(self, latents):
-        # print(f'before vae decode {latents.shape}', torch.max(latents).item(), torch.min(latents).item(), torch.mean(latents).item(), torch.std(latents).item())
+        print(f'before vae decode {latents.shape}', torch.max(latents).item(), torch.min(latents).item(), torch.mean(latents).item(), torch.std(latents).item())
         video = self.vae.decode(latents.to(self.vae.vae.dtype))
-        # print(f'after vae decode {latents.shape}', torch.max(video).item(), torch.min(video).item(), torch.mean(video).item(), torch.std(video).item())
+        print(f'after vae decode {latents.shape}', torch.max(video).item(), torch.min(video).item(), torch.mean(video).item(), torch.std(video).item())
         video = ((video / 2.0 + 0.5).clamp(0, 1) * 255).to(dtype=torch.uint8).cpu().permute(0, 1, 3, 4, 2).contiguous() # b t h w c
         return video

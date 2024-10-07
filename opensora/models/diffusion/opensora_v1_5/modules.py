@@ -6,6 +6,7 @@ from diffusers.utils import logging
 from diffusers.utils.torch_utils import maybe_allow_in_graph
 from diffusers.models.attention import FeedForward
 from torch.nn import functional as F
+from diffusers.models.normalization import RMSNorm, AdaLayerNorm
 from diffusers.models.attention_processor import Attention
 from diffusers.models.embeddings import PixArtAlphaTextProjection, Timesteps, TimestepEmbedding
 
@@ -22,7 +23,6 @@ from typing import Any, Dict, Optional, Tuple
 import torch
 import torch.nn.functional as F
 from torch import nn
-from diffusers.models.attention_processor import Attention as Attention_
 try:
     import torch_npu
     from opensora.npu_config import npu_config, set_run_dtype
@@ -140,7 +140,19 @@ class CombinedTimestepTextProjEmbeddings(nn.Module):
 
         return conditioning
 
-class OpenSoraLayerNormZero(nn.Module):
+class AdaNorm(AdaLayerNorm):
+    def __init__(self, norm_cls='rms_norm',  **kwargs) -> None:
+        super().__init__(**kwargs)
+        if norm_cls == 'rms_norm':
+            self.norm_cls = RMSNorm
+        elif norm_cls == 'layer_norm':
+            self.norm_cls = nn.LayerNorm
+        self.norm = self.norm_cls(
+            self.norm.normalized_shape, eps=self.norm.eps, elementwise_affine=self.norm.elementwise_affine
+            )
+
+
+class OpenSoraNormZero(nn.Module):
     def __init__(
         self,
         timestep_embed_dim: int, 
@@ -148,13 +160,18 @@ class OpenSoraLayerNormZero(nn.Module):
         elementwise_affine: bool = True,
         eps: float = 1e-5,
         bias: bool = True,
+        norm_cls: str = 'rms_norm', 
     ) -> None:
         super().__init__()
+        if norm_cls == 'rms_norm':
+            self.norm_cls = RMSNorm
+        elif norm_cls == 'layer_norm':
+            self.norm_cls = nn.LayerNorm
 
         self.silu = nn.SiLU()
         self.linear = nn.Linear(timestep_embed_dim, 6 * embedding_dim, bias=bias)
-        self.norm = nn.LayerNorm(embedding_dim, eps=eps, elementwise_affine=elementwise_affine)
-        self.norm_enc = nn.LayerNorm(embedding_dim, eps=eps, elementwise_affine=elementwise_affine)
+        self.norm = self.norm_cls(embedding_dim, eps=eps, elementwise_affine=elementwise_affine)
+        self.norm_enc = self.norm_cls(embedding_dim, eps=eps, elementwise_affine=elementwise_affine)
 
     def forward(
         self, hidden_states: torch.Tensor, encoder_hidden_states: torch.Tensor, temb: torch.Tensor
@@ -357,22 +374,29 @@ class BasicTransformerBlock(nn.Module):
         norm_eps: float = 1e-5,
         final_dropout: bool = False,
         ff_inner_dim: Optional[int] = None,
-        ff_bias: bool = True,
+        ff_bias: bool = False,
         attention_out_bias: bool = True,
         context_pre_only: bool = False,
         interpolation_scale_thw: Tuple[int] = (1, 1, 1), 
         sparse1d: bool = False,
         sparse_n: int = 2,
         sparse_group: bool = False,
+        norm_cls: str = 'rms_norm', 
     ):
         super().__init__()
         self.sparse1d = sparse1d
         self.sparse_n = sparse_n
         self.sparse_group = sparse_group
         self.attention_head_dim = attention_head_dim
+        if norm_cls == 'rms_norm':
+            self.norm_cls = RMSNorm
+        elif norm_cls == 'layer_norm':
+            self.norm_cls = nn.LayerNorm
 
         # 1. Self-Attn
-        self.norm1 = OpenSoraLayerNormZero(timestep_embed_dim, dim, norm_elementwise_affine, norm_eps, bias=True)
+        self.norm1 = OpenSoraNormZero(
+            timestep_embed_dim, dim, norm_elementwise_affine, norm_eps, bias=True, norm_cls=norm_cls
+            )
         self.attn1 = Attention(
             query_dim=dim,
             cross_attention_dim=None,
@@ -380,16 +404,20 @@ class BasicTransformerBlock(nn.Module):
             dim_head=attention_head_dim, 
             heads=num_attention_heads,
             context_pre_only=context_pre_only,
-            qk_norm="rms_norm",
-            eps=1e-6,
+            qk_norm=norm_cls,
+            eps=norm_eps,
             dropout=dropout,
             bias=attention_bias,
             out_bias=attention_out_bias,
             processor=OpenSoraAttnProcessor2_0(sparse1d, sparse_n, sparse_group),
         )
+        self.attn1.norm_added_q = self.norm_cls(attention_head_dim, eps=norm_eps, elementwise_affine=norm_elementwise_affine)
+        self.attn1.norm_added_k = self.norm_cls(attention_head_dim, eps=norm_eps, elementwise_affine=norm_elementwise_affine)
 
         # 2. Feed-forward
-        self.norm2 = OpenSoraLayerNormZero(timestep_embed_dim, dim, norm_elementwise_affine, norm_eps, bias=True)
+        self.norm2 = OpenSoraNormZero(
+            timestep_embed_dim, dim, norm_elementwise_affine, norm_eps, bias=True, norm_cls=norm_cls
+            )
         self.ff = FeedForward(
             dim,
             dropout=dropout,

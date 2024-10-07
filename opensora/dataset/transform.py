@@ -297,6 +297,16 @@ def longsideresize(h, w, size, skip_low_resolution):
         w = size[1]
     return h, w
 
+def maxhwresize(ori_height, ori_width, max_hxw):
+    if ori_height * ori_width > max_hxw:
+        scale_factor = np.sqrt(max_hxw / (ori_height * ori_width))
+        new_height = int(ori_height * scale_factor)
+        new_width = int(ori_width * scale_factor)
+    else:
+        new_height = ori_height
+        new_width = ori_width
+    return new_height, new_width
+
 class LongSideResizeVideo:
     '''
     First use the long side,
@@ -331,6 +341,38 @@ class LongSideResizeVideo:
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(size={self.size}, interpolation_mode={self.interpolation_mode}"
 
+
+class MaxHWResizeVideo:
+    '''
+    First use the h*w,
+    then resize to the specified size
+    '''
+
+    def __init__(
+            self,
+            max_hxw,
+            interpolation_mode="bilinear",
+    ):
+        self.max_hxw = max_hxw
+        self.interpolation_mode = interpolation_mode
+
+    def __call__(self, clip):
+        """
+        Args:
+            clip (torch.tensor): Video clip to be cropped. Size is (T, C, H, W)
+        Returns:
+            torch.tensor: scale resized video clip.
+        """
+        _, _, h, w = clip.shape
+        tr_h, tr_w = maxhwresize(h, w, self.max_hxw)
+        if h == tr_h and w == tr_w:
+            return clip
+        resize_clip = resize(clip, target_size=(tr_h, tr_w),
+                                         interpolation_mode=self.interpolation_mode)
+        return resize_clip
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(size={self.size}, interpolation_mode={self.interpolation_mode}"
 
 
 class CenterCropResizeVideo:
@@ -779,13 +821,6 @@ def clean_vidal(text):
     if text == '' or text.isspace():
         raise ValueError('text is empty')
     return text
-
-
-
-def motion_mapping_fun(motion_score, n=3):
-    assert motion_score is not None
-    return max(motion_score, 0.0) ** n
-
 
 def calculate_statistics(data):
     if len(data) == 0:

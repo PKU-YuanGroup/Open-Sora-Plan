@@ -11,7 +11,7 @@ from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.models.modeling_utils import ModelMixin
 from diffusers.models.normalization import AdaLayerNormSingle
 from diffusers.models.embeddings import PixArtAlphaTextProjection
-from opensora.models.diffusion.opensora_v1_2.modules import BasicTransformerBlock, Attention
+from opensora.models.diffusion.opensora_v1_3.modules import BasicTransformerBlock, Attention
 from opensora.models.diffusion.common import PatchEmbed2D
 from opensora.utils.utils import to_2tuple
 try:
@@ -23,7 +23,7 @@ except:
     npu_config = None
     from opensora.utils.parallel_states import get_sequence_parallel_state, nccl_info
 
-class OpenSoraT2V_v1_2(ModelMixin, ConfigMixin):
+class OpenSoraT2V_v1_3(ModelMixin, ConfigMixin):
     _supports_gradient_checkpointing = True
 
     @register_to_config
@@ -257,7 +257,7 @@ class OpenSoraT2V_v1_2(ModelMixin, ConfigMixin):
         timestep, embedded_timestep = self.adaln_single(
             timestep, added_cond_kwargs, batch_size=batch_size, hidden_dtype=self.dtype
         )  # b 6d, b d
-            
+
         encoder_hidden_states = self.caption_projection(encoder_hidden_states)  # b, 1, l, d or b, 1, l, d
         assert encoder_hidden_states.shape[1] == 1
         encoder_hidden_states = rearrange(encoder_hidden_states, 'b 1 l d -> (b 1) l d')
@@ -287,18 +287,18 @@ class OpenSoraT2V_v1_2(ModelMixin, ConfigMixin):
         )
         return output
 
-def OpenSoraT2V_v1_2_L_122(**kwargs):
-    return OpenSoraT2V_v1_2(
+def OpenSoraT2V_v1_3_2B_122(**kwargs):
+    return OpenSoraT2V_v1_3(
         num_layers=32, attention_head_dim=96, num_attention_heads=24, patch_size_t=1, patch_size=2,
         caption_channels=4096, cross_attention_dim=2304, activation_fn="gelu-approximate", **kwargs
         )
 
-OpenSora_v1_2_models = {
-    "OpenSoraT2V_v1_2-L/122": OpenSoraT2V_v1_2_L_122,  # 2.7B
+OpenSora_v1_3_models = {
+    "OpenSoraT2V_v1_3-2B/122": OpenSoraT2V_v1_3_2B_122,  # 2.7B
 }
 
-OpenSora_v1_2_models_class = {
-    "OpenSoraT2V_v1_2-L/122": OpenSoraT2V_v1_2,
+OpenSora_v1_3_models_class = {
+    "OpenSoraT2V_v1_3-2B/122": OpenSoraT2V_v1_3,
 }
 
 if __name__ == '__main__':
@@ -331,7 +331,7 @@ if __name__ == '__main__':
     num_frames = (args.num_frames - 1) // ae_stride_t + 1
 
     device = torch.device('cuda:0')
-    model = OpenSoraT2V_v1_2_L_122(
+    model = OpenSoraT2V_v1_3_2B_122(
         in_channels=c, 
         out_channels=c, 
         sample_size=latent_size, 

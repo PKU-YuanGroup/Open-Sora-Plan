@@ -66,6 +66,7 @@ from opensora.dataset import getdataset
 from opensora.models import CausalVAEModelWrapper
 from opensora.models.diffusion import Diffusion_models, Diffusion_models_class
 from opensora.utils.dataset_utils import Collate, LengthGroupedSampler
+from opensora.utils.utils import explicit_uniform_sampling
 from opensora.sample.pipeline_opensora import OpenSoraPipeline
 from opensora.models.causalvideovae import ae_stride_config, ae_wrapper
 
@@ -213,7 +214,7 @@ def main(args):
         weight_dtype = torch.bfloat16
 
     # Create model:
-
+    
     # Currently Accelerate doesn't know how to handle multiple models under Deepspeed ZeRO stage 3.
     # For this to work properly all models must be run through `accelerate.prepare`. But accelerate
     # will try to assign the same optimizer with the same weights to all models during
@@ -249,6 +250,22 @@ def main(args):
         text_enc_2 = None
         if args.text_encoder_name_2 is not None:
             text_enc_2 = get_text_warpper(args.text_encoder_name_2)(args, **kwargs).eval()
+    
+    # kwargs = {}
+    # # ae = ae_wrapper[args.ae](args.ae_path, cache_dir=args.cache_dir, **kwargs).eval()
+    
+    # # if args.enable_tiling:
+    # #     ae.vae.enable_tiling()
+
+    # kwargs = {
+    #     'torch_dtype': weight_dtype, 
+    #     'low_cpu_mem_usage': False
+    #     }
+    # text_enc_1 = get_text_warpper(args.text_encoder_name_1)(args, **kwargs).eval()
+
+    # text_enc_2 = None
+    # if args.text_encoder_name_2 is not None:
+    #     text_enc_2 = get_text_warpper(args.text_encoder_name_2)(args, **kwargs).eval()
 
     ae_stride_t, ae_stride_h, ae_stride_w = ae_stride_config[args.ae]
     ae.vae_scale_factor = (ae_stride_t, ae_stride_h, ae_stride_w)
@@ -276,15 +293,8 @@ def main(args):
     model = Diffusion_models[args.model](
         in_channels=ae_channel_config[args.ae],
         out_channels=ae_channel_config[args.ae],
-        attention_bias=True,
         sample_size=latent_size,
         sample_size_t=latent_size_t,
-        activation_fn="gelu-approximate",
-        only_cross_attention=False,
-        double_self_attention=False,
-        upcast_attention=False,
-        norm_elementwise_affine=False,
-        norm_eps=1e-6,
         interpolation_scale_h=args.interpolation_scale_h,
         interpolation_scale_w=args.interpolation_scale_w,
         interpolation_scale_t=args.interpolation_scale_t,
@@ -456,7 +466,13 @@ def main(args):
         initial_global_step_for_sampler = args.trained_data_global_step
     else:
         initial_global_step_for_sampler = 0
-        
+    
+
+    total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
+    total_batch_size = total_batch_size // args.sp_size * args.train_sp_batch_size
+    args.total_batch_size = total_batch_size
+    if args.min_hxw is None:
+        args.min_hxw = args.max_hxw // 2
     train_dataset = getdataset(args)
     sampler = LengthGroupedSampler(
                 args.train_batch_size,
@@ -525,8 +541,6 @@ def main(args):
         accelerator.init_trackers(os.path.basename(args.output_dir), config=vars(args))
 
     # Train!
-    total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
-    total_batch_size = total_batch_size // args.sp_size * args.train_sp_batch_size
 
     logger.info("***** Running training *****")
     logger.info(f"  Model = {model}")
@@ -640,8 +654,16 @@ def main(args):
 
         bsz = model_input.shape[0]
         # Sample a random timestep for each image without bias.
-        timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=model_input.device)
-        # print('accelerator.process_index, timesteps', accelerator.process_index, timesteps)
+        if accelerator.num_processes > noise_scheduler.config.num_train_timesteps: 
+            timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=model_input.device)
+        else:
+            timesteps = explicit_uniform_sampling(
+                T=noise_scheduler.config.num_train_timesteps, 
+                n=accelerator.num_processes, 
+                rank=accelerator.process_index, 
+                bsz=bsz, device=model_input.device, 
+                )
+        # print(f'rank: {accelerator.process_index}, timesteps: {timesteps}')
         if get_sequence_parallel_state():  # image do not need sp, disable when image batch
             broadcast(timesteps)
 
@@ -695,7 +717,7 @@ def main(args):
             )[0]
             mse_loss_weights = mse_loss_weights / snr
             loss = F.mse_loss(model_pred.float(), target.float(), reduction="none")
-            print(f'args.snr_gamma {args.snr_gamma}, snr {snr}, timesteps {timesteps}, loss {loss.mean()}, mse_loss_weights {mse_loss_weights}')
+            # print(f'args.snr_gamma {args.snr_gamma}, snr {snr}, timesteps {timesteps}, loss {loss.mean()}, mse_loss_weights {mse_loss_weights}')
             loss = loss.reshape(b, -1)
             mse_loss_weights = mse_loss_weights.reshape(b, 1)
             if mask is not None:
@@ -749,8 +771,8 @@ def main(args):
 
     def train_one_step(step_, data_item_, prof_=None):
         train_loss = 0.0
-        x, attn_mask, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2, motion_score = data_item_
-        print(f'step: {step_}, rank: {accelerator.process_index}, x: {x.shape}')
+        x, attn_mask, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2 = data_item_
+        # print(f'step: {step_}, rank: {accelerator.process_index}, x: {x.shape}, dtype: {x.dtype}')
         # assert not torch.any(torch.isnan(x)), 'torch.any(torch.isnan(x))'
         # print('after data collate')
         # print(f'x: {x.shape}, attn_mask: {attn_mask.shape}, input_ids_1: {input_ids_1.shape}, cond_mask_1: {cond_mask_1.shape}, input_ids_2: {input_ids_2.shape}, cond_mask_2: {cond_mask_2.shape}')
@@ -763,12 +785,12 @@ def main(args):
                 text_enc_2.to(accelerator.device, dtype=weight_dtype)
 
         x = x.to(accelerator.device, dtype=ae.vae.dtype)  # B C T H W
+        # x = x.to(accelerator.device, dtype=torch.float32)  # B C T H W
         attn_mask = attn_mask.to(accelerator.device)  # B T H W
         input_ids_1 = input_ids_1.to(accelerator.device)  # B 1 L
         cond_mask_1 = cond_mask_1.to(accelerator.device)  # B 1 L
         input_ids_2 = input_ids_2.to(accelerator.device) if input_ids_2 is not None else input_ids_2 # B 1 L
         cond_mask_2 = cond_mask_2.to(accelerator.device) if cond_mask_2 is not None else cond_mask_2 # B 1 L
-        motion_score = motion_score.to(accelerator.device) if motion_score is not None else motion_score # B 1
 
         with torch.no_grad():
             B, N, L = input_ids_1.shape  # B 1 L
@@ -788,7 +810,8 @@ def main(args):
 
             # Map input images to latent space + normalize latents
             x = ae.encode(x)  # B C T H W
-
+            # print(f'step: {step_}, rank: {accelerator.process_index}, after vae.encode, x: {x.shape}, dtype: {x.dtype}, mean: {x.mean()}, std: {x.std()}')
+            # x = torch.rand(1, 32, 14, 80, 80).to(x.device, dtype=x.dtype)
             # def custom_to_video(x: torch.Tensor, fps: float = 2.0, output_file: str = 'output_video.mp4') -> None:
             #     from examples.rec_video import array_to_video
             #     x = x.detach().cpu()
@@ -818,14 +841,13 @@ def main(args):
             else:
                 set_sequence_parallel_state(True)
         if get_sequence_parallel_state():
-            x, cond_1, attn_mask, cond_mask_1, motion_score, cond_2 = prepare_parallel_data(
-                x, cond_1, attn_mask, cond_mask_1, motion_score, cond_2
+            x, cond_1, attn_mask, cond_mask_1, cond_2 = prepare_parallel_data(
+                x, cond_1, attn_mask, cond_mask_1, cond_2
                 )        
             # x            (b c t h w)   -gather0-> (sp*b c t h w)   -scatter2-> (sp*b c t//sp h w)
             # cond_1       (b sp l/sp d) -gather0-> (sp*b sp l/sp d) -scatter1-> (sp*b 1 l/sp d)
             # attn_mask    (b t*sp h w)  -gather0-> (sp*b t*sp h w)  -scatter1-> (sp*b t h w)
             # cond_mask_1  (b sp l)      -gather0-> (sp*b sp l)      -scatter1-> (sp*b 1 l)
-            # motion_score (b sp)        -gather0-> (sp*b sp)        -scatter1-> (sp*b 1)
             # cond_2       (b sp d)      -gather0-> (sp*b sp d)      -scatter1-> (sp*b 1 d)
             for iter in range(args.train_batch_size * args.sp_size // args.train_sp_batch_size):
                 with accelerator.accumulate(model):
@@ -833,7 +855,6 @@ def main(args):
                     # cond_1       (sp_bs*b 1 l/sp d)
                     # attn_mask    (sp_bs*b t h w)
                     # cond_mask_1  (sp_bs*b 1 l)
-                    # motion_score (sp_bs*b 1)
                     # cond_2       (sp_bs*b 1 d)
                     st_idx = iter * args.train_sp_batch_size
                     ed_idx = (iter + 1) * args.train_sp_batch_size
@@ -841,7 +862,6 @@ def main(args):
                         encoder_hidden_states=cond_1[st_idx: ed_idx],
                         attention_mask=attn_mask[st_idx: ed_idx],
                         encoder_attention_mask=cond_mask_1[st_idx: ed_idx], 
-                        motion_score=motion_score[st_idx: ed_idx] if motion_score is not None else None, 
                         pooled_projections=cond_2[st_idx: ed_idx] if cond_2 is not None else None, 
                         )
                     run(x[st_idx: ed_idx], model_kwargs, prof_)
@@ -852,7 +872,7 @@ def main(args):
                 x = x.to(weight_dtype)
                 model_kwargs = dict(
                     encoder_hidden_states=cond_1, attention_mask=attn_mask, 
-                    motion_score=motion_score, encoder_attention_mask=cond_mask_1, 
+                    encoder_attention_mask=cond_mask_1, 
                     pooled_projections=cond_2
                     )
                 run(x, model_kwargs, prof_)
@@ -934,10 +954,8 @@ if __name__ == "__main__":
     parser.add_argument("--num_frames", type=int, default=65)
     parser.add_argument("--max_height", type=int, default=320)
     parser.add_argument("--max_width", type=int, default=240)
-    parser.add_argument("--min_height", type=int, default=None)
-    parser.add_argument("--min_width", type=int, default=None)
-    parser.add_argument("--max_height_for_img", type=int, default=None)
-    parser.add_argument("--max_width_for_img", type=int, default=None)
+    parser.add_argument("--max_hxw", type=int, default=240)
+    parser.add_argument("--min_hxw", type=int, default=None)
     parser.add_argument("--ood_img_ratio", type=float, default=0.0)
     parser.add_argument("--use_img_from_vid", action="store_true")
     parser.add_argument("--model_max_length", type=int, default=512)
@@ -969,7 +987,6 @@ if __name__ == "__main__":
     parser.add_argument('--sparse_n', type=int, default=2)
     parser.add_argument('--adapt_vae', action='store_true')
     parser.add_argument('--cogvideox_scheduler', action='store_true')
-    parser.add_argument('--use_motion', action='store_true')
     parser.add_argument("--gradient_checkpointing", action="store_true", help="Whether or not to use gradient checkpointing to save memory at the expense of slower backward pass.")
 
     # diffusion setting

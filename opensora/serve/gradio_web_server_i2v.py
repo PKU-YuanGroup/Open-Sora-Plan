@@ -56,7 +56,6 @@ def generate(
             prompt=input_prompt, 
             negative_prompt=NEG_PROMPT, 
             num_frames=num_frames,
-            motion_score=0.9, 
             num_inference_steps=num_inference_steps,
             guidance_scale=guidance_scale,
             num_samples_per_prompt=num_samples,

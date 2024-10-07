@@ -9,9 +9,9 @@ from diffusers.models.modeling_outputs import Transformer2DModelOutput
 from diffusers.utils import is_torch_version, deprecate
 from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.models.modeling_utils import ModelMixin
-from diffusers.models.normalization import AdaLayerNorm
+from diffusers.models.normalization import RMSNorm
 from diffusers.models.embeddings import PixArtAlphaTextProjection
-from opensora.models.diffusion.opensora_v1_5.modules import CombinedTimestepTextProjEmbeddings, BasicTransformerBlock
+from opensora.models.diffusion.opensora_v1_5.modules import CombinedTimestepTextProjEmbeddings, BasicTransformerBlock, AdaNorm
 from opensora.utils.utils import to_2tuple
 from opensora.models.diffusion.common import PatchEmbed2D
 try:
@@ -93,13 +93,13 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
         num_layers: List[int] = [2, 4, 8, 4, 2], 
         sparse_n: List[int] = [1, 4, 16, 4, 1], 
         dropout: float = 0.0,
-        attention_bias: bool = False,
+        attention_bias: bool = True,
         sample_size: Optional[int] = None,
         sample_size_t: Optional[int] = None,
         patch_size: Optional[int] = None,
         patch_size_t: Optional[int] = None,
-        activation_fn: str = "geglu",
-        norm_elementwise_affine: bool = False,
+        activation_fn: str = "gelu-approximate",
+        norm_elementwise_affine: bool = True,
         norm_eps: float = 1e-6,
         caption_channels: int = None,
         interpolation_scale_h: float = 1.0,
@@ -108,12 +108,17 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
         sparse1d: bool = False,
         pooled_projection_dim: int = 1024, 
         timestep_embed_dim: int = 512,
+        norm_cls: str = 'rms_norm', 
     ):
         super().__init__()
         # Set some common variables used across the board.
         self.out_channels = in_channels if out_channels is None else out_channels
         self.config.hidden_size = self.config.num_attention_heads * self.config.attention_head_dim
         self.gradient_checkpointing = True
+        if norm_cls == 'rms_norm':
+            self.norm_cls = RMSNorm
+        elif norm_cls == 'layer_norm':
+            self.norm_cls = nn.LayerNorm
 
         assert len(self.config.num_layers) == len(self.config.sparse_n)
         assert len(self.config.num_layers) % 2 == 1
@@ -159,7 +164,7 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
                 self.skip_norm_linear.append(
                     nn.Sequential(
                         nn.Linear(self.config.hidden_size*2, self.config.hidden_size), 
-                        nn.LayerNorm(
+                        self.norm_cls(
                             self.config.hidden_size, 
                             elementwise_affine=self.config.norm_elementwise_affine, 
                             eps=self.config.norm_eps
@@ -183,6 +188,7 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
                         sparse_n=sparse_n, 
                         sparse_group=i % 2 == 1 if sparse_n > 1 else False, 
                         context_pre_only=is_last_stage and (i == num_layer - 1), 
+                        norm_cls=self.config.norm_cls, 
                     )
                     for i in range(num_layer)
                 ]
@@ -192,13 +198,17 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
         self.skip_norm_linear = nn.ModuleList(self.skip_norm_linear)
 
         # norm out and unpatchfy
-        self.norm_final = nn.LayerNorm(self.config.hidden_size, self.config.norm_eps, self.config.norm_elementwise_affine)
-        self.norm_out = AdaLayerNorm(
+        self.norm_final = self.norm_cls(
+            self.config.hidden_size, eps=self.config.norm_eps, 
+            elementwise_affine=self.config.norm_elementwise_affine
+            )
+        self.norm_out = AdaNorm(
             embedding_dim=self.config.timestep_embed_dim,
             output_dim=self.config.hidden_size * 2,  # shift and scale
             norm_elementwise_affine=self.config.norm_elementwise_affine,
             norm_eps=self.config.norm_eps,
             chunk_dim=1,
+            norm_cls=self.config.norm_cls, 
         )
         self.proj_out = nn.Linear(
             self.config.hidden_size, self.config.patch_size_t * self.config.patch_size * self.config.patch_size * self.out_channels
@@ -463,67 +473,43 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
 def OpenSoraT2V_v1_5_2B_122(**kwargs):
     if kwargs.get('sparse_n', None) is not None:
         kwargs.pop('sparse_n')
-    if kwargs.get('use_motion', None) is not None:
-        kwargs.pop('use_motion')
-    if kwargs.get('only_cross_attention', None) is not None:
-        kwargs.pop('only_cross_attention')
-    if kwargs.get('double_self_attention', None) is not None:
-        kwargs.pop('double_self_attention')
-    if kwargs.get('upcast_attention', None) is not None:
-        kwargs.pop('upcast_attention')
-    return OpenSoraT2V_v1_5(
+    return OpenSoraT2V_v1_5(  # 34 layers
         num_layers=[2, 4, 6, 10, 6, 4, 2], sparse_n=[1, 2, 4, 8, 4, 2, 1], 
         attention_head_dim=72, num_attention_heads=24, 
         timestep_embed_dim=768, patch_size_t=1, patch_size=2, 
-        caption_channels=4096, pooled_projection_dim=1280, **kwargs
+        caption_channels=2048, pooled_projection_dim=1280, **kwargs
     )
 
-def OpenSoraT2V_v1_5_5B_122(**kwargs):
+def OpenSoraT2V_v1_5_7B_122(**kwargs):
     if kwargs.get('sparse_n', None) is not None:
         kwargs.pop('sparse_n')
-    if kwargs.get('use_motion', None) is not None:
-        kwargs.pop('use_motion')
-    if kwargs.get('only_cross_attention', None) is not None:
-        kwargs.pop('only_cross_attention')
-    if kwargs.get('double_self_attention', None) is not None:
-        kwargs.pop('double_self_attention')
-    if kwargs.get('upcast_attention', None) is not None:
-        kwargs.pop('upcast_attention')
-    return OpenSoraT2V_v1_5(
-        num_layers=[2, 6, 8, 12, 8, 6, 2], sparse_n=[1, 2, 4, 8, 4, 2, 1], 
-        attention_head_dim=72, num_attention_heads=32, 
+    return OpenSoraT2V_v1_5(  # 38 layers
+        num_layers=[2, 4, 8, 10, 8, 4, 2], sparse_n=[1, 2, 4, 8, 4, 2, 1], 
+        attention_head_dim=96, num_attention_heads=32, 
         timestep_embed_dim=1024, patch_size_t=1, patch_size=2, 
-        caption_channels=4096, pooled_projection_dim=1280, **kwargs
+        caption_channels=2048, pooled_projection_dim=1280, **kwargs
     )
 
-def OpenSoraT2V_v1_5_11B_122(**kwargs):
+def OpenSoraT2V_v1_5_8B_122(**kwargs):
     if kwargs.get('sparse_n', None) is not None:
         kwargs.pop('sparse_n')
-    if kwargs.get('use_motion', None) is not None:
-        kwargs.pop('use_motion')
-    if kwargs.get('only_cross_attention', None) is not None:
-        kwargs.pop('only_cross_attention')
-    if kwargs.get('double_self_attention', None) is not None:
-        kwargs.pop('double_self_attention')
-    if kwargs.get('upcast_attention', None) is not None:
-        kwargs.pop('upcast_attention')
-    return OpenSoraT2V_v1_5(
-        num_layers=[2, 4, 8, 12, 8, 4, 2], sparse_n=[1, 4, 8, 8, 8, 4, 1], 
-        attention_head_dim=96, num_attention_heads=40, 
-        timestep_embed_dim=768, patch_size_t=1, patch_size=2, 
-        caption_channels=4096, pooled_projection_dim=1280, **kwargs
+    return OpenSoraT2V_v1_5(  # 44 layers
+        num_layers=[2, 6, 8, 12, 8, 6, 2], sparse_n=[1, 2, 4, 8, 4, 2, 1], 
+        attention_head_dim=96, num_attention_heads=32, 
+        timestep_embed_dim=1024, patch_size_t=1, patch_size=2, 
+        caption_channels=2048, pooled_projection_dim=1280, **kwargs
     )
 
 OpenSora_v1_5_models = {
-    "OpenSoraT2V_v1_5-2B/122": OpenSoraT2V_v1_5_2B_122,
-    "OpenSoraT2V_v1_5-5B/122": OpenSoraT2V_v1_5_5B_122, 
-    "OpenSoraT2V_v1_5-11B/122": OpenSoraT2V_v1_5_11B_122, 
+    "OpenSoraT2V_v1_5-2B/122": OpenSoraT2V_v1_5_2B_122, 
+    "OpenSoraT2V_v1_5-7B/122": OpenSoraT2V_v1_5_7B_122, 
+    "OpenSoraT2V_v1_5-8B/122": OpenSoraT2V_v1_5_8B_122, 
 }
 
 OpenSora_v1_5_models_class = {
     "OpenSoraT2V_v1_5-2B/122": OpenSoraT2V_v1_5,
-    "OpenSoraT2V_v1_5-5B/122": OpenSoraT2V_v1_5,
-    "OpenSoraT2V_v1_5-11B/122": OpenSoraT2V_v1_5,
+    "OpenSoraT2V_v1_5-7B/122": OpenSoraT2V_v1_5,
+    "OpenSoraT2V_v1_5-8B/122": OpenSoraT2V_v1_5,
 }
 
 if __name__ == '__main__':
@@ -532,11 +518,11 @@ if __name__ == '__main__':
     from opensora.models import CausalVAEModelWrapper
     args = type('args', (), 
     {
-        'ae': 'WFVAEModel_D32_4x8x8', 
+        'ae': 'WFVAEModel_D32_8x8x8', 
         'model_max_length': 300, 
-        'max_height': 480,
+        'max_height': 640,
         'max_width': 640,
-        'num_frames': 29,
+        'num_frames': 105,
         'compress_kv_factor': 1, 
         'interpolation_scale_t': 1,
         'interpolation_scale_h': 1,
@@ -545,9 +531,9 @@ if __name__ == '__main__':
         "rank": 64, 
     }
     )
-    b = 2
-    c = 8
-    cond_c = 4096
+    b = 1
+    c = 32
+    cond_c = 2048
     cond_c1 = 1280
     num_timesteps = 1000
     ae_stride_t, ae_stride_h, ae_stride_w = ae_stride_config[args.ae]
@@ -556,17 +542,12 @@ if __name__ == '__main__':
 
     # device = torch.device('cpu')
     device = torch.device('cuda:0')
-    model = OpenSoraT2V_v1_5_2B_122(
+    model = OpenSoraT2V_v1_5_8B_122(
         in_channels=c, 
         out_channels=c, 
         sample_size=latent_size, 
         sample_size_t=num_frames, 
-        activation_fn="gelu-approximate",
-        attention_bias=True,
-        double_self_attention=False,
-        norm_elementwise_affine=False,
-        norm_eps=1e-06,
-        dropout=0.1, 
+        norm_cls='rms_norm', 
         interpolation_scale_t=args.interpolation_scale_t, 
         interpolation_scale_h=args.interpolation_scale_h, 
         interpolation_scale_w=args.interpolation_scale_w, 

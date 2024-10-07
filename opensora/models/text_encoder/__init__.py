@@ -6,6 +6,7 @@ text_encoder = {
     'google/mt5-xxl': T5Wrapper,
     'google/umt5-xl': T5Wrapper,
     'google/umt5-xxl': T5Wrapper,
+    'google/t5-v1_1-xl': T5Wrapper,
     'DeepFloyd/t5-v1_1-xxl': T5Wrapper,
     'openai/clip-vit-large-patch14': CLIPWrapper, 
     'laion/CLIP-ViT-bigG-14-laion2B-39B-b160k': CLIPWrapper

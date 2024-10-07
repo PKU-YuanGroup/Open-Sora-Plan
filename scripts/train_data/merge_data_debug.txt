@@ -1,1 +1,1 @@
-/storage/dataset,/storage/zhubin/liuyihang/add_aes/output/sucai_aes.json
+/storage,/storage/lcm/ocr/10.6_filtervid_hq_aes5.25img/1_16_7770168_shuffle.pkl
