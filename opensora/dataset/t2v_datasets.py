@@ -290,8 +290,8 @@ class T2V_dataset(Dataset):
         image = image.transpose(0, 1)  # [1 C H W] -> [C 1 H W]
 
         caps = image_data['cap'] if isinstance(image_data['cap'], list) else [image_data['cap']]
-        # caps = [random.choice(caps)]
-        caps = [caps[0]]
+        caps = [random.choice(caps)]
+        # caps = [caps[0]]
         if '/sam/' in image_data['path']:
             caps = [add_masking_notice(caps[0])]
         if image_data.get('aesthetic', None) is not None or image_data.get('aes', None) is not None:
@@ -513,9 +513,9 @@ class T2V_dataset(Dataset):
                 f'cnt_img_aspect_mismatch: {cnt_img_aspect_mismatch}, cnt_vid_aspect_mismatch: {cnt_vid_aspect_mismatch}\n'
                 f'cnt_filter_minority: {cnt_filter_minority}\n'
                 f'Counter(sample_size): {counter}\n'
-                f'cnt_vid: {cnt_vid}, cnt_img: {cnt_img}\n'
-                f'cnt_vid_after_filter: {cnt_vid_after_filter}, cnt_img_after_filter: {cnt_img_after_filter}\n'
-                f'before filter: {cnt}, after filter: {len(new_cap_list)}')
+                f'cnt_vid: {cnt_vid}, cnt_vid_after_filter: {cnt_vid_after_filter}, use_ratio: {round(cnt_vid_after_filter/(cnt_vid+1e-6), 5)*100}%\n'
+                f'cnt_img: {cnt_img}, cnt_img_after_filter: {cnt_img_after_filter}, use_ratio: {round(cnt_img_after_filter/(cnt_img+1e-6), 5)*100}%\n'
+                f'before filter: {cnt}, after filter: {len(new_cap_list)}, use_ratio: {round(len(new_cap_list)/cnt, 5)*100}%')
         # import ipdb;ipdb.set_trace()
         
         if len(aesthetic_score) > 0:

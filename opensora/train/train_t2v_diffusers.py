@@ -283,17 +283,13 @@ def main(args):
 
     args.stride_t = ae_stride_t * patch_size_t
     args.stride = ae_stride_h * patch_size_h
-    latent_size = (args.max_height // ae_stride_h, args.max_width // ae_stride_w)
-    ae.latent_size = latent_size
-
-    if args.num_frames % 2 == 1:
-        args.latent_size_t = latent_size_t = (args.num_frames - 1) // ae_stride_t + 1
-    else:
-        latent_size_t = args.num_frames // ae_stride_t
+    ae.latent_size = latent_size = (args.max_height // ae_stride_h, args.max_width // ae_stride_w)
+    args.latent_size_t = latent_size_t = (args.num_frames - 1) // ae_stride_t + 1
     model = Diffusion_models[args.model](
         in_channels=ae_channel_config[args.ae],
         out_channels=ae_channel_config[args.ae],
-        sample_size=latent_size,
+        sample_size_h=latent_size,
+        sample_size_w=latent_size,
         sample_size_t=latent_size_t,
         interpolation_scale_h=args.interpolation_scale_h,
         interpolation_scale_w=args.interpolation_scale_w,

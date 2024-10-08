@@ -37,7 +37,8 @@ class OpenSoraT2V_v1_3(ModelMixin, ConfigMixin):
         dropout: float = 0.0,
         cross_attention_dim: Optional[int] = None,
         attention_bias: bool = True,
-        sample_size: Optional[int] = None,
+        sample_size_h: Optional[int] = None,
+        sample_size_w: Optional[int] = None,
         sample_size_t: Optional[int] = None,
         patch_size: Optional[int] = None,
         patch_size_t: Optional[int] = None,
@@ -63,7 +64,7 @@ class OpenSoraT2V_v1_3(ModelMixin, ConfigMixin):
 
     def _init_patched_inputs(self):
 
-        self.config.sample_size = to_2tuple(self.config.sample_size)
+        self.config.sample_size = (self.config.sample_size_h, self.config.sample_size_w)
         interpolation_scale_thw = (
             self.config.interpolation_scale_t, 
             self.config.interpolation_scale_h, 
@@ -334,7 +335,8 @@ if __name__ == '__main__':
     model = OpenSoraT2V_v1_3_2B_122(
         in_channels=c, 
         out_channels=c, 
-        sample_size=latent_size, 
+        sample_size_h=latent_size, 
+        sample_size_w=latent_size, 
         sample_size_t=num_frames, 
         activation_fn="gelu-approximate",
         attention_bias=True,
