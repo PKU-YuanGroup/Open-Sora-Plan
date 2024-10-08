@@ -180,7 +180,7 @@ class T2V_dataset(Dataset):
         dataset_prog.set_cap_list(args.dataloader_num_workers, cap_list, n_elements)
         print(f"Data length: {len(dataset_prog.cap_list)}")
         self.executor = ThreadPoolExecutor(max_workers=1)
-        self.timeout = 180
+        self.timeout = 90
 
     def set_checkpoint(self, n_used_elements):
         for i in range(len(dataset_prog.n_used_elements)):
@@ -198,7 +198,6 @@ class T2V_dataset(Dataset):
         except Exception as e:
             if len(str(e)) < 2:
                 e = f"TimeoutError, {self.timeout}s timeout occur with {dataset_prog.cap_list[idx]['path']}"
-            print(e)
             print(f'Error with {e}')
             return self.__getitem__(random.randint(0, self.__len__() - 1))
 
@@ -291,7 +290,8 @@ class T2V_dataset(Dataset):
         image = image.transpose(0, 1)  # [1 C H W] -> [C 1 H W]
 
         caps = image_data['cap'] if isinstance(image_data['cap'], list) else [image_data['cap']]
-        caps = [random.choice(caps)]
+        # caps = [random.choice(caps)]
+        caps = [caps[0]]
         if '/sam/' in image_data['path']:
             caps = [add_masking_notice(caps[0])]
         if image_data.get('aesthetic', None) is not None or image_data.get('aes', None) is not None:
@@ -336,6 +336,8 @@ class T2V_dataset(Dataset):
         new_cap_list = []
         sample_size = []
         aesthetic_score = []
+        cnt_vid = 0
+        cnt_img = 0
         cnt_too_long = 0
         cnt_too_short = 0
         cnt_no_cap = 0
@@ -347,8 +349,8 @@ class T2V_dataset(Dataset):
         cnt_vid_aspect_mismatch = 0
         cnt_img_res_too_small = 0
         cnt_vid_res_too_small = 0
-        cnt_vid = 0
-        cnt_img = 0
+        cnt_vid_after_filter = 0
+        cnt_img_after_filter = 0
         cnt = 0
         
 
@@ -366,6 +368,10 @@ class T2V_dataset(Dataset):
                 cnt += 1
                 path = os.path.join(sub_root, i['path'])
                 i['path'] = path
+                if path.endswith('.mp4'):
+                    cnt_vid += 1
+                elif path.endswith('.jpg'):
+                    cnt_img += 1
 
                 # ======no aesthetic=====
                 if i.get('aesthetic', None) is None or i.get('aes', None) is None:
@@ -477,10 +483,10 @@ class T2V_dataset(Dataset):
                     i['sample_frame_index'] = frame_indices.tolist()
 
                     new_cap_list.append(i)
-                    cnt_vid += 1
+                    cnt_vid_after_filter += 1
 
                 elif path.endswith('.jpg'):  # image
-                    cnt_img += 1
+                    cnt_img_after_filter += 1
                     i['sample_frame_index'] = [0]
                     new_cap_list.append(i)
                 
@@ -500,24 +506,25 @@ class T2V_dataset(Dataset):
         cnt_filter_minority = len_before_filter_major - len(sample_size) 
         counter = Counter(sample_size)
         
-        print(f'no_cap: {cnt_no_cap}, no_resolution: {cnt_no_resolution}, '
-                f'too_long: {cnt_too_long}, too_short: {cnt_too_short}, '
-                f'cnt_img_res_mismatch_stride: {cnt_img_res_mismatch_stride}, cnt_vid_res_mismatch_stride: {cnt_vid_res_mismatch_stride}, '
-                f'cnt_img_res_too_small: {cnt_img_res_too_small}, cnt_vid_res_too_small: {cnt_vid_res_too_small}, '
-                f'cnt_img_aspect_mismatch: {cnt_img_aspect_mismatch}, cnt_vid_aspect_mismatch: {cnt_vid_aspect_mismatch}, '
-                f'cnt_filter_minority: {cnt_filter_minority}, '
-                f'Counter(sample_size): {counter}, '
-                f'cnt_vid: {cnt_vid}, cnt_img: {cnt_img}, '
+        print(f'no_cap: {cnt_no_cap}, no_resolution: {cnt_no_resolution}\n'
+                f'too_long: {cnt_too_long}, too_short: {cnt_too_short}\n'
+                f'cnt_img_res_mismatch_stride: {cnt_img_res_mismatch_stride}, cnt_vid_res_mismatch_stride: {cnt_vid_res_mismatch_stride}\n'
+                f'cnt_img_res_too_small: {cnt_img_res_too_small}, cnt_vid_res_too_small: {cnt_vid_res_too_small}\n'
+                f'cnt_img_aspect_mismatch: {cnt_img_aspect_mismatch}, cnt_vid_aspect_mismatch: {cnt_vid_aspect_mismatch}\n'
+                f'cnt_filter_minority: {cnt_filter_minority}\n'
+                f'Counter(sample_size): {counter}\n'
+                f'cnt_vid: {cnt_vid}, cnt_img: {cnt_img}\n'
+                f'cnt_vid_after_filter: {cnt_vid_after_filter}, cnt_img_after_filter: {cnt_img_after_filter}\n'
                 f'before filter: {cnt}, after filter: {len(new_cap_list)}')
         # import ipdb;ipdb.set_trace()
         
         if len(aesthetic_score) > 0:
             stats_aesthetic = calculate_statistics(aesthetic_score)
-            print(f"before filter: {cnt}, after filter: {len(new_cap_list)} | "
-                        f"aesthetic_score: {len(aesthetic_score)}, cnt_no_aesthetic: {cnt_no_aesthetic} | "
-                        f"{len([i for i in aesthetic_score if i>=5.75])} > 5.75, 4.5 > {len([i for i in aesthetic_score if i<=4.5])} "
-                        f"Mean: {stats_aesthetic['mean']}, Var: {stats_aesthetic['variance']}, Std: {stats_aesthetic['std_dev']}, "
-                        f"Min: {stats_aesthetic['min']}, Max: {stats_aesthetic['max']}")
+            print(f"before filter: {cnt}, after filter: {len(new_cap_list)}\n"
+                f"aesthetic_score: {len(aesthetic_score)}, cnt_no_aesthetic: {cnt_no_aesthetic}\n"
+                f"{len([i for i in aesthetic_score if i>=5.75])} > 5.75, 4.5 > {len([i for i in aesthetic_score if i<=4.5])}\n"
+                f"Mean: {stats_aesthetic['mean']}, Var: {stats_aesthetic['variance']}, Std: {stats_aesthetic['std_dev']}\n"
+                f"Min: {stats_aesthetic['min']}, Max: {stats_aesthetic['max']}")
 
         return new_cap_list, sample_size
     

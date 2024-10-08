@@ -87,8 +87,8 @@ if __name__ == "__main__":
         'patch_size_t': 1, 
         'total_batch_size': 256, 
         'sp_size': 1, 
-        'max_hxw': 352*672, 
-        'min_hxw': 320*320, 
+        'max_hxw': 768*768, 
+        'min_hxw': 768*768, 
     }
     )
     accelerator = Accelerator()

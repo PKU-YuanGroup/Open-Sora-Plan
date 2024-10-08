@@ -313,6 +313,7 @@ def get_length_grouped_indices(lengths, batch_size, world_size, gradient_accumul
     # print('shuffled_megabatches[:10]', shuffled_megabatches[:10])
     # print('have been trained idx:', shuffled_megabatches[:initial_global_step])
     shuffled_megabatches = shuffled_megabatches[initial_global_step:]
+    print(f'Skip the data of {initial_global_step} step!')
     # print('after shuffled_megabatches', len(shuffled_megabatches))
     # print('after shuffled_megabatches[:10]', shuffled_megabatches[:10])
 

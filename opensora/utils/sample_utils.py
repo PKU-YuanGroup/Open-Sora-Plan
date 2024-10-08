@@ -35,7 +35,11 @@ from opensora.models.diffusion.opensora_v1_3.modeling_inpaint import OpenSoraInp
 from transformers import T5EncoderModel, T5Tokenizer, AutoTokenizer, MT5EncoderModel, CLIPTextModelWithProjection
 
 def get_scheduler(args):
-    kwargs = {}
+    kwargs = dict(
+        prediction_type=args.prediction_type, 
+        rescale_betas_zero_snr=args.rescale_betas_zero_snr, 
+        timestep_spacing="trailing" if args.rescale_betas_zero_snr else 'leading', 
+    )
     if args.sample_method == 'DDIM':  
         scheduler_cls = DDIMScheduler
         kwargs['clip_sample'] = False
@@ -50,22 +54,19 @@ def get_scheduler(args):
         scheduler_cls = DPMSolverSinglestepScheduler
     elif args.sample_method == 'PNDM':
         scheduler_cls = PNDMScheduler
+        kwargs.pop('rescale_betas_zero_snr', None)
     elif args.sample_method == 'HeunDiscrete':  ########
         scheduler_cls = HeunDiscreteScheduler
     elif args.sample_method == 'EulerAncestralDiscrete':
         scheduler_cls = EulerAncestralDiscreteScheduler
     elif args.sample_method == 'DEISMultistep':
         scheduler_cls = DEISMultistepScheduler
+        kwargs.pop('rescale_betas_zero_snr', None)
     elif args.sample_method == 'KDPM2AncestralDiscrete':  #########
         scheduler_cls = KDPM2AncestralDiscreteScheduler
     elif args.sample_method == 'CogVideoX':
         scheduler_cls = CogVideoXDDIMScheduler
-    scheduler = scheduler_cls(
-        prediction_type=args.prediction_type, 
-        rescale_betas_zero_snr=args.rescale_betas_zero_snr, 
-        timestep_spacing="trailing" if args.rescale_betas_zero_snr else 'leading', 
-        **kwargs, 
-        )
+    scheduler = scheduler_cls(**kwargs)
     return scheduler
 
 def prepare_pipeline(args, dtype, device):

@@ -27,7 +27,7 @@ accelerate launch \
     --text_encoder_name_1 google/mt5-xxl \
     --cache_dir "../../cache_dir/" \
     --dataset t2v \
-    --data "scripts/train_data/merge_data_debug.txt" \
+    --data "scripts/train_data/merge_data.txt" \
     --ae WFVAEModel_D8_4x8x8 \
     --ae_path "/storage/lcm/WF-VAE/results/latent8" \
     --sample_rate 1 \
