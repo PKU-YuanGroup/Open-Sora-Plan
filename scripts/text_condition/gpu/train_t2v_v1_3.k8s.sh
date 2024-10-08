@@ -67,7 +67,6 @@ accelerate launch \
     --ema_start_step 0 \
     --cfg 0.1 \
     --resume_from_checkpoint="latest" \
-    --skip_low_resolution \
     --speed_factor 1.0 \
     --ema_decay 0.9999 \
     --drop_short_ratio 0.0 \
@@ -80,5 +79,5 @@ accelerate launch \
     --group_data \
     --use_decord \
     --prediction_type "v_prediction" \
-    --rescale_betas_zero_snr \
-    --output_dir="train_v1_3_any93x352x640_min320_vpre_nomotion_fps18" 
+    --snr_gamma 5.0 \
+    --output_dir="train_v1_3_any93x352x640_min320_vpre_nomotion_fps18_allvid_hqimg_aes5.25_nozsnr_snr5.0" 

@@ -283,17 +283,13 @@ def main(args):
 
     args.stride_t = ae_stride_t * patch_size_t
     args.stride = ae_stride_h * patch_size_h
-    latent_size = (args.max_height // ae_stride_h, args.max_width // ae_stride_w)
-    ae.latent_size = latent_size
-
-    if args.num_frames % 2 == 1:
-        args.latent_size_t = latent_size_t = (args.num_frames - 1) // ae_stride_t + 1
-    else:
-        latent_size_t = args.num_frames // ae_stride_t
+    ae.latent_size = latent_size = (args.max_height // ae_stride_h, args.max_width // ae_stride_w)
+    args.latent_size_t = latent_size_t = (args.num_frames - 1) // ae_stride_t + 1
     model = Diffusion_models[args.model](
         in_channels=ae_channel_config[args.ae],
         out_channels=ae_channel_config[args.ae],
-        sample_size=latent_size,
+        sample_size_h=latent_size,
+        sample_size_w=latent_size,
         sample_size_t=latent_size_t,
         interpolation_scale_h=args.interpolation_scale_h,
         interpolation_scale_w=args.interpolation_scale_w,
@@ -335,16 +331,20 @@ def main(args):
     # Set model as trainable.
     model.train()
 
+    assert not (args.cogvideox_scheduler and args.cogvideox_scheduler)
+    kwargs = dict(
+        prediction_type=args.prediction_type, 
+        rescale_betas_zero_snr=args.rescale_betas_zero_snr
+    )
     if args.cogvideox_scheduler:
-        noise_scheduler = CogVideoXDDIMScheduler(
-            prediction_type=args.prediction_type, 
-            rescale_betas_zero_snr=args.rescale_betas_zero_snr
-            )
+        noise_scheduler = CogVideoXDDIMScheduler(**kwargs)
+    elif args.v1_5_scheduler:
+        kwargs['beta_start'] = 0.00085
+        kwargs['beta_end'] = 0.0120
+        kwargs['beta_schedule'] = "scaled_linear"
+        noise_scheduler = DDPMScheduler(**kwargs)
     else:
-        noise_scheduler = DDPMScheduler(
-            prediction_type=args.prediction_type, 
-            rescale_betas_zero_snr=args.rescale_betas_zero_snr
-            )
+        noise_scheduler = DDPMScheduler(**kwargs)
     # Move unet, vae and text_encoder to device and cast to weight_dtype
     # The VAE is in float32 to avoid NaN losses.
     if not args.extra_save_mem:
@@ -472,7 +472,7 @@ def main(args):
     total_batch_size = total_batch_size // args.sp_size * args.train_sp_batch_size
     args.total_batch_size = total_batch_size
     if args.min_hxw is None:
-        args.min_hxw = args.max_hxw // 2
+        args.min_hxw = args.max_hxw // 4
     train_dataset = getdataset(args)
     sampler = LengthGroupedSampler(
                 args.train_batch_size,
@@ -485,7 +485,7 @@ def main(args):
     train_dataloader = DataLoader(
         train_dataset,
         shuffle=False,
-        # pin_memory=True,
+        pin_memory=False,
         collate_fn=Collate(args),
         batch_size=args.train_batch_size,
         num_workers=args.dataloader_num_workers,
@@ -513,11 +513,6 @@ def main(args):
     # model.requires_grad_(False)
     # model.pos_embed.requires_grad_(True)
     # model.patch_embed.requires_grad_(True)
-    if args.adapt_vae:
-        model.requires_grad_(False)
-        for name, param in model.named_parameters():
-            if 'pos_embed' in name or 'proj_out' in name:
-                param.requires_grad = True
 
     logger.info(f'before accelerator.prepare')
     model, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
@@ -541,7 +536,8 @@ def main(args):
         accelerator.init_trackers(os.path.basename(args.output_dir), config=vars(args))
 
     # Train!
-
+    print(f"  Args = {args}")
+    logger.info(f"  Args = {args}")
     logger.info("***** Running training *****")
     logger.info(f"  Model = {model}")
     logger.info(f"  Num examples = {len(train_dataset)}")
@@ -707,7 +703,7 @@ def main(args):
                 loss = (loss * mask).sum() / mask.sum()  # mean loss on unpad patches
             else:
                 loss = loss.mean()
-        elif args.snr_gamma is not None and noise_scheduler.config.prediction_type == "epsilon":
+        else:
             # Compute loss-weights as per Section 3.4 of https://arxiv.org/abs/2303.09556.
             # Since we predict the noise instead of x_0, the original formulation is slightly changed.
             # This is discussed in Section 4.2 of the same paper.
@@ -715,17 +711,19 @@ def main(args):
             mse_loss_weights = torch.stack([snr, args.snr_gamma * torch.ones_like(timesteps)], dim=1).min(
                 dim=1
             )[0]
-            mse_loss_weights = mse_loss_weights / snr
+            if noise_scheduler.config.prediction_type == "epsilon":
+                mse_loss_weights = mse_loss_weights / snr
+            elif noise_scheduler.config.prediction_type == "v_prediction":
+                mse_loss_weights = mse_loss_weights / (snr + 1)
+            else:
+                raise NameError(f'{noise_scheduler.config.prediction_type}')
             loss = F.mse_loss(model_pred.float(), target.float(), reduction="none")
-            # print(f'args.snr_gamma {args.snr_gamma}, snr {snr}, timesteps {timesteps}, loss {loss.mean()}, mse_loss_weights {mse_loss_weights}')
             loss = loss.reshape(b, -1)
             mse_loss_weights = mse_loss_weights.reshape(b, 1)
             if mask is not None:
                 loss = (loss * mask * mse_loss_weights).sum() / mask.sum()  # mean loss on unpad patches
             else:
                 loss = (loss * mse_loss_weights).mean()
-        else:
-            raise NotImplementedError
         # Gather the losses across all processes for logging (if we use distributed training).
         avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
         progress_info.train_loss += avg_loss.detach().item() / args.gradient_accumulation_steps
@@ -964,7 +962,6 @@ if __name__ == "__main__":
     parser.add_argument("--train_batch_size", type=int, default=16, help="Batch size (per device) for the training dataloader.")
     parser.add_argument("--group_data", action="store_true")
     parser.add_argument("--hw_stride", type=int, default=32)
-    parser.add_argument("--skip_low_resolution", action="store_true")
     parser.add_argument("--force_resolution", action="store_true")
     parser.add_argument("--trained_data_global_step", type=int, default=None)
     parser.add_argument("--use_decord", action="store_true")
@@ -985,8 +982,8 @@ if __name__ == "__main__":
     parser.add_argument("--pretrained", type=str, default=None)
     parser.add_argument('--sparse1d', action='store_true')
     parser.add_argument('--sparse_n', type=int, default=2)
-    parser.add_argument('--adapt_vae', action='store_true')
     parser.add_argument('--cogvideox_scheduler', action='store_true')
+    parser.add_argument('--v1_5_scheduler', action='store_true')
     parser.add_argument("--gradient_checkpointing", action="store_true", help="Whether or not to use gradient checkpointing to save memory at the expense of slower backward pass.")
 
     # diffusion setting

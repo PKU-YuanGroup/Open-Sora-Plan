@@ -94,7 +94,8 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
         sparse_n: List[int] = [1, 4, 16, 4, 1], 
         dropout: float = 0.0,
         attention_bias: bool = True,
-        sample_size: Optional[int] = None,
+        sample_size_h: Optional[int] = None,
+        sample_size_w: Optional[int] = None,
         sample_size_t: Optional[int] = None,
         patch_size: Optional[int] = None,
         patch_size_t: Optional[int] = None,
@@ -129,7 +130,7 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
     def _init_patched_inputs(self):
 
         # 0. some param
-        self.config.sample_size = to_2tuple(self.config.sample_size)
+        self.config.sample_size = (self.config.sample_size_h, self.config.sample_size_w)
         interpolation_scale_thw = (
             self.config.interpolation_scale_t, 
             self.config.interpolation_scale_h, 
@@ -513,6 +514,8 @@ OpenSora_v1_5_models_class = {
 }
 
 if __name__ == '__main__':
+    '''
+    '''
     from opensora.models.causalvideovae import ae_stride_config, ae_channel_config
     from opensora.models.causalvideovae import ae_norm, ae_denorm
     from opensora.models import CausalVAEModelWrapper
@@ -545,7 +548,8 @@ if __name__ == '__main__':
     model = OpenSoraT2V_v1_5_8B_122(
         in_channels=c, 
         out_channels=c, 
-        sample_size=latent_size, 
+        sample_size_h=latent_size, 
+        sample_size_w=latent_size, 
         sample_size_t=num_frames, 
         norm_cls='rms_norm', 
         interpolation_scale_t=args.interpolation_scale_t, 

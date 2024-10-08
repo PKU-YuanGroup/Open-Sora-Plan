@@ -31,20 +31,20 @@ accelerate launch \
     --dataset t2v \
     --data "scripts/train_data/image_data_stage1_part1.txt" \
     --ae WFVAEModel_D32_8x8x8 \
-    --ae_path "/storage/lcm/WF-VAE/results/new888" \
+    --ae_path "/storage/lcm/WF-VAE/results/formal_888" \
     --sample_rate 1 \
     --num_frames 1 \
-    --max_height 384 \
-    --max_width 384 \
+    --max_hxw 147456 \
+    --min_hxw 36864 \
     --interpolation_scale_t 1.0 \
     --interpolation_scale_h 1.0 \
     --interpolation_scale_w 1.0 \
     --gradient_checkpointing \
     --train_batch_size=8 \
-    --dataloader_num_workers 10 \
+    --dataloader_num_workers 16 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
-    --learning_rate=2e-5 \
+    --learning_rate=1e-4 \
     --lr_scheduler="constant" \
     --lr_warmup_steps=0 \
     --mixed_precision="bf16" \
@@ -56,7 +56,6 @@ accelerate launch \
     --ema_start_step 0 \
     --cfg 0.1 \
     --resume_from_checkpoint="latest" \
-    --skip_low_resolution \
     --speed_factor 1.0 \
     --ema_decay 0.9999 \
     --drop_short_ratio 0.0 \
@@ -68,8 +67,7 @@ accelerate launch \
     --group_data \
     --use_decord \
     --prediction_type "v_prediction" \
-    --rescale_betas_zero_snr \
-    --output_dir="any1x384x384_min160_lr2e-5_bs2048_mmdit8b_vpred_fp32vae32" \
-    --min_height 160 \
-    --min_width 160 \
-    --vae_fp32
+    --output_dir="any1x384x384_min192x192_lr1e-4_bs2048_mmdit8b_vpred_fp32vae32_cogsche_snr5.0" \
+    --vae_fp32 \
+    --snr_gamma 5.0 \
+    --v1_5_scheduler > test_log_img_1.txt
