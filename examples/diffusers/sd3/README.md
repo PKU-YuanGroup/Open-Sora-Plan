@@ -4,17 +4,18 @@
         <b>简体中文</b> |
 </p>
 
-- [SD3](#StableDiffusion3)
+- [SD3](#jump1)
   - [模型介绍](#模型介绍)
   - [微调](#微调)
     - [环境搭建](#环境搭建)
-    - [微调](#微调)
+    - [微调](#jump2)
     - [性能](#性能)
   - [推理](#推理)
-    - [环境搭建](#环境搭建)
-    - [推理](#推理)
+    - [环境搭建及运行](#环境搭建及运行)
 - [引用](#引用)
   - [公网地址说明](#公网地址说明)
+
+<a id="jump1"></a>
 
 # Stable Diffusion 3
 
@@ -79,6 +80,8 @@
     vim examples/text_to_image/requirements_sdxl.txt #修改torchvision版本：torchvision==0.16.0, torch==2.1.0
     pip install -r examples/dreambooth/requirements_sd3.txt # 安装对应依赖
     ```
+
+<a id="jump2"></a>
 
 ## 微调
 
@@ -177,18 +180,18 @@ SD3 在 **昇腾芯片** 和 **参考芯片** 上的性能对比：
 
 | 芯片 | 卡数 |     任务     |  FPS  | batch_size | AMP_Type | Torch_Version | deepspeed |
 |:---:|:---:|:----------:|:-----:|:----------:|:---:|:---:|:---:|
-| Atlas 900 A2 PODc | 8p | Dreambooth-全参微调  |   17.64 |     4      | bf16 | 2.1 | ✔ |
+| Atlas 900 A2 PODc | 8p | Dreambooth-全参微调  |   17.08 |     4      | bf16 | 2.1 | ✔ |
 | 竞品A | 8p | Dreambooth-全参微调  |  17.51 |     4      | bf16 | 2.1 | ✔ |
-| Atlas 900 A2 PODc | 8p | Dreambooth-全参微调 |  15.63 |     4      | fp16 | 2.1 | ✔ |
+| Atlas 900 A2 PODc | 8p | Dreambooth-全参微调 |  16.57 |     4      | fp16 | 2.1 | ✔ |
 | 竞品A | 8p | Dreambooth-全参微调 |   16.36 |     4      | fp16 | 2.1 | ✔ |
-| Atlas 900 A2 PODc |8p | Dreambooth-全参微调 | 10.72  | 1 | fp16 | 2.1 | ✘ |
+| Atlas 900 A2 PODc |8p | Dreambooth-全参微调 | 11.91  | 1 | fp16 | 2.1 | ✘ |
 | 竞品A | 8p | Dreambooth-全参微调 | 12.08 | 1 | fp16 | 2.1 | ✘ |
-| Atlas 900 A2 PODc |8p | DreamBooth-LoRA | 112.32 | 8 | fp16 | 2.1 | ✘ |
+| Atlas 900 A2 PODc |8p | DreamBooth-LoRA | 122.47 | 8 | fp16 | 2.1 | ✘ |
 | 竞品A | 8p | DreamBooth-LoRA | 120.32 | 8 | fp16 | 2.1 | ✘ |
 
 ## 推理
 
-### 环境搭建
+### 环境搭建及运行
 
   **同微调对应章节**
 

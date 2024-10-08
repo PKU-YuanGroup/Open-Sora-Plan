@@ -4,22 +4,23 @@
         <b>简体中文</b> |
 </p>
 
-- [SDXL](#StableDiffusionXL)
+- [SDXL](#jump1)
   - [模型介绍](#模型介绍)
   - [预训练](#预训练)
     - [环境搭建](#环境搭建)
-    - [预训练](#预训练)
+    - [预训练](#jump2)
     - [性能](#性能)
   - [微调](#微调)
-    - [环境搭建](#环境搭建)
-    - [微调](#微调)
-    - [性能](#性能)
+    - [环境搭建](#jump3)
+    - [微调](#jump3.1)
+    - [性能](#jump3.2)
   - [推理](#推理)
-    - [环境搭建](#环境搭建)
-    - [推理](#推理)
-    - [性能](#性能)
+    - [环境搭建及运行](#环境搭建及运行)
+    - [性能](#jump4)
 - [引用](#引用)
   - [公网地址说明](#公网地址说明)
+
+<a id="jump1"></a>
 
 # Stable Diffusion XL
 
@@ -94,6 +95,8 @@
     pip install -r examples/text_to_image/requirements_sdxl.txt # 安装diffusers原仓对应依赖
     pip install -r sdxl/requirements_sdxl_extra.txt #安装sdxl对应依赖
     ```
+
+<a id="jump2"></a>
 
 ### 预训练
 
@@ -192,18 +195,20 @@ SDXL 在 **昇腾芯片** 和 **参考芯片** 上的性能对比：
 
 | 芯片 | 卡数 |     任务     |  FPS  | batch_size | AMP_Type | Torch_Version | deepspeed |
 |:---:|:---:|:----------:|:-----:|:----------:|:---:|:---:|:---:|
-| 竞品A | 8p | SDXL_pretrain_bf16  |  21.14 |     4      | bf16 | 2.1 | ✔ |
-| Atlas 900 A2 PODc | 8p | SDXL_pretrain_bf16  | 15.71 |     4      | bf16 | 2.1 | ✔ |
-| 竞品A | 8p | SDXL_pretrain_fp16 |  20.77 |     4      | fp16 | 2.1 | ✔ |
-| Atlas 900 A2 PODc | 8p | SDXL_pretrain_fp16 | 15.51 |     4      | fp16 | 2.1 | ✔ |
 | 竞品A | 8p | SDXL_train_bf16  |  30.65 |     4      | bf16 | 2.1 | ✔ |
-| Atlas 900 A2 PODc | 8p | SDXL_train_bf16  | 24.7 |     4      | bf16 | 2.1 | ✔ |
+| Atlas 900 A2 PODc | 8p | SDXL_train_bf16  | 24.69 |     4      | bf16 | 2.1 | ✔ |
 | 竞品A | 8p | SDXL_train_fp16 |  30.23 |     4      | fp16 | 2.1 | ✔ |
-| Atlas 900 A2 PODc | 8p | SDXL_train_fp16 | 23.24 |     4      | fp16 | 2.1 | ✔ |
+| Atlas 900 A2 PODc | 8p | SDXL_train_fp16 | 22.24 |     4      | fp16 | 2.1 | ✔ |
+| 竞品A | 8p | SDXL_pretrain_bf16  |  21.14 |     4      | bf16 | 2.1 | ✔ |
+| Atlas 900 A2 PODc | 8p | SDXL_pretrain_bf16  | 13.48 |     4      | bf16 | 2.1 | ✔ |
+| 竞品A | 8p | SDXL_pretrain_fp16 |  20.77 |     4      | fp16 | 2.1 | ✔ |
+| Atlas 900 A2 PODc | 8p | SDXL_pretrain_fp16 | 14.13 |     4      | fp16 | 2.1 | ✔ |
 
 ## 微调
 
-### 准备数据集
+<a id="jump3"></a>
+
+### 环境搭建
 
 #### LORA微调
 
@@ -276,7 +281,9 @@ SDXL 在 **昇腾芯片** 和 **参考芯片** 上的性能对比：
    > 预训练模型同预训练，请参考预训练章节。
    >
 
-### 进行微调
+<a id="jump3.1"></a>
+
+### 微调
 
    【运行微调的脚本】
 
@@ -287,20 +294,22 @@ SDXL 在 **昇腾芯片** 和 **参考芯片** 上的性能对比：
     bash sdxl/finetune_sdxl_deepspeed_fp16.sh        #8卡deepspeed训练 sdxl_finetune fp16
     ```
 
+<a id="jump3.2"></a>
+
 ### 性能
 
 | 芯片 | 卡数 |     任务     |  FPS  | batch_size | AMP_Type | Torch_Version | deepspeed |
 |:---:|:---:|:----------:|:-----:|:----------:|:---:|:---:|:---:|
-| 竞品A | 8p |    LoRA    | 28.07 |     7      | fp16 | 2.1 | ✔ |
-| Atlas 900 A2 PODc |8p |    LoRA    | 31.74 |     7      | fp16 | 2.1 | ✔ |
-| 竞品A | 8p | Controlnet | 30.38  |     5      | fp16 | 2.1 | ✔ |
-| Atlas 900 A2 PODc |8p | Controlnet | 32.43 |     5      | fp16 | 2.1 | ✔ |
-| 竞品A | 8p |  Finetune  | 167.88 |     24     | fp16 | 2.1 | ✔ |
-| Atlas 900 A2 PODc |8p |  Finetune  | 164.66 |     24     | fp16 | 2.1 | ✔ |
+| 竞品A | 8p |    LoRA    | 31.74 |     7      | fp16 | 2.1 | ✔ |
+| Atlas 900 A2 PODc |8p |    LoRA    | 26.40 |     7      | fp16 | 2.1 | ✔ |
+| 竞品A | 8p | Controlnet | 32.44  |     5      | fp16 | 2.1 | ✔ |
+| Atlas 900 A2 PODc |8p | Controlnet | 29.98 |     5      | fp16 | 2.1 | ✔ |
+| 竞品A | 8p |  Finetune  | 164.66 |     24     | fp16 | 2.1 | ✔ |
+| Atlas 900 A2 PODc |8p |  Finetune  | 166.71 |     24     | fp16 | 2.1 | ✔ |
 
 ## 推理
 
-### 环境搭建
+### 环境搭建及运行
 
   **同微调对应章节**
 
@@ -316,18 +325,20 @@ SDXL 在 **昇腾芯片** 和 **参考芯片** 上的性能对比：
   python sdxl/sdxl_img2img_infer.py              # 混精fp16 图生图微调任务推理
   ```
 
+<a id="jump4"></a>
+
 ### 性能
 
 | 芯片 | 卡数 |     任务     |  E2E（it/s）  |  AMP_Type | Torch_Version | deepspeed |
 |:---:|:---:|:----------:|:-----:|:---:|:---:|:---:|
 | 竞品A | 8p |    文生图lora    | 1.45 |  fp16 | 2.1 | ✔ |
-| Atlas 900 A2 PODc |8p |    文生图lora    | 2.65 |  fp16 | 2.1 | ✔ |
+| Atlas 900 A2 PODc |8p |    文生图lora    | 2.61 |  fp16 | 2.1 | ✔ |
 | 竞品A | 8p | 文生图controlnet | 1.41  |  fp16 | 2.1 | ✔ |
-| Atlas 900 A2 PODc |8p | 文生图controlnet | 2.33 |  fp16 | 2.1 | ✔ |
+| Atlas 900 A2 PODc |8p | 文生图controlnet | 2.97 |  fp16 | 2.1 | ✔ |
 | 竞品A | 8p |  文生图全参  | 1.55 | fp16 | 2.1 | ✔ |
-| Atlas 900 A2 PODc |8p |  文生图全参  | 3.04 | fp16 | 2.1 | ✔ |
+| Atlas 900 A2 PODc |8p |  文生图全参  | 3.02 | fp16 | 2.1 | ✔ |
 | 竞品A | 8p |  图生图  | 3.56 | fp16 | 2.1 | ✔ |
-| Atlas 900 A2 PODc |8p |  图生图  | 3.02 | fp16 | 2.1 | ✔ |
+| Atlas 900 A2 PODc |8p |  图生图  | 3.94 | fp16 | 2.1 | ✔ |
 
 ## 引用
 

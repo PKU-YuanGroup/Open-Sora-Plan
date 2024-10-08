@@ -5,25 +5,27 @@
 
 ## 目录
 
-
 - [环境安装](#jump1)
-  * [仓库拉取](#jump1.1)
-  * [环境搭建](#jump1.2)
+  - [仓库拉取](#jump1.1)
+  - [环境搭建](#jump1.2)
 - [权重下载及转换](#jump2)
-  * [权重下载](#jump2.1)
+  - [权重下载](#jump2.1)
 - [数据集准备及处理](#jump3)
-  * [数据集下载](#jump3.1)
+  - [数据集下载](#jump3.1)
 - [预训练](#jump4)
-  * [准备工作](#jump4.1)
-  * [配置参数](#jump4.2)
-  * [启动预训练](#jump4.3)
+  - [准备工作](#jump4.1)
+  - [配置参数](#jump4.2)
+  - [启动预训练](#jump4.3)
 - [推理](#jump5)
-  * [准备工作](#jump5.1)
-  * [配置参数](#jump5.2)
-  * [启动推理](#jump5.3)
+  - [准备工作](#jump5.1)
+  - [配置参数](#jump5.2)
+  - [启动推理](#jump5.3)
+
 ---
 
-## <span id="jump1"> 环境安装
+<a id="jump1"></a>
+
+## 环境安装
 
 【模型开发时推荐使用配套的环境版本】
 
@@ -36,8 +38,9 @@
 |   Torch   |            2.1.0            |
 | Torch_npu |           在研版本           |
 
+<a id="jump1.1"></a>
 
-#### <span id="jump1.1"> 1. 仓库拉取
+#### 1. 仓库拉取
 
 ```shell
     git clone https://gitee.com/ascend/MindSpeed-MM.git 
@@ -51,7 +54,10 @@
     mkdir dataset
     mkdir ckpt
 ```
-#### <span id="jump1.2"> 2. 环境搭建
+
+<a id="jump1.2"></a>
+
+#### 2. 环境搭建
 
 ```bash
     # python3.8
@@ -83,22 +89,30 @@
 
 ---
 
-## <span id="jump2"> 权重下载及转换
+<a id="jump2"></a>
 
-#### <span id="jump2.1"> 1. 权重下载
+## 权重下载及转换
+
+<a id="jump2.1"></a>
+
+#### 1. 权重下载
 
 从Huggingface等网站下载开源模型权重
 
-* [PixArt-alpha/PixArt-alpha](https://huggingface.co/PixArt-alpha/PixArt-alpha/resolve/main/PixArt-XL-2-512x512.pth)   - PixArt-XL-2-512x512模型(训练用)
-* [stabilityai/sd-vae-ft-ema](https://huggingface.co/stabilityai/sd-vae-ft-mse-original)   - vae模型
-* [DeepFloyd/t5-v1_1-xxl](https://huggingface.co/DeepFloyd/t5-v1_1-xxl)       -  t5模型
-* [hpcai-tech/Open-Sora](https://huggingface.co/hpcai-tech/Open-Sora/resolve/main/OpenSora-v1-HQ-16x512x512.pth)        -  预训练权重(推理用)
+- [PixArt-alpha/PixArt-alpha](https://huggingface.co/PixArt-alpha/PixArt-alpha/resolve/main/PixArt-XL-2-512x512.pth)   - PixArt-XL-2-512x512模型(训练用)
+- [stabilityai/sd-vae-ft-ema](https://huggingface.co/stabilityai/sd-vae-ft-mse-original)   - vae模型
+- [DeepFloyd/t5-v1_1-xxl](https://huggingface.co/DeepFloyd/t5-v1_1-xxl)       -  t5模型
+- [hpcai-tech/Open-Sora](https://huggingface.co/hpcai-tech/Open-Sora/resolve/main/OpenSora-v1-HQ-16x512x512.pth)        -  预训练权重(推理用)
 
 ---
 
-## <span id="jump3"> 数据集准备及处理
+<a id="jump3"></a>
 
-#### <span id="jump3.1"> 1. 数据集下载
+## 数据集准备及处理
+
+<a id="jump3.1"></a>
+
+#### 1. 数据集下载
 
 用户需自行获取并解压MSRVTT数据集，
 参考[OpenSora官方](https://github.com/hpcaitech/Open-Sora/tree/v1.0.0/tools/datasets)进行数据集预处理，
@@ -119,17 +133,24 @@
 
 ---
 
+<a id="jump4"></a>
 
-## <span id="jump4"> 预训练
+## 预训练
 
-#### <span id="jump4.1"> 1. 准备工作
+<a id="jump4.1"></a>
+
+#### 1. 准备工作
+
 配置脚本前需要完成前置准备工作，包括：**环境安装**、**权重下载及转换**、**数据集准备及处理**，详情可查看对应章节
 
-#### <span id="jump4.2"> 2. 配置参数
+ <a id="jump4.2"></a>
+
+#### 2. 配置参数
 
 需根据实际情况修改`model.json`和`data.json`中的权重和数据集路径，包括`from_pretrained`、`data_path`、`data_folder`字段
 
-【单机运行】 
+【单机运行】
+
 ```shell
     GPUS_PER_NODE=8
     MASTER_ADDR=locahost
@@ -138,7 +159,9 @@
     NODE_RANK=0  
     WORLD_SIZE=$(($GPUS_PER_NODE * $NNODES))
 ```
-【多机运行】 
+
+【多机运行】
+
 ```shell
     # 根据分布式集群实际情况配置分布式参数
     GPUS_PER_NODE=8  #每个节点的卡数
@@ -149,38 +172,48 @@
     WORLD_SIZE=$(($GPUS_PER_NODE * $NNODES))
 ```
 
+<a id="jump4.3"></a>
 
-#### <span id="jump4.3"> 3. 启动预训练
+#### 3. 启动预训练
 
 ```shell
     bash examples/opensora1.0/pretrain_opensora1_0.sh
 ```
 
 **注意**：
+
 - 多机训练需在多个终端同时启动预训练脚本(每个终端的预训练脚本只有NODE_RANK参数不同，其他参数均相同)
 - 如果使用多机训练，需要在每个节点准备训练数据和模型权重
 
 ---
 
+<a id="jump5"></a>
 
-## <span id="jump5">推理
+## 推理
 
+<a id="jump5.1"></a>
 
+#### 1. 准备工作
 
-#### <span id="jump5.1"> 1. 准备工作
 从Huggingface等网站下载开源模型权重
 
-* [stabilityai/sd-vae-ft-ema](https://huggingface.co/stabilityai/sd-vae-ft-mse-original)   - vae模型
-* [DeepFloyd/t5-v1_1-xxl](https://huggingface.co/DeepFloyd/t5-v1_1-xxl)       -  t5模型
-* [hpcai-tech/Open-Sora](https://huggingface.co/hpcai-tech/Open-Sora/resolve/main/OpenSora-v1-HQ-16x512x512.pth)        -  预训练权重
+- [stabilityai/sd-vae-ft-ema](https://huggingface.co/stabilityai/sd-vae-ft-mse-original)   - vae模型
+- [DeepFloyd/t5-v1_1-xxl](https://huggingface.co/DeepFloyd/t5-v1_1-xxl)       -  t5模型
+- [hpcai-tech/Open-Sora](https://huggingface.co/hpcai-tech/Open-Sora/resolve/main/OpenSora-v1-HQ-16x512x512.pth)        -  预训练权重
 
+<a id="jump5.2"></a>
 
-#### <span id="jump5.2"> 2. 配置参数
+#### 2. 配置参数
+
 将上述权重传到json文件中 from_pretrained字段中，prompt字段可以自定义成自己的prompt
+
 ```
 examples/opensora1.0/inference_model_120x256x256.json
 ```
-#### <span id="jump5.3"> 3. 启动推理
+
+<a id="jump5.3"></a>
+
+#### 3. 启动推理
 
 执行下面的推理脚本即可进行推理
 
