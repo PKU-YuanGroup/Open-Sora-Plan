@@ -70,4 +70,4 @@ accelerate launch \
     --output_dir="any1x384x384_min192x192_lr1e-4_bs2048_mmdit8b_vpred_fp32vae32_cogsche_snr5.0" \
     --vae_fp32 \
     --snr_gamma 5.0 \
-    --cogvideox_scheduler > test_log_img_1.txt
+    --v1_5_scheduler > test_log_img_1.txt
