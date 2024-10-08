@@ -18,7 +18,7 @@ from mindspeed_mm.models.vl_model import VLModel
 from mindspeed_mm.training import pretrain
 from mindspeed_mm.configs.config import MMConfig
 from mindspeed_mm.data import build_mm_dataloader, build_mm_dataset
-from mindspeed_mm.utils.utils import get_model_config
+from mindspeed_mm.utils.transformer_model_config import get_model_config
 
 
 def model_provider(pre_process=True, post_process=True):
@@ -41,10 +41,10 @@ def get_batch(data_iterator):
         data = next(data_iterator)
     else:
         data = None
-    images = data["pixel_values"].to(dtype=torch.bfloat16, torch.cuda.current_device())
-    input_ids = data["input_ids"].to(torch.cuda.current_device())
-    labels = data["labels"].to(torch.cuda.current_device())
-    attention_mask = data["attention_mask"].to(torch.cuda.current_device())
+    images = data["pixel_values"].to(dtype=torch.bfloat16, device=torch.cuda.current_device())
+    input_ids = data["input_ids"].to(device=torch.cuda.current_device())
+    labels = data["labels"].to(device=torch.cuda.current_device())
+    attention_mask = data["attention_mask"].to(device=torch.cuda.current_device())
 
     return images, input_ids, labels, attention_mask
 
