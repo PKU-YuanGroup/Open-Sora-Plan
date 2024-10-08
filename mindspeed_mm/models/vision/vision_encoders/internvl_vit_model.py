@@ -62,6 +62,10 @@ class InternVitTransformerLayer(TransformerLayer):
                          layer_number=layer_number, 
                          hidden_dropout=hidden_dropout)
         
+        if config.normalization == 'layernorm':
+            self.input_layernorm = torch.nn.LayerNorm(config.hidden_size, config.layernorm_epsilon)
+            self.pre_mlp_layernorm = torch.nn.LayerNorm(config.hidden_size, config.layernorm_epsilon)
+
         # InternViT新增可学习参数
         self.ls1 = nn.Parameter(config.initializer_factor * torch.ones(config.hidden_size))
         self.ls2 = nn.Parameter(config.initializer_factor * torch.ones(config.hidden_size))
@@ -288,7 +292,6 @@ class InternvlViT(MultiModalModule):
         self.select_layer = config.select_layer
         self.downsample_ratio = config.downsample_ratio
         self.ps_version = config.ps_version
-        self.device = get_device(config.device)
 
         self.embeddings = InternVisionEmbeddings(config, self.image_size, self.patch_size)
         self.encoder = TransformerBlock(
@@ -362,7 +365,7 @@ class InternvlViT(MultiModalModule):
         if attention_mask is None:
             attention_mask = torch.ones(
                 1, 1, seq_length, seq_length
-            ).to(self.device)
+            ).to(hidden_states.device)
             attention_mask = attention_mask < 0.5
 
         hidden_states = hidden_states.transpose(0, 1)

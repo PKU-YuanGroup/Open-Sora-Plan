@@ -58,7 +58,7 @@ class InternVLModel(nn.Module):
         if self.add_text_decoder:
             self.text_decoder = GPTModel(
                 config=config.text_decoder,
-                transformer_layer_spec=config.text_decoder.language_tansformer_layer_spec,
+                transformer_layer_spec=config.text_decoder.language_transformer_layer_spec,
                 vocab_size=config.text_decoder.vocab_size,
                 max_sequence_length=config.text_decoder.max_position_embeddings,
                 parallel_output=config.text_decoder.parallel_output,
