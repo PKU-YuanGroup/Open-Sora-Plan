@@ -2,6 +2,7 @@ import torch.nn as nn
 import torch
 import os
 from einops import rearrange
+from collections import deque
 from ..common.checkpoint import load_checkpoint
 from ..common.module import MultiModalModule
 from ..common.normalize import Normalize
@@ -289,12 +290,12 @@ class WFVAE(MultiModalModule):
         norm_type: str = "groupnorm",
         t_interpolation: str = "nearest",
         vae_scale_factor: list = None,
+        use_tiling: bool = False,
         **kwargs
     ) -> None:
         super().__init__(config=None)
-        self.use_tiling = False
         # Hardcode for now
-        self.t_chunk_enc = 16
+        self.t_chunk_enc = 8
         self.t_upsample_times = 4 // 2
         self.t_chunk_dec = 4
         self.use_quant_layer = False
@@ -326,6 +327,9 @@ class WFVAE(MultiModalModule):
 
         if from_pretrained is not None:
             load_checkpoint(self, from_pretrained)
+
+        if use_tiling:
+            self.enable_tiling()
         
     def get_encoder(self):
         if self.use_quant_layer:
@@ -340,8 +344,13 @@ class WFVAE(MultiModalModule):
     def _empty_causal_cached(self, parent):
         for name, module in parent.named_modules():
             if hasattr(module, 'causal_cached'):
-                module.causal_cached = None
-                
+                module.causal_cached = deque()
+
+    def _set_first_chunk(self, is_first_chunk=True):
+        for module in self.modules():
+            if hasattr(module, 'is_first_chunk'):
+                module.is_first_chunk = is_first_chunk
+
     def _set_causal_cached(self, enable_cached=True):
         for name, module in self.named_modules():
             if hasattr(module, 'enable_cached'):
@@ -389,11 +398,12 @@ class WFVAE(MultiModalModule):
         
         start_end = self.build_chunk_start_end(t)
         result = []
-        for start, end in start_end:
+        for idx, (start, end) in enumerate(start_end):
+            self._set_first_chunk(idx == 0)
             chunk = x[:, :, start:end, :, :]
             chunk = self.encoder(chunk)
             if self.use_quant_layer:
-                chunk = self.encoder(chunk)
+                chunk = self.quant_conv(chunk)
             result.append(chunk)
             
         return torch.cat(result, dim=2)
@@ -424,7 +434,9 @@ class WFVAE(MultiModalModule):
         start_end = self.build_chunk_start_end(t, decoder_mode=True)
         
         result = []
-        for start, end in start_end:
+        for idx, (start, end) in enumerate(start_end):
+            self._set_first_chunk(idx==0)
+
             if end + 1 < t:
                 chunk = x[:, :, start:end+1, :, :]
             else:

@@ -143,7 +143,7 @@ def prepare_sampler_dataloader(
                 shuffle=shuffle,
             )
 
-        collate_param = kwargs.get("collate_param", None)
+        # collate_param = kwargs.get("collate_param", None)
         if collate_param is None:
             raise ValueError("collate_param must be provided.")
         collate_fn = Collate(**collate_param)

@@ -1,4 +1,5 @@
 from typing import Union, Tuple
+from collections import deque
 
 import torch
 from torch import nn
@@ -69,27 +70,32 @@ class CausalConv3d(nn.Module):
             bias=bias
         )
         self.enable_cached = enable_cached
-        self.causal_cached = None
+
+        self.is_first_chunk = True
+
+        self.causal_cached = deque()
         self.cache_offset = 0
 
     def forward(self, x):
-        x_dtype = x.dtype
-        if self.causal_cached is None:
+        if self.is_first_chunk:
             first_frame_pad = x[:, :, :1, :, :].repeat(
                 (1, 1, self.time_kernel_size - 1, 1, 1)
             )
         else:
-            first_frame_pad = self.causal_cached
+            first_frame_pad = self.causal_cached.popleft()
+
         x = torch.concatenate((first_frame_pad, x), dim=2)
 
         if self.enable_cached and self.time_kernel_size != 1:
             if (self.time_kernel_size - 1) // self.stride[0] != 0:
                 if self.cache_offset == 0:
-                    self.causal_cached = x[:, :, -(self.time_kernel_size - 1) // self.stride[0]:]
+                    self.causal_cached.append(x[:, :, -(self.time_kernel_size - 1) // self.stride[0]:])
                 else:
-                    self.causal_cached = x[:, :, :-self.cache_offset][:, :, -(self.time_kernel_size - 1) // self.stride[0]:]
+                    self.causal_cached.append(x[:, :, :-self.cache_offset][:, :, -(self.time_kernel_size - 1) // self.stride[0]:])
             else:
-                self.causal_cached = x[:, :, 0:0, :, :]
+                self.causal_cached.append(x[:, :, 0:0, :, :])
+        else:
+            self.causal_cached.append(x[:, :, 0:0, :, :])
 
         if x.dtype not in [torch.float16, torch.bfloat16]:
             dtype = x.dtype

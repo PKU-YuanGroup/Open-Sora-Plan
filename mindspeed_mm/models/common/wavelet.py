@@ -53,69 +53,56 @@ class HaarWaveletTransform3D(nn.Module):
     def forward(self, x):
         assert x.dim() == 5
         b = x.shape[0]
-        x = rearrange(x, "b c t h w -> (b c) 1 t h w")
-        low_low_low = self.h_conv(x)
-        low_low_low = rearrange(low_low_low, "(b c) 1 t h w -> b c t h w", b=b)
-        low_low_high = self.g_conv(x)
-        low_low_high = rearrange(low_low_high, "(b c) 1 t h w -> b c t h w", b=b)
-        low_high_low = self.hh_conv(x)
-        low_high_low = rearrange(low_high_low, "(b c) 1 t h w -> b c t h w", b=b)
-        low_high_high = self.gh_conv(x)
-        low_high_high = rearrange(low_high_high, "(b c) 1 t h w -> b c t h w", b=b)
-        high_low_low = self.h_v_conv(x)
-        high_low_low = rearrange(high_low_low, "(b c) 1 t h w -> b c t h w", b=b)
-        high_low_high = self.g_v_conv(x)
-        high_low_high = rearrange(high_low_high, "(b c) 1 t h w -> b c t h w", b=b)
-        high_high_low = self.hh_v_conv(x)
-        high_high_low = rearrange(high_high_low, "(b c) 1 t h w -> b c t h w", b=b)
-        high_high_high = self.gh_v_conv(x)
-        high_high_high = rearrange(high_high_high, "(b c) 1 t h w -> b c t h w", b=b)
-        
-        output = torch.cat(
-            [
-                low_low_low,
-                low_low_high,
-                low_high_low,
-                low_high_high,
-                high_low_low,
-                high_low_high,
-                high_high_low,
-                high_high_high,
-            ],
-            dim=1,
-        )
-        return output
+        c = x.shape[1]
+
+        x = rearrange(x, "b c t h w -> (b c) 1 t h w") # 3 1 17 256 256
+        n_dim = x.shape[0]
+        outputs = []
+        for i in range(n_dim):
+            y = x[i: i+1]
+            outputs.append(self.h_conv(y))
+            outputs.append(self.g_conv(y))
+            outputs.append(self.hh_conv(y))
+            outputs.append(self.gh_conv(y))
+            outputs.append(self.h_v_conv(y))
+            outputs.append(self.g_v_conv(y))
+            outputs.append(self.hh_v_conv(y))
+            outputs.append(self.gh_v_conv(y))
+
+        outputs = torch.cat(outputs, dim=0)
+        outputs = rearrange(outputs, "(b k c) 1 t h w -> b (c k) t h w", b=b, k=c)
+        return outputs
 
 class InverseHaarWaveletTransform3D(nn.Module):
     def __init__(self, enable_cached=False, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
-        self.register_buffer('h', 
+        self.register_buffer('h',
             torch.tensor([[[1, 1], [1, 1]], [[1, 1], [1, 1]]]).view(1, 1, 2, 2, 2) * 0.3536
         )
-        self.register_buffer('g', 
+        self.register_buffer('g',
             torch.tensor([[[1, -1], [1, -1]], [[1, -1], [1, -1]]]).view(1, 1, 2, 2, 2) * 0.3536
         )
-        self.register_buffer('hh', 
+        self.register_buffer('hh',
             torch.tensor([[[1, 1], [-1, -1]], [[1, 1], [-1, -1]]]).view(1, 1, 2, 2, 2) * 0.3536
         )
-        self.register_buffer('gh', 
+        self.register_buffer('gh',
             torch.tensor([[[1, -1], [-1, 1]], [[1, -1], [-1, 1]]]).view(1, 1, 2, 2, 2) * 0.3536
         )
-        self.register_buffer('h_v', 
+        self.register_buffer('h_v',
             torch.tensor([[[1, 1], [1, 1]], [[-1, -1], [-1, -1]]]).view(1, 1, 2, 2, 2) * 0.3536
         )
-        self.register_buffer('g_v', 
+        self.register_buffer('g_v',
             torch.tensor([[[1, -1], [1, -1]], [[-1, 1], [-1, 1]]]).view(1, 1, 2, 2, 2) * 0.3536
         )
-        self.register_buffer('hh_v', 
+        self.register_buffer('hh_v',
             torch.tensor([[[1, 1], [-1, -1]], [[-1, -1], [1, 1]]]).view(1, 1, 2, 2, 2) * 0.3536
         )
-        self.register_buffer('gh_v', 
+        self.register_buffer('gh_v',
             torch.tensor([[[1, -1], [-1, 1]], [[-1, 1], [1, -1]]]).view(1, 1, 2, 2, 2) * 0.3536
         )
         self.enable_cached = enable_cached
-        self.causal_cached = None
+        self.is_first_chunk = True
 
     def forward(self, coeffs):
         assert coeffs.dim() == 5
@@ -149,7 +136,8 @@ class InverseHaarWaveletTransform3D(nn.Module):
         high_low_high = F.conv_transpose3d(high_low_high, self.g_v, stride=2)
         high_high_low = F.conv_transpose3d(high_high_low, self.hh_v, stride=2)
         high_high_high = F.conv_transpose3d(high_high_high, self.gh_v, stride=2)
-        if self.enable_cached and self.causal_cached:
+
+        if self.enable_cached and not self.is_first_chunk:
             reconstructed = (
                 low_low_low
                 + low_low_high
@@ -171,7 +159,8 @@ class InverseHaarWaveletTransform3D(nn.Module):
                 + high_high_low[:, :, 1:]
                 + high_high_high[:, :, 1:]
             )
-            self.causal_cached = True
+
+
         reconstructed = rearrange(reconstructed, "(b c) 1 t h w -> b c t h w", b=b)
         return reconstructed
 
