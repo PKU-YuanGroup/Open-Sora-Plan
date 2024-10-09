@@ -96,3 +96,7 @@ def video_to_image(func):
 
 def cast_tuple(t, length=1):
     return t if isinstance(t, tuple) or isinstance(t, list) else ((t,) * length)
+
+
+def quick_gelu(x: torch.Tensor) -> torch.Tensor:
+    return x * torch.sigmoid(1.702 * x)

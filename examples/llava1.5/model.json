@@ -24,7 +24,8 @@
         "normalization": "RMSNorm",
         "language_vocab_size": 32000,
         "language_max_sequence_length": 4096,
-        "lm_position_embedding_type": "rope"
+        "lm_position_embedding_type": "rope",
+        "freeze": true
     },
     "image_encoder": {
         "vision_encoder": {
@@ -49,8 +50,13 @@
             "attention_softmax_in_fp32": true,
             "normalization": "LayerNorm",
             "apply_rope_fusion": false,
-            "activation_func": "gelu",
-            "device": "npu"
+            "activation_func": "quick_gelu",
+            "device": "npu",
+            "add_class_token": true,
+            "class_token_len": 1,
+            "patch_size": 14,
+            "image_size": 336,
+            "freeze": true
         },
         "vision_projector": {
             "model_id": "mlp",
@@ -59,16 +65,14 @@
             "gated_linear_unit": false,
             "bias_activation_fusion": false,
             "add_bias_linear": true,
+            "input_size": 1024,
             "hidden_size": 4096,
             "ffn_hidden_size": 4096,
             "activation_func": "gelu",
             "bf16": true,
-            "params_dtype": "bf16"
-        },
-        "add_class_token": true,
-        "class_token_len": 1,
-        "patch_size": 14,
-        "image_size": 336
+            "params_dtype": "bf16",
+            "freeze": false
+        }
     },
     "text_encoder": null,
     "video_encoder": null

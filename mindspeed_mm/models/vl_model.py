@@ -8,7 +8,6 @@ from megatron.core.models.gpt import GPTModel
 from .text_encoder.text_encoder import TextEncoder
 from .vision.vision_model import VisionModel
 from ..data.data_utils.constants import MODEL_CONSTANTS
-from .common.module_spec.llava_layer_spec import get_layer_spec
 
 
 class VLModel(nn.Module):
@@ -52,10 +51,9 @@ class VLModel(nn.Module):
             self.IMAGE_TOKEN_INDEX = None
 
         if self.add_text_decoder:
-            language_tansformer_layer_spec = get_layer_spec(is_vit=False)
             self.text_decoder = GPTModel(
                 config=config.text_decoder,
-                transformer_layer_spec=language_tansformer_layer_spec,
+                transformer_layer_spec=config.text_decoder.language_tansformer_layer_spec,
                 vocab_size=config.text_decoder.language_vocab_size,
                 max_sequence_length=config.text_decoder.language_max_sequence_length,
                 position_embedding_type=config.text_decoder.lm_position_embedding_type,

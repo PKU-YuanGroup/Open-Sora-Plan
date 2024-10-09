@@ -19,6 +19,7 @@ from mindspeed_mm.training import pretrain
 from mindspeed_mm.configs.config import MMConfig
 from mindspeed_mm.data import build_mm_dataloader, build_mm_dataset
 from mindspeed_mm.utils.transformer_model_config import get_model_config
+from mindspeed_mm.models.common.module_spec.llava_layer_spec import get_layer_spec, get_mlp_module_spec
 
 
 def model_provider(pre_process=True, post_process=True):
@@ -27,11 +28,15 @@ def model_provider(pre_process=True, post_process=True):
     vlm_config = deepcopy(args.mm.model)
     print_rank_0("building LLaVA model ...")
     vlm_config.text_decoder = get_model_config(vlm_config.text_decoder)
+    vlm_config.text_decoder.language_tansformer_layer_spec = get_layer_spec(is_vit=False)
     vlm_config.image_encoder.vision_encoder = get_model_config(vlm_config.image_encoder.vision_encoder)
+    vlm_config.image_encoder.vision_encoder.vision_transformer_layer_spec = get_layer_spec(is_vit=True)
     vlm_config.image_encoder.vision_projector = get_model_config(vlm_config.image_encoder.vision_projector)
+    vlm_config.image_encoder.vision_projector.vision_projection_layer_spec = get_mlp_module_spec(use_te=False).submodules
     vlm_config.pre_process = pre_process
     vlm_config.post_process = post_process
     model = VLModel(vlm_config)
+    model.freeze(vlm_config.text_decoder.freeze, vlm_config.image_encoder.vision_encoder.freeze, vlm_config.image_encoder.vision_projector.freeze)
     return model
 
 
@@ -76,12 +81,10 @@ def forward_step(data_iterator, model):
 def train_valid_test_datasets_provider(train_val_test_num_samples):
     """Build train, valid, and test datasets."""
     args = get_args()
-    args_dict = {"data": args.mm.data}
-    data_args = MMConfig(args_dict)
-    train_dataset = build_mm_dataset(data_args.data.dataset_param)
+    train_dataset = build_mm_dataset(args.mm.data.dataset_param)
     train_dataloader = build_mm_dataloader(
         train_dataset,
-        data_args.data.dataloader_param,
+        args.mm.data.dataloader_param,
         process_group=mpu.get_data_parallel_group(),
     )
     return iter(train_dataloader), None, None

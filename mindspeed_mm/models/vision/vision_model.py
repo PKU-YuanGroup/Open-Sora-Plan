@@ -6,10 +6,12 @@ from torch import nn
 from mindspeed_mm.models.common.module_spec.llava_layer_spec import get_layer_spec, get_mlp_module_spec
 from .projectors.multimodal_projector import MultimodalProjector
 from .vision_encoders.clip_vit_model import CLIPViT
+from .vision_encoders.internvl_vit_model import InternvlViT
 
 
 VISION_MODEL_MAPPINGS = {
     "clip": CLIPViT,
+    "internVL": InternvlViT,
     "mlp": MultimodalProjector
 }
 
@@ -28,24 +30,16 @@ class VisionModel(nn.Module):
     """
     def __init__(self, config):
         super().__init__()
-        vision_transformer_layer_spec = get_layer_spec(is_vit=True)
+        self.add_projector = config.vision_projector is not None
         self.encoder = VISION_MODEL_MAPPINGS[config.vision_encoder.model_id](
             config.vision_encoder,
-            vision_transformer_layer_spec,
-            add_class_token=config.add_class_token,
-            class_token_len=config.class_token_len,
-            image_size=config.image_size,
-            patch_size=config.patch_size,
+            config.vision_encoder.vision_transformer_layer_spec
         )
-        self.encoder.requires_grads_(False)
-        vision_projection_layer_spec = get_mlp_module_spec(use_te=False).submodules
-        self.projector = VISION_MODEL_MAPPINGS[config.vision_projector.model_id](
-            config.vision_projector,
-            vision_projection_layer_spec,
-            config.vision_projector.model_id,
-            config.vision_encoder.hidden_size,
-        )
-        self.projector.requires_grads_(True)
+        if self.add_projector:
+            self.projector = VISION_MODEL_MAPPINGS[config.vision_projector.model_id](
+                config.vision_projector,
+                config.vision_projector.vision_projection_layer_spec
+            )
 
     def set_input_tensor(self, input_tensor):
         self.encoder.set_input_tensor(input_tensor)
@@ -77,7 +71,8 @@ class VisionModel(nn.Module):
 
     def forward(self, images: torch.Tensor) -> torch.Tensor:
         image_embeddings = self.encoder(images)
-        image_embeddings = self.projector(image_embeddings)
+        if self.add_projector:
+            image_embeddings = self.projector(image_embeddings)
 
         return image_embeddings
     

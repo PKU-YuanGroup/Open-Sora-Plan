@@ -1,6 +1,7 @@
 import torch
 from PIL import Image
 
+from transformers import CLIPImageProcessor
 import mindspeed.megatron_adaptor
 from megatron.training import get_args
 from mindspeed_mm.data.data_utils.constants import MODEL_CONSTANTS
@@ -21,7 +22,7 @@ def load_models(args):
         tokenizer.add_tokens([MODEL_CONSTANTS["llava"]["IMAGE_PATCH_TOKEN"]], special_tokens=True)
     if mm_use_im_start_end:
         tokenizer.add_tokens([MODEL_CONSTANTS["llava"]["IMG_START_TOKEN"], MODEL_CONSTANTS["llava"]["IMG_END_TOKEN"]], special_tokens=True)
-    image_processor = model.image_encoder.image_processor
+    image_processor = CLIPImageProcessor.from_pretrained(args.mm.model.image_processer_path)
     if hasattr(model.config, "max_sequence_length"):
         context_len = model.config.max_sequence_length
     else:

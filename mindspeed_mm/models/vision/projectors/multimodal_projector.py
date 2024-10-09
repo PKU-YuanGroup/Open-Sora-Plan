@@ -24,23 +24,21 @@ class MultimodalProjector(MultiModalModule):
             self,
             config: TransformerConfig,
             submodules: MLPSubmodules,
-            projector_type: str,
-            input_size: int,
     ):
         super().__init__(config=config)
-        self.projector_type = projector_type
+        self.projector_type = config.model_id
         if submodules is None:
             raise AssertionError("MLPSubmodules must be provided")
         if self.projector_type == "mlp":
             self.encoder = MLP(
                 config=config,
                 submodules=submodules,
-                input_size=input_size
+                input_size=config.input_size
             )
         elif self.projector_type == "affine":
             self.encoder = build_module(
                 submodules.linear_fc1,
-                input_size,
+                config.input_size,
                 config.hidden_size,
                 config=config,
                 init_method=config.init_method,

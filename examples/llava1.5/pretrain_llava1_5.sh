@@ -20,9 +20,9 @@ CP=1
 MBS=1
 GBS=$(($WORLD_SIZE*$MBS/$CP))
 
-MM_DATA="./examples/llava/data.json"
-MM_MODEL="./examples/llava/model.json"
-TOKENIZER_MODEL="<your tokenizer model path>"
+MM_DATA="./examples/llava1.5/data.json"
+MM_MODEL="./examples/llava1.5/model.json"
+MM_TOOL="./mindspeed_mm/tools/tools.json"
 
 DISTRIBUTED_ARGS="
     --nproc_per_node $GPUS_PER_NODE \
@@ -45,8 +45,7 @@ GPT_ARGS="
     --max-position-embeddings 4096 \
     --attention-dropout 0.0 \
     --hidden-dropout 0.0 \
-    --tokenizer-type Llama2Tokenizer \
-    --tokenizer-model ${TOKENIZER_MODEL} \
+    --tokenizer-type NullTokenizer \
     --vocab-size 32000 \
     --position-embedding-type rope \
     --no-masked-softmax-fusion \
@@ -63,13 +62,13 @@ GPT_ARGS="
     --no-load-rng \
     --no-save-optim \
     --no-save-rng \
-    --bf16 \
-    --normalization RMSNorm
+    --bf16
 "
 
 MM_ARGS="
     --mm-data ${MM_DATA} \
-    --mm-model ${MM_MODEL}
+    --mm-model ${MM_MODEL} \
+    --mm-tool ${MM_TOOL}
 "
 
 OUTPUT_ARGS="
@@ -79,9 +78,11 @@ OUTPUT_ARGS="
     --eval-iters 5000 \
 "
 
+logfile=$(date +%Y%m%d)_$(date +%H%M%S)
+mkdir -p logs
 torchrun $DISTRIBUTED_ARGS \
     pretrain_llava.py \
     $GPT_ARGS \
     $MM_ARGS \
     $OUTPUT_ARGS \
-    --distributed-backend nccl
+    --distributed-backend nccl >> logs/train_${logfile}.log 2>&1
