@@ -7,6 +7,7 @@ from megatron.core import mpu
 from mindspeed_mm.models.common.communications import (
     gather_forward_split_backward,
     split_forward_gather_backward,
+    cal_split_sizes
 )
 from .vae_temporal import VAE_Temporal
 
@@ -38,11 +39,13 @@ class VideoAutoencoderKL(nn.Module):
         # x: (B, C, T, H, W)
         B = x.shape[0]
         T = x.shape[2]
-        if self.enable_sequence_parallelism and T % self.sp_size == 0:
-            x = split_forward_gather_backward(
-                x, mpu.get_context_parallel_group(), dim=2, grad_scale="down"
-            )
+        
         x = rearrange(x, "B C T H W -> (B T) C H W")
+        if self.enable_sequence_parallelism:
+            split_sizes = cal_split_sizes(x.size(0), self.sp_size)
+            x = split_forward_gather_backward(
+                x, mpu.get_context_parallel_group(), dim=0, grad_scale="down", split_sizes=split_sizes
+            )
 
         if self.micro_batch_size is None:
             x = self.module.encode(x).latent_dist.sample().mul(0.18215)
@@ -54,11 +57,12 @@ class VideoAutoencoderKL(nn.Module):
                 x_bs = self.module.encode(x_bs).latent_dist.sample().mul(0.18215)
                 x_out.append(x_bs)
             x = torch.cat(x_out, dim=0)
-        x = rearrange(x, "(B T) C H W -> B C T H W", B=B)
-        if self.enable_sequence_parallelism and T % self.sp_size == 0:
+        
+        if self.enable_sequence_parallelism:
             x = gather_forward_split_backward(
-                x, mpu.get_context_parallel_group(), dim=2, grad_scale="up"
+                x, mpu.get_context_parallel_group(), dim=0, grad_scale="up", gather_sizes=split_sizes
             )
+        x = rearrange(x, "(B T) C H W -> B C T H W", B=B)
         return x
 
     def decode(self, x, **kwargs):
@@ -96,6 +100,9 @@ class VideoAutoencoder3D(nn.Module):
         self.vae_micro_frame_size = vae_micro_frame_size
         self.micro_z_frame_size = self.temporal_vae.get_latent_size([vae_micro_frame_size, None, None])[0]
 
+        self.sp_size = mpu.get_context_parallel_world_size()
+        self.enable_sequence_parallelism = kwargs.get("enable_sequence_parallelism", False) and self.sp_size > 1
+
         if "freeze_vae_2d" in kwargs and kwargs["freeze_vae_2d"]:
             for param in self.spatial_vae.parameters():
                 param.requires_grad = False
@@ -115,7 +122,16 @@ class VideoAutoencoder3D(nn.Module):
         self.register_buffer("shift", shift)
 
     def encode(self, x):
+        bs = x.size(0)
         x_z = self.spatial_vae.encode(x)
+
+        enable_sequence_parallelism = self.enable_sequence_parallelism and bs // self.sp_size >= 1
+        
+        if enable_sequence_parallelism:
+            split_sizes = cal_split_sizes(bs, self.sp_size)
+            x_z = split_forward_gather_backward(
+                x_z, mpu.get_context_parallel_group(), dim=0, grad_scale="down", split_sizes=split_sizes
+            )
 
         if self.vae_micro_frame_size is None:
             posterior = self.temporal_vae.encode(x_z)
@@ -127,6 +143,11 @@ class VideoAutoencoder3D(nn.Module):
                 posterior = self.temporal_vae.encode(x_z_bs)
                 z_list.append(posterior.sample())
             z = torch.cat(z_list, dim=2)
+
+        if enable_sequence_parallelism:
+            z = gather_forward_split_backward(
+                z, mpu.get_context_parallel_group(), dim=0, grad_scale="up", gather_sizes=split_sizes
+            )
 
         if self.cal_loss:
             return z, posterior, x_z
