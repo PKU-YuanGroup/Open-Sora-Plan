@@ -6,6 +6,7 @@ import math
 import torch
 from torch import nn
 import torch.nn.functional as F
+import torch_npu
 
 from diffusers.models.transformers import CogVideoXTransformer3DModel
 from diffusers.utils import deprecate

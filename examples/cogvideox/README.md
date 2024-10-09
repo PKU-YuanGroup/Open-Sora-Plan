@@ -6,15 +6,15 @@
 ## 目录
 
 
-- [环境安装](#jump1)
-  * [仓库拉取](#jump1.1)
-  * [环境搭建](#jump1.2)
-- [权重下载及转换](#jump2)
-  * [权重下载](#jump2.1)
-- [推理](#jump5)
-  * [准备工作](#jump5.1)
-  * [配置参数](#jump5.2)
-  * [启动推理](#jump5.3)
+- [环境安装](#环境安装)
+  * [仓库拉取](#仓库拉取)
+  * [环境搭建](#环境搭建)
+- [权重下载及转换](#权重下载及转换)
+  * [权重下载](#权重下载)
+- [推理](#推理)
+  * [准备工作](#准备工作)
+  * [配置参数](#配置参数)
+  * [启动推理](#启动推理)
 ---
 
 ## <span id="jump1"> 环境安装
@@ -31,7 +31,7 @@
 | Torch_npu |               RC3版本                |
 
 
-#### <span id="jump1.1"> 1. 仓库拉取
+#### <span id="jump1.1"> 仓库拉取
 
 ```shell
     git clone https://gitee.com/ascend/MindSpeed-MM.git 
@@ -45,7 +45,7 @@
     mkdir dataset
     mkdir ckpt
 ```
-#### <span id="jump1.2"> 2. 环境搭建
+#### <span id="jump1.2"> 环境搭建
 
 ```bash
     # python3.8
@@ -91,10 +91,10 @@
 
 ## <span id="jump5">推理
 
-#### <span id="jump5.1"> 1. 准备工作
+#### <span id="jump5.1"> 准备工作
 在开始之前，请确认环境准备、模型权重下载已完成
 
-#### <span id="jump5.2"> 2. 配置参数
+#### <span id="jump5.2"> 配置参数
 检查权重路径与prompt是否配置完成
 
 | 配置文件 |      修改字段       |           修改说明            |
@@ -104,9 +104,9 @@
 
 
 
-#### <span id="jump5.3"> 3. 启动推理
+#### <span id="jump5.3"> 启动推理
 
-```
+```bash
 bash examples/cogvideox/inference_cogvideox.sh
 ```
 
