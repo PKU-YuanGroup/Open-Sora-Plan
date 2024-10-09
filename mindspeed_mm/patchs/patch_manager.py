@@ -16,8 +16,8 @@ from megatron.training import get_args
 from mindspeed.optimizer.adamw import AdamW
 from mindspeed.patch_utils import MindSpeedPatchesManager as pm
 
-import diffusers_patches
-import transformers_patches
+from . import diffusers_patches
+from . import transformers_patches
 
 
 class PatchesManager:

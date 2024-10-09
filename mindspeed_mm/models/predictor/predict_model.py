@@ -1,7 +1,7 @@
 from torch import nn
-
 from megatron.training.utils import print_rank_0
-from ..common.checkpoint import load_checkpoint
+
+from mindspeed_mm.models.common.checkpoint import load_checkpoint
 from .dits import VideoDiT, Latte, STDiT, STDiT3, CogVideoX
 
 PREDICTOR_MODEL_MAPPINGS = {

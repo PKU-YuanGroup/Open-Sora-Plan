@@ -17,7 +17,8 @@ import megatron
 from megatron.core.enums import ModelType
 from megatron.training import get_args
 from megatron.training.arguments import core_transformer_config_from_args
-from utils import is_enable_lora, merge_dicts
+
+from .utils import is_enable_lora, merge_dicts
 
 
 def model_provider_func_wrapper(model_provider_func):

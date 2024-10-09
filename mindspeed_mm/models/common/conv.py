@@ -3,6 +3,7 @@ from typing import Union, Tuple
 import torch
 from torch import nn
 import torch_npu
+
 from mindspeed_mm.utils.utils import cast_tuple, video_to_image
 
 
@@ -95,15 +96,6 @@ class CausalConv3d(nn.Module):
             nn.init.constant_(self.conv.bias, 0)
 
     def forward(self, x):
-        if x.dtype not in [torch.float16, torch.bfloat16]:
-            dtype = x.dtype
-            first_frame_pad = x[:, :, :1, :, :].repeat((1, 1, self.time_kernel_size - 1, 1, 1))  # b c t h w
-            x = torch.concatenate((first_frame_pad, x), dim=2)  # 3 + 16
-            with torch.cuda.amp.autocast(enabled=False):
-                x = self.conv.to(device=x.device, dtype=torch.bfloat16)(x.to(torch.bfloat16))
-                x = x.to(dtype)
-                return torch_npu.npu_format_cast(x, 2)
-        else:
-            first_frame_pad = x[:, :, :1, :, :].repeat((1, 1, self.time_kernel_size - 1, 1, 1))  # b c t h w
-            x = torch.concatenate((first_frame_pad, x), dim=2)  # 3 + 16
-            return self.conv(x)
+        first_frame_pad = x[:, :, :1, :, :].repeat((1, 1, self.time_kernel_size - 1, 1, 1))  # b c t h w
+        x = torch.concatenate((first_frame_pad, x), dim=2)  # 3 + 16
+        return self.conv(x)

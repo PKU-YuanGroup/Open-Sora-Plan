@@ -14,11 +14,12 @@
 
 import torch
 import torch.nn as nn
-from mindspeed_mm.model.ae import AEModel
-from mindspeed_mm.model.diffusion import DiffusionModel
-from mindspeed_mm.model.predictor import PredictModel
-from mindspeed_mm.model.text_encoder import TextEncoder
-from mindspeed_mm.model.utils.utils import get_device
+
+from mindspeed_mm.models.ae import AEModel
+from mindspeed_mm.models.diffusion import DiffusionModel
+from mindspeed_mm.models.predictor import PredictModel
+from mindspeed_mm.models.text_encoder import TextEncoder
+from mindspeed_mm.utils.utils import get_device
 
 
 class SDModel(nn.Module):

@@ -41,6 +41,7 @@ from megatron.training.utils import (
     print_rank_0,
     unwrap_model,
 )
+
 from mindspeed_mm.configs.config import merge_mm_args
 from mindspeed_mm.tools.profiler import Profiler
 

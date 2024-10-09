@@ -8,6 +8,10 @@ from mindspeed_mm.data.datasets.t2i_dataset import T2IDataset
 from mindspeed_mm.data.datasets.t2v_dataset import T2VDataset, DynamicVideoTextDataset
 from mindspeed_mm.data.datasets.video_dataset import VideoDataset
 
+__all__ = [
+    "build_mm_dataset", "build_mm_dataloader"
+]
+
 
 def build_mm_dataset(dataset_param):
     """

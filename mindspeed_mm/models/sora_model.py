@@ -17,6 +17,7 @@ import torch
 from torch import nn
 from megatron.training.arguments import core_transformer_config_from_args
 from megatron.training import get_args
+
 from mindspeed_mm.models.predictor import PredictModel
 from mindspeed_mm.models.diffusion import DiffusionModel
 from mindspeed_mm.models.ae import AEModel

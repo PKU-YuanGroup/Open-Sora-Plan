@@ -1,6 +1,7 @@
 from typing import Optional, Union, List, Callable
 import math
 import inspect
+
 import torch
 
 from mindspeed_mm.tasks.inference.pipeline.pipeline_base import MMPipeline

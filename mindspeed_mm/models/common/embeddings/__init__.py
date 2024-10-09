@@ -29,3 +29,9 @@ from .pos_embeddings import (
     get_2d_sincos_pos_embed,
     get_3d_sincos_pos_embed,
 )
+
+__all__ = [
+    "CaptionEmbedder", "LabelEmbedder", "TimestepEmbedder", "SizeEmbedder",
+    "OverlapPatchEmbed2D", "OverlapPatchEmbed3D", "PatchEmbed3D", "VideoPatchEmbed2D",
+    "PositionEmbedding2D", "get_1d_sincos_pos_embed", "get_2d_sincos_pos_embed", "get_3d_sincos_pos_embed"
+]

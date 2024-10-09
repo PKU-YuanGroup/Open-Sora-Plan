@@ -6,6 +6,7 @@ from timm.models.layers import DropPath
 from timm.models.vision_transformer import Mlp
 from megatron.core import mpu, tensor_parallel
 from megatron.training import get_args
+
 from mindspeed_mm.models.common.module import MultiModalModule
 from mindspeed_mm.models.common.checkpoint import auto_grad_checkpoint
 from mindspeed_mm.models.common.communications import (

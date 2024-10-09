@@ -1,12 +1,12 @@
 from typing import Tuple, Optional
-
 import math
+
 import torch
 import torch.nn as nn
 import torch_npu
 from megatron.core import mpu
-from mindspeed_mm.utils.utils import video_to_image
 
+from mindspeed_mm.utils.utils import video_to_image
 from .embeddings.rope import RoPE3D, PositionGetter3D
 from .conv import CausalConv3d
 

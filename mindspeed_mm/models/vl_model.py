@@ -1,5 +1,3 @@
-# Copyright (c) 2024, NVIDIA CORPORATION. All rights reserved.
-
 import torch
 from torch import nn
 from torch.nn import CrossEntropyLoss
@@ -10,7 +8,7 @@ from megatron.core.models.gpt import GPTModel
 from .text_encoder.text_encoder import TextEncoder
 from .vision.vision_model import VisionModel
 from ..data.data_utils.constants import MODEL_CONSTANTS
-from ..utils.llava_layer_spec import get_layer_spec
+from .common.module_spec.llava_layer_spec import get_layer_spec
 
 
 class VLModel(nn.Module):
@@ -54,8 +52,7 @@ class VLModel(nn.Module):
             self.IMAGE_TOKEN_INDEX = None
 
         if self.add_text_decoder:
-            language_tansformer_layer_spec = get_layer_spec(is_vit=False,
-                                                            normalization=config.text_decoder.normalization)
+            language_tansformer_layer_spec = get_layer_spec(is_vit=False)
             self.text_decoder = GPTModel(
                 config=config.text_decoder,
                 transformer_layer_spec=language_tansformer_layer_spec,

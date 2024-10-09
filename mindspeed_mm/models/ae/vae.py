@@ -3,6 +3,7 @@ import torch.nn as nn
 from diffusers.models import AutoencoderKL, AutoencoderKLCogVideoX
 from einops import rearrange
 from megatron.core import mpu
+
 from mindspeed_mm.models.common.communications import (
     gather_forward_split_backward,
     split_forward_gather_backward,

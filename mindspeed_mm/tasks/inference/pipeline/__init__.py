@@ -5,3 +5,5 @@ from mindspeed_mm.tasks.inference.pipeline.cogvideox_pipeline import CogVideoXPi
 SoraPipeline_dict = {"OpenSoraPlanPipeline": OpenSoraPlanPipeline,
                      "OpenSoraPipeline": OpenSoraPipeline,
                      "CogVideoXPipeline": CogVideoXPipeline}
+
+__all__ = ["SoraPipeline_dict"]
