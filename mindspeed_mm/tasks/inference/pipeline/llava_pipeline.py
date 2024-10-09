@@ -71,7 +71,7 @@ The assistant gives helpful, detailed, and polite answers to the human's questio
         inputs_embeds = inputs_embeds.transpose(0, 1)
         self.generate(position_ids=position_ids,
                       attention_mask=attention_mask,
-                      inputs_embeds=inputs_embeds,
+                      decoder_input=inputs_embeds,
                       do_sample=True if self.generation_config.temperature > 0 else False,
                       temperature=self.generation_config.temperature,
                       max_new_tokens=self.generation_config.max_new_tokens,
@@ -120,40 +120,35 @@ The assistant gives helpful, detailed, and polite answers to the human's questio
                 ret += role + ":"
         return ret
 
-    def _prepare_inputs_for_generation(
-            self, input_ids, past_key_values=None, attention_mask=None, inputs_embeds=None, **kwargs
-    ):
+    def prepare_inputs_for_generation(self, **kwargs):
+        input_ids = kwargs.pop("input_ids")
+        if input_ids.shape[-1] == 1:
+            kwargs_dict = {"input_ids": input_ids, "attention_mask": kwargs["attention_mask"],
+                           "decoder_input": kwargs["decoder_input"],
+                           "position_ids": None}
+            return kwargs_dict
 
-        position_ids = kwargs.get("position_ids", None)
-        if attention_mask is not None and position_ids is None:
-            # create position_ids on the fly for batch generation
-            position_ids = attention_mask.long().cumsum(-1) - 1
-            position_ids.masked_fill_(attention_mask == 0, 1)
-            if past_key_values:
-                position_ids = position_ids[:, -input_ids.shape[1]:]
+        if input_ids.shape[-1] > 1:
+            cur_inputs_embeds = self.model.embedding.word_embeddings(input_ids[-1][-1]).unsqueeze(0).unsqueeze(0)
+            kwargs["input_ids"] = input_ids
+            kwargs["attention_mask"] = self.generate_inverted_triangle_mask(kwargs["attention_mask"].shape[-1] + 1,
+                                                                            cur_inputs_embeds.device).unsqueeze(
+                0).unsqueeze(0)
+            kwargs["decoder_input"] = torch.cat([kwargs["decoder_input"], cur_inputs_embeds], dim=0)
+            kwargs["position_ids"] = None
 
-        # if `inputs_embeds` are passed, we only want to use them in the 1st generation step
-        if inputs_embeds is not None and past_key_values is None:
-            model_inputs = {"decoder_input": inputs_embeds}
-        else:
-            model_inputs = {"input_ids": input_ids}
-        model_inputs.update(
-            {"input_ids": None,
-             "position_ids": position_ids,
-             "attention_mask": attention_mask,
-             }
-        )
-        return model_inputs
+        return kwargs
 
-    def prepare_inputs_for_generation(self, input_ids, past_key_values=None,
-                                      inputs_embeds=None, **kwargs):
-        images = kwargs.pop("images", None)
-        image_sizes = kwargs.pop("image_sizes", None)
-        inputs = self._prepare_inputs_for_generation(
-            input_ids, past_key_values=past_key_values, inputs_embeds=inputs_embeds, **kwargs
-        )
-        if images is not None:
-            inputs['images'] = images
-        if image_sizes is not None:
-            inputs['image_sizes'] = image_sizes
-        return inputs
+    def generate_inverted_triangle_mask(self, size, device):
+        """
+        Generates a lower triangular mask with boolean values.
+        :param size: The size of the mask (size x size).
+        :return: The lower triangular mask (torch.BoolTensor).
+        """
+        # Generate an upper triangular index matrix
+        indices = torch.arange(size).unsqueeze(0)  # shape: (1, size)
+
+        # Create a boolean mask: the upper triangular part is True, the rest is False
+        mask = indices > torch.arange(size).unsqueeze(1)  # shape: (size, size)
+
+        return mask.to(device)

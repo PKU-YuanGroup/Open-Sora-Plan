@@ -521,58 +521,6 @@ class GenerationMixin:
 
         return input_ids, model_kwargs
 
-    def _extract_past_from_model_output(self, outputs: ModelOutput, standardize_cache_format: bool = False):
-        past_key_values = None
-        if "past_key_values" in outputs:
-            past_key_values = outputs.past_key_values
-        elif "mems" in outputs:
-            past_key_values = outputs.mems
-        elif "past_buckets_states" in outputs:
-            past_key_values = outputs.past_buckets_states
-
-        # Bloom fix: standardizes the cache format when requested
-        if standardize_cache_format and hasattr(self, "_convert_to_standard_cache"):
-            batch_size = outputs.logits.shape[0]
-            past_key_values = self._convert_to_standard_cache(past_key_values, batch_size=batch_size)
-        return past_key_values
-
-    def _update_model_kwargs_for_generation(
-            self,
-            outputs: ModelOutput,
-            model_kwargs: Dict[str, Any],
-            is_encoder_decoder: bool = False,
-            standardize_cache_format: bool = False,
-    ) -> Dict[str, Any]:
-        # update past_key_values
-        model_kwargs["past_key_values"] = self._extract_past_from_model_output(
-            outputs, standardize_cache_format=standardize_cache_format
-        )
-        if getattr(outputs, "state", None) is not None:
-            model_kwargs["state"] = outputs.state
-
-        # update token_type_ids with last value
-        if "token_type_ids" in model_kwargs:
-            token_type_ids = model_kwargs["token_type_ids"]
-            model_kwargs["token_type_ids"] = torch.cat([token_type_ids, token_type_ids[:, -1].unsqueeze(-1)], dim=-1)
-
-        if not is_encoder_decoder:
-            # update attention mask
-            if "attention_mask" in model_kwargs:
-                attention_mask = model_kwargs["attention_mask"]
-                model_kwargs["attention_mask"] = torch.cat(
-                    [attention_mask, attention_mask.new_ones((attention_mask.shape[0], 1))], dim=-1
-                )
-        else:
-            # update decoder attention mask
-            if "decoder_attention_mask" in model_kwargs:
-                decoder_attention_mask = model_kwargs["decoder_attention_mask"]
-                model_kwargs["decoder_attention_mask"] = torch.cat(
-                    [decoder_attention_mask, decoder_attention_mask.new_ones((decoder_attention_mask.shape[0], 1))],
-                    dim=-1,
-                )
-
-        return model_kwargs
-
     def _get_logits_warper(
             self,
             generation_config: GenerationConfig,
@@ -1010,12 +958,6 @@ class GenerationMixin:
         # 4. Define other model kwargs
         model_kwargs["output_attentions"] = generation_config.output_attentions
         model_kwargs["output_hidden_states"] = generation_config.output_hidden_states
-        # decoder-only models with inputs_embeds forwarding must use caching (otherwise we can't detect whether we are
-        # generating the first new token or not, and we only want to use the embeddings for the first new token)
-        if not self.config.is_encoder_decoder and model_input_name == "inputs_embeds":
-            model_kwargs["use_cache"] = True
-        else:
-            model_kwargs["use_cache"] = generation_config.use_cache
 
         accepts_attention_mask = "attention_mask" in set(inspect.signature(self.model.forward).parameters.keys())
         requires_attention_mask = "encoder_outputs" not in model_kwargs
@@ -1244,51 +1186,13 @@ class GenerationMixin:
         this_peer_finished = False  # used by synced_gpus only
         # auto-regressive generation
         while True:
-            if synced_gpus:
-                # Under synced_gpus the `forward` call must continue until all gpus complete their sequence.
-                # The following logic allows an early break if all peers finished generating their sequence
-                this_peer_finished_flag = torch.tensor(0.0 if this_peer_finished else 1.0).to(input_ids.device)
-                # send 0.0 if we finished, 1.0 otherwise
-                dist.all_reduce(this_peer_finished_flag, op=dist.ReduceOp.SUM)
-                # did all peers finish? the reduced sum will be 0.0 then
-                if this_peer_finished_flag.item() == 0.0:
-                    break
 
             # prepare model inputs
-            model_inputs = self.prepare_inputs_for_generation(input_ids, **model_kwargs)
+            model_kwargs["input_ids"] = input_ids
+            model_kwargs = self.prepare_inputs_for_generation(**model_kwargs)
 
-            def generate_inverted_triangle_mask(size, device):
-                """
-                生成一个倒三角形的mask，使用布尔类型表示
-                :param size: mask 的大小 (size x size)
-                :return: 倒三角形的 mask (torch.BoolTensor)
-                """
-                # 生成一个上三角的索引矩阵
-                indices = torch.arange(size).unsqueeze(0)  # shape: (1, size)
-
-                # 创建布尔掩码：上三角的部分为True，其他部分为False
-                mask = indices > torch.arange(size).unsqueeze(1)  # shape: (size, size)
-
-                return mask.to(device)
-
-            if input_ids.shape[-1] == 1:
-                inputs_embeds_temp = model_inputs["decoder_input"]
-                attention_msak_temp = model_inputs["attention_mask"]
-
-            if input_ids.shape[-1] > 1:
-                cur_inputs_embeds = self.model.embedding.word_embeddings(input_ids[-1][-1]).unsqueeze(0).unsqueeze(0)
-                model_inputs["attention_mask"] = generate_inverted_triangle_mask(attention_msak_temp.shape[-1] + 1,
-                                                                                 cur_inputs_embeds.device).unsqueeze(
-                    0).unsqueeze(0)
-                model_inputs["decoder_input"] = torch.cat([inputs_embeds_temp, cur_inputs_embeds], dim=0)
-                model_inputs["position_ids"] = torch.arange(0, model_inputs["decoder_input"].shape[0]).unsqueeze(0).to(
-                    device=cur_inputs_embeds.device)
-                inputs_embeds_temp = model_inputs["decoder_input"]
-                attention_msak_temp = model_inputs["attention_mask"]
-
-            model_inputs["position_ids"] = None
             outputs = self.model(
-                **model_inputs,
+                **model_kwargs,
             )
 
             if synced_gpus and this_peer_finished:
@@ -1298,7 +1202,6 @@ class GenerationMixin:
             # pre-process distribution
             next_token_scores = logits_processor(input_ids, next_token_logits)
             next_token_scores = logits_warper(input_ids, next_token_scores)
-
 
             # sample
             probs = nn.functional.softmax(next_token_scores, dim=-1)

@@ -65,7 +65,7 @@ def main():
     video_grids = torch.cat(video_grids, dim=0)
     save_videos(video_grids, args.save_path, save_fps, value_range=(-1, 1), normalize=True)
     print("Inference finished.")
-    print("Saved %s samples to %s", start_idx, args.save_path)
+    print("Saved %s samples to %s" % (start_idx, args.save_path))
 
 
 if __name__ == "__main__":
