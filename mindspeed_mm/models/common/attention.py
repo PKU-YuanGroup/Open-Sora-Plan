@@ -58,8 +58,9 @@ class MultiHeadSparseAttentionSBH(nn.Module):
         self.sparse_n = sparse_n
         self.sparse_group = sparse_group
         self.is_cross_attn = is_cross_attn
-        self.rope = RoPE3D(interpolation_scale=interpolation_scale)
-        self.position_getter = PositionGetter3D()
+        if not self.is_cross_attn:
+            self.rope = RoPE3D(interpolation_scale=interpolation_scale)
+            self.position_getter = PositionGetter3D()
 
         key_dim = key_dim if key_dim is not None else query_dim
 
@@ -111,9 +112,9 @@ class MultiHeadSparseAttentionSBH(nn.Module):
         hidden_states: torch.Tensor,
         encoder_hidden_states: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
-        frames: Optional[int] = None,
-        height: Optional[int] = None,
-        width: Optional[int] = None,
+        frames: int = 8,
+        height: int = 16,
+        width: int = 16,
     ) -> torch.Tensor:
         """
         Args:

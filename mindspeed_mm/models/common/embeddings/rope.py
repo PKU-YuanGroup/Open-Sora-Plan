@@ -9,7 +9,17 @@ class PositionGetter3D:
     def __init__(self):
         self.cache_positions = {}
 
+    def check_type(self, param):
+        if isinstance(param, torch.Tensor):
+            param = param.item()
+        return param
+
     def __call__(self, b, t, h, w, device):
+        b = self.check_type(b)
+        t = self.check_type(t)
+        h = self.check_type(h)
+        w = self.check_type(w)
+
         if not (b, t, h, w) in self.cache_positions:
             x = torch.arange(w, device=device)
             y = torch.arange(h, device=device)
