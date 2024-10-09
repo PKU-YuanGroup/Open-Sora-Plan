@@ -26,3 +26,4 @@
 |	开发引入	| / |	mindspeed_mm/models/diffusion/diffusers_scheduler.py	|	https://arxiv.org/pdf/2205.11487.pdf	|	参考论文地址	|
 |	开发引入	| / |	mindspeed_mm/models/diffusion/diffusers_scheduler.py	|	https://arxiv.org/abs/2303.09556	|	参考论文地址	|
 |	开发引入	| / |	mindspeed_mm/models/diffusion/diffusers_scheduler.py	|	https://www.crosslabs.org//blog/diffusion-with-offset-noise	|	参考博客地址	|
+|	开源引入	| https://github.com/microsoft/DeepSpeed/blob/master/tests/conftest.py |	 ./tests/conftest.py 	|	https://github.com/microsoft/DeepSpeed/blob/master/tests/conftest.py   |  开源代码参考链接  |
