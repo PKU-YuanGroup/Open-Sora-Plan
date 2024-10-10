@@ -9,11 +9,11 @@
 		"preprocess_parameters": {
 			"video_reader_type": "decoder",
 			"image_reader_type": "Image",
-			"num_frames": 93,
+			"num_frames": 125,
 			"frame_interval": 1,
-			"max_height": 320,
-			"max_width": 320,
-			"train_fps": 24,
+			"max_height": 720,
+			"max_width": 800,
+			"train_fps": 18,
 			"speed_factor": 1.0,
 			"drop_short_ratio": 1.0,
 			"cfg": 0.1,
@@ -25,7 +25,7 @@
 					{
 						"trans_type": "CenterCropResizeVideo",
 						"param": {
-							"size": [480, 640],
+							"size": [720, 800],
 							"use_short_edge": false,
 							"top_crop": false,
 							"align_corners": true,
@@ -42,7 +42,7 @@
 					{
 						"trans_type": "CenterCropResizeVideo",
 						"param": {
-							"size": [480, 640],
+							"size": [720, 800],
 							"use_short_edge": false,
 							"top_crop": true,
 							"align_corners": true,
@@ -67,7 +67,7 @@
 		"dataloader_mode": "sampler",
         "sampler_type": "LengthGroupedSampler",
 		"batch_size": 1,
-		"num_workers": 8,
+		"num_workers": 1,
 		"shuffle": true,
 		"drop_last": true,
 		"pin_memory": false,
@@ -75,11 +75,11 @@
 		"group_resolution": false,
 		"collate_param": {
 			"batch_size": 1,
-			"num_frames": 93,
+			"num_frames": 125,
 			"group_frame": false,
 			"group_resolution": false,
-			"max_height": 480,
-			"max_width": 640,
+			"max_height": 720,
+			"max_width": 800,
 			"ae_stride": 8,
 			"ae_stride_t": 4,
 			"patch_size": 2,

@@ -3,27 +3,29 @@ export CUDA_DEVICE_MAX_CONNECTIONS=1
 export ASCEND_SLOG_PRINT_TO_STDOUT=0
 export ASCEND_GLOBAL_LOG_LEVEL=3
 export TASK_QUEUE_ENABLE=1
+export MULTI_STREAM_MEMORY_REUSE=1
+export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
 export COMBINED_ENABLE=1
 export CPU_AFFINITY_CONF=1
 export HCCL_CONNECT_TIMEOUT=1200
-export CUDA_DEVICE_MAX_CONNECTIONS=1
-PYTHONPATH=$PYTHONPATH:/home/image_data/zyr/MindSpeed-MM/Megatron-LM/megatron
+export GLOO_SOCKET_IFNAME=enp67s0f0
 
 GPUS_PER_NODE=8
-MASTER_ADDR=localhost
+MASTER_ADDR=${MAIN_PROCESS_IP_VALUE}
 MASTER_PORT=29505
-NNODES=1
-NODE_RANK=0
+NNODES=${NUM_MACHINE}
+NODE_RANK=${MACHINE_RANK}
 WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
 
 TP=1
 PP=1
-CP=1
+CP=32
 MBS=1
 GBS=$(($WORLD_SIZE*$MBS/$CP))
 
 MM_DATA="./examples/opensoraplan1.3/data.json"
 MM_MODEL="./examples/opensoraplan1.3/model_opensoraplan1_3.json"
+MM_TOOL="./mindspeed_mm/tools/tools.json"
 
 DISTRIBUTED_ARGS="
     --nproc_per_node $GPUS_PER_NODE \
@@ -41,7 +43,7 @@ GPT_ARGS="
     --global-batch-size ${GBS} \
     --num-layers 32 \
     --hidden-size 1152 \
-    --num-attention-heads 16 \
+    --num-attention-heads 32 \
     --seq-length 1024 \
     --max-position-embeddings 1024 \
     --attention-dropout 0.0 \
@@ -69,15 +71,17 @@ GPT_ARGS="
     --no-save-optim \
     --no-save-rng \
     --bf16 \
-    --recompute-granularity full \
-    --recompute-method block \
     --recompute-num-layers 32 \
-    --use-distributed-optimizer
+    --use-distributed-optimizer \
+    --empty-unused-memory-level 2 \
+    --manual-gc \
+    --manual-gc-interval 1
 "
 
 MM_ARGS="
     --mm-data $MM_DATA \
-    --mm-model $MM_MODEL
+    --mm-model $MM_MODEL \
+    --mm-tool $MM_TOOL
 "
 
 OUTPUT_ARGS="
