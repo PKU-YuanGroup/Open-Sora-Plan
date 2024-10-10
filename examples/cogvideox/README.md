@@ -5,16 +5,16 @@
 
 ## 目录
 
-
 - [环境安装](#环境安装)
-  * [仓库拉取](#仓库拉取)
-  * [环境搭建](#环境搭建)
+  - [仓库拉取](#仓库拉取)
+  - [环境搭建](#环境搭建)
 - [权重下载及转换](#权重下载及转换)
-  * [权重下载](#权重下载)
+  - [权重下载](#权重下载)
 - [推理](#推理)
-  * [准备工作](#准备工作)
-  * [配置参数](#配置参数)
-  * [启动推理](#启动推理)
+  - [准备工作](#准备工作)
+  - [配置参数](#配置参数)
+  - [启动推理](#启动推理)
+
 ---
 
 ## <span id="jump1"> 环境安装
@@ -24,12 +24,11 @@
 |    软件     | [版本](https://www.hiascend.com/zh/) |
 |:---------:|:----------------------------------:|
 |  Python   |                3.8                 |
-|  Driver   |                在研版本                |
-| Firmware  |                在研版本                |
-|   CANN    |                在研版本                |
+|  Driver   |                RC3 商发版本                |
+| Firmware  |                RC3 商发版本                |
+|   CANN    |                RC3 商发版本                |
 |   Torch   |               2.1.0                |
-| Torch_npu |               RC3版本                |
-
+| Torch_npu |               2.1.0                |
 
 #### <span id="jump1.1"> 仓库拉取
 
@@ -45,6 +44,7 @@
     mkdir dataset
     mkdir ckpt
 ```
+
 #### <span id="jump1.2"> 环境搭建
 
 ```bash
@@ -65,7 +65,6 @@
     # 安装加速库
     git clone https://gitee.com/ascend/MindSpeed.git
     cd MindSpeed
-    # checkout commit from MindSpeed core_r0.6.0
     git checkout 5dc1e83b
     pip install -r requirements.txt 
     pip3 install -e .
@@ -87,22 +86,23 @@
 ```shell
     git clone https://huggingface.co/THUDM/CogVideoX-2b.git
 ```
+
 ---
 
 ## <span id="jump5">推理
 
 #### <span id="jump5.1"> 准备工作
+
 在开始之前，请确认环境准备、模型权重下载已完成
 
 #### <span id="jump5.2"> 配置参数
+
 检查权重路径与prompt是否配置完成
 
 | 配置文件 |      修改字段       |           修改说明            |
 |------|:---------------:|:-------------------------:|
 |  examples/cogvideox/inference_model_2b.json    | from_pretrained |       修改为下载的权重所对应路径       |
 |   examples/cogvideox/samples_prompts.txt   |      文件内容       | 可自定义自己的prompt，一行为一个prompt |
-
-
 
 #### <span id="jump5.3"> 启动推理
 

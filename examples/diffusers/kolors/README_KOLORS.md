@@ -37,9 +37,9 @@
 
   | 软件类型   |   支持版本   |
   | :--------: |:--------:|
-  | FrameworkPTAdapter |   在研版本   |
-  | CANN | 在研版本   |
-  | 昇腾NPU固件 | 在研版本  |
+  | FrameworkPTAdapter |   RC3 商发版本   |
+  | CANN | RC3 商发版本   |
+  | 昇腾NPU固件 | RC3 商发版本  |
   | 昇腾NPU驱动 | 在研版本  |
 
 1. 三方件安装
