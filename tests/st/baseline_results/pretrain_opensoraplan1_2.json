@@ -1,0 +1,18 @@
+{
+    "loss": [
+        26.89400,
+        0.4226658
+    ],
+    "time": [
+        11879.3,
+        12091.0
+    ],
+    "memo info": [
+        {
+            "rank": 0,
+            "allocated memory": 35502.427246,
+            "max allocated memory": 35623.927246
+        }
+    ],
+    "warm_up": 1
+}

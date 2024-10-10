@@ -1,0 +1,85 @@
+{
+    "frames": 29,
+    "resolution": [480, 640],
+    "allow_tf32": true,
+    "allow_internal_format":false,
+    "load_video_features": false,
+    "load_text_features": false,
+    "predictor": {
+        "model_id": "videodit",
+        "from_pretrained": "/home/ci_resource/data/OpenSoraPlan/v1.2/weights/93x480p/videodit_statedict.pth",
+        "dtype": "bf16",
+        "num_layers": 16,
+        "num_heads": 24,
+        "head_dim": 96,
+        "in_channels": 4,
+        "out_channels": 4,
+        "dropout": 0.0,
+        "cross_attention_dim": 2304,
+        "attention_bias": true,
+        "input_size": [24, 60, 80],
+        "patch_size": [1, 2, 2],
+        "activation_fn": "gelu-approximate",
+        "num_embeds_ada_norm": 1000,
+        "norm_type": "ada_norm_single",
+        "norm_elementwise_affine": false,
+        "norm_eps": 1e-6,
+        "caption_channels": 4096,
+        "interpolation_scale": [1.0, 1.0, 1.0],
+        "use_rope": true
+    },
+    "diffusion": {
+        "model_id": "DDPM",
+        "num_train_steps": 1000,
+        "noise_offset": 0.02,
+        "snr_gamma": 5.0,
+        "prediction_type": "epsilon",
+        "guidance_scale": 4.5
+    },
+    "text_encoder": {
+        "model_id": "MT5",
+        "hub_backend": "hf",
+        "from_pretrained":"/home/ci_resource/data/OpenSoraPlan/v1.2/weights/google/mt5-xxl",
+        "dtype": "bf16",
+        "load_in_8bit": false,
+        "low_cpu_mem_usage": true
+    },
+    "ae": {
+        "model_id": "casualvae",
+        "from_pretrained": "/home/ci_resource/data/OpenSoraPlan/v1.2/weights/vae/casualvae_statedict.pt",
+        "dtype": "bf16",
+        "decoder_spatial_upsample": [
+            "",
+            "SpatialUpsample2x",
+            "Spatial2xTime2x3DUpsample",
+            "Spatial2xTime2x3DUpsample"
+        ],
+        "decoder_temporal_upsample": [
+            "",
+            "",
+            "",
+            ""
+        ],
+        "encoder_conv_in": "Conv2d",
+        "encoder_resnet_blocks": [
+            "ResnetBlock2D",
+            "ResnetBlock2D",
+            "ResnetBlock3D",
+            "ResnetBlock3D"
+        ],
+        "encoder_spatial_downsample": [
+            "Downsample",
+            "Spatial2xTime2x3DDownsample",
+            "Spatial2xTime2x3DDownsample",
+            ""
+        ],
+        "encoder_temporal_downsample": [
+            "",
+            "",
+            "",
+            ""
+        ],
+        "use_tiling": true,
+        "tile_overlap_factor": 0.125
+    }
+}
