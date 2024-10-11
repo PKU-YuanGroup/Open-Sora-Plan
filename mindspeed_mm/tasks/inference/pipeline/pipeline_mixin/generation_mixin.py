@@ -982,17 +982,8 @@ class GenerationMixin:
                 )
 
         # 5. Prepare `input_ids` which will be used for auto-regressive generation
-        if self.config.is_encoder_decoder:
-            input_ids, model_kwargs = self._prepare_decoder_input_ids_for_generation(
-                batch_size=batch_size,
-                model_input_name=model_input_name,
-                model_kwargs=model_kwargs,
-                decoder_start_token_id=generation_config.decoder_start_token_id,
-                bos_token_id=generation_config.bos_token_id,
-                device=inputs_tensor.device,
-            )
-        else:
-            input_ids = inputs_tensor if model_input_name == "input_ids" else model_kwargs.pop("input_ids")
+
+        input_ids = inputs_tensor if model_input_name == "input_ids" else model_kwargs.pop("input_ids")
 
         if streamer is not None:
             streamer.put(input_ids.cpu())
@@ -1155,12 +1146,6 @@ class GenerationMixin:
             eos_token_id = [eos_token_id]
         eos_token_id_tensor = torch.tensor(eos_token_id).to(input_ids.device) if eos_token_id is not None else None
         output_scores = output_scores if output_scores is not None else self.generation_config.output_scores
-        output_attentions = (
-            output_attentions if output_attentions is not None else self.generation_config.output_attentions
-        )
-        output_hidden_states = (
-            output_hidden_states if output_hidden_states is not None else self.generation_config.output_hidden_states
-        )
         return_dict_in_generate = (
             return_dict_in_generate
             if return_dict_in_generate is not None
@@ -1169,16 +1154,6 @@ class GenerationMixin:
 
         # init attention / hidden states / scores tuples
         scores = () if (return_dict_in_generate and output_scores) else None
-        decoder_attentions = () if (return_dict_in_generate and output_attentions) else None
-        cross_attentions = () if (return_dict_in_generate and output_attentions) else None
-        decoder_hidden_states = () if (return_dict_in_generate and output_hidden_states) else None
-
-        # if model is an encoder-decoder, retrieve encoder attention weights and hidden states
-        if return_dict_in_generate and self.config.is_encoder_decoder:
-            encoder_attentions = model_kwargs["encoder_outputs"].get("attentions") if output_attentions else None
-            encoder_hidden_states = (
-                model_kwargs["encoder_outputs"].get("hidden_states") if output_hidden_states else None
-            )
 
         # keep track of which sequences are already finished
         unfinished_sequences = torch.ones(input_ids.shape[0], dtype=torch.long, device=input_ids.device)
@@ -1237,25 +1212,4 @@ class GenerationMixin:
         if streamer is not None:
             streamer.end()
 
-        if return_dict_in_generate:
-            if self.config.is_encoder_decoder:
-                return GenerateEncoderDecoderOutput(
-                    sequences=input_ids,
-                    scores=scores,
-                    encoder_attentions=encoder_attentions,
-                    encoder_hidden_states=encoder_hidden_states,
-                    decoder_attentions=decoder_attentions,
-                    cross_attentions=cross_attentions,
-                    decoder_hidden_states=decoder_hidden_states,
-                    past_key_values=None,
-                )
-            else:
-                return GenerateDecoderOnlyOutput(
-                    sequences=input_ids,
-                    scores=scores,
-                    attentions=decoder_attentions,
-                    hidden_states=decoder_hidden_states,
-                    past_key_values=None,
-                )
-        else:
-            return input_ids
+        return input_ids

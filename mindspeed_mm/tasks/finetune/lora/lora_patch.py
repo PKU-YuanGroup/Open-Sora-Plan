@@ -102,7 +102,7 @@ def get_model_wrapper(fn):
     return wrapper
 
 
-def apply_patches():# TODO 后续使用patch管理方式执行patch
+def apply_patches():
     megatron.training.training.load_checkpoint = load_checkpoint_wrapper(
         megatron.training.checkpointing.load_checkpoint)
     megatron.training.checkpointing._load_base_checkpoint = _load_base_checkpoint_wrapper(
