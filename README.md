@@ -87,8 +87,8 @@ MindSpeed-MM是面向大规模分布式训练的昇腾多模态大模型套件�
       <td> 预训练 </td>
       <td> 1x8</td>
       <td> BF16 </td>
-      <td> / </td>
-      <td> / </td>
+      <td> 18.90 (s/iter) </td>
+      <td> 17.63 (s/iter) </td>
       <td> 【昇腾】 </td>
       <td>【Pass】</td>
     </tr>
@@ -109,7 +109,7 @@ MindSpeed-MM是面向大规模分布式训练的昇腾多模态大模型套件�
       <td>预训练</td>
       <td> 1x8</td>
       <td> BF16 </td>
-      <td> 24.69 (FPS)</td>
+      <td> 29.92  (FPS)</td>
       <td> 30.65 (FPS)</td>
       <td> 【昇腾】【NAIE】 </td>
       <td>【Pass】</td>
@@ -119,7 +119,7 @@ MindSpeed-MM是面向大规模分布式训练的昇腾多模态大模型套件�
       <td>预训练</td>
       <td> 1x8</td>
       <td> FP16 </td>
-      <td> 22.24 (FPS)</td>
+      <td> 28.51 (FPS)</td>
       <td> 30.23 (FPS)</td>
       <td> 【昇腾】【NAIE】 </td>
       <td>【Pass】</td>
@@ -129,7 +129,7 @@ MindSpeed-MM是面向大规模分布式训练的昇腾多模态大模型套件�
       <td>全参微调</td>
       <td> 1x8</td>
       <td> FP16 </td>
-      <td> 167.89 (FPS)</td>
+      <td> 166.71 (FPS)</td>
       <td> 164.66 (FPS)</td>
       <td> 【昇腾】【NAIE】 </td>
       <td>【Pass】</td>
@@ -187,21 +187,9 @@ MindSpeed-MM是面向大规模分布式训练的昇腾多模态大模型套件�
       <td> 【昇腾】【NAIE】 </td>
       <td>【Pass】</td>
     </tr>
-    <tr>
-      <td><a href="https://gitee.com/ascend/MindSpeed-MM/tree/master/examples/internvl1.5">Intern-VL-1.5</a></td>
-      <td><a href="https://github.com/OpenGVLab/InternVL">26B</a></td>
-      <td>预训练</td>
-      <td> 1x8</td>
-      <td> BF16 </td>
-      <td> / </td>
-      <td> / </td>
-      <td> 【昇腾】 </td>
-      <td>【Test】</td>
-    </tr>
-
    <tr>
-      <td><a href="https://gitee.com/ascend/MindSpeed-MM/tree/master/examples/internvl2.0">Intern-VL-2.0</a></td>
-      <td><a href="https://github.com/OpenGVLab/InternVL">8B</a></td>
+      <td rowspan="2"><a href="https://gitee.com/ascend/MindSpeed-MM/tree/master/examples/internvl2.0">Intern-VL-2.0</a></td>
+      <td><a href="https://github.com/OpenGVLab/InternVL2.0">8B</a></td>
       <td>预训练</td>
       <td> 1x8</td>
       <td> BF16 </td>
@@ -210,8 +198,6 @@ MindSpeed-MM是面向大规模分布式训练的昇腾多模态大模型套件�
       <td> 【昇腾】 </td>
       <td>【Test】</td>
     </tr>
-    <tr>
-      <td><a href="https://gitee.com/ascend/MindSpeed-MM/tree/master/examples/internvl2.0">Intern-VL-2.0</a></td>
       <td><a href="https://github.com/OpenGVLab/InternVL2.0">26B</a></td>
       <td>/</td>
       <td> /</td>
@@ -311,8 +297,8 @@ MindSpeed-MM是面向大规模分布式训练的昇腾多模态大模型套件�
       <td>全参微调</td>
       <td> 1x8</td>
       <td> BF16 </td>
-      <td> 1046 (s) </td>
-      <td> 847 (s) </td>
+      <td> 1046 (s)/50-200steps </td>
+      <td> 847 (s)/50-200steps </td>
       <td> 【昇腾】 </td>
       <td>【Pass】</td>
     </tr>
@@ -321,8 +307,8 @@ MindSpeed-MM是面向大规模分布式训练的昇腾多模态大模型套件�
       <td>Lora微调</td>
       <td> 1x8</td>
       <td> BF16 </td>
-      <td> 603 (s) </td>
-      <td> 490 (s) </td>
+      <td> 603 (s)/50-200steps </td>
+      <td> 490 (s)/50-200steps </td>
       <td> 【昇腾】 </td>
       <td>【Pass】</td>
     </tr>

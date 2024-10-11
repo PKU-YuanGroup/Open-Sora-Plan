@@ -32,11 +32,11 @@
 |    软件     | [版本](https://www.hiascend.com/zh/) |
 |:---------:|:----------------------------------:|
 |  Python   |                3.8                 |
-|  Driver   |         在研版本          |
-| Firmware  |         在研版本          |
-|   CANN    |             在研版本             |
+|  Driver   |         RC3 商发版本          |
+| Firmware  |         RC3 商发版本          |
+|   CANN    |             RC3 商发版本             |
 |   Torch   |            2.1.0            |
-| Torch_npu |           在研版本           |
+| Torch_npu |           2.1.0           |
 
 <a id="jump1.1"></a>
 
@@ -77,7 +77,6 @@
     # 安装加速库
     git clone https://gitee.com/ascend/MindSpeed.git
     cd MindSpeed
-    # checkout commit from MindSpeed core_r0.6.0
     git checkout 5dc1e83b
     pip install -r requirements.txt 
     pip3 install -e .

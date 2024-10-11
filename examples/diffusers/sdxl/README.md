@@ -39,6 +39,17 @@
 
 ### 环境搭建
 
+【模型开发时推荐使用配套的环境版本】
+
+|    软件     | [版本](https://www.hiascend.com/zh/) |
+|:---------:|:----------------------------------:|
+|  Python   |                3.8                 |
+|  Driver   |         RC3 商发版本          |
+| Firmware  |         RC3 商发版本          |
+|   CANN    |             RC3 商发版本             |
+|   Torch   |            2.1.0            |
+| Torch_npu |           2.1.0           |
+
 1. 软件与驱动安装
 
     ```bash
@@ -196,13 +207,13 @@ SDXL 在 **昇腾芯片** 和 **参考芯片** 上的性能对比：
 | 芯片 | 卡数 |     任务     |  FPS  | batch_size | AMP_Type | Torch_Version | deepspeed |
 |:---:|:---:|:----------:|:-----:|:----------:|:---:|:---:|:---:|
 | 竞品A | 8p | SDXL_train_bf16  |  30.65 |     4      | bf16 | 2.1 | ✔ |
-| Atlas 900 A2 PODc | 8p | SDXL_train_bf16  | 24.69 |     4      | bf16 | 2.1 | ✔ |
+| Atlas 900 A2 PODc | 8p | SDXL_train_bf16  | 29.92 |     4      | bf16 | 2.1 | ✔ |
 | 竞品A | 8p | SDXL_train_fp16 |  30.23 |     4      | fp16 | 2.1 | ✔ |
-| Atlas 900 A2 PODc | 8p | SDXL_train_fp16 | 22.24 |     4      | fp16 | 2.1 | ✔ |
+| Atlas 900 A2 PODc | 8p | SDXL_train_fp16 | 28.51 |     4      | fp16 | 2.1 | ✔ |
 | 竞品A | 8p | SDXL_pretrain_bf16  |  21.14 |     4      | bf16 | 2.1 | ✔ |
-| Atlas 900 A2 PODc | 8p | SDXL_pretrain_bf16  | 13.48 |     4      | bf16 | 2.1 | ✔ |
+| Atlas 900 A2 PODc | 8p | SDXL_pretrain_bf16  | 19.79 |     4      | bf16 | 2.1 | ✔ |
 | 竞品A | 8p | SDXL_pretrain_fp16 |  20.77 |     4      | fp16 | 2.1 | ✔ |
-| Atlas 900 A2 PODc | 8p | SDXL_pretrain_fp16 | 14.13 |     4      | fp16 | 2.1 | ✔ |
+| Atlas 900 A2 PODc | 8p | SDXL_pretrain_fp16 | 19.67 |     4      | fp16 | 2.1 | ✔ |
 
 ## 微调
 
