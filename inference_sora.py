@@ -56,8 +56,7 @@ def main():
 
     # prepare pipeline
     sora_pipeline = prepare_pipeline(args, device)
-    if mpu.get_context_parallel_world_size() > 1:
-        torch.manual_seed(mpu.get_context_parallel_rank())
+    torch.manual_seed(mpu.get_context_parallel_rank())
 
     # == Iter over all samples ==
     video_grids = []
@@ -70,7 +69,7 @@ def main():
         video_grids.append(videos)
         start_idx += len(batch_prompts)
     video_grids = torch.cat(video_grids, dim=0)
-    if mpu.get_context_parallel_rank() == 0:
+    if mpu.get_context_parallel_rank() == 0 and mpu.get_tensor_model_parallel_rank() == 0:
         save_videos(video_grids, args.save_path, save_fps, value_range=(-1, 1), normalize=True)
         print("Inference finished.")
         print(f"Saved {start_idx} samples to {args.save_path}")

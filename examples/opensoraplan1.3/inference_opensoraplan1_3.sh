@@ -1,5 +1,5 @@
 source /usr/local/Ascend/ascend-toolkit/set_env.sh
-export ASCEND_RT_VISIBLE_DEVICES="0"
+export ASCEND_RT_VISIBLE_DEVICES="0,1,2,3,4,5,6,7"
 export TASK_QUEUE_ENABLE=0
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 export PYTHONPATH=/home/image_data/yancen/MindSpeed-MM:$PYTHONPATH
@@ -7,16 +7,16 @@ MASTER_ADDR=localhost
 MASTER_PORT=12875
 NNODES=1
 NODE_RANK=0
-NPUS_PER_NODE=1
+NPUS_PER_NODE=8
 WORLD_SIZE=$(($NPUS_PER_NODE * $NNODES))
 
 export use_debug=0
 
 
 
-TP=1
+TP=4
 PP=1
-CP=1
+CP=2
 MBS=1
 GBS=1
 MM_DATA="examples/opensoraplan1.3/data.json"

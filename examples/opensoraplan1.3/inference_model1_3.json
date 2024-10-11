@@ -60,9 +60,10 @@
         "rescale_betas_zero_snr": true,
         "device":"npu"
     },
-    "num_frames": 93,
-    "image_size": [320, 320],
-    "input_size": [93, 320, 320],
+    "pipeline_config": {
+        "use_attention_mask": true,
+        "input_size": [93, 320, 320]
+    },
     "micro_batch_size": 1,
     "frame_interval":1,
     "model_max_length": 512,

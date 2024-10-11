@@ -1,6 +1,6 @@
 from collections.abc import Iterable
 import os
-
+from megatron.core import mpu
 import torch
 import torch.nn as nn
 from torch.utils.checkpoint import checkpoint, checkpoint_sequential
@@ -65,6 +65,24 @@ def load_checkpoint(model, ckpt_path):
             new_key = new_key.replace(old, new)
         new_ckpt_dict[new_key] = ckpt_dict[model_key]
     ckpt_dict = new_ckpt_dict
+
+    suffixes_1 = ["atten.proj_q.weight", "atten.proj_q.bias", "atten.proj_k.weight", "atten.proj_k.bias",
+                  "atten.proj_v.weight", "atten.proj_v.bias"]
+    suffixes_2 = ["atten.proj_out.weight"]
+    for key, value in ckpt_dict.items():
+        if isinstance(value, torch.Tensor):
+            if any(key.endswith(suffix) for suffix in suffixes_1):
+                ckpt_dict[key] = torch.chunk(value, mpu.get_tensor_model_parallel_world_size(), dim=0)[
+                    mpu.get_tensor_model_parallel_rank()]
+                # print(f"Key1: {key}, Shape: {ckpt_dict[key].shape}")
+
+            if any(key.endswith(suffix) for suffix in suffixes_2):
+                ckpt_dict[key] = torch.chunk(value, mpu.get_tensor_model_parallel_world_size(), dim=1)[
+                    mpu.get_tensor_model_parallel_rank()]
+                # print(f"Key2: {key}, Shape: {ckpt_dict[key].shape}")
+        else:
+            # print(f"Key: {key}, Type: {type(value)}")
+            pass
 
     missing_keys, unexpected_keys = model.load_state_dict(ckpt_dict, strict=False)
     print(f"Missing keys: {missing_keys}")

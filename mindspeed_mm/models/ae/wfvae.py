@@ -328,8 +328,7 @@ class WFVAE(MultiModalModule):
         if from_pretrained is not None:
             load_checkpoint(self, from_pretrained)
 
-        if use_tiling:
-            self.enable_tiling()
+        self.enable_tiling(use_tiling)
         
     def get_encoder(self):
         if self.use_quant_layer:

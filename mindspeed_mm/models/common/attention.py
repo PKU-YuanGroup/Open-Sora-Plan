@@ -6,6 +6,10 @@ import torch
 import torch.nn as nn
 import torch_npu
 from megatron.core import mpu
+from megatron import core
+from megatron.core import mpu, tensor_parallel
+from megatron.training import get_args
+from megatron.training.arguments import core_transformer_config_from_args
 from mindspeed_mm.utils.utils import video_to_image
 from ..common.normalize import Normalize
 from .embeddings.rope import RoPE3D, PositionGetter3D
@@ -62,13 +66,52 @@ class MultiHeadSparseAttentionSBH(nn.Module):
             self.rope = RoPE3D(interpolation_scale=interpolation_scale)
             self.position_getter = PositionGetter3D()
 
+        args = get_args()
+        config = core_transformer_config_from_args(args)
+        self.sp_size = mpu.get_context_parallel_world_size()
+        self.tp_size = mpu.get_tensor_model_parallel_world_size()
+
+        self.num_attention_heads_per_partition = core.utils.divide(num_heads, self.tp_size)
+        self.num_attention_heads_per_partition_per_cp = core.utils.divide(self.num_attention_heads_per_partition,
+                                                                          self.sp_size)
+
         key_dim = key_dim if key_dim is not None else query_dim
 
-        self.proj_q = nn.Linear(query_dim, self.inner_dim, bias=proj_qkv_bias)
-        self.proj_k = nn.Linear(key_dim, self.inner_dim, bias=proj_qkv_bias)
-        self.proj_v = nn.Linear(key_dim, self.inner_dim, bias=proj_qkv_bias)
+        self.proj_q = tensor_parallel.ColumnParallelLinear(
+            self.inner_dim,
+            query_dim,
+            config=config,
+            init_method=config.init_method,
+            bias=proj_qkv_bias,
+            gather_output=False
+        )
+        self.proj_k = tensor_parallel.ColumnParallelLinear(
+            self.inner_dim,
+            key_dim,
+            config=config,
+            init_method=config.init_method,
+            bias=proj_qkv_bias,
+            gather_output=False
+        )
+        self.proj_v = tensor_parallel.ColumnParallelLinear(
+            self.inner_dim,
+            key_dim,
+            config=config,
+            init_method=config.init_method,
+            bias=proj_qkv_bias,
+            gather_output=False
+        )
 
-        self.proj_out = nn.Linear(self.inner_dim, query_dim, bias=proj_out_bias)
+        self.proj_out = tensor_parallel.RowParallelLinear(
+            query_dim,
+            self.inner_dim,
+            config=config,
+            init_method=config.init_method,
+            bias=proj_out_bias,
+            input_is_parallel=True,
+            skip_bias_add=False
+        )
+
         self.dropout = nn.Dropout(dropout)
 
     def _sparse_1d(self, x, frame, height, width):
@@ -126,33 +169,31 @@ class MultiHeadSparseAttentionSBH(nn.Module):
 
         residual = hidden_states
 
-        sequence_length, batch_size, _ = (
-            hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
-        )
+        sequence_length, batch_size, _ = hidden_states.shape
 
-        query = self.proj_q(hidden_states)
+        query, _ = self.proj_q(hidden_states)
 
         if encoder_hidden_states is None:
             encoder_hidden_states = hidden_states
 
-        key = self.proj_k(encoder_hidden_states)
-        value = self.proj_v(encoder_hidden_states)
+        key, _ = self.proj_k(encoder_hidden_states)
+        value, _ = self.proj_v(encoder_hidden_states)
 
-        FA_num_head = self.num_heads
         total_frames = frames
-        sp_size = mpu.get_context_parallel_world_size()
 
-        if sp_size > 1:
-            FA_num_head = FA_num_head // sp_size
-            total_frames = frames * sp_size
+        if self.sp_size > 1:
+            query = query.view(-1, self.num_attention_heads_per_partition, self.head_dim)
+            key = key.view(-1, self.num_attention_heads_per_partition, self.head_dim)
+            value = value.view(-1, self.num_attention_heads_per_partition, self.head_dim)
+            total_frames = frames * self.sp_size
             sp_group = mpu.get_context_parallel_group()
 
             # apply all_to_all to gather sequence and split attention heads [s // sp * b, h, d] -> [s * b, h // sp, d]
-            query = all_to_all_SBH(query.view(-1, self.num_heads, self.head_dim), sp_group, scatter_dim=1, gather_dim=0)
-            key = all_to_all_SBH(key.view(-1, self.num_heads, self.head_dim), sp_group, scatter_dim=1, gather_dim=0)
-            value = all_to_all_SBH(value.view(-1, self.num_heads, self.head_dim), sp_group, scatter_dim=1, gather_dim=0)
-        query = query.view(-1, batch_size, FA_num_head, self.head_dim)
-        key = key.view(-1, batch_size, FA_num_head, self.head_dim)
+            query = all_to_all_SBH(query, sp_group, scatter_dim=1, gather_dim=0)
+            key = all_to_all_SBH(key, sp_group, scatter_dim=1, gather_dim=0)
+            value = all_to_all_SBH(value, sp_group, scatter_dim=1, gather_dim=0)
+        query = query.view(-1, batch_size, self.num_attention_heads_per_partition_per_cp, self.head_dim)
+        key = key.view(-1, batch_size, self.num_attention_heads_per_partition_per_cp, self.head_dim)
 
         if not self.is_cross_attn:
             # require the shape of (ntokens x batch_size x nheads x dim)
@@ -160,9 +201,9 @@ class MultiHeadSparseAttentionSBH(nn.Module):
             query = self.rope(query, pos_thw)
             key = self.rope(key, pos_thw)
 
-        query = query.view(-1, batch_size, FA_num_head * self.head_dim)
-        key = key.view(-1, batch_size, FA_num_head * self.head_dim)
-        value = value.view(-1, batch_size, FA_num_head * self.head_dim)
+        query = query.view(-1, batch_size, self.num_attention_heads_per_partition_per_cp * self.head_dim)
+        key = key.view(-1, batch_size, self.num_attention_heads_per_partition_per_cp * self.head_dim)
+        value = value.view(-1, batch_size, self.num_attention_heads_per_partition_per_cp * self.head_dim)
         if self.sparse1d:
             query, pad_len = self._sparse_1d(query, total_frames, height, width)
             if self.is_cross_attn:
@@ -176,7 +217,7 @@ class MultiHeadSparseAttentionSBH(nn.Module):
             query,
             key,
             value,
-            head_num=FA_num_head,
+            head_num=self.num_attention_heads_per_partition_per_cp,
             atten_mask=attention_mask,
             input_layout="SBH",
             scale=1 / math.sqrt(self.head_dim)
@@ -186,16 +227,16 @@ class MultiHeadSparseAttentionSBH(nn.Module):
             hidden_states = self._reverse_sparse_1d(hidden_states, total_frames, height, width, pad_len)
 
         # [s, b, h // sp * d] -> [s // sp * b, h, d] -> [s // sp, b, h * d]
-        if sp_size > 1:
+        if self.sp_size > 1:
             sp_group = mpu.get_context_parallel_group()
-            hidden_states = all_to_all_SBH(hidden_states.reshape(-1, FA_num_head, self.head_dim), sp_group,
-                                           scatter_dim=0, gather_dim=1)
-            hidden_states = hidden_states.view(-1, batch_size, self.inner_dim)
+            hidden_states = all_to_all_SBH(hidden_states.reshape(-1, self.num_attention_heads_per_partition_per_cp, self.head_dim),
+                                           sp_group, scatter_dim=0, gather_dim=1)
+            hidden_states = hidden_states.view(sequence_length, batch_size, -1)
 
         hidden_states = hidden_states.to(query.dtype)
 
         # linear proj
-        hidden_states = self.proj_out(hidden_states)
+        hidden_states, _ = self.proj_out(hidden_states)
         # dropout
         hidden_states = self.dropout(hidden_states)
 
