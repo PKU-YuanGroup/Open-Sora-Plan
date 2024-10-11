@@ -5,7 +5,13 @@ from ..modules import CausalConv3d
 from ..modules.ops import video_to_image
 
 from einops import rearrange
-
+try:
+    import torch_npu
+    from opensora.npu_config import npu_config, set_run_dtype
+except Exception as e:
+    torch_npu = None
+    npu_config = None
+    
 class HaarWaveletTransform3D(nn.Module):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -54,6 +60,12 @@ class HaarWaveletTransform3D(nn.Module):
 
     def forward(self, x):
         assert x.dim() == 5
+        
+        if torch_npu is not None:
+            dtype = x.dtype
+            x = x.to(npu_config.conv_dtype)
+            self.to(npu_config.conv_dtype)
+        
         b = x.shape[0]
         x = rearrange(x, "b c t h w -> (b c) 1 t h w")
         low_low_low = self.h_conv(x)
@@ -86,6 +98,12 @@ class HaarWaveletTransform3D(nn.Module):
             ],
             dim=1,
         )
+        
+        if torch_npu is not None:
+            x = x.to(dtype)
+            output = output.to(dtype)
+            self.to(dtype)
+        
         return output
 
 class InverseHaarWaveletTransform3D(nn.Module):
@@ -121,6 +139,20 @@ class InverseHaarWaveletTransform3D(nn.Module):
 
     def forward(self, coeffs):
         assert coeffs.dim() == 5
+        
+        if torch_npu is not None:
+            dtype = coeffs.dtype
+            coeffs = coeffs.to(npu_config.conv_dtype)
+            self.h = self.h.to(npu_config.conv_dtype)
+            self.g = self.g.to(npu_config.conv_dtype)
+            self.hh = self.hh.to(npu_config.conv_dtype)
+            self.gh = self.gh.to(npu_config.conv_dtype)
+            self.h_v = self.h_v.to(npu_config.conv_dtype)
+            self.g_v = self.g_v.to(npu_config.conv_dtype)
+            self.hh_v = self.hh_v.to(npu_config.conv_dtype)
+            self.gh_v = self.gh_v.to(npu_config.conv_dtype)
+            
+        
         b = coeffs.shape[0]
 
         (
@@ -175,6 +207,19 @@ class InverseHaarWaveletTransform3D(nn.Module):
             )
             self.causal_cached = True
         reconstructed = rearrange(reconstructed, "(b c) 1 t h w -> b c t h w", b=b)
+        
+        if torch_npu is not None:
+            coeffs = coeffs.to(dtype)
+            reconstructed = reconstructed.to(dtype)
+            self.h = self.h.to(dtype)
+            self.g = self.g.to(dtype)
+            self.hh = self.hh.to(dtype)
+            self.gh = self.gh.to(dtype)
+            self.h_v = self.h_v.to(dtype)
+            self.g_v = self.g_v.to(dtype)
+            self.hh_v = self.hh_v.to(dtype)
+            self.gh_v = self.gh_v.to(dtype)
+        
         return reconstructed
 
 

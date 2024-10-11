@@ -28,12 +28,12 @@ from tqdm import tqdm
 from PIL import Image
 from accelerate.logging import get_logger
 import gc
+import decord
 
 from opensora.utils.dataset_utils import DecordInit
 from opensora.utils.utils import text_preprocessing
-from opensora.dataset.transform import get_params, longsideresize, add_masking_notice, motion_mapping_fun, calculate_statistics, \
-    add_webvid_watermark_notice, clean_vidal, add_high_aesthetic_notice_image, add_aesthetic_notice_video, add_high_aesthetic_notice_image_human
-
+from opensora.dataset.transform import get_params, maxhwresize, add_masking_notice, calculate_statistics, \
+    add_aesthetic_notice_image, add_aesthetic_notice_video
 from opensora.utils.mask_utils import MaskProcessor, STR_TO_TYPE
 from opensora.dataset.t2v_datasets import T2V_dataset, DataSetProg
 
@@ -51,18 +51,16 @@ def type_ratio_normalize(mask_type_ratio_dict):
     return {k: v / total for k, v in mask_type_ratio_dict.items()}
 
 class Inpaint_dataset(T2V_dataset):
-    def __init__(self, args, resize_transform, transform, resize_transform_img, temporal_sample, tokenizer_1, tokenizer_2):
+    def __init__(self, args, resize_transform, transform, temporal_sample, tokenizer_1, tokenizer_2):
         super().__init__(
             args=args, 
-            transform=transform, 
-            transform_img=transform, 
+            transform=transform,  
             temporal_sample=temporal_sample, 
             tokenizer_1=tokenizer_1, 
             tokenizer_2=tokenizer_2
         )
 
         self.resize_transform = resize_transform
-        self.resize_transform_img = resize_transform_img
 
         if self.num_frames != 1:
             self.mask_type_ratio_dict_video = args.mask_type_ratio_dict_video if args.mask_type_ratio_dict_video is not None else {'random_temporal': 1.0}
@@ -102,6 +100,81 @@ class Inpaint_dataset(T2V_dataset):
                 text = ''
 
         return dict(text=text)
+    
+    def decord_read(self, video_data):
+        path = video_data['path']
+        predefine_frame_indice = video_data['sample_frame_index']
+        start_frame_idx = video_data['start_frame_idx']
+        clip_total_frames = video_data['num_frames']
+        fps = video_data['fps']
+        s_x, e_x, s_y, e_y = video_data['crop']
+
+        predefine_num_frames = len(predefine_frame_indice)
+        decord_vr = decord.VideoReader(path, ctx=decord.cpu(0), num_threads=1)
+
+        frame_indices = self.get_actual_frame(
+            fps, start_frame_idx, clip_total_frames, path, predefine_num_frames, predefine_frame_indice
+            )
+        
+        video_data = decord_vr.get_batch(frame_indices).asnumpy()
+        video_data = torch.from_numpy(video_data)
+        video_data = video_data.permute(0, 3, 1, 2)  # (T, H, W, C) -> (T C H W)
+        video_data = video_data[:, :, s_y: e_y, s_x: e_x]
+        # del decord_vr
+        # gc.collect()
+        return video_data, frame_indices
+    
+    def opencv_read(self, video_data):
+        path = video_data['path']
+        predefine_frame_indice = video_data['sample_frame_index']
+        start_frame_idx = video_data['start_frame_idx']
+        clip_total_frames = video_data['num_frames']
+        fps = video_data['fps']
+        s_x, e_x, s_y, e_y = video_data['crop']
+
+        predefine_num_frames = len(predefine_frame_indice)
+        cv2_vr = cv2.VideoCapture(path)
+        if not cv2_vr.isOpened():
+            raise ValueError(f'can not open {path}')
+        frame_indices = self.get_actual_frame(
+            fps, start_frame_idx, clip_total_frames, path, predefine_num_frames, predefine_frame_indice
+            )
+
+        video_data = []
+        for frame_idx in frame_indices:
+            cv2_vr.set(1, frame_idx)
+            _, frame = cv2_vr.read()
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            video_data.append(torch.from_numpy(frame).permute(2, 0, 1))
+        cv2_vr.release()
+        video_data = torch.stack(video_data)  # (T C H W)
+        video_data = video_data[:, :, s_y: e_y, s_x: e_x]
+        return video_data, frame_indices
+    
+    def decord_read_mask(self, mask_path, frame_indices):
+        decord_vr = decord.VideoReader(mask_path, ctx=decord.cpu(0), num_threads=1)
+
+        mask_data = decord_vr.get_batch(frame_indices).asnumpy()
+        mask_data = torch.from_numpy(mask_data)
+        mask_data = mask_data.permute(0, 3, 1, 2)  # (T, H, W, C) -> (T C H W)
+        # del decord_vr
+        # gc.collect()
+        return mask_data
+
+    def opencv_read_mask(self, mask_path, frame_indices):
+        cv2_vr = cv2.VideoCapture(mask_path)
+        if not cv2_vr.isOpened():
+            raise ValueError(f'can not open {mask_path}')
+
+        mask_data = []
+        for frame_idx in frame_indices:
+            cv2_vr.set(1, frame_idx)
+            _, frame = cv2_vr.read()
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            mask_data.append(torch.from_numpy(frame).permute(2, 0, 1))
+        cv2_vr.release()
+        mask_data = torch.stack(mask_data)  # (T C H W)
+        return mask_data
 
     def get_video(self, idx):
         # npu_config.print_msg(f"current idx is {idx}")
@@ -113,20 +186,19 @@ class Inpaint_dataset(T2V_dataset):
         video_data = dataset_prog.cap_list[idx]
         video_path = video_data['path']
         assert os.path.exists(video_path), f"file {video_path} do not exist!"
-        frame_indice = dataset_prog.cap_list[idx]['sample_frame_index']
         sample_h = video_data['resolution']['sample_height']
         sample_w = video_data['resolution']['sample_width']
         
         mask = None
 
         if self.video_reader == 'decord':
-            video = self.decord_read(video_path, predefine_frame_indice=frame_indice)
+            video, frame_indices = self.decord_read(video_data)
             if video_data.get('mask_path', None) is not None:
-                mask = self.decord_read(video_data['mask_path'], predefine_frame_indice=frame_indice)
+                mask = self.decord_read_mask(video_data['mask_path'], frame_indices)
         elif self.video_reader == 'opencv':
-            video = self.opencv_read(video_path, predefine_frame_indice=frame_indice)
+            video, frame_indices = self.opencv_read(video_data)
             if video_data.get('mask_path', None) is not None:
-                mask = self.opencv_read(video_data['mask_path'], predefine_frame_indice=frame_indice)
+                mask = self.opencv_read_mask(video_data['mask_path'], frame_indices)
         else:
             NotImplementedError(f'Found {self.video_reader}, but support decord or opencv')
         # import ipdb;ipdb.set_trace()
@@ -152,15 +224,10 @@ class Inpaint_dataset(T2V_dataset):
         if not isinstance(text, list):
             text = [text]
         text = [random.choice(text)]
-        if '/VIDAL-10M/' in video_path:
-            text = [clean_vidal(text[0])]
-        if '/Webvid-10M/' in video_path:
-            text = [add_webvid_watermark_notice(text[0])]
-        if not (video_data.get('aesthetic', None) is None):
-            text = [add_aesthetic_notice_video(text[0], video_data['aesthetic'])]
+        if video_data.get('aesthetic', None) is not None or video_data.get('aes', None) is not None:
+            aes = video_data.get('aesthetic', None) or video_data.get('aes', None)
+            text = [add_aesthetic_notice_video(text[0], aes)]
 
-        text = [text[0].replace(' image ', ' video ').replace(' image,', ' video,')]
-        text = text_preprocessing(text, support_Chinese=self.support_Chinese)
         text = self.drop(text, is_video=True)['text']
 
         text_tokens_and_mask_1 = self.tokenizer_1(
@@ -189,23 +256,15 @@ class Inpaint_dataset(T2V_dataset):
             input_ids_2 = text_tokens_and_mask_2['input_ids']
             cond_mask_2 = text_tokens_and_mask_2['attention_mask']
 
-        if self.use_motion:
-            motion_score = motion_mapping_fun(video_data['motion_score'])
-            return dict(
-                pixel_values=video, input_ids_1=input_ids_1, cond_mask_1=cond_mask_1, motion_score=motion_score, 
-                input_ids_2=input_ids_2, cond_mask_2=cond_mask_2,
-                )
-        else:
-            return dict(
-                pixel_values=video, input_ids_1=input_ids_1, cond_mask_1=cond_mask_1, motion_score=None, 
-                input_ids_2=input_ids_2, cond_mask_2=cond_mask_2,
-                )
+        return dict(
+            pixel_values=video, input_ids_1=input_ids_1, cond_mask_1=cond_mask_1, 
+            input_ids_2=input_ids_2, cond_mask_2=cond_mask_2,
+            )
 
     def get_image(self, idx):
         image_data = dataset_prog.cap_list[idx]  # [{'path': path, 'cap': cap}, ...]
         sample_h = image_data['resolution']['sample_height']
         sample_w = image_data['resolution']['sample_width']
-        is_ood_img =  image_data['is_ood_img']
 
         image = Image.open(image_data['path']).convert('RGB')  # [h, w, c]
         image = torch.from_numpy(np.array(image))  # [h, w, c]
@@ -214,11 +273,6 @@ class Inpaint_dataset(T2V_dataset):
         mask = None
         if image_data.get('mask_path', None) is not None:
             mask = Image.open(image_data['mask_path']).convert('L')
-
-        if is_ood_img:
-            image = self.resize_transform_img(image)
-        else:
-            image = self.resize_transform(image)
 
         if mask is not None:
             mask = torch.from_numpy(np.array(mask)).unsqueeze(0).unsqueeze(0) # [1 1 h w]
@@ -238,14 +292,12 @@ class Inpaint_dataset(T2V_dataset):
 
         caps = image_data['cap'] if isinstance(image_data['cap'], list) else [image_data['cap']]
         caps = [random.choice(caps)]
+        # caps = [caps[0]]
         if '/sam/' in image_data['path']:
             caps = [add_masking_notice(caps[0])]
-        if 'ideogram' in image_data['path']:
-            caps = [add_high_aesthetic_notice_image(caps[0])]
-        if 'civitai' in image_data['path']:
-            caps = [add_high_aesthetic_notice_image(caps[0])]
-        if 'human_images' in image_data['path']:
-            caps = [add_high_aesthetic_notice_image_human(caps[0])]
+        if image_data.get('aesthetic', None) is not None or image_data.get('aes', None) is not None:
+            aes = image_data.get('aesthetic', None) or image_data.get('aes', None)
+            caps = [add_aesthetic_notice_image(caps[0], aes)]
         text = text_preprocessing(caps, support_Chinese=self.support_Chinese)
         text = self.drop(text, is_video=False)['text']
 
@@ -275,14 +327,7 @@ class Inpaint_dataset(T2V_dataset):
             input_ids_2 = text_tokens_and_mask_2['input_ids']  # 1, l
             cond_mask_2 = text_tokens_and_mask_2['attention_mask']  # 1, l
 
-        if self.use_motion:
-            motion_score = motion_mapping_fun(image_data['motion_score'])
-            return dict(
-                pixel_values=image, input_ids_1=input_ids_1, cond_mask_1=cond_mask_1, motion_score=motion_score, 
-                input_ids_2=input_ids_2, cond_mask_2=cond_mask_2
-                )
-        else:
-            return dict(
-                pixel_values=image, input_ids_1=input_ids_1, cond_mask_1=cond_mask_1, motion_score=None, 
-                input_ids_2=input_ids_2, cond_mask_2=cond_mask_2
-                )
+        return dict(
+            pixel_values=image, input_ids_1=input_ids_1, cond_mask_1=cond_mask_1, motion_score=None, 
+            input_ids_2=input_ids_2, cond_mask_2=cond_mask_2
+            )

@@ -70,86 +70,11 @@ from opensora.utils.utils import explicit_uniform_sampling
 from opensora.sample.pipeline_opensora import OpenSoraPipeline
 from opensora.models.causalvideovae import ae_stride_config, ae_wrapper
 
-# from opensora.utils.utils import monitor_npu_power
-
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 check_min_version("0.24.0")
 logger = get_logger(__name__)
 from torch.utils.data import _utils
 _utils.MP_STATUS_CHECK_INTERVAL = 1800.0  # dataloader timeout (default is 5.0s), we increase it to 1800s.
-
-@torch.inference_mode()
-def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weight_dtype, global_step, ema=False):
-    positive_prompt = "(masterpiece), (best quality), (ultra-detailed), {}. emotional, harmonious, vignette, 4k epic detailed, shot on kodak, 35mm photo, sharp focus, high budget, cinemascope, moody, epic, gorgeous"
-    negative_prompt = """nsfw, lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry, 
-                        """
-    validation_prompt = [
-        "a cat wearing sunglasses and working as a lifeguard at pool.",
-        "A serene underwater scene featuring a sea turtle swimming through a coral reef. The turtle, with its greenish-brown shell, is the main focus of the video, swimming gracefully towards the right side of the frame. The coral reef, teeming with life, is visible in the background, providing a vibrant and colorful backdrop to the turtle's journey. Several small fish, darting around the turtle, add a sense of movement and dynamism to the scene."
-        ]
-    logger.info(f"Running validation....\n")
-    model = accelerator.unwrap_model(model)
-    scheduler = DPMSolverMultistepScheduler()
-    opensora_pipeline = OpenSoraPipeline(vae=vae,
-                                         text_encoder_1=text_encoder[0],
-                                         text_encoder_2=text_encoder[1],
-                                         tokenizer=tokenizer,
-                                         scheduler=scheduler,
-                                         transformer=model).to(device=accelerator.device)
-    videos = []
-    for prompt in validation_prompt:
-        logger.info('Processing the ({}) prompt'.format(prompt))
-        video = opensora_pipeline(
-                                positive_prompt.format(prompt),
-                                negative_prompt=negative_prompt, 
-                                num_frames=args.num_frames,
-                                height=args.max_height,
-                                width=args.max_width,
-                                num_inference_steps=args.num_sampling_steps,
-                                guidance_scale=args.guidance_scale,
-                                enable_temporal_attentions=True,
-                                num_images_per_prompt=1,
-                                mask_feature=True,
-                                max_sequence_length=args.model_max_length,
-                                ).images
-        videos.append(video[0])
-    # import ipdb;ipdb.set_trace()
-    gc.collect()
-    torch.cuda.empty_cache()
-    videos = torch.stack(videos).numpy()
-    videos = rearrange(videos, 'b t h w c -> b t c h w')
-    for tracker in accelerator.trackers:
-        if tracker.name == "tensorboard":
-            if videos.shape[1] == 1:
-                assert args.num_frames == 1
-                images = rearrange(videos, 'b 1 c h w -> (b 1) h w c')
-                np_images = np.stack([np.asarray(img) for img in images])
-                tracker.writer.add_images(f"{'ema_' if ema else ''}validation", np_images, global_step, dataformats="NHWC")
-            else:
-                np_videos = np.stack([np.asarray(vid) for vid in videos])
-                tracker.writer.add_video(f"{'ema_' if ema else ''}validation", np_videos, global_step, fps=24)
-        if tracker.name == "wandb":
-            import wandb
-            if videos.shape[1] == 1:
-                images = rearrange(videos, 'b 1 c h w -> (b 1) h w c')
-                logs = {
-                    f"{'ema_' if ema else ''}validation": [
-                        wandb.Image(image, caption=f"{i}: {prompt}")
-                        for i, (image, prompt) in enumerate(zip(images, validation_prompt))
-                    ]
-                }
-            else:
-                logs = {
-                    f"{'ema_' if ema else ''}validation": [
-                        wandb.Video(video, caption=f"{i}: {prompt}", fps=24)
-                        for i, (video, prompt) in enumerate(zip(videos, validation_prompt))
-                    ]
-                }
-            tracker.log(logs, step=global_step)
-
-    del opensora_pipeline
-    gc.collect()
-    torch.cuda.empty_cache()
 
 
 class ProgressInfo:
@@ -183,10 +108,6 @@ def main(args):
     if args.report_to == "wandb":
         if not is_wandb_available():
             raise ImportError("Make sure to install wandb if you want to use it for logging during training.")
-
-        # if accelerator.is_main_process:
-        #     from threading import Thread
-        #     Thread(target=monitor_npu_power, daemon=True).start()
 
     # Make one log on every process with the configuration for debugging.
     logging.basicConfig(
@@ -480,22 +401,14 @@ def main(args):
     if args.min_hxw is None:
         args.min_hxw = args.max_hxw // 4
     train_dataset = getdataset(args)
-    sampler = LengthGroupedSampler(
-                args.train_batch_size,
-                world_size=accelerator.num_processes, 
-                gradient_accumulation_size=args.gradient_accumulation_steps, 
-                initial_global_step=initial_global_step_for_sampler, 
-                lengths=train_dataset.lengths, 
-                group_data=args.group_data, 
-            )
     train_dataloader = DataLoader(
         train_dataset,
-        shuffle=False,
-        pin_memory=True,
+        shuffle=True,
+        pin_memory=False,
         collate_fn=Collate(args),
         batch_size=args.train_batch_size,
         num_workers=args.dataloader_num_workers,
-        sampler=sampler, 
+        sampler=None, 
         drop_last=True, 
         # prefetch_factor=4
     )
@@ -746,27 +659,6 @@ def main(args):
         if accelerator.sync_gradients:
             sync_gradients_info(loss)
 
-        if accelerator.is_main_process:
-
-            if progress_info.global_step % args.checkpointing_steps == 0:
-
-                if args.enable_tracker:
-                    log_validation(
-                        args, model, ae, [text_enc_1.text_enc, getattr(text_enc_2, 'text_enc', None)], 
-                        train_dataset.tokenizer, accelerator, weight_dtype, progress_info.global_step
-                    )
-
-                    if args.use_ema and npu_config is None:
-                        # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
-                        ema_model.store(model.parameters())
-                        ema_model.copy_to(model.parameters())
-                        log_validation(
-                            args, model, ae, [text_enc_1.text_enc, getattr(text_enc_2, 'text_enc', None)], 
-                            train_dataset.tokenizer, accelerator, weight_dtype, progress_info.global_step, ema=True
-                        )
-                        # Switch back to the original UNet parameters.
-                        ema_model.restore(model.parameters())
-
         if prof is not None:
             prof.step()
 
@@ -900,45 +792,8 @@ def main(args):
             if step >= 2 and torch_npu is not None and npu_config is not None:
                 npu_config.free_mm()
 
-    if npu_config is not None and npu_config.on_npu and npu_config.profiling:
-        experimental_config = torch_npu.profiler._ExperimentalConfig(
-            profiler_level=torch_npu.profiler.ProfilerLevel.Level1,
-            aic_metrics=torch_npu.profiler.AiCMetrics.PipeUtilization
-        )
-        profile_output_path = f"/home/image_data/npu_profiling_t2v/{os.getenv('PROJECT_NAME', 'local')}"
-        os.makedirs(profile_output_path, exist_ok=True)
-
-        with torch_npu.profiler.profile(
-                activities=[
-                    torch_npu.profiler.ProfilerActivity.CPU, 
-                    torch_npu.profiler.ProfilerActivity.NPU, 
-                    ],
-                with_stack=True,
-                record_shapes=True,
-                profile_memory=True,
-                experimental_config=experimental_config,
-                schedule=torch_npu.profiler.schedule(
-                    wait=npu_config.profiling_step, warmup=0, active=1, repeat=1, skip_first=0
-                    ),
-                on_trace_ready=torch_npu.profiler.tensorboard_trace_handler(f"{profile_output_path}/")
-        ) as prof:
-            train_one_epoch(prof)
-    else:
-        if args.enable_profiling:
-            with torch.profiler.profile(
-                activities=[
-                    # torch.profiler.ProfilerActivity.CPU, 
-                    torch.profiler.ProfilerActivity.CUDA, 
-                    ], 
-                schedule=torch.profiler.schedule(wait=5, warmup=1, active=1, repeat=1, skip_first=0),
-                on_trace_ready=torch.profiler.tensorboard_trace_handler('./gpu_profiling_active_1_delmask_delbkmask_andvaemask_curope_gpu'),
-                record_shapes=True,
-                profile_memory=True,
-                with_stack=True
-            ) as prof:
-                train_one_epoch(prof)
-        else:
-            train_one_epoch()
+   
+    train_one_epoch()
     accelerator.wait_for_everyone()
     accelerator.end_training()
     if get_sequence_parallel_state():
@@ -1080,5 +935,7 @@ if __name__ == "__main__":
     parser.add_argument("--sp_size", type=int, default=1, help="For sequence parallel")
     parser.add_argument("--train_sp_batch_size", type=int, default=1, help="Batch size for sequence parallel training")
 
+    parser.add_argument("--num_test_samples", type=int, default=1000000, help="Number of samples to generate for each test set.")
+    parser.add_argument("--image_data_ratio", type=float, default=0.1, help="Ratio of image data in the dataset.")
     args = parser.parse_args()
     main(args)

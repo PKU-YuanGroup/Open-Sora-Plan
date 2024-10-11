@@ -80,10 +80,16 @@ def prepare_pipeline(args, dtype, device):
     if args.enable_tiling:
         vae.vae.enable_tiling()
 
-    text_encoder_1 = MT5EncoderModel.from_pretrained(
-        args.text_encoder_name_1, cache_dir=args.cache_dir, 
-        torch_dtype=weight_dtype
-        ).eval()
+    if 'mt5' in args.text_encoder_name_1:
+        text_encoder_1 = MT5EncoderModel.from_pretrained(
+            args.text_encoder_name_1, cache_dir=args.cache_dir, 
+            torch_dtype=weight_dtype
+            ).eval()
+    else:
+        text_encoder_1 = T5EncoderModel.from_pretrained(
+            args.text_encoder_name_1, cache_dir=args.cache_dir, 
+            torch_dtype=weight_dtype
+            ).eval()
     tokenizer_1 = AutoTokenizer.from_pretrained(
         args.text_encoder_name_1, cache_dir=args.cache_dir
         )

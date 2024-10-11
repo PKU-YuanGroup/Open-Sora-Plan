@@ -183,6 +183,14 @@ class T2V_dataset(Dataset):
         self.executor = ThreadPoolExecutor(max_workers=1)
         self.timeout = 90
 
+        self.sub_root_list = [
+            '/home/obs_data/open-sora-plan/recap_datacomp_1b_data/output',
+            '/home/obs_data/open-sora-plan/20240920-node13-data1/recap_datacomp_1b_data/output',
+            '/home/obs_data/open-sora-plan/20240920-node14-data1/recap_datacomp_1b_data/output',
+            '/home/obs_data/open-sora-plan/20240920-node4-data2/recap_datacomp_1b_data/output',
+            '/home/obs_data/open-sora-plan/20240920-node4-data3/recap_datacomp_1b_data/output',
+        ]
+
     def set_checkpoint(self, n_used_elements):
         for i in range(len(dataset_prog.n_used_elements)):
             dataset_prog.n_used_elements[i] = n_used_elements
@@ -192,10 +200,10 @@ class T2V_dataset(Dataset):
 
     def __getitem__(self, idx):
         try:
-            future = self.executor.submit(self.get_data, idx)
-            data = future.result(timeout=self.timeout) 
-            # data = self.get_data(idx)
-            return data
+            # future = self.executor.submit(self.get_data, idx)
+            # data = future.result(timeout=self.timeout) 
+            # return data
+            return self.get_data(idx)
         except Exception as e:
             if len(str(e)) < 2:
                 e = f"TimeoutError, {self.timeout}s timeout occur with {dataset_prog.cap_list[idx]['path']}"
@@ -219,7 +227,14 @@ class T2V_dataset(Dataset):
 
         video_data = dataset_prog.cap_list[idx]
         video_path = video_data['path']
-        assert os.path.exists(video_path), f"file {video_path} do not exist!"
+
+        try_cnt = 0
+        for sub_root in self.sub_root_list:
+            video_path = opj(sub_root, video_path)
+            if os.path.exists(video_path):
+                break
+            try_cnt += 1
+        assert try_cnt < len(self.sub_root_list), f'video_path {video_path} not exists'
         sample_h = video_data['resolution']['sample_height']
         sample_w = video_data['resolution']['sample_width']
         if self.video_reader == 'decord':
@@ -278,10 +293,19 @@ class T2V_dataset(Dataset):
 
     def get_image(self, idx):
         image_data = dataset_prog.cap_list[idx]  # [{'path': path, 'cap': cap}, ...]
+
+        try_cnt = 0
+        for sub_root in self.sub_root_list:
+            image_path = opj(sub_root, image_data['path'])
+            if os.path.exists(image_path):
+                break
+            try_cnt += 1
+        assert try_cnt < len(self.sub_root_list), f'image_path {image_path} not exists'
+
         sample_h = image_data['resolution']['sample_height']
         sample_w = image_data['resolution']['sample_width']
 
-        image = Image.open(image_data['path']).convert('RGB')  # [h, w, c]
+        image = Image.open(image_path).convert('RGB')  # [h, w, c]
         image = torch.from_numpy(np.array(image))  # [h, w, c]
         image = rearrange(image, 'h w c -> c h w').unsqueeze(0)  #  [1 c h w]
 
@@ -293,7 +317,7 @@ class T2V_dataset(Dataset):
         caps = image_data['cap'] if isinstance(image_data['cap'], list) else [image_data['cap']]
         caps = [random.choice(caps)]
         # caps = [caps[0]]
-        if '/sam/' in image_data['path']:
+        if '/sam/' in image_path:
             caps = [add_masking_notice(caps[0])]
         if image_data.get('aesthetic', None) is not None or image_data.get('aes', None) is not None:
             aes = image_data.get('aesthetic', None) or image_data.get('aes', None)
@@ -357,7 +381,12 @@ class T2V_dataset(Dataset):
 
         with open(data, 'r') as f:
             folder_anno = [i.strip().split(',') for i in f.readlines() if len(i.strip()) > 0]
-        for sub_root, anno in tqdm(folder_anno):
+
+        folder_anno = [i[1] for i in folder_anno]
+
+        # for sub_root, anno in tqdm(folder_anno):
+        for anno in tqdm(folder_anno):
+
             print(f'Building {anno}...')
             if anno.endswith('.json'):
                 with open(anno, 'r') as f:
@@ -367,8 +396,9 @@ class T2V_dataset(Dataset):
                     sub_list = pickle.load(f)
             for i in tqdm(sub_list):
                 cnt += 1
-                path = os.path.join(sub_root, i['path'])
-                i['path'] = path
+                # path = os.path.join(sub_root, i['path'])
+                # i['path'] = path
+                path = i['path']
                 if path.endswith('.mp4'):
                     cnt_vid += 1
                 elif path.endswith('.jpg'):

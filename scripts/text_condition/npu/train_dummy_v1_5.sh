@@ -1,7 +1,7 @@
 export WANDB_KEY="720d886d8c437c2142c88056a1eab8ef78d64a1f"
 export WANDB_MODE="online"
 export ENTITY="yunyang"
-export PROJECT=$PROJECT_NAME
+export PROJECT='test_dummy'
 # export PROJECT='test'
 export HF_DATASETS_OFFLINE=1 
 export TRANSFORMERS_OFFLINE=1
@@ -14,34 +14,31 @@ export HCCL_OP_BASE_FFTS_MODE_ENABLE=TRUE
 # --multi_node_example_by_deepspeed.yaml
 
 accelerate launch \
-    --config_file scripts/accelerate_configs/multi_node_example_by_deepspeed.yaml \
-    --machine_rank=${MACHINE_RANK} \
-    --main_process_ip=${MAIN_PROCESS_IP_VALUE} \
-    opensora/train/train_t2v_diffusers.py \
+    --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
+    opensora/train/train_dummy_data.py \
     --model OpenSoraT2V_v1_5-2B/122 \
     --text_encoder_name_1 google/t5-v1_1-xl \
     --cache_dir "../../cache_dir/" \
     --text_encoder_name_2 laion/CLIP-ViT-bigG-14-laion2B-39B-b160k \
     --cache_dir "../../cache_dir/" \
-    --dataset t2v \
-    --data "scripts/train_data/image_data_debug_on_npu.txt" \
+    --dataset dummy \
     --ae WFVAEModel_D32_8x8x8 \
     --ae_path "/home/save_dir/lzj/formal_888" \
     --vae_fp32 \
     --sample_rate 1 \
     --num_frames 1 \
-    --max_hxw 147456 \
-    --min_hxw 36864 \
+    --max_height 352 \
+    --max_width 640 \
     --snr_gamma 5.0 \
     --interpolation_scale_t 1.0 \
     --interpolation_scale_h 1.0 \
     --interpolation_scale_w 1.0 \
     --gradient_checkpointing \
     --train_batch_size=1 \
-    --dataloader_num_workers 16 \
-    --gradient_accumulation_steps=4 \
+    --dataloader_num_workers 8 \
+    --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
-    --learning_rate=1e-4 \
+    --learning_rate=1e-5 \
     --lr_scheduler="constant" \
     --lr_warmup_steps=0 \
     --mixed_precision="bf16" \
@@ -60,10 +57,12 @@ accelerate launch \
     --train_fps 16 \
     --seed 1234 \
     --trained_data_global_step 0 \
+    --num_test_samples=100000000 \
+    --image_data_ratio 0.0 \
     --group_data \
     --use_decord \
     --prediction_type "v_prediction" \
     --v1_5_scheduler \
     --output_dir="/home/save_dir/runs/$PROJECT" \
+    --force_resolution
     # --resume_from_checkpoint="latest" \
-    # --force_resolution
