@@ -2,7 +2,7 @@
 """Pretrain SoRA."""
 
 import torch
-
+import gc
 import mindspeed.megatron_adaptor
 
 from megatron.core import mpu
@@ -83,6 +83,7 @@ def train_valid_test_datasets_provider(train_val_test_num_samples):
 
 
 if __name__ == "__main__":
+    gc.set_threshold(700, 10, 10000)
     train_valid_test_datasets_provider.is_distributed = True
     pretrain(
         train_valid_test_datasets_provider,

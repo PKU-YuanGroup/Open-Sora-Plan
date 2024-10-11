@@ -74,8 +74,6 @@ GPT_ARGS="
     --recompute-num-layers 32 \
     --use-distributed-optimizer \
     --empty-unused-memory-level 2 \
-    --manual-gc \
-    --manual-gc-interval 1
 "
 
 MM_ARGS="
