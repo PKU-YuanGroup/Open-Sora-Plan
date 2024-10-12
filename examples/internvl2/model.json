@@ -52,7 +52,7 @@
     },
     "image_encoder": {
         "vision_encoder": {
-            "model_id": "internVL",
+            "model_id": "InternViT",
             "num_layers": 24,
             "hidden_size": 1024,
             "ffn_hidden_size": 4096,

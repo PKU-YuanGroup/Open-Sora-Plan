@@ -7,7 +7,7 @@ from megatron.core.transformer.identity_op import IdentityOp
 from megatron.core.transformer.mlp import MLP, MLPSubmodules
 from megatron.core.transformer.spec_utils import ModuleSpec
 from megatron.core.transformer.transformer_layer import TransformerLayer, TransformerLayerSubmodules
-from mindspeed_mm.models.vision.vision_encoders.internvl_vit_model import InternRMSNorm, InternVitSelfAttention, InternVitTransformerLayer
+from mindspeed_mm.models.vision.vision_encoders.internvit_model import InternRMSNorm, InternVitSelfAttention, InternVitTransformerLayer
 
 
 def get_language_layer_spec() -> ModuleSpec:

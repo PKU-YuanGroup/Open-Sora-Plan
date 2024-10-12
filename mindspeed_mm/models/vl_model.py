@@ -59,7 +59,11 @@ class VLModel(nn.Module):
                 position_embedding_type=config.text_decoder.lm_position_embedding_type,
             )
         if self.add_image_encoder:
-            self.image_encoder = VisionModel(config.image_encoder)
+            self.image_encoder = VisionModel(
+                config.image_encoder,
+                config.image_encoder.vision_encoder.vision_transformer_layer_spec,
+                config.image_encoder.vision_projector.vision_projection_layer_spec,
+                )
 
     def shared_embedding_or_output_weight(self):
         """

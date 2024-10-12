@@ -6,12 +6,12 @@ from torch import nn
 from mindspeed_mm.models.common.module_spec.llava_layer_spec import get_layer_spec, get_mlp_module_spec
 from .projectors.multimodal_projector import MultimodalProjector
 from .vision_encoders.clip_vit_model import CLIPViT
-from .vision_encoders.internvl_vit_model import InternvlViT
+from .vision_encoders.internvit_model import InternViT
 
 
 VISION_MODEL_MAPPINGS = {
     "clip": CLIPViT,
-    "internVL": InternvlViT,
+    "InternViT": InternViT,
     "mlp": MultimodalProjector
 }
 
@@ -28,17 +28,17 @@ class VisionModel(nn.Module):
             "drop_vision_class_token": (bool),  # Drop vision class token(s) before input to the text decoder.
         }
     """
-    def __init__(self, config):
+    def __init__(self, config, encoder_transformer_layer_spec=None, projector_layer_spec=None):
         super().__init__()
         self.add_projector = config.vision_projector is not None
         self.encoder = VISION_MODEL_MAPPINGS[config.vision_encoder.model_id](
             config.vision_encoder,
-            config.vision_encoder.vision_transformer_layer_spec
+            encoder_transformer_layer_spec
         )
         if self.add_projector:
             self.projector = VISION_MODEL_MAPPINGS[config.vision_projector.model_id](
                 config.vision_projector,
-                config.vision_projector.vision_projection_layer_spec
+                projector_layer_spec
             )
 
     def set_input_tensor(self, input_tensor):

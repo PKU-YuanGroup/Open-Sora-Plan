@@ -20,7 +20,6 @@ from mindspeed_mm.data.data_utils.utils import build_iterations
 from mindspeed_mm.utils.utils import get_dtype
 from mindspeed_mm.models.internvl_model import InternVLModel
 from mindspeed_mm.utils.transformer_model_config import get_model_config
-from mindspeed_mm.models.common.module_spec.internvl_layer_spec import get_language_layer_spec, get_vit_layer_spec
 
 
 def initialize():
@@ -29,10 +28,12 @@ def initialize():
     print('++++++++++++++++++++++++++++++++++++ finish init ++++++++++++++++++++++++++++++++++++')
 
 
-def load_internvl_checkpoint(in_model, ckpt_path):
-    load_params = torch.load(ckpt_path, map_location='cpu')
-    print(in_model.load_state_dict(load_params, strict=False))
-    return in_model
+def load_internvl_checkpoint(model, ckpt_path):
+    if ckpt_path and len(ckpt_path) > 0:
+        load_params = torch.load(ckpt_path, map_location='cpu')
+        print(model.load_state_dict(load_params, strict=False))
+    else:
+        print("Warning: ckpt path is None or empty, skip loading ckpt")
 
 
 def model_provider(pre_process=True, post_process=True):
@@ -43,12 +44,12 @@ def model_provider(pre_process=True, post_process=True):
     model_config.image_encoder.vision_encoder = get_model_config(model_config.image_encoder.vision_encoder)
     model_config.text_decoder = get_model_config(model_config.text_decoder)
 
-    model_config.image_encoder.vision_transformer_layer_spec = get_vit_layer_spec(model_config.image_encoder.vision_encoder)
-    model_config.text_decoder.language_transformer_layer_spec = get_language_layer_spec()
-
     model = InternVLModel(model_config)
-    model = load_internvl_checkpoint(model, model_config.ckpt_path)
-    
+    if hasattr(model_config, "ckpt_path"):
+        load_internvl_checkpoint(model, model_config.ckpt_path)
+    else:
+        print("Warning: no ckpt path in config, skip loading ckpt")
+
     return model
 
 
@@ -93,7 +94,7 @@ def get_batch_on_this_tp_rank(data_iterator):
 
 def get_batch(data_iterator):
     """Generate a batch."""
-    if mpu.is_pipeline_first_stage():
+    if mpu.is_pipeline_first_stage() or mpu.is_pipeline_last_stage():
         batch = get_batch_on_this_tp_rank(data_iterator)
         batch = get_batch_on_this_cp_rank(batch)
         return batch['input_ids'], batch['labels'], batch['attention_mask'], batch['image'], batch['image_flags']
@@ -111,18 +112,18 @@ def loss_func(output_tensor):
 
 def forward_step(data_iterator, model):
     """Forward step."""
-
     args = get_args()
     input_ids, labels, attention_mask, image, image_flags = get_batch(data_iterator)
-    image = image.to(args.params_dtype)
-    ouput = model(
+    if image is not None:
+        image = image.to(args.params_dtype)
+    output = model(
         image=image,
         input_ids=input_ids,
         attention_mask=attention_mask,
         labels=labels,
         image_flags=image_flags
     )
-    return ouput, loss_func
+    return output, loss_func
 
 
 def train_valid_test_datasets_provider(train_val_test_num_samples):

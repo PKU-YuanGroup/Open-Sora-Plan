@@ -279,7 +279,7 @@ class InternVisionEmbeddings(nn.Module):
         return embeddings
 
 
-class InternvlViT(MultiModalModule):
+class InternViT(MultiModalModule):
 
     def __init__(self, config: TransformerConfig,
                  transformer_layer_spec: ModuleSpec,
