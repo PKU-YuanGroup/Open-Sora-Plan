@@ -6,6 +6,7 @@ from diffusers.schedulers import (
     DPMSolverSinglestepScheduler, CogVideoXDDIMScheduler
     )
 from einops import rearrange
+import time
 import torch
 import os
 import torch.distributed as dist
@@ -243,13 +244,6 @@ def run_model_and_save_samples(args, pipeline, caption_refiner_model=None, enhan
             conditional_pixel_values_path = [i.strip().split(',') for i in temp]
         
         mask_type = args.mask_type if args.mask_type is not None else None
-        if args.mask_path is None:
-            mask_path = []
-        elif args.mask_path is not None and not isinstance(args.mask_path, list):
-            args.mask_path = [args.mask_path]
-        if len(args.mask_path) == 1 and args.mask_path[0].endswith('txt'):
-            temp = open(args.mask_path[0], 'r').readlines()
-            mask_path = [i.strip().split(',') for i in temp]
 
     positive_prompt = """
     high quality, high aesthetic, {}
@@ -260,22 +254,26 @@ def run_model_and_save_samples(args, pipeline, caption_refiner_model=None, enhan
     low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry.
     """
     
-    def generate(prompt, conditional_pixel_values_path=None, mask_path=None, mask_type=None):
+    def generate(prompt, conditional_pixel_values_path=None, mask_type=None):
+        
         if args.caption_refiner is not None:
-            refine_prompt = caption_refiner_model.get_refiner_output(prompt)
-            print(f'\nOrigin prompt: {prompt}\n->\nRefine prompt: {refine_prompt}')
-            prompt = refine_prompt
+            if args.model_type != 'inpaint' and args.model_type != 'i2v':
+                refine_prompt = caption_refiner_model.get_refiner_output(prompt)
+                print(f'\nOrigin prompt: {prompt}\n->\nRefine prompt: {refine_prompt}')
+                prompt = refine_prompt
+            else:
+                # Due to the current use of LLM as the caption refiner, additional content that is not present in the control image will be added. Therefore, caption refiner is not used in this mode.
+                print('Caption refiner is not available for inpainting model, use the original prompt...')
+                time.sleep(3)
         input_prompt = positive_prompt.format(prompt)
+        
         if args.model_type == 'inpaint' or args.model_type == 'i2v':
             print(f'\nConditional pixel values path: {conditional_pixel_values_path}')
-            print(f'\nMask path: {mask_path}')
-            print(f'\nMask type: {mask_type}')
             videos = pipeline(
                 conditional_pixel_values_path=conditional_pixel_values_path,
-                mask_path=mask_path,
                 mask_type=mask_type,
                 crop_for_hw=args.crop_for_hw,
-                max_hw_square=args.max_hw_square,
+                max_hxw=args.max_hxw,
                 prompt=input_prompt, 
                 negative_prompt=negative_prompt, 
                 num_frames=args.num_frames,
@@ -365,10 +363,7 @@ def run_model_and_save_samples(args, pipeline, caption_refiner_model=None, enhan
         for index, (prompt, cond_path) in enumerate(zip(args.text_prompt, conditional_pixel_values_path)):
             if not args.sp and args.local_rank != -1 and index % args.world_size != args.local_rank:
                 continue
-            if len(mask_path) > 0:
-                generate(prompt, cond_path, mask_path[index], mask_type)
-            else:
-                generate(prompt, cond_path, None, mask_type)
+            generate(prompt, cond_path, mask_type)
     else:
         for index, prompt in enumerate(args.text_prompt):
             if not args.sp and args.local_rank != -1 and index % args.world_size != args.local_rank:
@@ -479,10 +474,9 @@ def get_args():
     parser.add_argument('--sp', action='store_true')
 
     parser.add_argument('--conditional_pixel_values_path', type=str, default=None)
-    parser.add_argument('--mask_path', type=str, default=None)
     parser.add_argument('--mask_type', type=str, default=None)
     parser.add_argument('--crop_for_hw', action='store_true')
-    parser.add_argument('--max_hw_square', type=int, default=1024 * 1024)
+    parser.add_argument('--max_hxw', type=int, default=236544) # 480*480
     args = parser.parse_args()
     assert not (args.sp and args.num_frames == 1)
     return args

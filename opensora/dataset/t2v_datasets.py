@@ -191,10 +191,10 @@ class T2V_dataset(Dataset):
 
     def __getitem__(self, idx):
         try:
-            # future = self.executor.submit(self.get_data, idx)
-            # data = future.result(timeout=self.timeout) 
-            # return data
-            return self.get_data(idx)
+            future = self.executor.submit(self.get_data, idx)
+            data = future.result(timeout=self.timeout) 
+            return data
+            # return self.get_data(idx)
         except Exception as e:
             if len(str(e)) < 2:
                 e = f"TimeoutError, {self.timeout}s timeout occur with {dataset_prog.cap_list[idx]['path']}"

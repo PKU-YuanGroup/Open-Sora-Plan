@@ -27,7 +27,7 @@ from diffusers.pipelines.pipeline_utils import DiffusionPipeline
 
 from opensora.models.diffusion.opensora_v1_2.modeling_inpaint import OpenSoraInpaint_v1_2
 from opensora.sample.pipeline_opensora import OpenSoraPipeline, OpenSoraPipelineOutput, rescale_noise_cfg
-from opensora.dataset.transform import CenterCropResizeVideo, LongSideResizeVideo, SpatialStrideCropVideo, ToTensorAfterResize
+from opensora.dataset.transform import CenterCropResizeVideo, SpatialStrideCropVideo,ToTensorAfterResize, maxhwresize
 from opensora.utils.mask_utils import MaskProcessor, MaskCompressor, MaskType, STR_TO_TYPE, TYPE_TO_STR
 
 try:
@@ -106,7 +106,8 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
             tokenizer_2=tokenizer_2,
         )
         
-        self.mask_processor = MaskProcessor()
+        # If performing continuation or random, the default mask is half of the frame, which can be modified
+        self.mask_processor = MaskProcessor(min_clear_ratio=0.5, max_clear_ratio=0.5) 
 
         self.mask_compressor = MaskCompressor(ae_stride_t=self.vae.vae_scale_factor[0], ae_stride_h=self.vae.vae_scale_factor[1], ae_stride_w=self.vae.vae_scale_factor[2])
         
@@ -114,7 +115,6 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
         self,
         conditional_pixel_values_path,
         conditional_pixel_values_indices,
-        mask_path,
         mask_type,
         prompt,
         num_frames,
@@ -143,14 +143,6 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
         if is_video_file(conditional_pixel_values_path[0]) and len(conditional_pixel_values_path) > 1:
             raise ValueError("conditional_pixel_values_path should be a list of image file paths or a single video file path")
         
-        if mask_path is not None:
-            if not isinstance(mask_path, list) or not isinstance(mask_path[0], str) or len(mask_path) != len(conditional_pixel_values_path):
-                raise ValueError("mask_path should be a list of strings with the same length as conditional_pixel_values_path")
-        
-            if not (is_image_file(conditional_pixel_values_path[0]) and is_image_file(mask_path[0])) \
-                and not (is_video_file(conditional_pixel_values_path[0]) and is_video_file(mask_path[0])):
-                raise ValueError("conditional_pixel_values_path and mask_path should be both image files or both video files")
-        
         if conditional_pixel_values_indices is not None \
             and (not isinstance(conditional_pixel_values_indices, list) or not isinstance(conditional_pixel_values_indices[0], int) \
                  or len(conditional_pixel_values_indices) != len(conditional_pixel_values_path)):
@@ -178,28 +170,22 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
 
     def get_resize_transform(
         self, 
-        ori_height=None, 
-        ori_width=None, 
+        ori_height,
+        ori_width,
         height=None, 
         width=None, 
         crop_for_hw=False, 
         hw_stride=32, 
-        max_hw_square=1024 * 1024,
+        max_hxw=236544, # 480 x 480
     ):
         if crop_for_hw:
             assert height is not None and width is not None
             transform = CenterCropResizeVideo((height, width))
         else:
-            if ori_height * ori_width > max_hw_square:
-                scale_factor = np.sqrt(max_hw_square / (ori_height * ori_width))
-                new_height = int(ori_height * scale_factor)
-                new_width = int(ori_width * scale_factor)
-            else:
-                new_height = ori_height
-                new_width = ori_width
+            new_height, new_width = maxhwresize(ori_height, ori_width, max_hxw)
             transform = Compose(
                 [
-                    CenterCropResizeVideo((new_height, new_width)),
+                    CenterCropResizeVideo((new_height, new_width)), # We use CenterCropResizeVideo to share the same height and width, ensuring that the shape of the crop remains consistent when multiple images are captured
                     SpatialStrideCropVideo(stride=hw_stride), 
                 ]
             )
@@ -219,7 +205,7 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
             mask_type = STR_TO_TYPE[mask_type]
         if is_image_file(conditional_pixel_values_path[0]):
             if len(conditional_pixel_values_path) == 1:
-                mask_type = MaskType.t2iv if mask_type is None else mask_type
+                mask_type = MaskType.i2v if mask_type is None else mask_type
                 if num_frames > 1:
                     conditional_pixel_values_indices = [0] if conditional_pixel_values_indices is None else conditional_pixel_values_indices
                     assert len(conditional_pixel_values_indices) == 1, "conditional_pixel_values_indices should be a list of integers with the same length as conditional_pixel_values_path"
@@ -233,7 +219,8 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
                     assert conditional_pixel_values_indices is not None and len(conditional_pixel_values_path) == len(conditional_pixel_values_indices), "conditional_pixel_values_indices should be a list of integers with the same length as conditional_pixel_values_path"
                     mask_type = MaskType.random_temporal if mask_type is None else mask_type
         elif is_video_file(conditional_pixel_values_path[0]):
-            mask_type = MaskType.random_spatial if mask_type is None else mask_type
+            # When the input is a video, video continuation is executed by default, with a continuation rate of double
+            mask_type = MaskType.continuation if mask_type is None else mask_type
         return mask_type, conditional_pixel_values_indices
 
 
@@ -241,7 +228,6 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
         self, 
         conditional_pixel_values,
         conditional_pixel_values_indices,
-        mask,
         mask_type, 
         batch_size, 
         num_samples_per_prompt, 
@@ -256,16 +242,15 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
             device = getattr(self, '_execution_device', None) or getattr(self, 'device', None) or torch.device('cuda')
 
         conditional_pixel_values = conditional_pixel_values.to(device=device, dtype=weight_dtype)
-        mask = mask.to(device=device, dtype=weight_dtype) if mask is not None else None
 
         if conditional_pixel_values.shape[0] == num_frames:
-            inpaint_cond_data = self.mask_processor(conditional_pixel_values, mask, mask_type)
+            inpaint_cond_data = self.mask_processor(conditional_pixel_values, mask_type=mask_type)
             masked_pixel_values, mask = inpaint_cond_data['masked_pixel_values'], inpaint_cond_data['mask']
         else:
             input_pixel_values = torch.zeros([num_frames, 3, height, width], device=device, dtype=weight_dtype)
             input_mask = torch.ones([num_frames, 1, height, width], device=device, dtype=weight_dtype)
             input_pixel_values[conditional_pixel_values_indices] = conditional_pixel_values
-            input_mask[conditional_pixel_values_indices] = 0 if mask is None else mask
+            input_mask[conditional_pixel_values_indices] = 0
             masked_pixel_values = input_pixel_values * (input_mask < 0.5)
             mask = input_mask
 
@@ -294,10 +279,9 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
         self,
         conditional_pixel_values_path: Union[str, List[str]] = None,
         conditional_pixel_values_indices: Union[int, List[int]] = None,
-        mask_path: Union[str, List[str]] = None,
         mask_type: Union[str, MaskType] = None,
         crop_for_hw: bool = False,
-        max_hw_square: int = 1024 * 1024,
+        max_hxw: int = 236544,
         prompt: Union[str, List[str]] = None,
         num_frames: Optional[int] = None,
         height: Optional[int] = None,
@@ -340,7 +324,6 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
         self.check_inputs(
             conditional_pixel_values_path,
             conditional_pixel_values_indices,
-            mask_path,
             mask_type,
             prompt,
             num_frames, 
@@ -423,11 +406,6 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
         mask_type, conditional_pixel_values_indices = self.get_mask_type_cond_indices(mask_type, conditional_pixel_values_path, conditional_pixel_values_indices, num_frames)
 
         conditional_pixel_values = get_pixel_values(conditional_pixel_values_path, num_frames)
-        mask = get_pixel_values(mask_path, num_frames) if mask_path is not None else None
-
-        if mask is not None:
-            for p, m in zip(conditional_pixel_values, mask):
-                assert p.shape == m.shape, f"conditional_pixel_values and mask should have the same shape, got {p.shape} and {m.shape}"
 
         min_height = min([pixels.shape[2] for pixels in conditional_pixel_values])
         min_width = min([pixels.shape[3] for pixels in conditional_pixel_values])
@@ -438,15 +416,11 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
             height=height, 
             width=width, 
             crop_for_hw=crop_for_hw,
-            max_hw_square=max_hw_square,
+            max_hxw=max_hxw,
         )
 
         video_transform = self.get_video_transform()
         conditional_pixel_values = torch.cat([resize_transform(pixels) for pixels in conditional_pixel_values])
-        if mask is not None:
-            mask = torch.cat([resize_transform(pixels) for pixels in mask])
-            mask = mask[:, 0:1]
-            mask = (mask > 128)
         real_height, real_width = conditional_pixel_values.shape[-2], conditional_pixel_values.shape[-1]
         # ==================prepare inpaint data=====================================
         
@@ -473,10 +447,10 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
         # 6. Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline
         extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
 
+        # ==============================create mask=====================================
         masked_pixel_values, mask = self.get_masked_pixel_values_mask(
             conditional_pixel_values,
             conditional_pixel_values_indices,
-            mask,
             mask_type, 
             batch_size, 
             num_samples_per_prompt, 
@@ -487,6 +461,7 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
             prompt_embeds.dtype,
             device
         )
+        # ==============================create mask=====================================
 
         # 7 create image_rotary_emb, style embedding & time ids
         if self.do_classifier_free_guidance:

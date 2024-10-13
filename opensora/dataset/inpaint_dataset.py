@@ -79,12 +79,21 @@ class Inpaint_dataset(T2V_dataset):
             max_width=args.max_width,
             min_clear_ratio=args.min_clear_ratio,
             max_clear_ratio=args.max_clear_ratio,
-            min_clear_ratio_hw=args.min_clear_ratio_hw,
-            max_clear_ratio_hw=args.max_clear_ratio_hw,
-            dilate_kernel_size=args.dilate_kernel_size,
         )
 
         self.default_text_ratio = args.default_text_ratio
+
+    def __getitem__(self, idx):
+        try:
+            # future = self.executor.submit(self.get_data, idx)
+            # data = future.result(timeout=self.timeout) 
+            # return data
+            return self.get_data(idx)
+        except Exception as e:
+            # if len(str(e)) < 2:
+            #     e = f"TimeoutError, {self.timeout}s timeout occur with {dataset_prog.cap_list[idx]['path']}"
+            print(f'Error with {e}')
+            return self.__getitem__(random.randint(0, self.__len__() - 1))
 
     def drop(self, text, is_video=True):
         rand_num = random.random()
@@ -101,81 +110,6 @@ class Inpaint_dataset(T2V_dataset):
 
         return dict(text=text)
     
-    def decord_read(self, video_data):
-        path = video_data['path']
-        predefine_frame_indice = video_data['sample_frame_index']
-        start_frame_idx = video_data['start_frame_idx']
-        clip_total_frames = video_data['num_frames']
-        fps = video_data['fps']
-        s_x, e_x, s_y, e_y = video_data['crop']
-
-        predefine_num_frames = len(predefine_frame_indice)
-        decord_vr = decord.VideoReader(path, ctx=decord.cpu(0), num_threads=1)
-
-        frame_indices = self.get_actual_frame(
-            fps, start_frame_idx, clip_total_frames, path, predefine_num_frames, predefine_frame_indice
-            )
-        
-        video_data = decord_vr.get_batch(frame_indices).asnumpy()
-        video_data = torch.from_numpy(video_data)
-        video_data = video_data.permute(0, 3, 1, 2)  # (T, H, W, C) -> (T C H W)
-        video_data = video_data[:, :, s_y: e_y, s_x: e_x]
-        # del decord_vr
-        # gc.collect()
-        return video_data, frame_indices
-    
-    def opencv_read(self, video_data):
-        path = video_data['path']
-        predefine_frame_indice = video_data['sample_frame_index']
-        start_frame_idx = video_data['start_frame_idx']
-        clip_total_frames = video_data['num_frames']
-        fps = video_data['fps']
-        s_x, e_x, s_y, e_y = video_data['crop']
-
-        predefine_num_frames = len(predefine_frame_indice)
-        cv2_vr = cv2.VideoCapture(path)
-        if not cv2_vr.isOpened():
-            raise ValueError(f'can not open {path}')
-        frame_indices = self.get_actual_frame(
-            fps, start_frame_idx, clip_total_frames, path, predefine_num_frames, predefine_frame_indice
-            )
-
-        video_data = []
-        for frame_idx in frame_indices:
-            cv2_vr.set(1, frame_idx)
-            _, frame = cv2_vr.read()
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            video_data.append(torch.from_numpy(frame).permute(2, 0, 1))
-        cv2_vr.release()
-        video_data = torch.stack(video_data)  # (T C H W)
-        video_data = video_data[:, :, s_y: e_y, s_x: e_x]
-        return video_data, frame_indices
-    
-    def decord_read_mask(self, mask_path, frame_indices):
-        decord_vr = decord.VideoReader(mask_path, ctx=decord.cpu(0), num_threads=1)
-
-        mask_data = decord_vr.get_batch(frame_indices).asnumpy()
-        mask_data = torch.from_numpy(mask_data)
-        mask_data = mask_data.permute(0, 3, 1, 2)  # (T, H, W, C) -> (T C H W)
-        # del decord_vr
-        # gc.collect()
-        return mask_data
-
-    def opencv_read_mask(self, mask_path, frame_indices):
-        cv2_vr = cv2.VideoCapture(mask_path)
-        if not cv2_vr.isOpened():
-            raise ValueError(f'can not open {mask_path}')
-
-        mask_data = []
-        for frame_idx in frame_indices:
-            cv2_vr.set(1, frame_idx)
-            _, frame = cv2_vr.read()
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            mask_data.append(torch.from_numpy(frame).permute(2, 0, 1))
-        cv2_vr.release()
-        mask_data = torch.stack(mask_data)  # (T C H W)
-        return mask_data
-
     def get_video(self, idx):
         # npu_config.print_msg(f"current idx is {idx}")
         # video = random.choice([random_video_noise(65, 3, 336, 448), random_video_noise(65, 3, 1024, 1024), random_video_noise(65, 3, 360, 480)])
@@ -189,28 +123,17 @@ class Inpaint_dataset(T2V_dataset):
         sample_h = video_data['resolution']['sample_height']
         sample_w = video_data['resolution']['sample_width']
         
-        mask = None
-
         if self.video_reader == 'decord':
-            video, frame_indices = self.decord_read(video_data)
-            if video_data.get('mask_path', None) is not None:
-                mask = self.decord_read_mask(video_data['mask_path'], frame_indices)
+            video = self.decord_read(video_data)
         elif self.video_reader == 'opencv':
-            video, frame_indices = self.opencv_read(video_data)
-            if video_data.get('mask_path', None) is not None:
-                mask = self.opencv_read_mask(video_data['mask_path'], frame_indices)
+            video = self.opencv_read(video_data)
         else:
             NotImplementedError(f'Found {self.video_reader}, but support decord or opencv')
         # import ipdb;ipdb.set_trace()
 
         video = self.resize_transform(video)  # T C H W -> T C H W
 
-        # binary mask
-        if mask is not None:
-            mask = mask[:, 0:1]
-            mask = self.resize_transform(mask)  # T C H W -> T C H W
-            mask = (mask > 128).to(dtype=video.dtype, device=video.device)
-        inpaint_cond_data = self.mask_processor(video, mask=mask, mask_type_ratio_dict=self.mask_type_ratio_dict_video)
+        inpaint_cond_data = self.mask_processor(video, mask_type_ratio_dict=self.mask_type_ratio_dict_video)
         mask, masked_video = inpaint_cond_data['mask'], inpaint_cond_data['masked_pixel_values']
 
         video = self.transform(video)  # T C H W -> T C H W
@@ -270,15 +193,7 @@ class Inpaint_dataset(T2V_dataset):
         image = torch.from_numpy(np.array(image))  # [h, w, c]
         image = rearrange(image, 'h w c -> c h w').unsqueeze(0)  #  [1 c h w]
 
-        mask = None
-        if image_data.get('mask_path', None) is not None:
-            mask = Image.open(image_data['mask_path']).convert('L')
-
-        if mask is not None:
-            mask = torch.from_numpy(np.array(mask)).unsqueeze(0).unsqueeze(0) # [1 1 h w]
-            mask = self.resize_transform(mask)
-            mask = (mask > 128).to(dtype=image.dtype, device=image.device)
-        inpaint_cond_data = self.mask_processor(image, mask=mask, mask_type_ratio_dict=self.mask_type_ratio_dict_image)
+        inpaint_cond_data = self.mask_processor(image, mask_type_ratio_dict=self.mask_type_ratio_dict_image)
         mask, masked_image = inpaint_cond_data['mask'], inpaint_cond_data['masked_pixel_values']   
 
         image = self.transform(image)

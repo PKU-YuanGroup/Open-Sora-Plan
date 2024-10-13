@@ -1,0 +1,957 @@
+[{
+    "graph_fusion": {
+        "CastRemoveFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "ForceFp16CastFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "RefreshInt64ToInt32FusionPass": {
+            "effect_times": "1",
+            "match_times": "1"
+        },
+        "RemoveCastFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        }
+    },
+    "session_and_graph_id": "10_10"
+},{
+    "graph_fusion": {
+        "RefreshInt64ToInt32FusionPass": {
+            "effect_times": "1",
+            "match_times": "1"
+        },
+        "TransdataCastFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "TransdataFz2FzgFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "TransdataFzg2FzFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        }
+    },
+    "session_and_graph_id": "11_11"
+},{
+    "graph_fusion": {
+        "ConstToAttrPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "RefreshInt64ToInt32FusionPass": {
+            "effect_times": "1",
+            "match_times": "1"
+        }
+    },
+    "session_and_graph_id": "12_12"
+},{
+    "graph_fusion": {
+        "LayerNormGradV3FusionPass": {
+            "effect_times": "1",
+            "match_times": "1"
+        },
+        "RefreshInt64ToInt32FusionPass": {
+            "effect_times": "1",
+            "match_times": "1"
+        }
+    },
+    "session_and_graph_id": "13_13"
+},{
+    "graph_fusion": {
+        "RefreshInt64ToInt32FusionPass": {
+            "effect_times": "1",
+            "match_times": "1"
+        },
+        "TransdataCastFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "TransdataFz2FzgFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "TransdataFzg2FzFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        }
+    },
+    "session_and_graph_id": "14_14"
+},{
+    "graph_fusion": {
+        "ARefreshCubeC0FusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "ConvFormatRefreshFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "ConvToFullyConnectionFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "ConvWeightCompressFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "FIXPIPEAPREQUANTFUSIONPASS": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "FIXPIPEFUSIONPASS": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "RefreshInt64ToInt32FusionPass": {
+            "effect_times": "1",
+            "match_times": "1"
+        },
+        "TransdataCastFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        },
+        "TransdataFz2FzgFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        },
+        "TransdataFzg2FzFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        }
+    },
+    "session_and_graph_id": "15_15"
+},{
+    "graph_fusion": {
+        "ARefreshCubeC0FusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "ConvFormatRefreshFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "ConvToFullyConnectionFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "ConvWeightCompressFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "FIXPIPEAPREQUANTFUSIONPASS": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "FIXPIPEFUSIONPASS": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "RefreshInt64ToInt32FusionPass": {
+            "effect_times": "1",
+            "match_times": "1"
+        },
+        "TransdataCastFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        },
+        "TransdataFz2FzgFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        },
+        "TransdataFzg2FzFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        }
+    },
+    "session_and_graph_id": "16_16"
+},{
+    "graph_fusion": {
+        "RefreshInt64ToInt32FusionPass": {
+            "effect_times": "1",
+            "match_times": "1"
+        },
+        "TransdataCastFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "TransdataFz2FzgFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "TransdataFzg2FzFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        }
+    },
+    "session_and_graph_id": "17_17"
+},{
+    "graph_fusion": {
+        "ARefreshCubeC0FusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "FIXPIPEAPREQUANTFUSIONPASS": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "FIXPIPEFUSIONPASS": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "RefreshInt64ToInt32FusionPass": {
+            "effect_times": "1",
+            "match_times": "1"
+        },
+        "TransdataCastFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        },
+        "TransdataFz2FzgFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        },
+        "TransdataFzg2FzFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        }
+    },
+    "session_and_graph_id": "18_18"
+},{
+    "graph_fusion": {
+        "RefreshInt64ToInt32FusionPass": {
+            "effect_times": "1",
+            "match_times": "1"
+        },
+        "TransdataCastFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "TransdataFz2FzgFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "TransdataFzg2FzFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        }
+    },
+    "session_and_graph_id": "19_19"
+},{
+    "graph_fusion": {
+        "ARefreshCubeC0FusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "FIXPIPEAPREQUANTFUSIONPASS": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "FIXPIPEFUSIONPASS": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "RefreshInt64ToInt32FusionPass": {
+            "effect_times": "1",
+            "match_times": "1"
+        },
+        "TransdataCastFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        },
+        "TransdataFz2FzgFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        },
+        "TransdataFzg2FzFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        }
+    },
+    "session_and_graph_id": "1_1"
+},{
+    "graph_fusion": {
+        "ARefreshCubeC0FusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "FIXPIPEAPREQUANTFUSIONPASS": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "FIXPIPEFUSIONPASS": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "RefreshInt64ToInt32FusionPass": {
+            "effect_times": "1",
+            "match_times": "1"
+        },
+        "TransdataCastFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        },
+        "TransdataFz2FzgFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        },
+        "TransdataFzg2FzFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        }
+    },
+    "session_and_graph_id": "20_20"
+},{
+    "graph_fusion": {
+        "ARefreshCubeC0FusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "FIXPIPEAPREQUANTFUSIONPASS": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "FIXPIPEFUSIONPASS": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "RefreshInt64ToInt32FusionPass": {
+            "effect_times": "1",
+            "match_times": "1"
+        },
+        "TransdataCastFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        },
+        "TransdataFz2FzgFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        },
+        "TransdataFzg2FzFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        }
+    },
+    "session_and_graph_id": "21_21"
+},{
+    "graph_fusion": {
+        "RefreshInt64ToInt32FusionPass": {
+            "effect_times": "1",
+            "match_times": "1"
+        },
+        "TransdataCastFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "TransdataFz2FzgFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "TransdataFzg2FzFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        }
+    },
+    "session_and_graph_id": "22_22"
+},{
+    "graph_fusion": {
+        "CastRemoveFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "ForceFp16CastFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "RefreshInt64ToInt32FusionPass": {
+            "effect_times": "1",
+            "match_times": "1"
+        },
+        "RemoveCastFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        }
+    },
+    "session_and_graph_id": "23_23"
+},{
+    "graph_fusion": {
+        "ARefreshCubeC0FusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "ConvFormatRefreshFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "ConvToFullyConnectionFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "ConvWeightCompressFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "FIXPIPEAPREQUANTFUSIONPASS": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "FIXPIPEFUSIONPASS": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "RefreshInt64ToInt32FusionPass": {
+            "effect_times": "1",
+            "match_times": "1"
+        },
+        "TransdataCastFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        },
+        "TransdataFz2FzgFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        },
+        "TransdataFzg2FzFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        }
+    },
+    "session_and_graph_id": "24_24"
+},{
+    "graph_fusion": {
+        "RefreshInt64ToInt32FusionPass": {
+            "effect_times": "1",
+            "match_times": "1"
+        },
+        "TransdataCastFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "TransdataFz2FzgFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "TransdataFzg2FzFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        }
+    },
+    "session_and_graph_id": "25_25"
+},{
+    "graph_fusion": {
+        "ARefreshCubeC0FusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "ConvFormatRefreshFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "ConvToFullyConnectionFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "ConvWeightCompressFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "FIXPIPEAPREQUANTFUSIONPASS": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "FIXPIPEFUSIONPASS": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "RefreshInt64ToInt32FusionPass": {
+            "effect_times": "1",
+            "match_times": "1"
+        },
+        "TransdataCastFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        },
+        "TransdataFz2FzgFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        },
+        "TransdataFzg2FzFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        }
+    },
+    "session_and_graph_id": "26_26"
+},{
+    "graph_fusion": {
+        "RefreshInt64ToInt32FusionPass": {
+            "effect_times": "1",
+            "match_times": "1"
+        },
+        "TransdataCastFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "TransdataFz2FzgFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "TransdataFzg2FzFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        }
+    },
+    "session_and_graph_id": "27_27"
+},{
+    "graph_fusion": {
+        "ARefreshCubeC0FusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "ConstToAttrPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "Conv3DTransposeSplitBiasAddFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "RefreshInt64ToInt32FusionPass": {
+            "effect_times": "1",
+            "match_times": "1"
+        },
+        "TransdataCastFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        },
+        "TransdataFz2FzgFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        },
+        "TransdataFzg2FzFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        }
+    },
+    "session_and_graph_id": "28_28"
+},{
+    "graph_fusion": {
+        "ConstToAttrPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "ConstToAttrSliceFusion": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "RefreshInt64ToInt32FusionPass": {
+            "effect_times": "1",
+            "match_times": "1"
+        },
+        "TransdataCastFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        },
+        "TransdataFz2FzgFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        },
+        "TransdataFzg2FzFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        }
+    },
+    "session_and_graph_id": "29_29"
+},{
+    "graph_fusion": {
+        "RefreshInt64ToInt32FusionPass": {
+            "effect_times": "1",
+            "match_times": "1"
+        },
+        "TransdataCastFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "TransdataFz2FzgFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "TransdataFzg2FzFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        }
+    },
+    "session_and_graph_id": "2_2"
+},{
+    "graph_fusion": {
+        "RefreshInt64ToInt32FusionPass": {
+            "effect_times": "1",
+            "match_times": "1"
+        },
+        "TransdataCastFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "TransdataFz2FzgFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "TransdataFzg2FzFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        }
+    },
+    "session_and_graph_id": "30_30"
+},{
+    "graph_fusion": {
+        "RefreshInt64ToInt32FusionPass": {
+            "effect_times": "1",
+            "match_times": "1"
+        },
+        "TransdataCastFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "TransdataFz2FzgFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "TransdataFzg2FzFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        }
+    },
+    "session_and_graph_id": "31_31"
+},{
+    "graph_fusion": {
+        "ARefreshCubeC0FusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "ConvFormatRefreshFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "ConvToFullyConnectionFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "ConvWeightCompressFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "FIXPIPEAPREQUANTFUSIONPASS": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "FIXPIPEFUSIONPASS": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "RefreshInt64ToInt32FusionPass": {
+            "effect_times": "1",
+            "match_times": "1"
+        },
+        "TransdataCastFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        },
+        "TransdataFz2FzgFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        },
+        "TransdataFzg2FzFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        }
+    },
+    "session_and_graph_id": "32_32"
+},{
+    "graph_fusion": {
+        "RefreshInt64ToInt32FusionPass": {
+            "effect_times": "1",
+            "match_times": "1"
+        },
+        "TransdataCastFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "TransdataFz2FzgFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "TransdataFzg2FzFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        }
+    },
+    "session_and_graph_id": "33_33"
+},{
+    "graph_fusion": {
+        "ARefreshCubeC0FusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "ConstToAttrPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "ConvertToConvTransposeDFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "DeconvWeightTransFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "FIXPIPEAPREQUANTFUSIONPASS": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "FIXPIPEFUSIONPASS": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "RefreshInt64ToInt32FusionPass": {
+            "effect_times": "1",
+            "match_times": "1"
+        },
+        "TransdataCastFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        },
+        "TransdataFz2FzgFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        },
+        "TransdataFzg2FzFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        }
+    },
+    "session_and_graph_id": "34_34"
+},{
+    "graph_fusion": {
+        "RefreshInt64ToInt32FusionPass": {
+            "effect_times": "1",
+            "match_times": "1"
+        }
+    },
+    "session_and_graph_id": "35_35"
+},{
+    "graph_fusion": {
+        "ARefreshCubeC0FusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "ConvFormatRefreshFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "ConvToFullyConnectionFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "ConvWeightCompressFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "FIXPIPEAPREQUANTFUSIONPASS": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "FIXPIPEFUSIONPASS": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "RefreshInt64ToInt32FusionPass": {
+            "effect_times": "1",
+            "match_times": "1"
+        },
+        "TransdataCastFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        },
+        "TransdataFz2FzgFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        },
+        "TransdataFzg2FzFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        }
+    },
+    "session_and_graph_id": "3_3"
+},{
+    "graph_fusion": {
+        "RefreshInt64ToInt32FusionPass": {
+            "effect_times": "1",
+            "match_times": "1"
+        },
+        "TransdataCastFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "TransdataFz2FzgFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "TransdataFzg2FzFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        }
+    },
+    "session_and_graph_id": "4_4"
+},{
+    "graph_fusion": {
+        "ConvConcatFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "RefreshInt64ToInt32FusionPass": {
+            "effect_times": "1",
+            "match_times": "1"
+        },
+        "SplitConvConcatFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "ZConcatDFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        }
+    },
+    "session_and_graph_id": "5_5"
+},{
+    "graph_fusion": {
+        "ARefreshCubeC0FusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "ConvFormatRefreshFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "ConvToFullyConnectionFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "ConvWeightCompressFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "FIXPIPEAPREQUANTFUSIONPASS": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "FIXPIPEFUSIONPASS": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "RefreshInt64ToInt32FusionPass": {
+            "effect_times": "1",
+            "match_times": "1"
+        },
+        "TransdataCastFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        },
+        "TransdataFz2FzgFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        },
+        "TransdataFzg2FzFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        }
+    },
+    "session_and_graph_id": "6_6"
+},{
+    "graph_fusion": {
+        "RefreshInt64ToInt32FusionPass": {
+            "effect_times": "1",
+            "match_times": "1"
+        },
+        "TransdataCastFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "TransdataFz2FzgFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "TransdataFzg2FzFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        }
+    },
+    "session_and_graph_id": "7_7"
+},{
+    "graph_fusion": {
+        "ARefreshCubeC0FusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "ConvFormatRefreshFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "ConvToFullyConnectionFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "ConvWeightCompressFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "FIXPIPEAPREQUANTFUSIONPASS": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "FIXPIPEFUSIONPASS": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "RefreshInt64ToInt32FusionPass": {
+            "effect_times": "1",
+            "match_times": "1"
+        },
+        "TransdataCastFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        },
+        "TransdataFz2FzgFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        },
+        "TransdataFzg2FzFusionPass": {
+            "effect_times": "0",
+            "match_times": "2"
+        }
+    },
+    "session_and_graph_id": "8_8"
+},{
+    "graph_fusion": {
+        "RefreshInt64ToInt32FusionPass": {
+            "effect_times": "1",
+            "match_times": "1"
+        },
+        "TransdataCastFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "TransdataFz2FzgFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        },
+        "TransdataFzg2FzFusionPass": {
+            "effect_times": "0",
+            "match_times": "1"
+        }
+    },
+    "session_and_graph_id": "9_9"
+}]
