@@ -30,7 +30,7 @@ def getdataset(args):
 
     # tokenizer_1 = AutoTokenizer.from_pretrained(args.text_encoder_name_1, cache_dir=args.cache_dir)
     if torch_npu is not None:
-        tokenizer_1 = AutoTokenizer.from_pretrained('/home/save_dir/pretrained/t5/t5-v1_1-xl', cache_dir=args.cache_dir)
+        tokenizer_1 = AutoTokenizer.from_pretrained('/home/save_dir/pretrained/mt5-xxl', cache_dir=args.cache_dir)
     else:
         tokenizer_1 = AutoTokenizer.from_pretrained('/storage/cache_dir/t5-v1_1-xl', cache_dir=args.cache_dir)
     tokenizer_2 = None
@@ -83,39 +83,39 @@ if __name__ == "__main__":
     from tqdm import tqdm
     args = type('args', (), 
     {
-        'ae': 'WFVAEModel_D32_8x8x8', 
-        'dataset': 't2v', 
+        'ae': 'WFVAEModel_D8_4x8x8', 
+        'dataset': 'inpaint', 
         'model_max_length': 512, 
         'max_height': 640,
         'max_width': 640,
         'hw_stride': 32, 
-        'num_frames': 105,
+        'num_frames': 93,
         'compress_kv_factor': 1, 
         'interpolation_scale_t': 1,
         'interpolation_scale_h': 1,
         'interpolation_scale_w': 1,
         'cache_dir': '../cache_dir', 
-        'data': 'scripts/train_data/image_data_debug.txt', 
+        'data': '/home/image_data/gyy/mmdit/Open-Sora-Plan/scripts/train_data/current_hq_on_npu.txt', 
         'train_fps': 18, 
         'drop_short_ratio': 0.0, 
         'speed_factor': 1.0, 
         'cfg': 0.1, 
         'text_encoder_name_1': 'google/mt5-xxl', 
-        'text_encoder_name_2': 'google/mt5-xxl', 
-        'dataloader_num_workers': 10,
+        'text_encoder_name_2': None,
+        'dataloader_num_workers': 8,
         'force_resolution': False, 
         'use_decord': True, 
         'group_data': True, 
         'train_batch_size': 1, 
         'gradient_accumulation_steps': 1, 
         'ae_stride': 8, 
-        'ae_stride_t': 8,  
+        'ae_stride_t': 4,  
         'patch_size': 2, 
         'patch_size_t': 1, 
         'total_batch_size': 256, 
         'sp_size': 1, 
-        'max_hxw': 384*384, 
-        'min_hxw': 192*192, 
+        'max_hxw': 480*480, 
+        'min_hxw': 384*384, 
     }
     )
     accelerator = Accelerator()

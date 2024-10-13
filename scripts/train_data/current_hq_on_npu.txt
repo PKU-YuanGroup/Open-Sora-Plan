@@ -1,0 +1,1 @@
+/home/obs_data/open-sora-plan/datasets_sucai,/home/save_dir/captions/10.12_hwpkl_movie_sucai/sucai_final_3880570.pkl

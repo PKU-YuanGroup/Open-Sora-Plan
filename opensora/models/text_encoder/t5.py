@@ -14,7 +14,7 @@ class T5Wrapper(nn.Module):
         # self.model_name = '/storage/cache_dir/models--DeepFloyd--t5-v1_1-xxl/snapshots/c9c625d2ec93667ec579ede125fd3811d1f81d37'
         # self.model_name = '/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl'
         if torch_npu is not None:
-            self.model_name = '/home/save_dir/pretrained/t5/t5-v1_1-xxl'
+            self.model_name = '/home/save_dir/pretrained/mt5-xxl'
         else:
             self.model_name = '/storage/cache_dir/models--DeepFloyd--t5-v1_1-xxl/snapshots/c9c625d2ec93667ec579ede125fd3811d1f81d37'
         print(f'Loading T5 model from {self.model_name}...')

@@ -67,19 +67,15 @@ from opensora.dataset import getdataset
 from opensora.models import CausalVAEModelWrapper
 from opensora.models.diffusion import Diffusion_models, Diffusion_models_class
 from opensora.utils.dataset_utils import Collate, LengthGroupedSampler
-from opensora.utils.utils import explicit_uniform_sampling
 from opensora.sample.pipeline_opensora import OpenSoraPipeline
 from opensora.models.causalvideovae import ae_stride_config, ae_wrapper
 from opensora.utils.mask_utils import MaskCompressor
-
-# from opensora.utils.utils import monitor_npu_power
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 check_min_version("0.24.0")
 logger = get_logger(__name__)
 from torch.utils.data import _utils
 _utils.MP_STATUS_CHECK_INTERVAL = 1800.0  # dataloader timeout (default is 5.0s), we increase it to 1800s.
-
 
 class ProgressInfo:
     def __init__(self, global_step, train_loss=0.0):
@@ -147,7 +143,7 @@ def main(args):
         weight_dtype = torch.bfloat16
 
     # Create model:
-    
+
     # Currently Accelerate doesn't know how to handle multiple models under Deepspeed ZeRO stage 3.
     # For this to work properly all models must be run through `accelerate.prepare`. But accelerate
     # will try to assign the same optimizer with the same weights to all models during
@@ -183,22 +179,6 @@ def main(args):
         text_enc_2 = None
         if args.text_encoder_name_2 is not None:
             text_enc_2 = get_text_warpper(args.text_encoder_name_2)(args, **kwargs).eval()
-    
-    # kwargs = {}
-    # # ae = ae_wrapper[args.ae](args.ae_path, cache_dir=args.cache_dir, **kwargs).eval()
-    
-    # # if args.enable_tiling:
-    # #     ae.vae.enable_tiling()
-
-    # kwargs = {
-    #     'torch_dtype': weight_dtype, 
-    #     'low_cpu_mem_usage': False
-    #     }
-    # text_enc_1 = get_text_warpper(args.text_encoder_name_1)(args, **kwargs).eval()
-
-    # text_enc_2 = None
-    # if args.text_encoder_name_2 is not None:
-    #     text_enc_2 = get_text_warpper(args.text_encoder_name_2)(args, **kwargs).eval()
 
     ae_stride_t, ae_stride_h, ae_stride_w = ae_stride_config[args.ae]
     ae.vae_scale_factor = (ae_stride_t, ae_stride_h, ae_stride_w)
@@ -216,8 +196,13 @@ def main(args):
 
     args.stride_t = ae_stride_t * patch_size_t
     args.stride = ae_stride_h * patch_size_h
-    ae.latent_size = latent_size = (args.max_height // ae_stride_h, args.max_width // ae_stride_w)
-    args.latent_size_t = latent_size_t = (args.num_frames - 1) // ae_stride_t + 1
+    latent_size = (args.max_height // ae_stride_h, args.max_width // ae_stride_w)
+    ae.latent_size = latent_size
+
+    if args.num_frames % 2 == 1:
+        args.latent_size_t = latent_size_t = (args.num_frames - 1) // ae_stride_t + 1
+    else:
+        latent_size_t = args.num_frames // ae_stride_t
 
     mask_compressor = MaskCompressor(ae_stride_h=ae_stride_h, ae_stride_w=ae_stride_w, ae_stride_t=ae_stride_t)
 
@@ -226,9 +211,15 @@ def main(args):
     model = Diffusion_models[args.model](
         in_channels=ae_channel_config[args.ae],
         out_channels=ae_channel_config[args.ae],
-        sample_size_h=latent_size,
-        sample_size_w=latent_size,
+        attention_bias=True,
+        sample_size=latent_size,
         sample_size_t=latent_size_t,
+        activation_fn="gelu-approximate",
+        only_cross_attention=False,
+        double_self_attention=False,
+        upcast_attention=False,
+        norm_elementwise_affine=False,
+        norm_eps=1e-6,
         interpolation_scale_h=args.interpolation_scale_h,
         interpolation_scale_w=args.interpolation_scale_w,
         interpolation_scale_t=args.interpolation_scale_t,
@@ -251,20 +242,16 @@ def main(args):
     # Set model as trainable.
     model.train()
 
-    assert not (args.cogvideox_scheduler and args.cogvideox_scheduler)
-    kwargs = dict(
-        prediction_type=args.prediction_type, 
-        rescale_betas_zero_snr=args.rescale_betas_zero_snr
-    )
     if args.cogvideox_scheduler:
-        noise_scheduler = CogVideoXDDIMScheduler(**kwargs)
-    elif args.v1_5_scheduler:
-        kwargs['beta_start'] = 0.00085
-        kwargs['beta_end'] = 0.0120
-        kwargs['beta_schedule'] = "scaled_linear"
-        noise_scheduler = DDPMScheduler(**kwargs)
+        noise_scheduler = CogVideoXDDIMScheduler(
+            prediction_type=args.prediction_type, 
+            rescale_betas_zero_snr=args.rescale_betas_zero_snr
+            )
     else:
-        noise_scheduler = DDPMScheduler(**kwargs)
+        noise_scheduler = DDPMScheduler(
+            prediction_type=args.prediction_type, 
+            rescale_betas_zero_snr=args.rescale_betas_zero_snr
+            )
     # Move unet, vae and text_encoder to device and cast to weight_dtype
     # The VAE is in float32 to avoid NaN losses.
     if not args.extra_save_mem:
@@ -386,13 +373,7 @@ def main(args):
         initial_global_step_for_sampler = args.trained_data_global_step
     else:
         initial_global_step_for_sampler = 0
-    
-
-    total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
-    total_batch_size = total_batch_size // args.sp_size * args.train_sp_batch_size
-    args.total_batch_size = total_batch_size
-    if args.min_hxw is None:
-        args.min_hxw = args.max_hxw // 4
+        
     train_dataset = getdataset(args)
     sampler = LengthGroupedSampler(
                 args.train_batch_size,
@@ -433,6 +414,11 @@ def main(args):
     # model.requires_grad_(False)
     # model.pos_embed.requires_grad_(True)
     # model.patch_embed.requires_grad_(True)
+    if args.adapt_vae:
+        model.requires_grad_(False)
+        for name, param in model.named_parameters():
+            if 'pos_embed' in name or 'proj_out' in name:
+                param.requires_grad = True
 
     logger.info(f'before accelerator.prepare')
     model, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
@@ -463,10 +449,12 @@ def main(args):
             "run_name": run_name,
         }
         accelerator.init_trackers(project_name=project_name, config=vars(args), init_kwargs=init_kwargs)
+    
 
     # Train!
-    print(f"  Args = {args}")
-    logger.info(f"  Args = {args}")
+    total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
+    total_batch_size = total_batch_size // args.sp_size * args.train_sp_batch_size
+
     logger.info("***** Running training *****")
     logger.info(f"  Model = {model}")
     logger.info(f"  Num examples = {len(train_dataset)}")
@@ -577,7 +565,6 @@ def main(args):
         except:
             raise ValueError("masked_x and video_mask is None!")
 
-
         noise = torch.randn_like(model_input)
         if args.noise_offset:
             # https://www.crosslabs.org//blog/diffusion-with-offset-noise
@@ -586,16 +573,8 @@ def main(args):
 
         bsz = model_input.shape[0]
         # Sample a random timestep for each image without bias.
-        if accelerator.num_processes > noise_scheduler.config.num_train_timesteps: 
-            timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=model_input.device)
-        else:
-            timesteps = explicit_uniform_sampling(
-                T=noise_scheduler.config.num_train_timesteps, 
-                n=accelerator.num_processes, 
-                rank=accelerator.process_index, 
-                bsz=bsz, device=model_input.device, 
-                )
-        # print(f'rank: {accelerator.process_index}, timesteps: {timesteps}')
+        timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=model_input.device)
+        # print('accelerator.process_index, timesteps', accelerator.process_index, timesteps)
         if get_sequence_parallel_state():  # image do not need sp, disable when image batch
             broadcast(timesteps)
 
@@ -639,7 +618,7 @@ def main(args):
                 loss = (loss * mask).sum() / mask.sum()  # mean loss on unpad patches
             else:
                 loss = loss.mean()
-        else:
+        elif args.snr_gamma is not None and noise_scheduler.config.prediction_type == "epsilon":
             # Compute loss-weights as per Section 3.4 of https://arxiv.org/abs/2303.09556.
             # Since we predict the noise instead of x_0, the original formulation is slightly changed.
             # This is discussed in Section 4.2 of the same paper.
@@ -647,19 +626,17 @@ def main(args):
             mse_loss_weights = torch.stack([snr, args.snr_gamma * torch.ones_like(timesteps)], dim=1).min(
                 dim=1
             )[0]
-            if noise_scheduler.config.prediction_type == "epsilon":
-                mse_loss_weights = mse_loss_weights / snr
-            elif noise_scheduler.config.prediction_type == "v_prediction":
-                mse_loss_weights = mse_loss_weights / (snr + 1)
-            else:
-                raise NameError(f'{noise_scheduler.config.prediction_type}')
+            mse_loss_weights = mse_loss_weights / snr
             loss = F.mse_loss(model_pred.float(), target.float(), reduction="none")
+            print(f'args.snr_gamma {args.snr_gamma}, snr {snr}, timesteps {timesteps}, loss {loss.mean()}, mse_loss_weights {mse_loss_weights}')
             loss = loss.reshape(b, -1)
             mse_loss_weights = mse_loss_weights.reshape(b, 1)
             if mask is not None:
                 loss = (loss * mask * mse_loss_weights).sum() / mask.sum()  # mean loss on unpad patches
             else:
                 loss = (loss * mse_loss_weights).mean()
+        else:
+            raise NotImplementedError
         # Gather the losses across all processes for logging (if we use distributed training).
         avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
         progress_info.train_loss += avg_loss.detach().item() / args.gradient_accumulation_steps
@@ -684,11 +661,9 @@ def main(args):
 
     def train_one_step(step_, data_item_, prof_=None):
         train_loss = 0.0
-        x, attn_mask, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2 = data_item_
-        # print(f'step: {step_}, rank: {accelerator.process_index}, x: {x.shape}, dtype: {x.dtype}')
+        x, attn_mask, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2, motion_score = data_item_
+        # print(f'step: {step_}, rank: {accelerator.process_index}, x: {x.shape}')
         # assert not torch.any(torch.isnan(x)), 'torch.any(torch.isnan(x))'
-        # print('after data collate')
-        # print(f'x: {x.shape}, attn_mask: {attn_mask.shape}, input_ids_1: {input_ids_1.shape}, cond_mask_1: {cond_mask_1.shape}, input_ids_2: {input_ids_2.shape}, cond_mask_2: {cond_mask_2.shape}')
 
         if args.extra_save_mem:
             torch.cuda.empty_cache()
@@ -698,12 +673,12 @@ def main(args):
                 text_enc_2.to(accelerator.device, dtype=weight_dtype)
 
         x = x.to(accelerator.device, dtype=ae.vae.dtype)  # B C T H W
-        # x = x.to(accelerator.device, dtype=torch.float32)  # B C T H W
         attn_mask = attn_mask.to(accelerator.device)  # B T H W
         input_ids_1 = input_ids_1.to(accelerator.device)  # B 1 L
         cond_mask_1 = cond_mask_1.to(accelerator.device)  # B 1 L
         input_ids_2 = input_ids_2.to(accelerator.device) if input_ids_2 is not None else input_ids_2 # B 1 L
         cond_mask_2 = cond_mask_2.to(accelerator.device) if cond_mask_2 is not None else cond_mask_2 # B 1 L
+        motion_score = motion_score.to(accelerator.device) if motion_score is not None else motion_score # B 1
 
         with torch.no_grad():
             B, N, L = input_ids_1.shape  # B 1 L
@@ -721,12 +696,14 @@ def main(args):
             else:
                 cond_2 = None
 
+
             # Map input images to latent space + normalize latents
             x, masked_x, mask = x[:, :3], x[:, 3:6], x[:, 6:7]
             x, masked_x = ae.encode(x), ae.encode(masked_x)
             mask = mask_compressor(mask)
             x = torch.cat([x, masked_x, mask], dim=1) 
-        
+
+
         if args.extra_save_mem:
             ae.vae.to('cpu')
             text_enc_1.to('cpu')
@@ -742,13 +719,14 @@ def main(args):
             else:
                 set_sequence_parallel_state(True)
         if get_sequence_parallel_state():
-            x, cond_1, attn_mask, cond_mask_1, cond_2 = prepare_parallel_data(
-                x, cond_1, attn_mask, cond_mask_1, cond_2
+            x, cond_1, attn_mask, cond_mask_1, motion_score, cond_2 = prepare_parallel_data(
+                x, cond_1, attn_mask, cond_mask_1, motion_score, cond_2
                 )        
             # x            (b c t h w)   -gather0-> (sp*b c t h w)   -scatter2-> (sp*b c t//sp h w)
             # cond_1       (b sp l/sp d) -gather0-> (sp*b sp l/sp d) -scatter1-> (sp*b 1 l/sp d)
             # attn_mask    (b t*sp h w)  -gather0-> (sp*b t*sp h w)  -scatter1-> (sp*b t h w)
             # cond_mask_1  (b sp l)      -gather0-> (sp*b sp l)      -scatter1-> (sp*b 1 l)
+            # motion_score (b sp)        -gather0-> (sp*b sp)        -scatter1-> (sp*b 1)
             # cond_2       (b sp d)      -gather0-> (sp*b sp d)      -scatter1-> (sp*b 1 d)
             for iter in range(args.train_batch_size * args.sp_size // args.train_sp_batch_size):
                 with accelerator.accumulate(model):
@@ -756,6 +734,7 @@ def main(args):
                     # cond_1       (sp_bs*b 1 l/sp d)
                     # attn_mask    (sp_bs*b t h w)
                     # cond_mask_1  (sp_bs*b 1 l)
+                    # motion_score (sp_bs*b 1)
                     # cond_2       (sp_bs*b 1 d)
                     st_idx = iter * args.train_sp_batch_size
                     ed_idx = (iter + 1) * args.train_sp_batch_size
@@ -763,6 +742,7 @@ def main(args):
                         encoder_hidden_states=cond_1[st_idx: ed_idx],
                         attention_mask=attn_mask[st_idx: ed_idx],
                         encoder_attention_mask=cond_mask_1[st_idx: ed_idx], 
+                        motion_score=motion_score[st_idx: ed_idx] if motion_score is not None else None, 
                         pooled_projections=cond_2[st_idx: ed_idx] if cond_2 is not None else None, 
                         )
                     run(x[st_idx: ed_idx], model_kwargs, prof_)
@@ -773,7 +753,7 @@ def main(args):
                 x = x.to(weight_dtype)
                 model_kwargs = dict(
                     encoder_hidden_states=cond_1, attention_mask=attn_mask, 
-                    encoder_attention_mask=cond_mask_1, 
+                    motion_score=motion_score, encoder_attention_mask=cond_mask_1, 
                     pooled_projections=cond_2
                     )
                 run(x, model_kwargs, prof_)
@@ -790,7 +770,7 @@ def main(args):
         progress_info.train_loss = 0.0
         if progress_info.global_step >= args.max_train_steps:
             return True
-        
+
         args.after_one_epoch_global_step = progress_info.global_step + len(train_dataloader) // args.gradient_accumulation_steps - 1
 
         for step, data_item in enumerate(train_dataloader):
@@ -858,8 +838,10 @@ if __name__ == "__main__":
     parser.add_argument("--num_frames", type=int, default=65)
     parser.add_argument("--max_height", type=int, default=320)
     parser.add_argument("--max_width", type=int, default=240)
-    parser.add_argument("--max_hxw", type=int, default=240)
-    parser.add_argument("--min_hxw", type=int, default=None)
+    parser.add_argument("--min_height", type=int, default=None)
+    parser.add_argument("--min_width", type=int, default=None)
+    parser.add_argument("--max_height_for_img", type=int, default=None)
+    parser.add_argument("--max_width_for_img", type=int, default=None)
     parser.add_argument("--ood_img_ratio", type=float, default=0.0)
     parser.add_argument("--use_img_from_vid", action="store_true")
     parser.add_argument("--model_max_length", type=int, default=512)
@@ -868,6 +850,7 @@ if __name__ == "__main__":
     parser.add_argument("--train_batch_size", type=int, default=16, help="Batch size (per device) for the training dataloader.")
     parser.add_argument("--group_data", action="store_true")
     parser.add_argument("--hw_stride", type=int, default=32)
+    parser.add_argument("--skip_low_resolution", action="store_true")
     parser.add_argument("--force_resolution", action="store_true")
     parser.add_argument("--trained_data_global_step", type=int, default=None)
     parser.add_argument("--use_decord", action="store_true")
@@ -888,8 +871,9 @@ if __name__ == "__main__":
     parser.add_argument("--pretrained", type=str, default=None)
     parser.add_argument('--sparse1d', action='store_true')
     parser.add_argument('--sparse_n', type=int, default=2)
+    parser.add_argument('--adapt_vae', action='store_true')
     parser.add_argument('--cogvideox_scheduler', action='store_true')
-    parser.add_argument('--v1_5_scheduler', action='store_true')
+    parser.add_argument('--use_motion', action='store_true')
     parser.add_argument("--gradient_checkpointing", action="store_true", help="Whether or not to use gradient checkpointing to save memory at the expense of slower backward pass.")
 
     # diffusion setting
@@ -985,14 +969,6 @@ if __name__ == "__main__":
     parser.add_argument("--default_text_ratio", type=float, default=0.5) # for inpainting mode
     parser.add_argument("--pretrained_transformer_model_path", type=str, default=None)
 
-    args = parser.parse_args()
-
-    assert args.mask_config is not None, 'mask_config is required!'
-    with open(args.mask_config, 'r') as f:
-        yaml_config = yaml.safe_load(f)
-    
-    for key, value in yaml_config.items():
-        if not hasattr(args, key):
-            setattr(args, key, value)
+   F
 
     main(args)
