@@ -67,8 +67,8 @@ def load_checkpoint(model, ckpt_path):
     ckpt_dict = new_ckpt_dict
 
     suffixes_1 = ["atten.proj_q.weight", "atten.proj_q.bias", "atten.proj_k.weight", "atten.proj_k.bias",
-                  "atten.proj_v.weight", "atten.proj_v.bias"]
-    suffixes_2 = ["atten.proj_out.weight"]
+                  "atten.proj_v.weight", "atten.proj_v.bias", "ff.net.0.proj.weight", "ff.net.0.proj.bias"]
+    suffixes_2 = ["atten.proj_out.weight", "ff.net.2.weight"]
     for key, value in ckpt_dict.items():
         if isinstance(value, torch.Tensor):
             if any(key.endswith(suffix) for suffix in suffixes_1):

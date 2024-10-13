@@ -54,6 +54,8 @@ class SoRAModel(nn.Module):
             self.text_encoder.requires_grad_(False)
 
         self.predictor = PredictModel(config.predictor).get_model()
+        print(
+            f"  Total training parameters = {sum(p.numel() for p in self.predictor.parameters() if p.requires_grad) / 1e9} B")
         self.diffusion = DiffusionModel(config.diffusion).get_model()
 
     def set_input_tensor(self, input_tensor):

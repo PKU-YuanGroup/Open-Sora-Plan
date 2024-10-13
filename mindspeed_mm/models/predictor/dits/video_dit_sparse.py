@@ -5,7 +5,6 @@ import torch
 import torch.nn.functional as F
 from diffusers.models.embeddings import SinusoidalPositionalEmbedding, PixArtAlphaTextProjection
 from diffusers.models.normalization import AdaLayerNorm, AdaLayerNormContinuous, AdaLayerNormZero, AdaLayerNormSingle
-from diffusers.models.attention import FeedForward
 from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.models.modeling_utils import ModelMixin
 from megatron.core import mpu, tensor_parallel
@@ -13,6 +12,7 @@ from megatron.training import get_args
 from mindspeed_mm.models.common.attention import MultiHeadSparseAttentionSBH
 from mindspeed_mm.models.common.motion import MotionAdaLayerNormSingle
 from mindspeed_mm.models.common.communications import split_forward_gather_backward, gather_forward_split_backward
+from mindspeed_mm.models.common.ffn import FeedForward
 
 class VideoDiTSparse(ModelMixin, ConfigMixin):
     """

@@ -5,7 +5,7 @@ import math
 import torch
 import torch.nn as nn
 import torch_npu
-from megatron.core import mpu
+
 from megatron import core
 from megatron.core import mpu, tensor_parallel
 from megatron.training import get_args
