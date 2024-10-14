@@ -7,6 +7,7 @@ from mindspeed_mm.data.datasets.image_dataset import ImageDataset
 from mindspeed_mm.data.datasets.t2i_dataset import T2IDataset
 from mindspeed_mm.data.datasets.t2v_dataset import T2VDataset, DynamicVideoTextDataset
 from mindspeed_mm.data.datasets.video_dataset import VideoDataset
+from mindspeed_mm.data.datasets.audio_dataset import AudioDataset
 
 __all__ = [
     "build_mm_dataset", "build_mm_dataloader"
@@ -40,6 +41,8 @@ def build_mm_dataset(dataset_param):
         return VideoDataset(basic_param, preprocess_param, **dataset_param)
     elif dataset_type == "image":
         return ImageDataset(basic_param, preprocess_param, **dataset_param)
+    elif dataset_type == "audio":
+        return AudioDataset(basic_param, preprocess_param, **dataset_param)
     else:
         raise NotImplementedError(dataset_type)
 

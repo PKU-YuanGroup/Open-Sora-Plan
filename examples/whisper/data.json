@@ -1,0 +1,28 @@
+{
+    "dataset_param": {
+        "dataset_type": "audio",
+        "basic_parameters": {
+            "dataset_name_or_path": "mozilla-foundation/common_voice_11_0",
+            "language": "hi"
+        },
+        "preprocess_parameters": {
+            "processor_name_or_path": "openai/whisper-large-v3",
+            "language": "Hindi",
+            "task": "transcribe"
+        }
+    },
+    "dataloader_param": {
+        "dataloader_mode": "sampler",
+        "batch_size": 8,
+        "num_workers": 4,
+        "shuffle": false,
+        "drop_last": false,
+        "pin_memory": true,
+        "collate_param": {
+            "model_name": "whisper",
+            "processor_name_or_path": "openai/whisper-large-v3",
+            "language": "Hindi",
+            "task": "transcribe"
+        }
+    }
+}

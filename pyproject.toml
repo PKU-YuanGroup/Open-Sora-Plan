@@ -21,7 +21,8 @@ dependencies = [
     "diffusers==0.30.3",
     "transformers==4.36.2",
     "accelerate==0.32.1",
-    "pandarallel"
+    "pandarallel",
+    "datasets"
 ]
 
 [build-system]
