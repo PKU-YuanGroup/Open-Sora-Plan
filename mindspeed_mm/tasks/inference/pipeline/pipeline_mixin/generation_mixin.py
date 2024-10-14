@@ -915,8 +915,6 @@ class GenerationMixin:
                     - [`~generation.GenerateBeamEncoderDecoderOutput`]
         """
 
-        synced_gpus = False
-
         # priority: `generation_config` argument > `model.generation_config` (the default generation config)
         if generation_config is None:
             generation_config = self.generation_config
