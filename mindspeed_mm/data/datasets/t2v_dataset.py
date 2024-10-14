@@ -224,9 +224,9 @@ class T2VDataset(MMBaseDataset):
             select_image_idx = np.linspace(
                 0, self.num_frames - 1, self.use_img_num, dtype=int
             )
-            if self.num_frames < self.use_image_num:
+            if self.num_frames < self.use_img_num:
                 raise AssertionError(
-                    "The num_frames must be larger than the use_image_num."
+                    "The num_frames must be larger than the use_img_num."
                 )
             images = video_value[:, select_image_idx]  # c, num_img, h, w
             video_value = torch.cat(
@@ -242,11 +242,11 @@ class T2VDataset(MMBaseDataset):
         prompt_ids, prompt_mask = self.text_processer(texts)
         if self.vid_img_fusion_by_splicing and self.use_img_from_vid:
             prompt_ids = torch.stack(
-                [prompt_ids] * (1 + self.use_image_num)
-            )  # 1+self.use_image_num, l
+                [prompt_ids] * (1 + self.use_img_num)
+            )  # 1+self.use_img_num, l
             prompt_mask = torch.stack(
-                [prompt_mask] * (1 + self.use_image_num)
-            )  # 1+self.use_image_num, l
+                [prompt_mask] * (1 + self.use_img_num)
+            )  # 1+self.use_img_num, l
         if self.vid_img_fusion_by_splicing and not self.use_img_from_vid:
             raise NotImplementedError("Not support now.")
         return prompt_ids, prompt_mask
