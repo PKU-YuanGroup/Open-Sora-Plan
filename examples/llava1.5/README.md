@@ -86,7 +86,22 @@
     # 安装其余依赖库
     pip install -e .
 ```
+**注意事项:** 
 
+  需要修改 mindspeed/core/transformer/dot_product_attention.py的65行，修改如下：
+```
+def dot_product_attention_forward_wrapper(fn):
+    @wraps(fn)
+    def wrapper(self, query, key, value, attention_mask, attn_mask_type, packed_seq_params):
+        # 注释下一行
+        # attention_mask = get_attention_mask()
+        if get_args().use_flash_attn:
+            return dot_product_attention_forward(self, query, key, value, attention_mask, attn_mask_type, packed_seq_params)
+        return fn(self, query, key, value, attention_mask, attn_mask_type, packed_seq_params)
+
+    return wrapper
+```
+    
 ---
 
 <a id="jump2"></a>
@@ -122,6 +137,12 @@ MindSpeeed-MM修改了部分原始网络的结构名称，因此需要使用如�
   ```
   其中{dir_to_model}为模型所在的路径。 
   转换的结果在： /some/output/folder/iter_0000001/mp_rank_00/model_optim_rng.pt
+  
+  对于转换后的结果，需要再执行如下转换，其中{target_dir}为最终的权重文件保存路径：
+  ```
+  before = torch.load("/some/output/folder/iter_0000001/mp_rank_00/model_optim_rng.pt")["model"]
+  torch.save(before, "{target_dir}/final_vit_pt_file.pt")
+  ```
 
 - lmsys/vicuna-7b-v1.5权重转换
 
