@@ -10,6 +10,7 @@
   - [环境搭建](#jump1.2)
 - [权重下载及转换](#jump2)
   - [权重下载](#jump2.1)
+  - [权重转换](#jump2.2)
 - [数据集准备及处理](#jump3)
   - [数据集下载](#jump3.1)
 - [预训练](#jump4)
@@ -106,8 +107,71 @@
 
 #### 2. 权重转换
 
-MindSpeeed-MM修改了部分原始网络的结构名称，因此需要使用如下脚本代码对下载的预训练权重进行转换。
+MindSpeeed-MM修改了部分原始网络的结构名称，因此需要使用如下脚本代码对下载的预训练权重进行转换。 当前训练只使用了ViT-L-14-336px和lmsys/vicuna-7b-v1.5两个模型，以下介绍这两个模型从开源仓转换成MindSpeeed-MM所需权重的方法：
 
+- ViT-L-14-336px权重转换
+
+  参考 NVIDIA/Megatron-LM中[Vision model](https://github.com/NVIDIA/Megatron-LM/blob/main/examples/multimodal/README.md#vision-model) , 
+  执行如下命令：
+  ```
+  python examples/multimodal/clip_converter.py --download-root /some/download/folder --output /some/output/folder --tensor-parallel-size 1 --use-te
+  ```
+  如果执行环境连接不到外网下载ViT-L-14-336px模型，建议手动下载，再在clip_converter.py中将ViT-L-14-336px路径修改成本地路径
+  ```
+  model, _ = clip.load("{dir_to_model}/ViT-L-14-336px.pt", device=device, download_root="")
+  ```
+  其中{dir_to_model}为模型所在的路径。 
+  转换的结果在： /some/output/folder/iter_0000001/mp_rank_00/model_optim_rng.pt
+
+- lmsys/vicuna-7b-v1.5权重转换
+
+  参考[ModelLink](https://gitee.com/ascend/ModelLink/blob/master/examples/README.md#21-huggingface%E6%9D%83%E9%87%8D%E8%BD%AC%E6%8D%A2%E5%88%B0megatron-lm%E6%A0%BC%E5%BC%8F)中语言模型权重转换的脚本：
+  ```
+  source {cann_dir}/ascend-toolkit/set_env.sh
+  HF_FORMAT_DIR="{dir_to_model}/vicuna-7b-v1.5"
+  MEGATRON_FORMAT_DIR="{target_dir}"
+  TOKENIZER_MODEL="{dir_to_model}/vicuna-7b-v1.5/tokenizer.model" 
+  python tools/checkpoint/convert_ckpt.py \
+       --model-type GPT \
+       --loader llama2_hf \
+       --saver megatron \
+       --target-tensor-parallel-size 1 \
+       --target-pipeline-parallel-size 1 \
+       --load-dir ${HF_FORMAT_DIR} \
+       --save-dir ${MEGATRON_FORMAT_DIR} \
+       --tokenizer-model ${TOKENIZER_MODEL} \
+       --params-dtype bf16
+  ```
+  其中： {dir_to_model}为vicuna-7b-v1.5所在路径，{target_dir}为转换结果文件路径, {cann_dir}为cann包安装路径。转换的结果在：{target_dir}/iter_0000001/mp_rank_00/model_optim_rng.pt。
+
+由于MindSpeed-MM中模型变量名称跟转换结果有差异，需要再做一次适配：
+  - 在megatron同级目录，创建convert.py脚本，将如下代码复制到convert.py中，
+  - 修改{target_dir}为上一步model_optim_rng.pt所在路径，
+  - 修改{dir_to_save_file}为结果文件所在路径，
+  - 执行命令：python convert.py
+  ```
+  import torch
+  def convert_param():
+      ckp = torch.load("{target_dir}/model_optim_rng.pt")["model"]["language_model"]
+      target_ckp = {}
+      target_ckp["embedding.word_embeddings.weight"] = ckp["embedding"]["word_embeddings"]["weight"]
+      target_ckp["output_layer.weight"] = ckp["output_layer"]["weight"]
+      for encode_key in ckp["encoder"].keys():
+          if ckp["encoder"][encode_key] is not None:
+              targetkey = encode_key.replace("input_norm", "input_layernorm")
+              targetkey = targetkey.replace(".dense.", ".linear_proj.")
+              targetkey = targetkey.replace("query_key_value", "linear_qkv")
+              targetkey = targetkey.replace("post_attention_norm", "pre_mlp_layernorm")
+              targetkey = targetkey.replace("dense_h_to_4h", "linear_fc1")
+              targetkey = targetkey.replace("dense_4h_to_h", "linear_fc2")
+              targetkey = targetkey.replace("final_norm", "final_layernorm")
+              targetkey = "decoder." + targetkey
+              target_ckp[targetkey] = ckp["encoder"][encode_key]
+      torch.save(target_ckp, "{dir_to_save_file}/xxx.pt")
+
+  if __name__ == "__main__":
+      convert_param()
+  ```
 ---
 
 <a id="jump3"></a>
