@@ -25,7 +25,6 @@ MindSpeed-MM是面向大规模分布式训练的昇腾多模态大模型套件�
 * [理解类多模态大模型](#jump1) 【昇腾】【NAIE】【GTS】
 * [预训练/全参微调/低参微调/在线推理](./examples/) 【昇腾】【NAIE】
 * 数据工程： 多模数据预处理及加载/数据分桶策略 【昇腾】
-* 分布式训练: [加速算法/融合算子/并行策略](#预训练加速算法与融合算子) 【昇腾】
 * [昇腾工具链](#jump2): [Profiling采集](#jump2.1)【昇腾】
 
 更多多模态模型持续研发中....
@@ -51,7 +50,7 @@ MindSpeed-MM是面向大规模分布式训练的昇腾多模态大模型套件�
 
 `模型`列中的超链接指向各模型的文件夹地址， `参数量`列中的超链接指向模型的社区资源地址
 
-`认证`【Pass】表示已经过测试的模型，【Test】表示待测试模型
+`认证`【Pass】表示已经过测试的模型，【Test】表示测试中的模型
 
 <table>
   <a id="jump1"></a>
@@ -87,8 +86,8 @@ MindSpeed-MM是面向大规模分布式训练的昇腾多模态大模型套件�
       <td> 预训练 </td>
       <td> 1x8</td>
       <td> BF16 </td>
-      <td> 18.90 (s/iter) </td>
-      <td> 17.63 (s/iter) </td>
+      <td> 7.31 (Samples per Second) </td>
+      <td> 8.15 (Samples per Second) </td>
       <td> 【昇腾】 </td>
       <td>【Pass】</td>
     </tr>
@@ -104,7 +103,18 @@ MindSpeed-MM是面向大规模分布式训练的昇腾多模态大模型套件�
       <td>【Pass】</td>
     </tr>
     <tr>
-      <td rowspan="3"><a href="https://gitee.com/ascend/MindSpeed-MM/tree/master/examples/diffusers/sdxl">SDXL</a></td>
+      <td><a href="https://gitee.com/ascend/MindSpeed-MM/tree/master/examples/opensoraplan1.3">OpenSoraPlan 1.3</a></td>
+      <td><a href="https://huggingface.co/hpcaitech/Open-Sora/tree/v1.3.0"> / </a></td>
+      <td> / </td>
+      <td> / </td>
+      <td> / </td>
+      <td> / </td>
+      <td> / </td>
+      <td> / </td>
+      <td>【Coming Soon】</td>
+    </tr>
+    <tr>
+      <td rowspan="2"><a href="https://gitee.com/ascend/MindSpeed-MM/tree/master/examples/diffusers/sdxl">SDXL</a></td>
       <td><a href="https://github.com/huggingface/diffusers/tree/eda36c4c286d281f216dfeb79e64adad3f85d37a">3.5B</a></td>
       <td>预训练</td>
       <td> 1x8</td>
@@ -121,16 +131,6 @@ MindSpeed-MM是面向大规模分布式训练的昇腾多模态大模型套件�
       <td> FP16 </td>
       <td> 28.51 (FPS)</td>
       <td> 30.23 (FPS)</td>
-      <td> 【昇腾】【NAIE】 </td>
-      <td>【Pass】</td>
-    </tr>
-    <tr>
-      <td><a href="https://github.com/huggingface/diffusers/tree/eda36c4c286d281f216dfeb79e64adad3f85d37a">3.5B</a></td>
-      <td>全参微调</td>
-      <td> 1x8</td>
-      <td> FP16 </td>
-      <td> 166.71 (FPS)</td>
-      <td> 164.66 (FPS)</td>
       <td> 【昇腾】【NAIE】 </td>
       <td>【Pass】</td>
     </tr>
@@ -166,39 +166,61 @@ MindSpeed-MM是面向大规模分布式训练的昇腾多模态大模型套件�
       <td>【Pass】</td>
     </tr>
     <tr>
+      <td><a href="https://gitee.com/ascend/MindSpeed-MM/tree/master/examples/whisper">Whisper</a></td>
+      <td><a href="https://github.com/openai/whisper">1.5B</a></td>
+      <td>预训练</td>
+      <td> 1x8</td>
+      <td> BF16 </td>
+      <td> 58.07 (Samples per Second) </td>
+      <td> 80.16 (Samples per Second) </td>
+      <td> 【昇腾】 </td>
+      <td>【Pass】</td>
+    </tr>
+    <tr>
       <td><a href="https://gitee.com/ascend/MindSpeed-MM/tree/master/examples/diffusers/kolors">Kolors</a></td>
       <td><a href="https://github.com/Kwai-Kolors/Kolors">2.6B</a></td>
       <td>推理</td>
-      <td> 单机单卡</td>
+      <td> 1x1 </td>
       <td> FP16 </td>
       <td> / </td>
       <td> / </td>
       <td> 【NAIE】 </td>
-      <td>【Test】</td>
+      <td>【Pass】</td>
     </tr>
     <tr>
       <td><a href="https://gitee.com/ascend/MindSpeed-MM/tree/master/examples/llava1.5">LLaVA 1.5</a></td>
       <td><a href="https://github.com/haotian-liu/LLaVA">7B</a></td>
       <td>预训练</td>
-      <td> 1x8</td>
+      <td> 1x1 </td>
       <td> BF16 </td>
-      <td> / </td>
-      <td> / </td>
+      <td> 5.93 </td>
+      <td> 6.50 </td>
       <td> 【昇腾】【NAIE】 </td>
       <td>【Pass】</td>
     </tr>
    <tr>
-      <td rowspan="2"><a href="https://gitee.com/ascend/MindSpeed-MM/tree/master/examples/internvl2.0">Intern-VL-2.0</a></td>
-      <td><a href="https://github.com/OpenGVLab/InternVL2.0">8B</a></td>
+      <td rowspan="3"><a href="https://gitee.com/ascend/MindSpeed-MM/tree/master/examples/internvl2.0">Intern-VL-2.0</a></td>
+      <td><a href="https://huggingface.co/OpenGVLab/InternVL2-2B">2B</a></td>
       <td>预训练</td>
-      <td> 1x8</td>
+      <td> 1x8 </td>
       <td> BF16 </td>
       <td> / </td>
       <td> / </td>
       <td> 【昇腾】 </td>
       <td>【Test】</td>
     </tr>
-      <td><a href="https://github.com/OpenGVLab/InternVL2.0">26B</a></td>
+    <tr>
+      <td><a href="https://huggingface.co/OpenGVLab/InternVL2-8B">8B</a></td>
+      <td>预训练</td>
+      <td> 1x8 </td>
+      <td> BF16 </td>
+      <td> / </td>
+      <td> / </td>
+      <td> 【昇腾】 </td>
+      <td>【Test】</td>
+    </tr>
+    <tr>
+      <td><a href="https://huggingface.co/OpenGVLab/InternVL2-26B">26B</a></td>
       <td>/</td>
       <td> /</td>
       <td> / </td>
@@ -219,7 +241,7 @@ MindSpeed-MM是面向大规模分布式训练的昇腾多模态大模型套件�
       <td>【Coming Soon】</td>
     </tr>
     <tr>
-      <td><a href="https://gitee.com/ascend/MindSpeed-MM/tree/master/examples/qwen2-vl">Qwen2-VL</a></td>
+      <td rowspan="2"><a href="https://gitee.com/ascend/MindSpeed-MM/tree/master/examples/qwen2-vl">Qwen2-VL</a></td>
       <td><a href="https://qwen2.org/vl/">7B</a></td>
       <td>/</td>
       <td> /</td>
@@ -230,7 +252,6 @@ MindSpeed-MM是面向大规模分布式训练的昇腾多模态大模型套件�
       <td>【Coming Soon】</td>
     </tr>
  <tr>
-      <td><a href="https://gitee.com/ascend/MindSpeed-MM/tree/master/examples/qwen2-vl">Qwen2-VL</a></td>
       <td><a href="https://qwen2.org/vl/">72B</a></td>
       <td>/</td>
       <td> /</td>
@@ -244,7 +265,7 @@ MindSpeed-MM是面向大规模分布式训练的昇腾多模态大模型套件�
 </table>
 
 <table>
-  <caption><a href="https://gitee.com/ascend/ModelZoo-PyTorch">ModelZoo仓内的多模态大模型</a>（Q4逐步迁移至MindSpeed-MM）</caption>
+  <caption><a href="https://gitee.com/ascend/ModelZoo-PyTorch/tree/master/PyTorch/built-in/mm">其他已适配昇腾的多模态大模型</a></caption>
   <thead>
     <tr>
       <th>模型</th>
@@ -279,7 +300,7 @@ MindSpeed-MM是面向大规模分布式训练的昇腾多模态大模型套件�
       <td> 0.841 (s/step) </td>
       <td> 0.935 (s/step) </td>
       <td> 【NAIE】 </td>
-      <td>【Test】</td>
+      <td>【Pass】</td>
     </tr>
     <tr>
       <td><a href="https://github.com/magic-research/PLLaVA">7B</a></td>
@@ -289,7 +310,7 @@ MindSpeed-MM是面向大规模分布式训练的昇腾多模态大模型套件�
       <td> 0.935 (s/step) </td>
       <td> 1.08 (s/step) </td>
       <td>【NAIE】 </td>
-      <td>【Test】</td>
+      <td>【Pass】</td>
     </tr>
     <tr>
       <td rowspan="2"><a href="https://gitee.com/ascend/ModelZoo-PyTorch/tree/master/PyTorch/built-in/mm/MiniCPM-V">miniCPM 2.5</a></td>
@@ -323,54 +344,19 @@ MindSpeed-MM是面向大规模分布式训练的昇腾多模态大模型套件�
       <td> 【昇腾】 </td>
       <td>【Pass】</td>
     </tr>
+    <tr>
+      <td><a href="https://gitee.com/ascend/ModelZoo-PyTorch/tree/master/PyTorch/built-in/mm/InternVL1.5">Intern-VL-1.5</a></td>
+      <td><a href="https://github.com/OpenGVLab/InternVL/tree/v1.5.0">26B</a></td>
+      <td>微调训练</td>
+      <td> 1x8</td>
+      <td> BF16 </td>
+      <td> 4.952 (FPS) </td>
+      <td> 5.151 (FPS) </td>
+      <td> 【昇腾】 </td>
+      <td>【Pass】</td>
+    </tr>
   </tbody>
 </table>
-
----
-
-## 预训练加速算法与融合算子
-
-MindSpeed MM预训练支持多种分布式并行算法和融合算子，下表为一些各种加速特性对应的使能开关（不同模型请参考各自对应的使用手册：[examples](./examples/)）：
-
-<table><thead>
-  <tr>
-    <th>使用场景</th>
-    <th>特性名称</th>
-    <th>具体参数</th>
-  </tr></thead>
-<tbody>
-  <tr>
-    <td rowspan="3">长序列并行</td>
-  </tr>
-  <tr>
-    <td>分布式优化器</td>
-    <td>--use-distributed-optimizer</td>
-  </tr>
-  <tr>
-    <td>长序列并行</td>
-    <td>--context-parallel-size</td>
-  </tr>
-  <tr>
-    <td rowspan="4">显存优化</td>
-  </tr>
-  <tr>
-    <td>重计算程度</td>
-    <td>--recompute-granularity</td>
-  </tr>
-  <tr>
-    <td>重计算层数</td>
-    <td>--recompute-num-layers</td>
-  </tr>
-  <tr>
-    <td>重计算方法</td>
-    <td>--recompute-method</td>
-  </tr>
-  <tr>
-    <td>融合算子</td>
-    <td>Flash attention</td>
-    <td>默认开启</td>
-  </tr>
-</tbody></table>
 
 ---
 
@@ -395,6 +381,7 @@ MindSpeed-MM 由华为公司的下列部门联合贡献 ：
 * 昇腾计算产品部
 * 公共开发部：NAIE
 * 全球技术服务部：GTS
+* 计算技术开发部
 
 感谢来自社区的每一个PR，欢迎贡献 MindSpeed-MM
 

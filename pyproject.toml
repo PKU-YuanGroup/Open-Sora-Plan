@@ -17,6 +17,7 @@ dependencies = [
     "beartype",
     "timm==1.0.8",
     "pandas==2.0.3",
+    "torch==2.1.0",
     "torchvision",
     "diffusers==0.30.3",
     "transformers==4.36.2",
