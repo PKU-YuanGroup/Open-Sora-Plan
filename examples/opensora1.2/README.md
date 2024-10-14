@@ -143,7 +143,7 @@
 
 #### 2. 配置参数
 
-需根据实际情况修改`model.json`和`data.json`中的权重和数据集路径，包括`from_pretrained`、`data_path`、`data_folder`字段
+需根据实际情况修改`model.json`和`data.json`中的权重和数据集路径，包括`from_pretrained`、`from_pretrained_3dvae_ckpt`、`data_path`、`data_folder`字段
 
 【单机运行】
 

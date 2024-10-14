@@ -9,7 +9,8 @@ from mindspeed_mm.models.common.communications import (
     split_forward_gather_backward,
     cal_split_sizes
 )
-from .vae_temporal import VAE_Temporal
+from mindspeed_mm.models.common.checkpoint import load_checkpoint
+from mindspeed_mm.models.ae.vae_temporal import VAE_Temporal
 
 
 class VideoAutoencoderKL(nn.Module):
@@ -120,6 +121,12 @@ class VideoAutoencoder3D(nn.Module):
             shift = shift[None, :, None, None, None]
         self.register_buffer("scale", scale)
         self.register_buffer("shift", shift)
+
+        ckpt_path = kwargs.get("from_pretrained_3dvae_ckpt", None)
+        if ckpt_path is not None:
+            load_checkpoint(self, ckpt_path)
+        else:
+            print("Warning: ckpt path is None or empty, skip loading ckpt")
 
     def encode(self, x):
         bs = x.size(0)

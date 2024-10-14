@@ -11,8 +11,6 @@ WORLD_SIZE=$(($NPUS_PER_NODE * $NNODES))
 
 export use_debug=0
 
-
-
 TP=1
 PP=1
 CP=1

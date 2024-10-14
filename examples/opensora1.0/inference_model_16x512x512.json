@@ -1,7 +1,7 @@
 {
     "ae": {
         "model_id": "vae",
-        "from_pretrained": "sd-vae-ft-ema",
+        "from_pretrained": "stabilityai/sd-vae-ft-ema",
         "dtype": "fp16",
         "enable_sp": true,
         "micro_batch_size": 2

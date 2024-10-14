@@ -9,6 +9,7 @@
     "ae": {
         "model_id": "vae3D",
         "from_pretrained": "/home/ci_resource/models/opensora1.0/sd-vae-ft-ema",
+        "from_pretrained_3dvae_ckpt": "/home/ci_resource/models/opensora1.2/OpenSora-VAE-v1.2/model.safetensors",
         "dtype": "bf16",
         "enable_sequence_parallelism": false,
         "cal_loss": false,
@@ -38,8 +39,9 @@
         "from_pretrained": "/home/ci_resource/models/opensora1.0/PixArt-XL-2-512x512.pth"
     },
     "diffusion": {
-        "timestep_respacing": "",
-        "model_id": "rflow"
+        "model_id": "rflow",
+        "use_timestep_transform": true,
+        "sample_method": "logit-normal"
     },
     "model_max_length": 300
 }

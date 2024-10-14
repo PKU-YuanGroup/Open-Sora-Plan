@@ -5,6 +5,8 @@ import torch
 import torch.nn as nn
 from torch.utils.checkpoint import checkpoint, checkpoint_sequential
 
+import safetensors
+
 
 def set_grad_checkpoint(model, use_fp32_attention=False, gc_step=1):
     if not isinstance(model, nn.Module):
@@ -31,7 +33,13 @@ def load_checkpoint(model, ckpt_path):
     # TODO: 使用统一的接口进行模型保存/加载管理
     if not os.path.isfile(ckpt_path):
         raise FileNotFoundError(f"Could not find checkpoint at {ckpt_path}")
-    ckpt_dict = torch.load(ckpt_path, map_location=lambda storage, loc: storage)
+
+    if ckpt_path.endswith("pt") or ckpt_path.endswith("pth"):
+        ckpt_dict = torch.load(ckpt_path, map_location=lambda storage, loc: storage)
+    elif ckpt_path.endswith(".safetensors"):
+        ckpt_dict = safetensors.torch.load_file(ckpt_path)
+    else:
+        raise ValueError(f"Invalid checkpoint path: {ckpt_path}")
 
     if "pos_embed_temporal" in ckpt_dict:
         del ckpt_dict["pos_embed_temporal"]

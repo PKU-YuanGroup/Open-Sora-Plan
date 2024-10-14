@@ -187,7 +187,7 @@ class STDiT3(MultiModalModule):
         depth=28,
         num_heads=16,
         mlp_ratio=4.0,
-        class_dropout_prob=0.0,
+        class_dropout_prob=0.1,
         pred_sigma=True,
         drop_path=0.0,
         caption_channels=4096,

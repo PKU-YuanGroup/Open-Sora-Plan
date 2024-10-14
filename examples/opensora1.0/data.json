@@ -2,8 +2,8 @@
     "dataset_param": {
         "dataset_type": "t2v",
         "basic_parameters": {
-            "data_path": "json_path", 
-            "data_folder": "root_path"
+            "data_path": "train.json", 
+            "data_folder": "/your_data_folder/"
         },
         "preprocess_parameters": {
             "video_reader_type": "torchvision",
@@ -26,7 +26,7 @@
         "tokenizer_config": {
             "hub_backend": "hf",
             "autotokenizer_name": "AutoTokenizer",
-            "from_pretrained": "your model path"
+            "from_pretrained": "DeepFloyd/t5-v1_1-xxl"
         },
         "use_feature_data": false,
         "vid_img_fusion_by_splicing": false,

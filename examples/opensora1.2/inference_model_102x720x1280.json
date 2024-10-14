@@ -1,8 +1,9 @@
 
 {
     "ae": {
-        "model_id": "3dvae",
-        "from_pretrained": "OpenSora-VAE-v1.2/model.safetensors",
+        "model_id": "vae3D",
+        "from_pretrained": "stabilityai/sd-vae-ft-ema",
+        "from_pretrained_3dvae_ckpt": "OpenSora-VAE-v1.2/model.safetensors",
         "dtype": "bf16",
         "cal_loss": false,
         "shift": [-0.10, 0.34, 0.27, 0.98],
@@ -35,32 +36,19 @@
         "time_scale": 1.0,
         "enable_flashattn": true,
         "enable_sequence_parallelism": false,
-        "from_pretrained": "weights/stdit3.pt"
+        "from_pretrained": "OpenSora-STDiT-v3/model.safetensors"
     },
     "diffusion": {
         "model_id": "rflow",
         "use_timestep_transform":true,
         "num_inference_steps":30,
-        "cfg_scale":7.0
-    },
-
-
-    "mask_ratios": {
-        "random": 0.05,
-        "intepolate": 0.005,
-        "quarter_random": 0.005,
-        "quarter_head": 0.005,
-        "quarter_tail": 0.005,
-        "quarter_head_tail": 0.005,
-        "image_random": 0.025,
-        "image_head": 0.05,
-        "image_tail": 0.025,
-        "image_head_tail": 0.025
+        "cfg_scale":7.0,
+        "sample_method": "logit-normal"
     },
     "pipeline_config": {
         "use_attention_mask": true,
         "use_y_embedder": true,
-         "input_size": [102, 720, 1280]
+        "input_size": [102, 720, 1280]
     },
     "frame_interval": 1,
     "micro_batch_size": 1,
