@@ -58,12 +58,24 @@ class VLModel(nn.Module):
                 max_sequence_length=config.text_decoder.language_max_sequence_length,
                 position_embedding_type=config.text_decoder.lm_position_embedding_type,
             )
+            if hasattr(config.text_decoder, "ckpt_path"):
+                _load_checkpoint(self.text_decoder, config.text_decoder.ckpt_path)
+            else:
+                print("Warning: no checkpoint found at ckpt_path, skipping loading ckpt.")
         if self.add_image_encoder:
             self.image_encoder = VisionModel(
                 config.image_encoder,
                 config.image_encoder.vision_encoder.vision_transformer_layer_spec,
                 config.image_encoder.vision_projector.vision_projection_layer_spec,
                 )
+            if hasattr(config.image_encoder.vision_encoder, "ckpt_path") and hasattr(self.image_encoder, "encoder"):
+                _load_checkpoint(self.image_encoder.encoder, config.image_encoder.vision_encoder.ckpt_path)
+            else:
+                print("Warning: no model or checkpoint found at ckpt_path, skipping loading ckpt.")
+            if hasattr(config.image_encoder.vision_projector, "ckpt_path") and hasattr(self.image_encoder, "projector"):
+                _load_checkpoint(self.image_encoder.projector, config.image_encoder.vision_projector.ckpt_path)
+            else:
+                print("Warning: no model or checkpoint found at ckpt_path, skipping loading ckpt.")
 
     def shared_embedding_or_output_weight(self):
         """
@@ -306,3 +318,11 @@ class VLModel(nn.Module):
             loss = loss_fct(shift_logits, shift_labels)
 
         return loss
+
+
+def _load_checkpoint(model, ckpt_path):
+    if ckpt_path and len(ckpt_path) > 0:
+        load_params = torch.load(ckpt_path, map_location="cpu")
+        print(model.load_state_dict(load_params, strict=False))
+    else:
+        print("Warning: ckpt path is None or empty, skipping loading ckpt.")

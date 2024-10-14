@@ -8,7 +8,7 @@ export COMBINED_ENABLE=1
 export CPU_AFFINITY_CONF=1
 export HCCL_CONNECT_TIMEOUT=1200
 
-GPUS_PER_NODE=1
+GPUS_PER_NODE=8
 MASTER_ADDR=localhost
 MASTER_PORT=29501
 NNODES=1
@@ -63,7 +63,9 @@ GPT_ARGS="
     --no-load-rng \
     --no-save-optim \
     --no-save-rng \
-    --bf16
+    --bf16 \
+    --use-flash-attn \
+    --use-flash-rotary-pos-emb
 "
 
 MM_ARGS="

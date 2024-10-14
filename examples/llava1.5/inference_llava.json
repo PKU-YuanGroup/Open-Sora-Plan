@@ -26,7 +26,8 @@
       "language_max_sequence_length": 4096,
       "lm_position_embedding_type": "rope",
       "is_encoder_decoder":false,
-      "freeze": true
+      "freeze": true,
+      "ckpt_path": "/<your_vicuna_weights_path>/converted_vicuna.pt"
   },
   "image_encoder": {
       "vision_encoder": {
@@ -57,7 +58,8 @@
           "class_token_len": 1,
           "patch_size": 14,
           "image_size": 336,
-          "freeze": true
+          "freeze": true,
+          "ckpt_path": "/<your_clip_weights_path>/converted_clip.pt"
       },
       "vision_projector": {
           "model_id": "mlp",
@@ -72,7 +74,8 @@
           "bf16": true,
           "params_dtype": "fp16",
           "activation_func": "gelu",
-          "freeze": true
+          "freeze": true,
+          "ckpt_path": "/<your_mlp_weights_path>/mlp.pt"
       }
   },
   "text_encoder": null,
