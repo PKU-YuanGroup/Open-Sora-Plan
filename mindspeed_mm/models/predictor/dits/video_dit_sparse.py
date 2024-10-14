@@ -69,6 +69,7 @@ class VideoDiTSparse(ModelMixin, ConfigMixin):
     ):
         super().__init__()
         args = get_args()
+        self.gradient_checkpointing = True
         self.recompute_granularity = args.recompute_granularity
         self.distribute_saved_activations = args.distribute_saved_activations
         self.recompute_method = args.recompute_method
@@ -190,6 +191,7 @@ class VideoDiTSparse(ModelMixin, ConfigMixin):
         **kwargs
     ) -> torch.Tensor:
         batch_size, c, frames, h, w = hidden_states.shape
+        encoder_attention_mask = encoder_attention_mask.view(batch_size, -1, encoder_attention_mask.shape[-1])
         if self.training and mpu.get_context_parallel_world_size() > 1:
             frames //= mpu.get_context_parallel_world_size()
             hidden_states = split_forward_gather_backward(hidden_states, mpu.get_context_parallel_group(), dim=2,
@@ -254,34 +256,73 @@ class VideoDiTSparse(ModelMixin, ConfigMixin):
         frames = torch.tensor(frames)
         height = torch.tensor(height)
         width = torch.tensor(width)
-        if self.recompute_granularity == "full":
-            hidden_states = self._checkpointed_forward(
-                sparse_mask,
-                hidden_states,
-                attention_mask,
-                encoder_hidden_states,
-                encoder_attention_mask,
-                timestep,
-                frames,
-                height,
-                width
-            )
-        else:
-            for i, block in enumerate(self.videodit_blocks):
-                if i > 1 and i < 30:
-                    attention_mask, encoder_attention_mask = sparse_mask[block.self_atten.sparse_n][block.self_atten.sparse_group]
-                else:
-                    attention_mask, encoder_attention_mask = sparse_mask[1][block.self_atten.sparse_group]
-                hidden_states = block(
+
+        for i, block in enumerate(self.videodit_blocks):
+            if i > 1 and i < 30:
+                attention_mask, encoder_attention_mask = sparse_mask[block.self_atten.sparse_n][block.self_atten.sparse_group]
+            else:
+                attention_mask, encoder_attention_mask = sparse_mask[1][block.self_atten.sparse_group]
+
+            if self.training and self.gradient_checkpointing:
+                def create_custom_forward(module, return_dict=None):
+                    def custom_forward(*inputs):
+                        if return_dict is not None:
+                            return module(*inputs, return_dict=return_dict)
+                        else:
+                            return module(*inputs)
+                    return custom_forward
+
+                hidden_states = torch.utils.checkpoint.checkpoint(
+                    create_custom_forward(block),
                     hidden_states,
-                    attention_mask=attention_mask,
-                    encoder_hidden_states=encoder_hidden_states,
-                    encoder_attention_mask=encoder_attention_mask,
-                    timestep=timestep,
-                    frames=frames,
-                    height=height,
-                    width=width,
+                    attention_mask,
+                    encoder_hidden_states,
+                    encoder_attention_mask,
+                    timestep,
+                    frames,
+                    height,
+                    width
                 )
+            else:
+                hidden_states = block(
+                            hidden_states,
+                            attention_mask=attention_mask,
+                            encoder_hidden_states=encoder_hidden_states,
+                            encoder_attention_mask=encoder_attention_mask,
+                            timestep=timestep,
+                            frames=frames,
+                            height=height,
+                            width=width,
+                        )
+
+        # if self.recompute_granularity == "full":
+        #     hidden_states = self._checkpointed_forward(
+        #         sparse_mask,
+        #         hidden_states,
+        #         attention_mask,
+        #         encoder_hidden_states,
+        #         encoder_attention_mask,
+        #         timestep,
+        #         frames,
+        #         height,
+        #         width
+        #     )
+        # else:
+        #     for i, block in enumerate(self.videodit_blocks):
+        #         if i > 1 and i < 30:
+        #             attention_mask, encoder_attention_mask = sparse_mask[block.self_atten.sparse_n][block.self_atten.sparse_group]
+        #         else:
+        #             attention_mask, encoder_attention_mask = sparse_mask[1][block.self_atten.sparse_group]
+        #         hidden_states = block(
+        #             hidden_states,
+        #             attention_mask=attention_mask,
+        #             encoder_hidden_states=encoder_hidden_states,
+        #             encoder_attention_mask=encoder_attention_mask,
+        #             timestep=timestep,
+        #             frames=frames,
+        #             height=height,
+        #             width=width,
+        #         )
 
         # To (b, t*h*w, h) or (b, t//sp*h*w, h)
         hidden_states = rearrange(hidden_states, 's b h -> b s h', b=batch_size).contiguous()
@@ -347,7 +388,7 @@ class VideoDiTSparse(ModelMixin, ConfigMixin):
                 )
                 layer_num += self.recompute_num_layers
         elif self.recompute_method == "block":
-            for layer_num in range(self.num_layers):
+            for layer_num in range(self.videodit_blocks):
                 block = self._get_block(layer_num)
                 if layer_num > 1 and layer_num < 30:
                     attention_mask, encoder_attention_mask = sparse_mask[block.self_atten.sparse_n][block.self_atten.sparse_group]

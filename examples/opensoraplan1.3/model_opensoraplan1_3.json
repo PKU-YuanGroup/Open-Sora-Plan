@@ -27,8 +27,7 @@
         "hub_backend": "hf",
         "model_id": "MT5",
         "from_pretrained": "/home/image_data/mt5-xxl",
-        "local_files_only": false,
-        "low_cpu_mem_usage": true,
+        "low_cpu_mem_usage": false,
         "dtype": "bf16"
     },
     "tokenizer":{

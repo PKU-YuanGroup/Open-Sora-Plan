@@ -21,7 +21,7 @@ TP=1
 PP=1
 CP=32
 MBS=1
-GBS=$(($WORLD_SIZE*$MBS/$CP))
+GBS=$(($WORLD_SIZE*$MBS/$CP/$TP))
 
 MM_DATA="./examples/opensoraplan1.3/data.json"
 MM_MODEL="./examples/opensoraplan1.3/model_opensoraplan1_3.json"

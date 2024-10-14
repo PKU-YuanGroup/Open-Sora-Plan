@@ -58,7 +58,7 @@ class DiffusersScheduler:
         self.prediction_type = config.pop("prediction_type", "epsilon")
         self.rescale_betas_zero_snr = config.pop("rescale_betas_zero_snr", "False")
         self.noise_offset = config.pop("noise_offset", 0)
-        self.snr_gamma = config.pop("snr_gamma", 5.0)
+        self.snr_gamma = config.pop("snr_gamma", None)
         self.device = get_device(config.pop("device", "npu"))
         model_id = config.pop("model_id")
 
@@ -92,6 +92,8 @@ class DiffusersScheduler:
         t: Tensor = None,
         **kwargs
         ) -> Tensor:
+        model_output = model_output.to(torch.bfloat16)
+        x_start = x_start.to(torch.bfloat16)
         if self.prediction_type == "epsilon":
             target = noise
         elif self.prediction_type == "v_prediction":
@@ -105,8 +107,8 @@ class DiffusersScheduler:
             raise ValueError(f"Unknown prediction type {self.prediction_type}")
 
         b, c, _, _, _ = model_output.shape
-        if torch.all(mask.bool()):
-            mask = None
+        # if torch.all(mask.bool()):
+        #     mask = None
         if mask is not None:
             mask = mask.unsqueeze(1).repeat(1, c, 1, 1, 1).float()  # b t h w -> b c t h w
             mask = mask.reshape(b, -1)

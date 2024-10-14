@@ -376,11 +376,11 @@ class WFVAE(MultiModalModule):
     def encode(self, x):
         self._empty_causal_cached(self.encoder)
 
-        dtype = x.dtype
-        x = x.to(torch.float16)
+        # dtype = x.dtype
+        # x = x.to(torch.float16)
         wt = HaarWaveletTransform3D().to(x.device, dtype=x.dtype)
         coeffs = wt(x)
-        coeffs = coeffs.to(dtype)
+        # coeffs = coeffs.to(dtype)
             
         if self.use_tiling:
             h = self.tile_encode(coeffs)

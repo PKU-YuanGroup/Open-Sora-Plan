@@ -74,6 +74,7 @@ class SoRAModel(nn.Module):
                 latents = video
             else:
                 latents = self.ae.encode(video)
+                latents = latents.to(torch.bfloat16)
             # Text Encode
             if self.load_text_features:
                 prompt = prompt_ids
