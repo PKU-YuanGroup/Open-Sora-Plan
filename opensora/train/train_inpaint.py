@@ -566,6 +566,10 @@ def main(args):
 
         logs = {"step_loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
         progress_bar.set_postfix(**logs)
+        # Regularly releasing memory
+        if progress_info.global_step % 100 == 0:
+            torch.cuda.empty_cache()
+            gc.collect()
 
     def run(model_input, model_kwargs, prof):
         global start_time

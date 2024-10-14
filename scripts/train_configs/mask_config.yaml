@@ -4,10 +4,10 @@ max_clear_ratio: 1.0
 
 # mask_type_ratio_dict_video
 mask_type_ratio_dict_video:
-  t2iv: 0
-  i2v: 5
-  transition: 4
-  continuation: 0
+  t2iv: 1
+  i2v: 8
+  transition: 8
+  continuation: 2
   clear: 0
   random_temporal: 1
 

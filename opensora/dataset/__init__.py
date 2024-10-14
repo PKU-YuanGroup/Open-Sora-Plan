@@ -115,7 +115,7 @@ if __name__ == "__main__":
         'total_batch_size': 256, 
         'sp_size': 1, 
         'max_hxw': 480*480, 
-        'min_hxw': 384*384, 
+        'min_hxw': 320*320, 
     }
     )
     accelerator = Accelerator()

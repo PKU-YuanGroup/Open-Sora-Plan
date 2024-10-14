@@ -370,45 +370,48 @@ def run_model_and_save_samples(args, pipeline, caption_refiner_model=None, enhan
                 continue  # skip when ddp
             generate(prompt)
 
-    if not args.sp:
-        if args.local_rank != -1:
-            dist.barrier()
-            video_grids = torch.cat(video_grids, dim=0).cuda()
-            shape = list(video_grids.shape)
-            shape[0] *= args.world_size
-            gathered_tensor = torch.zeros(shape, dtype=video_grids.dtype).cuda()
-            dist.all_gather_into_tensor(gathered_tensor, video_grids.contiguous())
-            video_grids = gathered_tensor.cpu()
-            dist.barrier()
-        else:
-            video_grids = torch.cat(video_grids, dim=0)
-    elif args.sp and args.local_rank <= 0:
-        video_grids = torch.cat(video_grids)
-    
-    if args.local_rank <= 0:
-        if args.num_frames == 1:
-            save_image(
-                video_grids / 255.0, 
-                os.path.join(
-                    args.save_img_path,
-                    f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}.jpg'
+    if (args.model_type == "inpaint" or args.model_type == "i2v") and not args.crop_for_hw:
+        print('completed, please check the saved images and videos')
+    else:
+        if not args.sp:
+            if args.local_rank != -1:
+                dist.barrier()
+                video_grids = torch.cat(video_grids, dim=0).cuda()
+                shape = list(video_grids.shape)
+                shape[0] *= args.world_size
+                gathered_tensor = torch.zeros(shape, dtype=video_grids.dtype).cuda()
+                dist.all_gather_into_tensor(gathered_tensor, video_grids.contiguous())
+                video_grids = gathered_tensor.cpu()
+                dist.barrier()
+            else:
+                video_grids = torch.cat(video_grids, dim=0)
+        elif args.sp and args.local_rank <= 0:
+            video_grids = torch.cat(video_grids)
+        
+        if args.local_rank <= 0:
+            if args.num_frames == 1:
+                save_image(
+                    video_grids / 255.0, 
+                    os.path.join(
+                        args.save_img_path,
+                        f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}.jpg'
+                        ), 
+                    nrow=math.ceil(math.sqrt(len(video_grids))), 
+                    normalize=True, 
+                    value_range=(0, 1)
+                    )
+            else:
+                video_grids = save_video_grid(video_grids)
+                imageio.mimwrite(
+                    os.path.join(
+                        args.save_img_path,
+                        f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}.mp4'
                     ), 
-                nrow=math.ceil(math.sqrt(len(video_grids))), 
-                normalize=True, 
-                value_range=(0, 1)
-                )
-        else:
-            video_grids = save_video_grid(video_grids)
-            imageio.mimwrite(
-                os.path.join(
-                    args.save_img_path,
-                    f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}.mp4'
-                ), 
-                video_grids, 
-                fps=args.fps, 
-                quality=6
-                )
-        print('save path {}'.format(args.save_img_path))
+                    video_grids, 
+                    fps=args.fps, 
+                    quality=6
+                    )
+            print('save path {}'.format(args.save_img_path))
 
 
 

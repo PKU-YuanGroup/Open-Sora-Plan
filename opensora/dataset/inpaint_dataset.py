@@ -93,7 +93,20 @@ class Inpaint_dataset(T2V_dataset):
             # if len(str(e)) < 2:
             #     e = f"TimeoutError, {self.timeout}s timeout occur with {dataset_prog.cap_list[idx]['path']}"
             print(f'Error with {e}')
-            return self.__getitem__(random.randint(0, self.__len__() - 1))
+            index_cand = self.shape_idx_dict[self.sample_size[idx]]  # pick same shape
+            return self.__getitem__(random.choice(index_cand))
+            # return self.__getitem__(idx)
+    
+    def get_data(self, idx):
+        path = dataset_prog.cap_list[idx]['path']
+        if not os.path.exists(path):
+            print(f"file {path} do not exist, random choice a new one with same shape!")
+            index_cand = self.shape_idx_dict[self.sample_size[idx]]
+            return self.__getitem__(random.choice(index_cand))
+        if path.endswith('.mp4'):
+            return self.get_video(idx)
+        else:
+            return self.get_image(idx)
 
     def drop(self, text, is_video=True):
         rand_num = random.random()
@@ -119,7 +132,7 @@ class Inpaint_dataset(T2V_dataset):
         # logger.info(f'Now we use t2v dataset {idx}')
         video_data = dataset_prog.cap_list[idx]
         video_path = video_data['path']
-        assert os.path.exists(video_path), f"file {video_path} do not exist!"
+        # assert os.path.exists(video_path), f"file {video_path} do not exist!"
         sample_h = video_data['resolution']['sample_height']
         sample_w = video_data['resolution']['sample_width']
         

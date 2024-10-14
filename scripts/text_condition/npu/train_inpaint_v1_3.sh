@@ -1,27 +1,29 @@
 export WANDB_KEY="720d886d8c437c2142c88056a1eab8ef78d64a1f"
 export WANDB_MODE="online"
 export ENTITY="yunyang"
-# export PROJECT=$PROJECT_NAME
-export PROJECT='test'
+export PROJECT=$PROJECT_NAME
+# export PROJECT='test'
 export HF_DATASETS_OFFLINE=1 
 export TRANSFORMERS_OFFLINE=1
 
 export TASK_QUEUE_ENABLE=0
 export HCCL_OP_BASE_FFTS_MODE_ENABLE=TRUE
 # export HCCL_ALGO="level0:NA;level1:H-D_R"
-# --machine_rank=${MACHINE_RANK} \ 
-# --main_process_ip=${MAIN_PROCESS_IP_VALUE} \ 
+# --machine_rank=${MACHINE_RANK} \
+# --main_process_ip=${MAIN_PROCESS_IP_VALUE} \
 # multi_node_example_by_deepspeed.yaml
 # deepspeed_zero2_config.yaml
 
 accelerate launch \
-    --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
+    --config_file scripts/accelerate_configs/multi_node_example_by_deepspeed.yaml \
+    --machine_rank=${MACHINE_RANK} \
+    --main_process_ip=${MAIN_PROCESS_IP_VALUE} \
     opensora/train/train_inpaint.py \
     --model OpenSoraInpaint_v1_3-2B/122 \
     --text_encoder_name_1 google/mt5-xxl \
     --cache_dir "../../cache_dir/" \
     --dataset inpaint \
-    --data "scripts/train_data/video_data_debug_on_npu.txt" \
+    --data "scripts/train_data/current_hq_on_npu.txt" \
     --ae WFVAEModel_D8_4x8x8 \
     --ae_path "/home/save_dir/lzj/formal_8dim/latent8" \
     --vae_fp32 \
@@ -56,13 +58,13 @@ accelerate launch \
     --sparse1d --sparse_n=4 \
     --train_fps 16 \
     --seed 1234 \
-    --trained_data_global_step 0 \
+    --trained_data_global_step 7000 \
     --group_data \
     --use_decord \
     --prediction_type "v_prediction" \
     --output_dir="/home/save_dir/runs/$PROJECT" \
     --mask_config scripts/train_configs/mask_config.yaml \
     --default_text_ratio 0.5 \
-    --pretrained_transformer_model_path /home/save_dir/pretrained/i2v_ckpt14777_ema \
-    # --resume_from_checkpoint="latest" \
+    --resume_from_checkpoint="latest" \
+    # --pretrained_transformer_model_path /home/save_dir/pretrained/i2v_ckpt14777_ema \
     # --force_resolution
