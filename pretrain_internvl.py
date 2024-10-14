@@ -28,14 +28,6 @@ def initialize():
     print('++++++++++++++++++++++++++++++++++++ finish init ++++++++++++++++++++++++++++++++++++')
 
 
-def load_internvl_checkpoint(model, ckpt_path):
-    if ckpt_path and len(ckpt_path) > 0:
-        load_params = torch.load(ckpt_path, map_location='cpu')
-        print(model.load_state_dict(load_params, strict=False))
-    else:
-        print("Warning: ckpt path is None or empty, skip loading ckpt")
-
-
 def model_provider(pre_process=True, post_process=True):
     """Builds the model."""
     args = get_args()
@@ -45,10 +37,6 @@ def model_provider(pre_process=True, post_process=True):
     model_config.text_decoder = get_model_config(model_config.text_decoder)
 
     model = InternVLModel(model_config)
-    if hasattr(model_config, "ckpt_path"):
-        load_internvl_checkpoint(model, model_config.ckpt_path)
-    else:
-        print("Warning: no ckpt path in config, skip loading ckpt")
 
     return model
 

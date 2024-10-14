@@ -2,8 +2,8 @@
     "dataset_param": {
         "dataset_type": "image",
         "basic_parameters": {
-            "data_path": "json_path",
-            "data_folder": "root_path"
+            "data_path": "/path/json_path",
+            "data_folder": "/path/root_path"
         },
         "preprocess_parameters": {
             "image_reader_type": "torchvision",
@@ -20,7 +20,7 @@
         "tokenizer_config": {
             "hub_backend": "hf",
             "autotokenizer_name": "AutoTokenizer",
-            "from_pretrained": "your model path",
+            "from_pretrained": "OpenGVLab/InternVL2-8B",
             "model_max_length": 4096,
             "add_eos_token": false,
             "trust_remote_code": true,
@@ -32,7 +32,7 @@
         "patch_size": 14,
         "image_size": 448,
         "down_sample_ratio": 0.5,
-        "group_by_length": true,
+        "group_by_length": false,
         "dynamic_image_size": true,
         "use_thumbnail": true,
         "min_dynamic_patch": 1,
@@ -47,7 +47,7 @@
         "pin_memory": true,
         "collate_param": {
             "model_name": "internvl",
-            "pad_id": 0
+            "pad_id": 2
         }
     }
 }

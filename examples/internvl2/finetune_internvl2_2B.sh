@@ -15,14 +15,16 @@ NNODES=1
 NODE_RANK=0
 WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
 
+MBS=1
+GRAD_ACC_STEP=1
 TP=1
 PP=1
 CP=1
-MBS=1
-GBS=$(($WORLD_SIZE*$MBS/$CP))
+DP=$(($WORLD_SIZE/$TP/$PP/$CP))
+GBS=$(($MBS*$GRAD_ACC_STEP*$DP))
 
-MM_DATA="./examples/internvl2/data.json"
-MM_MODEL="./examples/internvl2/model.json"
+MM_DATA="./examples/internvl2/data_2B.json"
+MM_MODEL="./examples/internvl2/model_2B.json"
 MM_TOOL="./mindspeed_mm/tools/tools.json"
 
 MM_ARGS="
@@ -73,6 +75,7 @@ GPT_ARGS="
     --no-save-rng \
     --use-distributed-optimizer \
     --bf16 \
+    --load InternVL2-2B \
 "
 
 OUTPUT_ARGS="
