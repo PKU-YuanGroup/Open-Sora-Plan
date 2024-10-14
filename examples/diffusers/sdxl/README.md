@@ -62,7 +62,7 @@
     pip install torch-2.1.0*-cp38-cp38m-linux_aarch64.whl
     pip install apex-0.1_ascend*-cp38-cp38m-linux_aarch64.whl
 
-    # 修改 ascend-toolkit 路径
+    #  将shell脚本中的环境变量路径修改为真实路径，下面为参考路径
     source /usr/local/Ascend/ascend-toolkit/set_env.sh
     ```
 

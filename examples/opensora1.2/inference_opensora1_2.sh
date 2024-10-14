@@ -9,7 +9,6 @@ NODE_RANK=0
 NPUS_PER_NODE=1
 WORLD_SIZE=$(($NPUS_PER_NODE * $NNODES))
 
-export use_debug=0
 
 TP=1
 PP=1
@@ -25,7 +24,6 @@ DISTRIBUTED_ARGS="
     --master_port $MASTER_PORT
 "
 MM_ARGS="
- --mm-data "examples/opensora1.2/data.json"
  --mm-model "examples/opensora1.2/inference_model_102x720x1280.json"
 "
 

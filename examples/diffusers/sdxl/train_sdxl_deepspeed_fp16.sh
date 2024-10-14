@@ -14,6 +14,8 @@ mixed_precision="fp16"
 resolution=1024
 config_file="${scripts_path}/pretrain_${mixed_precision}_accelerate_config.yaml"
 
+source /usr/local/Ascend/ascend-toolkit/set_env.sh
+
 for para in $*; do
   if [[ $para == --model_name* ]]; then
     model_name=$(echo ${para#*=})

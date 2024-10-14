@@ -21,14 +21,13 @@ CP=1
 MBS=1
 GBS=$(($WORLD_SIZE*$MBS/$CP))
 
-export use_debug=0
 export QKV_MERGED_ENABLE=True
 export TEXT_ENABLE=False
 
 
-MM_DATA="examples/llava1.5/data.json"
+
 MM_MODEL="examples/llava1.5/inference_llava.json"
-TOKENIZER_MODEL="./llava_weights/vicuna-7b-v1.5/tokenizer.model"
+
 
 DISTRIBUTED_ARGS="
     --nproc_per_node $GPUS_PER_NODE \
@@ -51,8 +50,7 @@ GPT_ARGS="
     --max-position-embeddings 4096 \
     --attention-dropout 0.0 \
     --hidden-dropout 0.0 \
-    --tokenizer-type Llama2Tokenizer \
-    --tokenizer-model ${TOKENIZER_MODEL}  \
+    --tokenizer-type NullTokenizer \
     --vocab-size 32000 \
     --position-embedding-type rope \
     --no-masked-softmax-fusion \
@@ -74,7 +72,6 @@ GPT_ARGS="
 "
 MM_ARGS="
     --mm-model ${MM_MODEL} \
-    --mm-data ${MM_DATA}
 "
 
 
