@@ -21,6 +21,9 @@ We open-source the Open-Sora-Plan to facilitate future development of Video Gene
 
 ## Gallery
 
+Text & Image to Video Generation. 
+
+[![Demo Video of Open-Sora Plan V1.3](https://github.com/user-attachments/assets/4ff1d873-3dde-4905-a907-dbff51174c20)](https://www.bilibili.com/video/BV1KR2fYPEF5/?spm_id_from=333.999.0.0&vd_source=cfda99203e659100629b465161f1d87d)
 
 ## Detailed Technical Report
 
