@@ -1,7 +1,4 @@
-export WANDB_KEY="720d886d8c437c2142c88056a1eab8ef78d64a1f"
-# export WANDB_MODE="offline"
-export ENTITY="yunyang"
-export PROJECT="test"
+
 export HF_DATASETS_OFFLINE=1 
 export TRANSFORMERS_OFFLINE=1
 export PDSH_RCMD_TYPE=ssh

@@ -71,7 +71,10 @@ Open-Sora Plan shows excellent performance in video generation.
 Highly recommend trying out our web demo by the following command.
 
 ```bash
-python -m opensora.serve.gradio_web_server --model_path "path/to/model" --ae_path "path/to/causalvideovae"
+python -m opensora.serve.gradio_web_server --model_path "path/to/model" \
+    --ae WFVAEModel_D8_4x8x8 --ae_path "path/to/vae" \
+    --caption_refiner "path/to/refiner" \
+    --text_encoder_name_1 "path/to/text_enc" --rescale_betas_zero_snr
 ```
 
 ### ComfyUI
@@ -116,14 +119,8 @@ conda create -n opensora python=3.8 -y
 conda activate opensora
 pip install -e .
 ```
-3. Install additional packages for training cases
-```
-# for gpu
-pip install -e ".[gpu]"
-# for npu
-pip install -e ".[npu]"
-```
-4. Install optional requirements such as static type checking:
+
+3. Install optional requirements such as static type checking:
 ```
 pip install -e '.[dev]'
 ```
