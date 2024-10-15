@@ -89,7 +89,7 @@
 **注意事项:** 
 
   需要修改 mindspeed/core/transformer/dot_product_attention.py的65行，修改如下：
-```
+```python
 def dot_product_attention_forward_wrapper(fn):
     @wraps(fn)
     def wrapper(self, query, key, value, attention_mask, attn_mask_type, packed_seq_params):
@@ -139,15 +139,15 @@ MindSpeeed-MM修改了部分原始网络的结构名称，因此需要使用如�
   转换的结果在： /some/output/folder/iter_0000001/mp_rank_00/model_optim_rng.pt
   
   对于转换后的结果，需要再执行如下转换，其中{target_dir}为最终的权重文件保存路径：
-  ```
+  ```python
   before = torch.load("/some/output/folder/iter_0000001/mp_rank_00/model_optim_rng.pt")["model"]
-  torch.save(before, "{target_dir}/final_vit_pt_file.pt")
+  torch.save(before, "{target_dir}/converted_clip.pt")
   ```
 
 - lmsys/vicuna-7b-v1.5权重转换
 
   参考[ModelLink](https://gitee.com/ascend/ModelLink/blob/master/examples/README.md#21-huggingface%E6%9D%83%E9%87%8D%E8%BD%AC%E6%8D%A2%E5%88%B0megatron-lm%E6%A0%BC%E5%BC%8F)中语言模型权重转换的脚本：
-  ```
+  ```shell
   source {cann_dir}/ascend-toolkit/set_env.sh
   HF_FORMAT_DIR="{dir_to_model}/vicuna-7b-v1.5"
   MEGATRON_FORMAT_DIR="{target_dir}"
@@ -170,7 +170,7 @@ MindSpeeed-MM修改了部分原始网络的结构名称，因此需要使用如�
   - 修改{target_dir}为上一步model_optim_rng.pt所在路径，
   - 修改{dir_to_save_file}为结果文件所在路径，
   - 执行命令：python convert.py
-  ```
+  ```python
   import torch
   def convert_param():
       ckp = torch.load("{target_dir}/model_optim_rng.pt")["model"]["language_model"]
@@ -188,7 +188,7 @@ MindSpeeed-MM修改了部分原始网络的结构名称，因此需要使用如�
               targetkey = targetkey.replace("final_norm", "final_layernorm")
               targetkey = "decoder." + targetkey
               target_ckp[targetkey] = ckp["encoder"][encode_key]
-      torch.save(target_ckp, "{dir_to_save_file}/xxx.pt")
+      torch.save(target_ckp, "{dir_to_save_file}/converted_vicuna.pt")
 
   if __name__ == "__main__":
       convert_param()

@@ -65,7 +65,7 @@ GPT_ARGS="
     --no-save-rng \
     --bf16 \
     --use-flash-attn \
-    --use-flash-rotary-pos-emb
+    --use-fused-rotary-pos-emb
 "
 
 MM_ARGS="
