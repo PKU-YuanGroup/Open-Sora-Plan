@@ -11,7 +11,6 @@ except:
 
 from opensora.dataset.t2v_datasets import T2V_dataset
 from opensora.dataset.inpaint_dataset import Inpaint_dataset
-from opensora.dataset.dummy_dataset import Dummy_dataset
 from opensora.models.causalvideovae import ae_norm, ae_denorm
 from opensora.dataset.transform import ToTensorVideo, TemporalRandomCrop, MaxHWResizeVideo, CenterCropResizeVideo, LongSideResizeVideo, SpatialStrideCropVideo, NormalizeVideo, ToTensorAfterResize
 
@@ -52,13 +51,6 @@ def getdataset(args):
             args, resize_transform=resize_transform, transform=transform, 
             temporal_sample=temporal_sample, tokenizer_1=tokenizer_1, tokenizer_2=tokenizer_2
         )
-    elif args.dataset == 'dummy':
-        transform = transforms.Compose([
-            ToTensorVideo(),
-            *resize, 
-            norm_fun
-        ])
-        return Dummy_dataset(args, transform=transform, temporal_sample=temporal_sample, tokenizer_1=tokenizer_1, tokenizer_2=tokenizer_2)
     raise NotImplementedError(args.dataset)
 
 
