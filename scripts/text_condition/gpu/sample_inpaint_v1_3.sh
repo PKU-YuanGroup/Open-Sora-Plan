@@ -3,7 +3,7 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun --nnodes=1 --nproc_per_node 8 --ma
     -m opensora.sample.sample \
     --model_type "inpaint" \
     --model_path /storage/gyy/hw/Open-Sora-Plan/runs/inpaint_93x1280x1280_stage3_gpu/checkpoint-1692/model_ema \
-    --version v1_2 \
+    --version v1_3 \
     --num_frames 93 \
     --height 704 \
     --width 1280 \

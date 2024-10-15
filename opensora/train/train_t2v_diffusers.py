@@ -673,7 +673,8 @@ def main(args):
                                                         device=model_input.device)
 
             # Sample a random timestep for each image without bias.
-            if accelerator.num_processes > noise_scheduler.config.num_train_timesteps: 
+            # if accelerator.num_processes > noise_scheduler.config.num_train_timesteps: 
+            if True: 
                 timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=model_input.device)
             else:
                 timesteps = explicit_uniform_sampling(

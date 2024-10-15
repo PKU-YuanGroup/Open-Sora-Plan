@@ -18,7 +18,7 @@ from diffusers.utils import logging, BaseOutput
 from diffusers.utils.torch_utils import randn_tensor
 from diffusers.pipelines.pipeline_utils import DiffusionPipeline
 
-from opensora.models.diffusion.opensora_v1_2.modeling_opensora import OpenSoraT2V_v1_2
+from opensora.models.diffusion.opensora_v1_3.modeling_opensora import OpenSoraT2V_v1_3
 try:
     import torch_npu
     from opensora.acceleration.parallel_states import get_sequence_parallel_state, hccl_info
@@ -129,7 +129,7 @@ class OpenSoraPipeline(DiffusionPipeline):
         vae: AutoencoderKL,
         text_encoder: T5EncoderModel,
         tokenizer: MT5Tokenizer,
-        transformer: OpenSoraT2V_v1_2,
+        transformer: OpenSoraT2V_v1_3,
         scheduler: DDPMScheduler,
         text_encoder_2: CLIPTextModelWithProjection = None,
         tokenizer_2: CLIPTokenizer = None,

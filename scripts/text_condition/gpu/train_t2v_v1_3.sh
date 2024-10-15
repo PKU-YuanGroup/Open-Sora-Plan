@@ -27,13 +27,13 @@ accelerate launch \
     --text_encoder_name_1 google/mt5-xxl \
     --cache_dir "../../cache_dir/" \
     --dataset t2v \
-    --data "scripts/train_data/merge_data.txt" \
+    --data "scripts/train_data/video_data.txt" \
     --ae WFVAEModel_D8_4x8x8 \
     --ae_path "/storage/lcm/WF-VAE/results/latent8" \
     --sample_rate 1 \
     --num_frames 93 \
-    --max_hxw 236544 \
-    --min_hxw 102400 \
+    --max_height 352 \
+    --max_width 640 \
     --interpolation_scale_t 1.0 \
     --interpolation_scale_h 1.0 \
     --interpolation_scale_w 1.0 \
@@ -47,7 +47,7 @@ accelerate launch \
     --lr_warmup_steps=0 \
     --mixed_precision="bf16" \
     --report_to="wandb" \
-    --checkpointing_steps=500 \
+    --checkpointing_steps=250 \
     --allow_tf32 \
     --model_max_length 512 \
     --use_ema \
@@ -69,4 +69,4 @@ accelerate launch \
     --snr_gamma 5.0 \
     --force_resolution \
     --rescale_betas_zero_snr \
-    --output_dir="final_ft_any93x352x640_v1_3_bs512_lr1e-5_snr5.0_fps16_zsnr_nofix_16node"
+    --output_dir="final_ft_93x352x640_v1_3_bs512_lr1e-5_snr5.0_fps16_zsnr_fixres_16node"
