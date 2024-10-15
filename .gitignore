@@ -25,7 +25,7 @@ sample_video*/
 512*
 720*
 1024*
-debug*
+*debug*
 private*
 .deepspeed_env
 256*
