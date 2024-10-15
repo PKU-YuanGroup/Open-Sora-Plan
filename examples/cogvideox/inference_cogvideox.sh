@@ -15,6 +15,8 @@ CP=1
 MBS=1
 GBS=1
 
+MM_MODEL="examples/cogvideox/inference_model.json"
+
 DISTRIBUTED_ARGS="
     --nproc_per_node $NPUS_PER_NODE \
     --nnodes $NNODES \
@@ -23,8 +25,7 @@ DISTRIBUTED_ARGS="
     --master_port $MASTER_PORT
 "
 MM_ARGS="
- --mm-data "examples/cogvideox/data.json"
- --mm-model "examples/cogvideox/inference_model_2b.json"
+ --mm-model $MM_MODEL
 "
 
 GPT_ARGS="

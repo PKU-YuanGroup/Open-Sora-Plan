@@ -10,12 +10,12 @@ COGVIDEOX_SCHEDULER_MAPPING = {
 class CogVideoXScheduler(nn.Module):
     def __init__(
         self,
-        version: str = "cogvideox_2b",
+        model_version: str = "cogvideox_5b",
         from_pretrained: str = "",
         **kwargs
     ):
         super().__init__()
-        self.automodel_name = COGVIDEOX_SCHEDULER_MAPPING[version]
+        self.automodel_name = COGVIDEOX_SCHEDULER_MAPPING[model_version]
 
         config = {"pretrained_model_name_or_path": from_pretrained}
         module = importlib.import_module("diffusers")

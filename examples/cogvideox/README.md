@@ -1,4 +1,4 @@
-# CogVideo2B 使用指南
+# CogVideoX 使用指南
 
 <p align="left">
 </p>
@@ -10,6 +10,8 @@
   - [环境搭建](#环境搭建)
 - [权重下载及转换](#权重下载及转换)
   - [权重下载](#权重下载)
+- [数据集准备及处理](#数据集准备及处理)
+- [预训练](#预训练)
 - [推理](#推理)
   - [准备工作](#准备工作)
   - [配置参数](#配置参数)
@@ -81,11 +83,29 @@
 #### <span id="jump2.1"> 权重下载
 
 从Huggingface下载开源模型权重
-> 下载也可以使用[Modelscope](https://modelscope.cn/models/ZhipuAI/CogVideoX-2b)上的模型文件位置。
 
-```shell
-    git clone https://huggingface.co/THUDM/CogVideoX-2b.git
-```
+若使用5B模型：
+
+模型地址为：https://huggingface.co/THUDM/CogVideoX-5b/tree/main
+
+若使用2B模型：
+
+模型地址为：https://huggingface.co/THUDM/CogVideoX-2b/tree/main
+
+
+---
+
+## 数据集准备及处理
+
+#### 数据集下载
+
+Coming Soon
+
+---
+
+## 预训练
+
+Coming Soon
 
 ---
 
@@ -97,12 +117,14 @@
 
 #### <span id="jump5.2"> 配置参数
 
-检查权重路径与prompt是否配置完成
+检查如下配置是否完成
 
-| 配置文件 |      修改字段       |           修改说明            |
-|------|:---------------:|:-------------------------:|
-|  examples/cogvideox/inference_model_2b.json    | from_pretrained |       修改为下载的权重所对应路径       |
-|   examples/cogvideox/samples_prompts.txt   |      文件内容       | 可自定义自己的prompt，一行为一个prompt |
+| 配置文件 |               修改字段               |                修改说明                 |
+|------|:--------------------------------:|:-----------------------------------:|
+|  examples/cogvideox/inference_model.json    |         from_pretrained          |            修改为下载的权重所对应路径            |
+|  examples/cogvideox/inference_model.json    |          model_version           | 5B：cogvideox_5b<br/>2B：cogvideox_2b |
+|  examples/cogvideox/inference_model.json    |         use_dynamic_cfg          |        5B：true<br/>2B：false         |
+|   examples/cogvideox/samples_prompts.txt   |               文件内容               |      可自定义自己的prompt，一行为一个prompt      |
 
 #### <span id="jump5.3"> 启动推理
 

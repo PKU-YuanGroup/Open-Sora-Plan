@@ -1,29 +1,30 @@
 {
     "ae": {
         "model_id": "cogvideox",
-        "from_pretrained": "CogVideoX-2b/vae",
+        "from_pretrained": "CogVideoX-5b/vae",
         "dtype": "float16"
     },
     "text_encoder": {
         "hub_backend": "hf",
         "model_id": "T5",
-        "from_pretrained": "CogVideoX-2b/text_encoder",
+        "from_pretrained": "CogVideoX-5b/text_encoder",
         "dtype": "float16"
     },
     "tokenizer":{
         "hub_backend": "hf",
         "autotokenizer_name": "T5Tokenizer",
-        "from_pretrained": "CogVideoX-2b/tokenizer"
+        "from_pretrained": "CogVideoX-5b/tokenizer"
     },
     "predictor": {
         "dtype": "float16",
         "model_id": "cogvideox",
-        "from_pretrained": "CogVideoX-2b/transformer"
+        "model_version": "cogvideox_5b",
+        "from_pretrained": "CogVideoX-5b/transformer"
     },
     "diffusion": {
         "model_id": "cogvideox",
-        "version": "cogvideox_2b",
-        "from_pretrained": "CogVideoX-2b/scheduler",
+        "model_version": "cogvideox_5b",
+        "from_pretrained": "CogVideoX-5b/scheduler",
         "clip_sample": false,
         "prediction_type": "v_prediction",
         "rescale_betas_zero_snr": true,
@@ -31,7 +32,7 @@
     },
 
     "pipeline_config": {
-        "use_dynamic_cfg": false,
+        "use_dynamic_cfg": true,
         "seed": 42,
         "input_size": [49, 480, 720],
         "guidance_scale": 6.0,
