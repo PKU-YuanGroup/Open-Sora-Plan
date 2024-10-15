@@ -3,7 +3,8 @@ from diffusers.schedulers import (
     EulerDiscreteScheduler, DPMSolverMultistepScheduler,
     HeunDiscreteScheduler, EulerAncestralDiscreteScheduler,
     DEISMultistepScheduler, KDPM2AncestralDiscreteScheduler, 
-    DPMSolverSinglestepScheduler, CogVideoXDDIMScheduler
+    DPMSolverSinglestepScheduler, CogVideoXDDIMScheduler, 
+    FlowMatchEulerDiscreteScheduler
     )
 from einops import rearrange
 import torch
@@ -40,6 +41,10 @@ def get_scheduler(args):
         rescale_betas_zero_snr=args.rescale_betas_zero_snr, 
         timestep_spacing="trailing" if args.rescale_betas_zero_snr else 'leading', 
     )
+    if args.v1_5_scheduler:
+        kwargs['beta_start'] = 0.00085
+        kwargs['beta_end'] = 0.0120
+        kwargs['beta_schedule'] = "scaled_linear"
     if args.sample_method == 'DDIM':  
         scheduler_cls = DDIMScheduler
         kwargs['clip_sample'] = False
@@ -66,6 +71,11 @@ def get_scheduler(args):
         scheduler_cls = KDPM2AncestralDiscreteScheduler
     elif args.sample_method == 'CogVideoX':
         scheduler_cls = CogVideoXDDIMScheduler
+    elif args.sample_method == 'FlowMatchEulerDiscrete':
+        scheduler_cls = FlowMatchEulerDiscreteScheduler
+        kwargs = {}
+    else:
+        raise NameError(f'Unsupport sample_method {args.sample_method}')
     scheduler = scheduler_cls(**kwargs)
     return scheduler
 
@@ -127,7 +137,8 @@ def prepare_pipeline(args, dtype, device):
             from opensora.models.diffusion.opensora_v1_5.modeling_opensora import OpenSoraT2V_v1_5
             transformer_model = OpenSoraT2V_v1_5.from_pretrained(
                 args.model_path, cache_dir=args.cache_dir, 
-                device_map=None, torch_dtype=weight_dtype
+                # device_map=None, 
+                torch_dtype=weight_dtype
                 ).eval()
     
     scheduler = get_scheduler(args)
@@ -455,6 +466,7 @@ def get_args():
     parser.add_argument('--sp', action='store_true')
 
     parser.add_argument('--conditional_images_path', type=str, default=None)
+    parser.add_argument('--v1_5_scheduler', action='store_true')
     parser.add_argument('--crop_for_hw', action='store_true')
     parser.add_argument('--max_hw_square', type=int, default=1024 * 1024)
     args = parser.parse_args()

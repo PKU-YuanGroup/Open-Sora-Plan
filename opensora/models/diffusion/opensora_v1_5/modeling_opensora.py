@@ -114,6 +114,7 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
         pooled_projection_dim: int = 1024, 
         timestep_embed_dim: int = 512,
         norm_cls: str = 'rms_norm', 
+        skip_connection: bool = True
     ):
         super().__init__()
         # Set some common variables used across the board.
@@ -156,24 +157,33 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
         )
 
         # 3. anthor text embedding
-        self.caption_projection = PixArtAlphaTextProjection(
-            in_features=self.config.caption_channels, hidden_size=self.config.hidden_size
-        )
+        self.caption_projection = nn.Linear(self.config.caption_channels, self.config.hidden_size)
 
         # forward transformer blocks
         self.transformer_blocks = []
         self.skip_norm_linear = []
+        self.skip_norm_linear_enc = []
         for idx, (num_layer, sparse_n) in enumerate(zip(self.config.num_layers, self.config.sparse_n)):
             is_last_stage = idx == len(self.config.num_layers) - 1
-            if idx > len(self.config.num_layers) // 2:
+            if self.config.skip_connection and idx > len(self.config.num_layers) // 2:
                 self.skip_norm_linear.append(
                     nn.Sequential(
-                        nn.Linear(self.config.hidden_size*2, self.config.hidden_size), 
                         self.norm_cls(
-                            self.config.hidden_size, 
+                            self.config.hidden_size*2, 
                             elementwise_affine=self.config.norm_elementwise_affine, 
                             eps=self.config.norm_eps
                             ), 
+                        nn.Linear(self.config.hidden_size*2, self.config.hidden_size), 
+                    )
+                )
+                self.skip_norm_linear_enc.append(
+                    nn.Sequential(
+                        self.norm_cls(
+                            self.config.hidden_size*2, 
+                            elementwise_affine=self.config.norm_elementwise_affine, 
+                            eps=self.config.norm_eps
+                            ), 
+                        nn.Linear(self.config.hidden_size*2, self.config.hidden_size), 
                     )
                 )
             stage_blocks = nn.ModuleList(
@@ -193,6 +203,7 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
                         sparse_n=sparse_n, 
                         sparse_group=i % 2 == 1 if sparse_n > 1 else False, 
                         context_pre_only=is_last_stage and (i == num_layer - 1), 
+                        # context_pre_only=True, 
                         norm_cls=self.config.norm_cls, 
                     )
                     for i in range(num_layer)
@@ -200,7 +211,9 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
             )
             self.transformer_blocks.append(stage_blocks)
         self.transformer_blocks = nn.ModuleList(self.transformer_blocks)
-        self.skip_norm_linear = nn.ModuleList(self.skip_norm_linear)
+        if self.config.skip_connection:
+            self.skip_norm_linear = nn.ModuleList(self.skip_norm_linear)
+            self.skip_norm_linear_enc = nn.ModuleList(self.skip_norm_linear_enc)
 
         # norm out and unpatchfy
         self.norm_final = self.norm_cls(
@@ -338,6 +351,7 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
         skip_connections = []
         for idx, stage_block in enumerate(self.transformer_blocks[:len(self.config.num_layers)//2]):
             for idx_, block in enumerate(stage_block):
+                # print(f'------------enc stage_block_{idx}, block_{idx_}------------------')
                 # print(f'enc stage_block_{idx}, block_{idx_} ', 
                 #       f'sparse1d {block.sparse1d}, sparse_n {block.sparse_n}, sparse_group {block.sparse_group} '
                 #       f'sparse_mask {block.sparse_n}, sparse_group {block.sparse_group}')
@@ -366,8 +380,13 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
                         height=height, 
                         width=width, 
                     )
-            skip_connections.append([hidden_states, encoder_hidden_states])
-        # print(*[i.shape for i in skip_connections])
+                # print(f'enc hidden_states, block_{idx_} ', 
+                #         f'max {hidden_states.max()}, min {hidden_states.min()}, mean {hidden_states.mean()}, std {hidden_states.std()}')
+                # print(f'enc encoder_hidden_states, block_{idx_} ', 
+                #         f'max {encoder_hidden_states.max()}, min {encoder_hidden_states.min()}, mean {encoder_hidden_states.mean()}, std {encoder_hidden_states.std()}')
+            if self.config.skip_connection:
+                skip_connections.append([hidden_states, encoder_hidden_states])
+        # import sys;sys.exit()
         return hidden_states, encoder_hidden_states, skip_connections
 
     def _operate_on_mid(
@@ -377,6 +396,7 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
         ):
         
         for idx_, block in enumerate(self.transformer_blocks[len(self.config.num_layers)//2]):
+            # print(f'------------mid block_{idx_}------------------')
             # print(f'mid, block_{idx_} ', 
             #         f'sparse1d {block.sparse1d}, sparse_n {block.sparse_n}, sparse_group {block.sparse_group} '
             #         f'sparse_mask {block.sparse_n}, sparse_group {block.sparse_group}')
@@ -405,6 +425,11 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
                     height=height, 
                     width=width, 
                 )
+            # print(f'mid hidden_states, block_{idx_} ', 
+            #         f'max {hidden_states.max()}, min {hidden_states.min()}, mean {hidden_states.mean()}, std {hidden_states.std()}')
+            # print(f'mid encoder_hidden_states, block_{idx_} ', 
+            #         f'max {encoder_hidden_states.max()}, min {encoder_hidden_states.min()}, mean {encoder_hidden_states.mean()}, std {encoder_hidden_states.std()}')
+        
         return hidden_states, encoder_hidden_states
 
 
@@ -415,12 +440,18 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
         ):
         
         for idx, stage_block in enumerate(self.transformer_blocks[-(len(self.config.num_layers)//2):]):
-            skip_hidden_states, skip_encoder_hidden_states = skip_connections.pop()
-            hidden_states = torch.cat([hidden_states, skip_hidden_states], dim=-1)
-            hidden_states = self.skip_norm_linear[idx](hidden_states)
-            encoder_hidden_states = torch.cat([encoder_hidden_states, skip_encoder_hidden_states], dim=-1)
-            encoder_hidden_states = self.skip_norm_linear[idx](encoder_hidden_states)
+            if self.config.skip_connection:
+                skip_hidden_states, skip_encoder_hidden_states = skip_connections.pop()
+                # print("hidden_state:",  "mean", hidden_states.mean(), "std", hidden_states.std())
+                # print("skip_hidden_states:",  "mean", skip_hidden_states.mean(), "std", skip_hidden_states.std())
+                hidden_states = torch.cat([hidden_states, skip_hidden_states], dim=-1)
+                hidden_states = self.skip_norm_linear[idx](hidden_states)
+                # print("encoder_hidden_states:",  "mean", encoder_hidden_states.mean(), "std", encoder_hidden_states.std())
+                # print("skip_encoder_hidden_states:",  "mean", skip_encoder_hidden_states.mean(), "std", skip_encoder_hidden_states.std())
+                encoder_hidden_states = torch.cat([encoder_hidden_states, skip_encoder_hidden_states], dim=-1)
+                encoder_hidden_states = self.skip_norm_linear_enc[idx](encoder_hidden_states)
             for idx_, block in enumerate(stage_block):
+                # print(f'------------dec stage_block_{idx}, block_{idx_}------------------')
                 # print(f'dec stage_block_{idx}, block_{idx_} ', 
                 #       f'sparse1d {block.sparse1d}, sparse_n {block.sparse_n}, sparse_group {block.sparse_group} '
                 #       f'sparse_mask {block.sparse_n}, sparse_group {block.sparse_group}')
@@ -449,30 +480,51 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
                         height=height, 
                         width=width, 
                     )
+                # print(f'dec hidden_states, block_{idx_} ', 
+                #         f'max {hidden_states.max()}, min {hidden_states.min()}, mean {hidden_states.mean()}, std {hidden_states.std()}')
+                # print(f'dec encoder_hidden_states, block_{idx_} ', 
+                #         f'max {encoder_hidden_states.max()}, min {encoder_hidden_states.min()}, mean {encoder_hidden_states.mean()}, std {encoder_hidden_states.std()}')
         return hidden_states, encoder_hidden_states
 
 
     def _operate_on_patched_inputs(self, hidden_states, encoder_hidden_states, timestep, pooled_projections):
         
+        # print(f'enc hidden_states, ', 
+        #         f'max {hidden_states.max()}, min {hidden_states.min()}, mean {hidden_states.mean()}, std {hidden_states.std()}')
+        # print(f'enc encoder_hidden_states, ', 
+        #         f'max {encoder_hidden_states.max()}, min {encoder_hidden_states.min()}, mean {encoder_hidden_states.mean()}, std {encoder_hidden_states.std()}')
         hidden_states = self.patch_embed(hidden_states.to(self.dtype))
         assert pooled_projections.shape[1] == 1
         pooled_projections = pooled_projections.squeeze(1)  # b 1 1 d -> b 1 d
         timesteps_emb = self.time_text_embed(timestep, pooled_projections)  # (N, D)
             
-        encoder_hidden_states = self.caption_projection(encoder_hidden_states)  # b, 1, l, d or b, 1, l, d
+        encoder_hidden_states = self.caption_projection(encoder_hidden_states)  # b, 1, l, d
         assert encoder_hidden_states.shape[1] == 1
-        encoder_hidden_states = rearrange(encoder_hidden_states, 'b 1 l d -> (b 1) l d')
-
+        encoder_hidden_states = encoder_hidden_states.squeeze(1)
+        # print('_operate_on_patched_inputs')
+        # print(f'enc timesteps_emb, ', 
+        #         f'max {timesteps_emb.max()}, min {timesteps_emb.min()}, mean {timesteps_emb.mean()}, std {timesteps_emb.std()}')
+        # print(f'enc hidden_states, ', 
+        #         f'max {hidden_states.max()}, min {hidden_states.min()}, mean {hidden_states.mean()}, std {hidden_states.std()}')
+        # print(f'enc encoder_hidden_states, ', 
+        #         f'max {encoder_hidden_states.max()}, min {encoder_hidden_states.min()}, mean {encoder_hidden_states.mean()}, std {encoder_hidden_states.std()}')
+        # print('-----------------------')
         return hidden_states, encoder_hidden_states, timesteps_emb
     
     def _get_output_for_patched_inputs(
         self, hidden_states, embedded_timestep, num_frames, height, width
     ):  
         hidden_states = self.norm_final(hidden_states)
+        # print(f'norm_final, ', 
+        #         f'max {hidden_states.max()}, min {hidden_states.min()}, mean {hidden_states.mean()}, std {hidden_states.std()}')
         # Modulation
         hidden_states = self.norm_out(hidden_states, temb=embedded_timestep)
+        # print(f'norm_out, ', 
+        #         f'max {hidden_states.max()}, min {hidden_states.min()}, mean {hidden_states.mean()}, std {hidden_states.std()}')
         # unpatchify
         hidden_states = self.proj_out(hidden_states)
+        # print(f'proj_out, ', 
+        #         f'max {hidden_states.max()}, min {hidden_states.min()}, mean {hidden_states.mean()}, std {hidden_states.std()}')
         hidden_states = hidden_states.reshape(
             -1, num_frames, height, width, 
             self.config.patch_size_t, self.config.patch_size, self.config.patch_size, self.out_channels
@@ -485,14 +537,17 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
             height * self.config.patch_size, 
             width * self.config.patch_size
         )
+        # import sys;sys.exit()
         return output
 
-def OpenSoraT2V_v1_5_2B_122(**kwargs):
+
+
+def OpenSoraT2V_v1_5_3B_122(**kwargs):
     if kwargs.get('sparse_n', None) is not None:
         kwargs.pop('sparse_n')
-    return OpenSoraT2V_v1_5(  # 34 layers
-        num_layers=[2, 4, 6, 10, 6, 4, 2], sparse_n=[1, 2, 4, 8, 4, 2, 1], 
-        attention_head_dim=72, num_attention_heads=24, 
+    return OpenSoraT2V_v1_5(  # 32 layers
+        num_layers=[2, 4, 6, 8, 6, 4, 2], sparse_n=[1, 2, 4, 8, 4, 2, 1], 
+        attention_head_dim=72, num_attention_heads=32, 
         timestep_embed_dim=768, patch_size_t=1, patch_size=2, 
         caption_channels=2048, pooled_projection_dim=1280, **kwargs
     )
@@ -500,37 +555,41 @@ def OpenSoraT2V_v1_5_2B_122(**kwargs):
 def OpenSoraT2V_v1_5_7B_122(**kwargs):
     if kwargs.get('sparse_n', None) is not None:
         kwargs.pop('sparse_n')
-    return OpenSoraT2V_v1_5(  # 38 layers
-        num_layers=[2, 4, 8, 10, 8, 4, 2], sparse_n=[1, 2, 4, 8, 4, 2, 1], 
+    return OpenSoraT2V_v1_5(  # 36 layers
+        num_layers=[2, 4, 8, 8, 8, 4, 2], sparse_n=[1, 2, 4, 8, 4, 2, 1], 
         attention_head_dim=96, num_attention_heads=32, 
-        timestep_embed_dim=1024, patch_size_t=1, patch_size=2, 
+        timestep_embed_dim=1280, patch_size_t=1, patch_size=2, 
         caption_channels=2048, pooled_projection_dim=1280, **kwargs
     )
 
-def OpenSoraT2V_v1_5_8B_122(**kwargs):
+
+def OpenSoraT2V_v1_5_13B_122(**kwargs):
     if kwargs.get('sparse_n', None) is not None:
         kwargs.pop('sparse_n')
     return OpenSoraT2V_v1_5(  # 44 layers
         num_layers=[2, 6, 8, 12, 8, 6, 2], sparse_n=[1, 2, 4, 8, 4, 2, 1], 
-        attention_head_dim=96, num_attention_heads=32, 
-        timestep_embed_dim=1024, patch_size_t=1, patch_size=2, 
+        attention_head_dim=96, num_attention_heads=40, 
+        timestep_embed_dim=1536, patch_size_t=1, patch_size=2, 
         caption_channels=2048, pooled_projection_dim=1280, **kwargs
     )
 
 OpenSora_v1_5_models = {
-    "OpenSoraT2V_v1_5-2B/122": OpenSoraT2V_v1_5_2B_122, 
+    "OpenSoraT2V_v1_5-3B/122": OpenSoraT2V_v1_5_3B_122, 
+    "OpenSoraT2V_v1_5-3B/122": OpenSoraT2V_v1_5_3B_122, 
     "OpenSoraT2V_v1_5-7B/122": OpenSoraT2V_v1_5_7B_122, 
-    "OpenSoraT2V_v1_5-8B/122": OpenSoraT2V_v1_5_8B_122, 
+    "OpenSoraT2V_v1_5-13B/122": OpenSoraT2V_v1_5_13B_122, 
 }
 
 OpenSora_v1_5_models_class = {
-    "OpenSoraT2V_v1_5-2B/122": OpenSoraT2V_v1_5,
+    "OpenSoraT2V_v1_5-3B/122": OpenSoraT2V_v1_5,
+    "OpenSoraT2V_v1_5-3B/122": OpenSoraT2V_v1_5,
     "OpenSoraT2V_v1_5-7B/122": OpenSoraT2V_v1_5,
-    "OpenSoraT2V_v1_5-8B/122": OpenSoraT2V_v1_5,
+    "OpenSoraT2V_v1_5-13B/122": OpenSoraT2V_v1_5,
 }
 
 if __name__ == '__main__':
     '''
+    python opensora/models/diffusion/opensora_v1_5/modeling_opensora.py
     '''
     from opensora.models.causalvideovae import ae_stride_config, ae_channel_config
     from opensora.models.causalvideovae import ae_norm, ae_denorm
@@ -561,7 +620,7 @@ if __name__ == '__main__':
 
     # device = torch.device('cpu')
     device = torch.device('cuda:0')
-    model = OpenSoraT2V_v1_5_8B_122(
+    model = OpenSoraT2V_v1_5_13B_122(
         in_channels=c, 
         out_channels=c, 
         sample_size_h=latent_size, 
@@ -572,8 +631,11 @@ if __name__ == '__main__':
         interpolation_scale_h=args.interpolation_scale_h, 
         interpolation_scale_w=args.interpolation_scale_w, 
         sparse1d=args.sparse1d, 
-        ).to(device)
+        )
     
+    print(model)
+    print(f'{sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e9} B')
+    # import sys;sys.exit()
     try:
         # path = "/storage/ongoing/new/7.19anyres/Open-Sora-Plan/bs32x8x1_anyx93x640x640_fps16_lr1e-5_snr5_ema9999_sparse1d4_dit_l_mt5xxl_vpred_zerosnr/checkpoint-43000/model_ema/diffusion_pytorch_model.safetensors"
         # ckpt = torch.load(path, map_location="cpu")
@@ -581,9 +643,7 @@ if __name__ == '__main__':
         print(msg)
     except Exception as e:
         print(e)
-    print(model)
-    print(f'{sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e9} B')
-    # import sys;sys.exit()
+    model = model.to(device)
     x = torch.randn(b, c,  1+(args.num_frames-1)//ae_stride_t, args.max_height//ae_stride_h, args.max_width//ae_stride_w).to(device)
     cond = torch.randn(b, 1, args.model_max_length, cond_c).to(device)
     attn_mask = torch.randint(0, 2, (b, 1+(args.num_frames-1)//ae_stride_t, args.max_height//ae_stride_h, args.max_width//ae_stride_w)).to(device)  # B L or B 1+num_images L

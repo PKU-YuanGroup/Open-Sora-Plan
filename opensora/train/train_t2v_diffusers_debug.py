@@ -75,6 +75,8 @@ from opensora.models.causalvideovae import ae_stride_config, ae_wrapper
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 check_min_version("0.24.0")
 logger = get_logger(__name__)
+# from torch.utils.data import _utils
+# _utils.MP_STATUS_CHECK_INTERVAL = 1800.0  # dataloader timeout (default is 5.0s), we increase it to 1800s.
 
 @torch.inference_mode()
 def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weight_dtype, global_step, ema=False):
@@ -250,6 +252,22 @@ def main(args):
         text_enc_2 = None
         if args.text_encoder_name_2 is not None:
             text_enc_2 = get_text_warpper(args.text_encoder_name_2)(args, **kwargs).eval()
+    
+    # kwargs = {}
+    # # ae = ae_wrapper[args.ae](args.ae_path, cache_dir=args.cache_dir, **kwargs).eval()
+    
+    # # if args.enable_tiling:
+    # #     ae.vae.enable_tiling()
+
+    # kwargs = {
+    #     'torch_dtype': weight_dtype, 
+    #     'low_cpu_mem_usage': False
+    #     }
+    # text_enc_1 = get_text_warpper(args.text_encoder_name_1)(args, **kwargs).eval()
+
+    # text_enc_2 = None
+    # if args.text_encoder_name_2 is not None:
+    #     text_enc_2 = get_text_warpper(args.text_encoder_name_2)(args, **kwargs).eval()
 
     ae_stride_t, ae_stride_h, ae_stride_w = ae_stride_config[args.ae]
     ae.vae_scale_factor = (ae_stride_t, ae_stride_h, ae_stride_w)
@@ -279,8 +297,7 @@ def main(args):
         interpolation_scale_w=args.interpolation_scale_w,
         interpolation_scale_t=args.interpolation_scale_t,
         sparse1d=args.sparse1d, 
-        sparse_n=args.sparse_n, 
-        skip_connection=args.skip_connection, 
+        sparse_n=args.sparse_n
     )
 
     # # use pretrained model?
@@ -347,8 +364,7 @@ def main(args):
     if args.use_ema:
         ema_model = deepcopy(model)
         ema_model = EMAModel(ema_model.parameters(), decay=args.ema_decay, update_after_step=args.ema_start_step,
-                             model_cls=Diffusion_models_class[args.model], model_config=ema_model.config, 
-                             foreach=args.foreach_ema)
+                             model_cls=Diffusion_models_class[args.model], model_config=ema_model.config)
 
     # `accelerate` 0.16.0 will have better support for customized saving
     if version.parse(accelerate.__version__) >= version.parse("0.16.0"):
@@ -366,16 +382,9 @@ def main(args):
 
         def load_model_hook(models, input_dir):
             if args.use_ema:
-                load_model = EMAModel.from_pretrained(
-                    os.path.join(input_dir, "model_ema"), 
-                    Diffusion_models_class[args.model], 
-                    foreach=args.foreach_ema, 
-                    )
+                load_model = EMAModel.from_pretrained(os.path.join(input_dir, "model_ema"), Diffusion_models_class[args.model])
                 ema_model.load_state_dict(load_model.state_dict())
-                if args.offload_ema:
-                    ema_model.pin_memory()
-                else:
-                    ema_model.to(accelerator.device)
+                ema_model.to(accelerator.device)
                 del load_model
 
             for i in range(len(models)):
@@ -519,10 +528,7 @@ def main(args):
     logger.info(f'after accelerator.prepare')
     
     if args.use_ema:
-        if args.offload_ema:
-            ema_model.pin_memory()
-        else:
-            ema_model.to(accelerator.device)
+        ema_model.to(accelerator.device)
 
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
@@ -611,23 +617,17 @@ def main(args):
     def sync_gradients_info(loss):
         # Checks if the accelerator has performed an optimization step behind the scenes
         if args.use_ema:
-            if args.offload_ema:
-                ema_model.to(device="cuda", non_blocking=True)
             ema_model.step(model.parameters())
-            if args.offload_ema:
-                ema_model.to(device="cpu", non_blocking=True)
         progress_bar.update(1)
         progress_info.global_step += 1
         end_time = time.time()
         one_step_duration = end_time - start_time
-        if progress_info.global_step % args.log_interval == 0:
-            train_loss = progress_info.train_loss.item() / args.log_interval
-            accelerator.log({"train_loss": train_loss, "lr": lr_scheduler.get_last_lr()[0]}, step=progress_info.global_step)
-            if torch_npu is not None and npu_config is not None:
-                npu_config.print_msg(f"Step: [{progress_info.global_step}], local_loss={loss.detach().item()}, "
-                                    f"train_loss={train_loss}, time_cost={one_step_duration}",
-                                    rank=0)
-            progress_info.train_loss = torch.tensor(0.0, device=loss.device)
+        accelerator.log({"train_loss": progress_info.train_loss, "lr": lr_scheduler.get_last_lr()[0]}, step=progress_info.global_step)
+        if torch_npu is not None and npu_config is not None:
+            npu_config.print_msg(f"Step: [{progress_info.global_step}], local_loss={loss.detach().item()}, "
+                                 f"train_loss={progress_info.train_loss}, time_cost={one_step_duration}",
+                                 rank=0)
+        progress_info.train_loss = 0.0
 
         # DeepSpeed requires saving weights on every device; saving weights only on the main process would cause issues.
         if accelerator.distributed_type == DistributedType.DEEPSPEED or accelerator.is_main_process:
@@ -660,7 +660,9 @@ def main(args):
         progress_bar.set_postfix(**logs)
 
     def run(step_, model_input, model_kwargs, prof):
-        # print("rank {} | step {} | cd run fun".format(accelerator.process_index, step_))
+        _, _, t, h, w = model_input.shape
+        seq = t*h*w
+        print("rank {} | step {} | seq {}".format(accelerator.process_index, step_, seq))
         global start_time
         start_time = time.time()
 
@@ -791,10 +793,10 @@ def main(args):
 
 
         # Gather the losses across all processes for logging (if we use distributed training).
-        avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
+        # avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
         # avg_loss = accelerator.reduce(loss, reduction="mean")
         # progress_info.train_loss += avg_loss.detach().item() / args.gradient_accumulation_steps
-        progress_info.train_loss += avg_loss.detach() / args.gradient_accumulation_steps
+        progress_info.train_loss = 0.0
         # Backpropagate
         accelerator.backward(loss)
         if accelerator.sync_gradients:
@@ -1046,7 +1048,6 @@ if __name__ == "__main__":
     parser.add_argument("--pretrained", type=str, default=None)
     parser.add_argument('--sparse1d', action='store_true')
     parser.add_argument('--sparse_n', type=int, default=2)
-    parser.add_argument('--skip_connection', action='store_true')
     parser.add_argument('--cogvideox_scheduler', action='store_true')
     parser.add_argument('--v1_5_scheduler', action='store_true')
     parser.add_argument('--rf_scheduler', action='store_true')
@@ -1061,14 +1062,11 @@ if __name__ == "__main__":
     parser.add_argument("--use_ema", action="store_true", help="Whether to use EMA model.")
     parser.add_argument("--ema_decay", type=float, default=0.9999)
     parser.add_argument("--ema_start_step", type=int, default=0)
-    parser.add_argument("--offload_ema", action="store_true", help="Offload EMA model to CPU during training step.")
-    parser.add_argument("--foreach_ema", action="store_true", help="Use faster foreach implementation of EMAModel.")
     parser.add_argument("--noise_offset", type=float, default=0.0, help="The scale of noise offset.")
     parser.add_argument("--prediction_type", type=str, default='epsilon', help="The prediction_type that shall be used for training. Choose between 'epsilon' or 'v_prediction' or leave `None`. If left to `None` the default prediction type of the scheduler: `noise_scheduler.config.prediciton_type` is chosen.")
     parser.add_argument('--rescale_betas_zero_snr', action='store_true')
 
     # validation & logs
-    parser.add_argument("--log_interval", type=int, default=10)
     parser.add_argument("--enable_profiling", action="store_true")
     parser.add_argument("--num_sampling_steps", type=int, default=20)
     parser.add_argument('--guidance_scale', type=float, default=4.5)

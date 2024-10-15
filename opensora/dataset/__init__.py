@@ -29,8 +29,8 @@ def getdataset(args):
     ])  # also work for img, because img is video when frame=1
 
     # tokenizer_1 = AutoTokenizer.from_pretrained(args.text_encoder_name_1, cache_dir=args.cache_dir)
-    # tokenizer_1 = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir)
-    tokenizer_1 = AutoTokenizer.from_pretrained('/storage/cache_dir/t5-v1_1-xl', cache_dir=args.cache_dir)
+    tokenizer_1 = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir)
+    # tokenizer_1 = AutoTokenizer.from_pretrained('/storage/cache_dir/t5-v1_1-xl', cache_dir=args.cache_dir)
     tokenizer_2 = None
     if args.text_encoder_name_2 is not None:
         # tokenizer_2 = AutoTokenizer.from_pretrained(args.text_encoder_name_2, cache_dir=args.cache_dir)
@@ -56,13 +56,13 @@ if __name__ == "__main__":
     from tqdm import tqdm
     args = type('args', (), 
     {
-        'ae': 'WFVAEModel_D32_8x8x8', 
+        'ae': 'WFVAEModel_D32_4x8x8', 
         'dataset': 't2v', 
         'model_max_length': 512, 
         'max_height': 640,
         'max_width': 640,
-        'hw_stride': 32, 
-        'num_frames': 105,
+        'hw_stride': 16, 
+        'num_frames': 93,
         'compress_kv_factor': 1, 
         'interpolation_scale_t': 1,
         'interpolation_scale_h': 1,
@@ -82,23 +82,25 @@ if __name__ == "__main__":
         'train_batch_size': 1, 
         'gradient_accumulation_steps': 1, 
         'ae_stride': 8, 
-        'ae_stride_t': 8,  
+        'ae_stride_t': 4,  
         'patch_size': 2, 
         'patch_size_t': 1, 
         'total_batch_size': 256, 
         'sp_size': 1, 
         'max_hxw': 384*384, 
-        'min_hxw': 192*192, 
+        'min_hxw': 384*288, 
+        # 'max_hxw': 236544, 
+        # 'min_hxw': 102400, 
     }
     )
-    accelerator = Accelerator()
+    # accelerator = Accelerator()
     dataset = getdataset(args)
     # data = next(iter(dataset))
     # import ipdb;ipdb.set_trace()
     # print()
     sampler = LengthGroupedSampler(
                 args.train_batch_size,
-                world_size=accelerator.num_processes, 
+                world_size=1, 
                 gradient_accumulation_size=args.gradient_accumulation_steps, 
                 initial_global_step=0, 
                 lengths=dataset.lengths, 

@@ -135,6 +135,40 @@ def read_parquet(path):
     data = df.to_dict(orient='records')
     return data
 
+
+
+class DecordDecoder(object):
+    def __init__(self, url, num_threads=1):
+
+        self.num_threads = num_threads
+        self.ctx = decord.cpu(0)
+        self.reader = decord.VideoReader(url,
+                                    ctx=self.ctx,
+                                    num_threads=self.num_threads)
+
+    def get_avg_fps(self):
+        return self.reader.get_avg_fps() if self.reader.get_avg_fps() > 0 else 30.0
+
+    def get_num_frames(self):
+        return len(self.reader)
+
+    def get_height(self):
+        return self.reader[0].shape[0] if self.get_num_frames() > 0 else 0
+
+    def get_width(self):
+        return self.reader[0].shape[1] if self.get_num_frames() > 0 else 0
+
+    # output shape [T, H, W, C]
+    def get_batch(self, frame_indices):
+        try:
+            #frame_indices[0] = 1000
+            video_data = self.reader.get_batch(frame_indices).asnumpy()
+            video_data = torch.from_numpy(video_data)
+            return video_data
+        except Exception as e:
+            print('get_batch execption:', e)
+            return None
+        
 class T2V_dataset(Dataset):
     def __init__(self, args, transform, temporal_sample, tokenizer_1, tokenizer_2):
         self.data = args.data
@@ -171,7 +205,7 @@ class T2V_dataset(Dataset):
             self.support_Chinese = True
 
         s = time.time()
-        cap_list, self.sample_size = self.define_frame_index(self.data)
+        cap_list, self.sample_size, self.shape_idx_dict = self.define_frame_index(self.data)
         e = time.time()
         print(f'Build data time: {e-s}')
         self.lengths = self.sample_size
@@ -180,7 +214,7 @@ class T2V_dataset(Dataset):
         dataset_prog.set_cap_list(args.dataloader_num_workers, cap_list, n_elements)
         print(f"Data length: {len(dataset_prog.cap_list)}")
         self.executor = ThreadPoolExecutor(max_workers=1)
-        self.timeout = 90
+        self.timeout = 60
 
     def set_checkpoint(self, n_used_elements):
         for i in range(len(dataset_prog.n_used_elements)):
@@ -199,7 +233,8 @@ class T2V_dataset(Dataset):
             if len(str(e)) < 2:
                 e = f"TimeoutError, {self.timeout}s timeout occur with {dataset_prog.cap_list[idx]['path']}"
             print(f'Error with {e}')
-            return self.__getitem__(random.randint(0, self.__len__() - 1))
+            index_cand = self.shape_idx_dict[self.sample_size[idx]]  # pick same shape
+            return self.__getitem__(random.choice(index_cand))
 
     def get_data(self, idx):
         path = dataset_prog.cap_list[idx]['path']
@@ -209,13 +244,6 @@ class T2V_dataset(Dataset):
             return self.get_image(idx)
     
     def get_video(self, idx):
-        # npu_config.print_msg(f"current idx is {idx}")
-        # video = random.choice([random_video_noise(65, 3, 336, 448), random_video_noise(65, 3, 1024, 1024), random_video_noise(65, 3, 360, 480)])
-        # # print('random shape', video.shape)
-        # input_ids = torch.ones(1, 120).to(torch.long).squeeze(0)
-        # cond_mask = torch.cat([torch.ones(1, 60).to(torch.long), torch.ones(1, 60).to(torch.long)], dim=1).squeeze(0)
-        # print(f'Now we use t2v dataset {idx}')
-
         video_data = dataset_prog.cap_list[idx]
         video_path = video_data['path']
         assert os.path.exists(video_path), f"file {video_path} do not exist!"
@@ -241,6 +269,7 @@ class T2V_dataset(Dataset):
         if video_data.get('aesthetic', None) is not None or video_data.get('aes', None) is not None:
             aes = video_data.get('aesthetic', None) or video_data.get('aes', None)
             text = [add_aesthetic_notice_video(text[0], aes)]
+        text = text_preprocessing(text, support_Chinese=self.support_Chinese)
 
         text = text if random.random() > self.cfg else ""
 
@@ -285,15 +314,12 @@ class T2V_dataset(Dataset):
         image = rearrange(image, 'h w c -> c h w').unsqueeze(0)  #  [1 c h w]
 
         image = self.transform(image) #  [1 C H W] -> num_img [1 C H W]
-        assert image.shape[2] == sample_h, image.shape[3] == sample_w
-        # image = [torch.rand(1, 3, 480, 640) for i in image_data]
+        assert image.shape[2] == sample_h and image.shape[3] == sample_w, f"image_data: {image_data}, but found image {image.shape}"
+        # image = torch.rand(1, 3, sample_h, sample_w)
         image = image.transpose(0, 1)  # [1 C H W] -> [C 1 H W]
 
         caps = image_data['cap'] if isinstance(image_data['cap'], list) else [image_data['cap']]
         caps = [random.choice(caps)]
-        # caps = [caps[0]]
-        if '/sam/' in image_data['path']:
-            caps = [add_masking_notice(caps[0])]
         if image_data.get('aesthetic', None) is not None or image_data.get('aes', None) is not None:
             aes = image_data.get('aesthetic', None) or image_data.get('aes', None)
             caps = [add_aesthetic_notice_image(caps[0], aes)]
@@ -333,6 +359,7 @@ class T2V_dataset(Dataset):
 
     def define_frame_index(self, data):
         
+        shape_idx_dict = {}
         new_cap_list = []
         sample_size = []
         aesthetic_score = []
@@ -364,7 +391,7 @@ class T2V_dataset(Dataset):
             elif anno.endswith('.pkl'):
                 with open(anno, "rb") as f: 
                     sub_list = pickle.load(f)
-            for i in tqdm(sub_list):
+            for index, i in enumerate(tqdm(sub_list)):
                 cnt += 1
                 path = os.path.join(sub_root, i['path'])
                 i['path'] = path
@@ -493,16 +520,28 @@ class T2V_dataset(Dataset):
                 else:
                     raise NameError(f"Unknown file extention {path.split('.')[-1]}, only support .mp4 for video and .jpg for image")
 
-                sample_size.append(f"{len(i['sample_frame_index'])}x{sample_h}x{sample_w}")
-
+                pre_define_shape = f"{len(i['sample_frame_index'])}x{sample_h}x{sample_w}"
+                sample_size.append(pre_define_shape)
+                # if shape_idx_dict.get(pre_define_shape, None) is None:
+                #     shape_idx_dict[pre_define_shape] = [index]
+                # else:
+                #     shape_idx_dict[pre_define_shape].append(index)
         counter = Counter(sample_size)
         counter_cp = counter
-        assert all([np.prod(np.array(k.split('x')[1:]).astype(np.int32)) <= self.max_hxw for k in counter_cp.keys()])
-        assert all([np.prod(np.array(k.split('x')[1:]).astype(np.int32)) >= self.min_hxw for k in counter_cp.keys()])
+        if not self.force_resolution and self.max_hxw is not None and self.min_hxw is not None:
+            assert all([np.prod(np.array(k.split('x')[1:]).astype(np.int32)) <= self.max_hxw for k in counter_cp.keys()])
+            assert all([np.prod(np.array(k.split('x')[1:]).astype(np.int32)) >= self.min_hxw for k in counter_cp.keys()])
 
         len_before_filter_major = len(sample_size)
         filter_major_num = 4 * self.total_batch_size
         new_cap_list, sample_size = zip(*[[i, j] for i, j in zip(new_cap_list, sample_size) if counter[j] >= filter_major_num])
+
+        for idx, shape in enumerate(sample_size):
+            if shape_idx_dict.get(shape, None) is None:
+                shape_idx_dict[shape] = [idx]
+            else:
+                shape_idx_dict[shape].append(idx)
+
         cnt_filter_minority = len_before_filter_major - len(sample_size) 
         counter = Counter(sample_size)
         
@@ -526,7 +565,7 @@ class T2V_dataset(Dataset):
                 f"Mean: {stats_aesthetic['mean']}, Var: {stats_aesthetic['variance']}, Std: {stats_aesthetic['std_dev']}\n"
                 f"Min: {stats_aesthetic['min']}, Max: {stats_aesthetic['max']}")
 
-        return new_cap_list, sample_size
+        return new_cap_list, sample_size, shape_idx_dict
     
     def decord_read(self, video_data):
         path = video_data['path']
@@ -534,19 +573,25 @@ class T2V_dataset(Dataset):
         start_frame_idx = video_data['start_frame_idx']
         clip_total_frames = video_data['num_frames']
         fps = video_data['fps']
-        s_x, e_x, s_y, e_y = video_data['crop']
+        s_x, e_x, s_y, e_y = video_data.get('crop', [None, None, None, None])
 
         predefine_num_frames = len(predefine_frame_indice)
-        decord_vr = decord.VideoReader(path, ctx=decord.cpu(0), num_threads=1)
+        # decord_vr = decord.VideoReader(path, ctx=decord.cpu(0), num_threads=1)
+        decord_vr = DecordDecoder(path)
 
         frame_indices = self.get_actual_frame(
             fps, start_frame_idx, clip_total_frames, path, predefine_num_frames, predefine_frame_indice
             )
         
-        video_data = decord_vr.get_batch(frame_indices).asnumpy()
-        video_data = torch.from_numpy(video_data)
-        video_data = video_data.permute(0, 3, 1, 2)  # (T, H, W, C) -> (T C H W)
-        video_data = video_data[:, :, s_y: e_y, s_x: e_x]
+        # video_data = decord_vr.get_batch(frame_indices).asnumpy()
+        # video_data = torch.from_numpy(video_data)
+        video_data = decord_vr.get_batch(frame_indices)
+        if video_data is not None:
+            video_data = video_data.permute(0, 3, 1, 2)  # (T, H, W, C) -> (T C H W)
+            if s_y is not None:
+                video_data = video_data[:, :, s_y: e_y, s_x: e_x]
+        else:
+            raise ValueError(f'Get video_data {video_data}')
         # del decord_vr
         # gc.collect()
         return video_data
@@ -557,7 +602,7 @@ class T2V_dataset(Dataset):
         start_frame_idx = video_data['start_frame_idx']
         clip_total_frames = video_data['num_frames']
         fps = video_data['fps']
-        s_x, e_x, s_y, e_y = video_data['crop']
+        s_x, e_x, s_y, e_y = video_data.get('crop', [None, None, None, None])
 
         predefine_num_frames = len(predefine_frame_indice)
         cv2_vr = cv2.VideoCapture(path)
@@ -575,7 +620,8 @@ class T2V_dataset(Dataset):
             video_data.append(torch.from_numpy(frame).permute(2, 0, 1))
         cv2_vr.release()
         video_data = torch.stack(video_data)  # (T C H W)
-        video_data = video_data[:, :, s_y: e_y, s_x: e_x]
+        if s_y is not None:
+            video_data = video_data[:, :, s_y: e_y, s_x: e_x]
         return video_data
 
     def get_actual_frame(self, fps, start_frame_idx, clip_total_frames, path, predefine_num_frames, predefine_frame_indice):

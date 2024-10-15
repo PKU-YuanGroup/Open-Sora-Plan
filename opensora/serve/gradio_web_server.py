@@ -155,40 +155,37 @@ def generate(
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--model_path", type=str, default='LanguageBind/Open-Sora-Plan-v1.0.0')
-parser.add_argument("--version", type=str, default='v1_2', choices=['v1_2', 'v1_5'])
+parser.add_argument("--version", type=str, default='v1_3', choices=['v1_3', 'v1_5'])
 parser.add_argument("--caption_refiner", type=str, default=None)
 parser.add_argument("--ae", type=str, default='CausalVAEModel_4x8x8')
 parser.add_argument("--ae_path", type=str, default='CausalVAEModel_4x8x8')
 parser.add_argument("--text_encoder_name_1", type=str, default='DeepFloyd/t5-v1_1-xxl')
 parser.add_argument("--text_encoder_name_2", type=str, default=None)
-parser.add_argument("--save_img_path", type=str, default="./sample_videos/t2v")
-parser.add_argument("--fps", type=int, default=24)
+parser.add_argument("--save_img_path", type=str, default="./test_gradio")
+parser.add_argument("--fps", type=int, default=18)
 parser.add_argument('--enable_tiling', action='store_true')
 parser.add_argument('--save_memory', action='store_true')
 parser.add_argument('--compile', action='store_true') 
 parser.add_argument("--gradio_port", type=int, default=11900)
+parser.add_argument("--local_rank", type=int, default=0)
 parser.add_argument("--enhance_video", type=str, default=None)
 parser.add_argument("--model_type", type=str, default='t2v')
+
+parser.add_argument("--cache_dir", type=str, default="cache_dir")
+
+parser.add_argument("--prediction_type", type=str, default="v_prediction")
+parser.add_argument('--', action='store_true') 
+parser.add_argument('--v1_5_scheduler', action='store_true') 
+
+parser.add_argument('--sample_method', type=str, default='EulerAncestralDiscrete') 
 args = parser.parse_args()
 
-args.model_path = "/storage/ongoing/new/7.19anyres/Open-Sora-Plan/bs32x8x1_anyx93x640x640_fps16_lr1e-5_snr5_ema9999_sparse1d4_dit_l_mt5xxl_vpred_zerosnr/checkpoint-144000/model_ema"
-args.version = "v1_2"
-args.caption_refiner = "/storage/ongoing/refine_model/llama3_1_instruct_lora/llama3_8B_lora_merged_cn"
-args.ae = "WFVAEModel_D8_4x8x8"
-args.ae_path = "/storage/lcm/wf-vae_trilinear"
-args.text_encoder_name_1 = "/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl"
-args.text_encoder_name_2 = None
-args.save_img_path = "./test_gradio"
-args.fps = 18
 
-args.prediction_type = "v_prediction"
-args.rescale_betas_zero_snr = True
-args.cache_dir = "./cache_dir"
-args.sample_method = 'EulerAncestralDiscrete'
 args.sp = False
+args.rescale_betas_zero_snr = True
 
 dtype = torch.bfloat16
-args = init_gpu_env(args)
+# args = init_gpu_env(args)
 device = torch.cuda.current_device()
 
 if args.enhance_video is not None:
@@ -222,7 +219,7 @@ with gr.Blocks(css="style.css") as demo:
             with gr.Row():
                 num_frames = gr.Slider(
                         label="Num Frames",
-                        minimum=29,
+                        minimum=1,
                         maximum=93,
                         step=16,
                         value=29,

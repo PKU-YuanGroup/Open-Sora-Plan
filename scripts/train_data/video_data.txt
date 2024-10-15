@@ -1,0 +1,8 @@
+/storage,/storage/anno_pkl/vid_merge_pkl/panda_aqy_blbl_xg_mv_sc_vidal_part9_16_2438215.pkl
+/storage,/storage/anno_pkl/vid_merge_pkl/panda_aqy_blbl_xg_mv_sc_vidal_part10_16_2438215.pkl
+/storage,/storage/anno_pkl/vid_merge_pkl/panda_aqy_blbl_xg_mv_sc_vidal_part11_16_2438215.pkl
+/storage,/storage/anno_pkl/vid_merge_pkl/panda_aqy_blbl_xg_mv_sc_vidal_part12_16_2438215.pkl
+/storage,/storage/anno_pkl/vid_merge_pkl/panda_aqy_blbl_xg_mv_sc_vidal_part13_16_2438215.pkl
+/storage,/storage/anno_pkl/vid_merge_pkl/panda_aqy_blbl_xg_mv_sc_vidal_part14_16_2438215.pkl
+/storage,/storage/anno_pkl/vid_merge_pkl/panda_aqy_blbl_xg_mv_sc_vidal_part15_16_2438215.pkl
+/storage,/storage/anno_pkl/vid_merge_pkl/panda_aqy_blbl_xg_mv_sc_vidal_part16_16_2438215.pkl
