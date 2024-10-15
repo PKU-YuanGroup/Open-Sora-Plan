@@ -3,45 +3,7 @@ from peft import get_peft_model, PeftModel
 import os
 from copy import deepcopy
 import torch
-from opensora.utils.ema import EMAModel
-
-class EMAModel_LoRA(EMAModel):
-    def __init__(self, lora_config, **kwargs):
-        super().__init__(**kwargs)
-        self.lora_config = lora_config
-    
-    @classmethod
-    def from_pretrained(cls, path, model_cls, lora_config, origin_model_path) -> "EMAModel":
-        # 1. load origin model
-        origin_model = model_cls.from_pretrained(origin_model_path)  # origin_model
-        # 2. convert to lora model automatically and load lora weight
-        lora_model = PeftModel.from_pretrained(origin_model, path)  # lora_origin_model
-        # 3. ema the whole lora_model
-        ema_model = cls(lora_config, parameters=lora_model.parameters(), model_cls=model_cls, model_config=origin_model.config)
-        # 4. load ema_kwargs, e.g decay...
-        ema_kwargs = torch.load(os.path.join(path, 'ema_kwargs.pt'))
-        ema_model.load_state_dict(ema_kwargs)
-        return ema_model
-
-    def save_pretrained(self, path):
-        if self.model_cls is None:
-            raise ValueError("`save_pretrained` can only be used if `model_cls` was defined at __init__.")
-
-        if self.model_config is None:
-            raise ValueError("`save_pretrained` can only be used if `model_config` was defined at __init__.")
-        # 1. init a base model randomly
-        model = self.model_cls.from_config(self.model_config)
-        # 2. convert lora_model
-        lora_model = get_peft_model(model, self.lora_config)
-        # 3. ema_lora_model weight to lora_model
-        self.copy_to(lora_model.parameters())
-        # 4. save lora weight
-        lora_model.save_pretrained(path)  # only lora weight
-        # 5. save ema_kwargs, e.g decay...
-        state_dict = self.state_dict()  # lora_model weight
-        state_dict.pop("shadow_params", None)
-        torch.save(state_dict, os.path.join(path, 'ema_kwargs.pt'))
-
+import json
 
 def maybe_zero_3(param, ignore_status=False, name=None):
     from deepspeed import zero

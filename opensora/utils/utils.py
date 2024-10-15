@@ -12,12 +12,15 @@ import numpy as np
 import torch.distributed as dist
 
 # from torch._six import inf
+import accelerate
 from torch import inf
 from PIL import Image
 from typing import Union, Iterable
 import collections
 from collections import OrderedDict
 from torch.utils.tensorboard import SummaryWriter
+import wandb
+import time
 
 from diffusers.utils import is_bs4_available, is_ftfy_available
 
@@ -38,20 +41,31 @@ def to_2tuple(x):
         return x
     return (x, x)
 
-def find_model(model_name):
-    """
-    Finds a pre-trained Latte model, downloading it if necessary. Alternatively, loads a model from a local path.
-    """
-    assert os.path.isfile(model_name), f'Could not find Latte checkpoint at {model_name}'
-    checkpoint = torch.load(model_name, map_location=lambda storage, loc: storage)
 
-    # if "ema" in checkpoint:  # supports checkpoints from train.py
-    #     print('Using Ema!')
-    #     checkpoint = checkpoint["ema"]
-    # else:
-    print('Using model!')
-    checkpoint = checkpoint['model']
-    return checkpoint
+def explicit_uniform_sampling(T, n, rank, bsz, device):
+    """
+    Explicit Uniform Sampling with integer timesteps and PyTorch.
+
+    Args:
+        T (int): Maximum timestep value.
+        n (int): Number of ranks (data parallel processes).
+        rank (int): The rank of the current process (from 0 to n-1).
+        bsz (int): Batch size, number of timesteps to return.
+
+    Returns:
+        torch.Tensor: A tensor of shape (bsz,) containing uniformly sampled integer timesteps
+                      within the rank's interval.
+    """
+    # Compute the interval boundaries (starting from 0)
+    interval_size = T / n  # Integer division to ensure boundaries are integers
+    lower_bound = max(0, round(interval_size * rank))
+    upper_bound = min(round(interval_size * (rank + 1)) - 1, T-1)
+
+    # Uniformly sample within the rank's interval, returning integers
+    sampled_timesteps = torch.randint(low=lower_bound, high=upper_bound+1, size=(bsz,), device=device)
+
+    return sampled_timesteps
+
 
 #################################################################################
 #                             Training Clip Gradients                           #
@@ -220,6 +234,32 @@ def write_tensorboard(writer, *args):
     if dist.get_rank() == 0:  # real tensorboard
         writer.add_scalar(args[0], args[1], args[2])
 
+def get_npu_power():
+    result = subprocess.run(["npu-smi", "info"], stdout=subprocess.PIPE, text=True)
+    power_data = {}
+    npu_id = None
+
+    # 解析npu-smi的输出
+    for line in result.stdout.splitlines():
+        if line.startswith("| NPU"):
+            npu_id = 0  # 开始新NPU记录
+        elif line.startswith("|") and npu_id is not None:
+            parts = line.split("|")
+            if len(parts) > 4:
+                power = parts[4].strip().split()[0]  # 提取Power(W)
+                
+                # 记录每个NPU的功率信息
+                power_data[f"NPU_{npu_id}_Power_W"] = float(power)
+                
+                npu_id += 1
+
+    return power_data
+
+def monitor_npu_power():
+    while wandb.run is not None:
+        power_data = get_npu_power()
+        wandb.log(power_data)  # 实时记录NPU功率信息到wandb
+        time.sleep(10)  # 每10秒采集一次数据
 
 #################################################################################
 #                      EMA Update/ DDP Training Utils                           #
@@ -252,6 +292,18 @@ def cleanup():
     """
     dist.destroy_process_group()
 
+
+# adapted from https://github.com/huggingface/accelerate/blob/main/src/accelerate/utils/random.py#L31
+def set_seed(seed, rank, device_specific=True):
+    if device_specific:
+        seed += rank
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 def setup_distributed(backend="nccl", port=None):
     """Initialize distributed training environment.
@@ -290,31 +342,6 @@ def setup_distributed(backend="nccl", port=None):
 
 
 #################################################################################
-#                             Testing  Utils                                    #
-#################################################################################
-
-def save_video_grid(video, nrow=None):
-    b, t, h, w, c = video.shape
-
-    if nrow is None:
-        nrow = math.ceil(math.sqrt(b))
-    ncol = math.ceil(b / nrow)
-    padding = 1
-    video_grid = torch.zeros((t, (padding + h) * nrow + padding,
-                              (padding + w) * ncol + padding, c), dtype=torch.uint8)
-
-    print(video_grid.shape)
-    for i in range(b):
-        r = i // ncol
-        c = i % ncol
-        start_r = (padding + h) * r
-        start_c = (padding + w) * c
-        video_grid[:, start_r:start_r + h, start_c:start_c + w] = video[i]
-
-    return video_grid
-
-
-#################################################################################
 #                             MMCV  Utils                                    #
 #################################################################################
 
@@ -344,7 +371,6 @@ bad_punct_regex = re.compile(r'['+'#®•©™&@·º½¾¿¡§~'+'\)'+'\('+'\]'+
 
 def text_preprocessing(text, support_Chinese=True):
     # The exact text cleaning as was in the training stage:
-    text = clean_caption(text, support_Chinese=support_Chinese)
     text = clean_caption(text, support_Chinese=support_Chinese)
     return text
 

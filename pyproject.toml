@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "opensora"
-version = "1.2.0"
+version = "1.3.0"
 description = "Reproduce OpenAI's Sora."
 readme = "README.md"
 requires-python = ">=3.8"
@@ -13,20 +13,19 @@ classifiers = [
     "License :: OSI Approved :: Apache Software License",
 ]
 dependencies = [
-    "torch==2.1.0", "torchvision==0.16.0",
-    "transformers==4.40.1", "accelerate==0.29.3", "tokenizers==0.19.1", "diffusers==0.28.0", 
+    "transformers==4.44.2", "tokenizers==0.19.1", 
     "albumentations==1.4.0", "av==11.0.0", "decord==0.6.0", "einops==0.7.0", "fastapi==0.110.0",
-    "gdown==5.1.0", "h5py==3.10.0", "idna==3.6", 'imageio==2.34.0', "matplotlib==3.7.5", "numpy==1.24.4",
+    "gdown==5.1.0", "h5py==3.10.0", "idna==3.8", 'imageio==2.34.0', "matplotlib==3.7.5", "numpy==1.24.4",
     "omegaconf==2.1.1", "opencv-python==4.9.0.80", "opencv-python-headless==4.9.0.80", "pandas==2.0.3", "pillow==10.2.0",
-    "pydub==0.25.1", "pytorch-lightning==2.2.1", "pytorchvideo==0.1.5", "PyYAML==6.0.1", "regex==2023.12.25",
-    "requests==2.31.0", "scikit-learn==1.3.2", "scipy==1.10.1", "six==1.16.0", "test-tube==0.7.5",
-    "timm==0.9.16", "torchdiffeq==0.2.3", "torchmetrics==1.3.2", "tqdm==4.66.2", "urllib3==2.2.1", "uvicorn==0.27.1",
+    "pydub==0.25.1", "pytorchvideo==0.1.5", "PyYAML==6.0.2", "regex==2024.7.24",
+    "requests==2.32.3", "scikit-learn==1.3.2", "scipy==1.10.1", "six==1.16.0", "test-tube==0.7.5",
+    "timm==0.9.16", "torchdiffeq==0.2.3", "torchmetrics==1.3.2", "tqdm==4.66.5", "urllib3==2.2.2", "uvicorn==0.27.1",
     "scikit-video==1.1.11", "imageio-ffmpeg==0.4.9", "sentencepiece==0.1.99", "beautifulsoup4==4.12.3",
-    "ftfy==6.1.3", "moviepy==1.0.3", "wandb==0.16.3", "tensorboard==2.14.0", "pydantic==2.6.4", "gradio==4.0.0", "xformers==0.0.22.post7"
+    "ftfy==6.1.3", "moviepy==1.0.3", "wandb==0.16.3", "tensorboard==2.14.0", "pydantic==2.6.4", "gradio==4.0.0", 
+    "torch==2.1.0", "torchvision==0.16.0", "xformers==0.0.22.post7", "accelerate==0.34.0", "diffusers==0.30.2", "deepspeed==0.12.6"
 ]
 
 [project.optional-dependencies]
-train = ["deepspeed==0.12.6"]
 dev = ["mypy==1.8.0"]
 
 

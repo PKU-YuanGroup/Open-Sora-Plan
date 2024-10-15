@@ -2,6 +2,11 @@ import torch
 import random
 import numbers
 from torchvision.transforms import RandomCrop, RandomResizedCrop
+import statistics
+import numpy as np
+import ftfy
+import regex as re
+import html
 
 
 def _is_tensor_video_clip(clip):
@@ -116,9 +121,12 @@ def center_crop_th_tw(clip, th, tw, top_crop):
     h, w = clip.size(-2), clip.size(-1)
     tr = th / tw
     if h / w > tr:
+        # hxw 720x1280  thxtw 320x640  hw_raito 9/16 > tr_ratio 8/16  newh=1280*320/640=640  neww=1280 
         new_h = int(w * tr)
         new_w = w
     else:
+        # hxw 720x1280  thxtw 480x640  hw_raito 9/16 < tr_ratio 12/16   newh=720 neww=720/(12/16)=960  
+        # hxw 1080x1920  thxtw 720x1280  hw_raito 9/16 = tr_ratio 9/16   newh=1080 neww=1080/(9/16)=1920  
         new_h = h
         new_w = int(h / tr)
     
@@ -163,6 +171,18 @@ def to_tensor(clip):
     # return clip.float().permute(3, 0, 1, 2) / 255.0
     return clip.float() / 255.0
 
+
+def to_tensor_after_resize(clip):
+    """
+    Convert resized tensor to [0, 1]
+    Args:
+        clip (torch.tensor, dtype=torch.float): Size is (T, C, H, W)
+    Return:
+        clip (torch.tensor, dtype=torch.float): Size is (T, C, H, W), but in [0, 1]
+    """
+    _is_tensor_video_clip(clip)
+    # return clip.float().permute(3, 0, 1, 2) / 255.0
+    return clip.float() / 255.0
 
 def normalize(clip, mean, std, inplace=False):
     """
@@ -233,9 +253,18 @@ class RandomCropVideo:
         return f"{self.__class__.__name__}(size={self.size})"
 
 
+def get_params(h, w, stride):
+    
+    th, tw = h // stride * stride, w // stride * stride
+
+    i = (h - th) // 2
+    j = (w - tw) // 2
+
+    return i, j, th, tw 
+    
 class SpatialStrideCropVideo:
     def __init__(self, stride):
-            self.stride = stride
+        self.stride = stride
 
     def __call__(self, clip):
         """
@@ -245,18 +274,38 @@ class SpatialStrideCropVideo:
             torch.tensor: cropped video clip by stride.
                 size is (T, C, OH, OW)
         """
-        i, j, h, w = self.get_params(clip)
+        h, w = clip.shape[-2:] 
+        i, j, h, w = get_params(h, w, self.stride)
         return crop(clip, i, j, h, w)
 
-    def get_params(self, clip):
-        h, w = clip.shape[-2:]
-
-        th, tw = h // self.stride * self.stride, w // self.stride * self.stride
-
-        return 0, 0, th, tw  # from top-left
 
     def __repr__(self) -> str:
-        return f"{self.__class__.__name__}(size={self.size})"
+        return f"{self.__class__.__name__}(stride={self.stride})"  
+
+def longsideresize(h, w, size, skip_low_resolution):
+    if h <= size[0] and w <= size[1] and skip_low_resolution:
+        return h, w
+    
+    if h / w > size[0] / size[1]:
+        # hxw 720x1280  size 320x640  hw_raito 9/16 > size_ratio 8/16  neww=320/720*1280=568  newh=320  
+        w = int(size[0] / h * w)
+        h = size[0]
+    else:
+        # hxw 720x1280  size 480x640  hw_raito 9/16 < size_ratio 12/16   newh=640/1280*720=360 neww=640  
+        # hxw 1080x1920  size 720x1280  hw_raito 9/16 = size_ratio 9/16   newh=1280/1920*1080=720 neww=1280  
+        h = int(size[1] / w * h)
+        w = size[1]
+    return h, w
+
+def maxhwresize(ori_height, ori_width, max_hxw):
+    if ori_height * ori_width > max_hxw:
+        scale_factor = np.sqrt(max_hxw / (ori_height * ori_width))
+        new_height = int(ori_height * scale_factor)
+        new_width = int(ori_width * scale_factor)
+    else:
+        new_height = ori_height
+        new_width = ori_width
+    return new_height, new_width
 
 class LongSideResizeVideo:
     '''
@@ -280,23 +329,51 @@ class LongSideResizeVideo:
             clip (torch.tensor): Video clip to be cropped. Size is (T, C, H, W)
         Returns:
             torch.tensor: scale resized video clip.
-                size is (T, C, 512, *) or (T, C, *, 512)
         """
         _, _, h, w = clip.shape
-        if self.skip_low_resolution and max(h, w) <= self.size:
+        tr_h, tr_w = longsideresize(h, w, self.size, self.skip_low_resolution)
+        if h == tr_h and w == tr_w:
             return clip
-        if h > w:
-            w = int(w * self.size / h)
-            h = self.size
-        else:
-            h = int(h * self.size / w)
-            w = self.size
-        resize_clip = resize(clip, target_size=(h, w),
+        resize_clip = resize(clip, target_size=(tr_h, tr_w),
                                          interpolation_mode=self.interpolation_mode)
         return resize_clip
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(size={self.size}, interpolation_mode={self.interpolation_mode}"
+
+
+class MaxHWResizeVideo:
+    '''
+    First use the h*w,
+    then resize to the specified size
+    '''
+
+    def __init__(
+            self,
+            max_hxw,
+            interpolation_mode="bilinear",
+    ):
+        self.max_hxw = max_hxw
+        self.interpolation_mode = interpolation_mode
+
+    def __call__(self, clip):
+        """
+        Args:
+            clip (torch.tensor): Video clip to be cropped. Size is (T, C, H, W)
+        Returns:
+            torch.tensor: scale resized video clip.
+        """
+        _, _, h, w = clip.shape
+        tr_h, tr_w = maxhwresize(h, w, self.max_hxw)
+        if h == tr_h and w == tr_w:
+            return clip
+        resize_clip = resize(clip, target_size=(tr_h, tr_w),
+                                         interpolation_mode=self.interpolation_mode)
+        return resize_clip
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(size={self.size}, interpolation_mode={self.interpolation_mode}"
+
 
 class CenterCropResizeVideo:
     '''
@@ -324,9 +401,7 @@ class CenterCropResizeVideo:
             torch.tensor: scale resized / center cropped video clip.
                 size is (T, C, crop_size, crop_size)
         """
-        # clip_center_crop = center_crop_using_short_edge(clip)
         clip_center_crop = center_crop_th_tw(clip, self.size[0], self.size[1], top_crop=self.top_crop)
-        # import ipdb;ipdb.set_trace()
         clip_center_crop_resize = resize(clip_center_crop, target_size=self.size,
                                          interpolation_mode=self.interpolation_mode)
         return clip_center_crop_resize
@@ -471,6 +546,29 @@ class ToTensorVideo:
 
     def __repr__(self) -> str:
         return self.__class__.__name__
+    
+
+class ToTensorAfterResize:
+    """
+    Convert tensor data type from uint8 to float, divide value by 255.0 and
+    permute the dimensions of clip tensor
+    """
+
+    def __init__(self):
+        pass
+
+    def __call__(self, clip):
+        """
+        Args:
+            clip (torch.tensor, dtype=torch.float): Size is (T, C, H, W)
+        Return:
+            clip (torch.tensor, dtype=torch.float): Size is (T, C, H, W), but in [0, 1]
+        """
+        return to_tensor_after_resize(clip)
+
+    def __repr__(self) -> str:
+        return self.__class__.__name__
+
 
 
 class RandomHorizontalFlipVideo:
@@ -536,6 +634,211 @@ class DynamicSampleDuration(object):
         if self.extra_1:
             truncate_t = truncate_t + 1
         return 0, truncate_t
+
+keywords = [
+        ' man ', ' woman ', ' person ', ' people ', 'human',
+        ' individual ', ' child ', ' kid ', ' girl ', ' boy ',
+    ]
+keywords += [i[:-1] + 's ' for i in keywords]
+
+masking_notices = [
+    "Note: The faces in this image are blurred.",
+    "This image contains faces that have been pixelated.",
+    "Notice: Faces in this image are masked.",
+    "Please be aware that the faces in this image are obscured.",
+    "The faces in this image are hidden.",
+    "This is an image with blurred faces.",
+    "The faces in this image have been processed.",
+    "Attention: Faces in this image are not visible.",
+    "The faces in this image are partially blurred.",
+    "This image has masked faces.",
+    "Notice: The faces in this picture have been altered.",
+    "This is a picture with obscured faces.",
+    "The faces in this image are pixelated.",
+    "Please note, the faces in this image have been blurred.",
+    "The faces in this photo are hidden.",
+    "The faces in this picture have been masked.",
+    "Note: The faces in this picture are altered.",
+    "This is an image where faces are not clear.",
+    "Faces in this image have been obscured.",
+    "This picture contains masked faces.",
+    "The faces in this image are processed.",
+    "The faces in this picture are not visible.",
+    "Please be aware, the faces in this photo are pixelated.",
+    "The faces in this picture have been blurred.", 
+]
+
+webvid_watermark_notices = [
+    "This video has a faint Shutterstock watermark in the center.", 
+    "There is a slight Shutterstock watermark in the middle of this video.", 
+    "The video contains a subtle Shutterstock watermark in the center.", 
+    "This video features a light Shutterstock watermark at its center.", 
+    "A faint Shutterstock watermark is present in the middle of this video.", 
+    "There is a mild Shutterstock watermark at the center of this video.", 
+    "This video has a slight Shutterstock watermark in the middle.", 
+    "You can see a faint Shutterstock watermark in the center of this video.", 
+    "A subtle Shutterstock watermark appears in the middle of this video.", 
+    "This video includes a light Shutterstock watermark at its center.", 
+]
+
+
+high_aesthetic_score_notices_video = [
+    "This video has a high aesthetic quality.", 
+    "The beauty of this video is exceptional.", 
+    "This video scores high in aesthetic value.", 
+    "With its harmonious colors and balanced composition.", 
+    "This video ranks highly for aesthetic quality", 
+    "The artistic quality of this video is excellent.", 
+    "This video is rated high for beauty.", 
+    "The aesthetic quality of this video is impressive.", 
+    "This video has a top aesthetic score.", 
+    "The visual appeal of this video is outstanding.", 
+]
+
+low_aesthetic_score_notices_video = [
+    "This video has a low aesthetic quality.", 
+    "The beauty of this video is minimal.", 
+    "This video scores low in aesthetic appeal.", 
+    "The aesthetic quality of this video is below average.", 
+    "This video ranks low for beauty.", 
+    "The artistic quality of this video is lacking.", 
+    "This video has a low score for aesthetic value.", 
+    "The visual appeal of this video is low.", 
+    "This video is rated low for beauty.", 
+    "The aesthetic quality of this video is poor.", 
+]
+
+
+high_aesthetic_score_notices_image = [
+    "This image has a high aesthetic quality.", 
+    "The beauty of this image is exceptional", 
+    "This photo scores high in aesthetic value.", 
+    "With its harmonious colors and balanced composition.", 
+    "This image ranks highly for aesthetic quality.", 
+    "The artistic quality of this photo is excellent.", 
+    "This image is rated high for beauty.", 
+    "The aesthetic quality of this image is impressive.", 
+    "This photo has a top aesthetic score.", 
+    "The visual appeal of this image is outstanding.", 
+]
+
+low_aesthetic_score_notices_image = [
+    "This image has a low aesthetic quality.", 
+    "The beauty of this image is minimal.", 
+    "This image scores low in aesthetic appeal.", 
+    "The aesthetic quality of this image is below average.", 
+    "This image ranks low for beauty.", 
+    "The artistic quality of this image is lacking.", 
+    "This image has a low score for aesthetic value.", 
+    "The visual appeal of this image is low.", 
+    "This image is rated low for beauty.", 
+    "The aesthetic quality of this image is poor.", 
+]
+
+high_aesthetic_score_notices_image_human = [
+    "High-quality image with visible human features and high aesthetic score.", 
+    "Clear depiction of an individual in a high-quality image with top aesthetics.", 
+    "High-resolution photo showcasing visible human details and high beauty rating.", 
+    "Detailed, high-quality image with well-defined human subject and strong aesthetic appeal.", 
+    "Sharp, high-quality portrait with clear human features and high aesthetic value.", 
+    "High-quality image featuring a well-defined human presence and exceptional aesthetics.", 
+    "Visible human details in a high-resolution photo with a high aesthetic score.", 
+    "Clear, high-quality image with prominent human subject and superior aesthetic rating.", 
+    "High-quality photo capturing a visible human with excellent aesthetics.", 
+    "Detailed, high-quality image of a human with high visual appeal and aesthetic value.", 
+]
+
+
+def add_masking_notice(caption):
+    if any(keyword in caption for keyword in keywords):
+        notice = random.choice(masking_notices)
+        return random.choice([caption + ' ' + notice, notice + ' ' + caption])
+    return caption
+
+def add_webvid_watermark_notice(caption):
+    notice = random.choice(webvid_watermark_notices)
+    return random.choice([caption + ' ' + notice, notice + ' ' + caption])
+
+def add_aesthetic_notice_video(caption, aesthetic_score):
+    if aesthetic_score <= 4.25:
+        notice = random.choice(low_aesthetic_score_notices_video)
+        return random.choice([caption + ' ' + notice, notice + ' ' + caption])
+    if aesthetic_score >= 5.75:
+        notice = random.choice(high_aesthetic_score_notices_video)
+        return random.choice([caption + ' ' + notice, notice + ' ' + caption])
+    return caption
+
+
+
+def add_aesthetic_notice_image(caption, aesthetic_score):
+    if aesthetic_score <= 4.25:
+        notice = random.choice(low_aesthetic_score_notices_image)
+        return random.choice([caption + ' ' + notice, notice + ' ' + caption])
+    if aesthetic_score >= 5.75:
+        notice = random.choice(high_aesthetic_score_notices_image)
+        return random.choice([caption + ' ' + notice, notice + ' ' + caption])
+    return caption
+
+def add_high_aesthetic_notice_image(caption):
+    notice = random.choice(high_aesthetic_score_notices_image)
+    return random.choice([caption + ' ' + notice, notice + ' ' + caption])
+
+def add_high_aesthetic_notice_image_human(caption):
+    notice = random.choice(high_aesthetic_score_notices_image_human)
+    return random.choice([caption + ' ' + notice, notice + ' ' + caption])
+
+def basic_clean(text):
+    text = ftfy.fix_text(text)
+    text = html.unescape(html.unescape(text))
+    return text.strip()
+
+
+def whitespace_clean(text):
+    text = re.sub(r"\s+", " ", text)
+    text = text.strip()
+    return text
+
+
+def clean_youtube(text, is_tags=False):
+    text = text.lower() + ' '
+    text = re.sub(
+        r'#video|video|#shorts|shorts| shorts|#short| short|#youtubeshorts|youtubeshorts|#youtube| youtube|#shortsyoutube|#ytshorts|ytshorts|#ytshort|#shortvideo|shortvideo|#shortsfeed|#tiktok|tiktok|#tiktokchallenge|#myfirstshorts|#myfirstshort|#viral|viralvideo|viral|#viralshorts|#virlshort|#ytviralshorts|#instagram',
+        ' ', text)
+    text = re.sub(r' s |short|youtube|virlshort|#', ' ', text)
+    pattern = r'[^a-zA-Z0-9\s\.,;:?!\'\"|]'
+    if is_tags:
+        pattern = r'[^a-zA-Z0-9\s]'
+    text = re.sub(pattern, '', text)
+    text = whitespace_clean(basic_clean(text))
+    return text
+
+def clean_vidal(text):
+    title_hashtags = text.split('#')
+    title, hashtags = title_hashtags[0], '#' + '#'.join(title_hashtags[1:])
+    title = clean_youtube(title)
+    hashtags = clean_youtube(hashtags, is_tags=True)
+    text = title + ', ' + hashtags
+    if text == '' or text.isspace():
+        raise ValueError('text is empty')
+    return text
+
+def calculate_statistics(data):
+    if len(data) == 0:
+        return None
+    data = np.array(data)
+    mean = np.mean(data)
+    variance = np.var(data)
+    std_dev = np.std(data)
+    minimum = np.min(data)
+    maximum = np.max(data)
+
+    return {
+        'mean': mean,
+        'variance': variance,
+        'std_dev': std_dev,
+        'min': minimum,
+        'max': maximum
+    }
 
 if __name__ == '__main__':
     from torchvision import transforms

@@ -1,1 +1,0 @@
-/home/local_dataset_6t/video_data_obs/movie_aes_motion,/home/opensora/captions/movie_aes_motion/bbc01_clips_aes_motion_final_250508.json

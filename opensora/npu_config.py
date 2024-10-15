@@ -10,7 +10,7 @@ import sys
 import threading
 import gc
 import torch.distributed as dist
-import re
+
 from opensora.adaptor.zp_manager import zp_manager
 
 try:
@@ -24,7 +24,7 @@ except:
 from contextlib import contextmanager
 import types
 
-time = 0
+
 def compress_video(input_file, output_file, out_size):
     """使用 ffmpeg 压缩视频文件。"""
     command = [
@@ -72,8 +72,6 @@ class NPUConfig:
         self.zp_manager = zp_manager
         self.replaced_type = torch.float32
         self.conv_dtype = torch.float16
-        self.agent = None
-        self.sparse = None
         if self.enable_FA and self.enable_FP32:
             self.inf_float = -10000.0
         else:
@@ -118,28 +116,6 @@ class NPUConfig:
         self.print_with_rank(f"The npu_config.on_npu is {self.on_npu}")
         self.bind_thread_to_cpu()
         gc.set_threshold(700, 10, 10000)
-
-    def get_tokens(self, input_string):
-        input_string = input_string.strip('[]')
-        items = input_string.split(', ')
-        tokens = {}
-        for item in items:
-            range_part, value_part = item.split(': ')
-            start, end = map(int, range_part.split('-'))
-            if value_part == "None":
-                value = None
-            else:
-                values = tuple(map(int, re.findall(r'\d+', value_part)))
-                if len(values) == 6:
-                    value = (values[:3], values[3:]) # conv3d
-                else:
-                    value = values  # adaptive_avg_pool
-            for i in range(start, end):
-                tokens[i] = value
-                if self.rank == 0:
-                    print(i, value)
-        return tokens
-
 
     def get_total_cores(self):
         try:
@@ -188,7 +164,7 @@ class NPUConfig:
         if self.on_npu and attention_mask is not None:
             if npu_config.enable_FA:
                 attention_mask = attention_mask.to(torch.bool)
-            attention_mask = attention_mask.repeat(1, repeat_num, 1)
+            attention_mask = attention_mask.repeat_interleave(repeat_num, dim=-2)
         return attention_mask
     def set_current_run_dtype(self, variables):
         if variables[0].dtype != self.current_run_dtype and self.current_run_dtype is not None:
@@ -374,13 +350,6 @@ class NPUConfig:
                                                               head_num=head_num)
         return hidden_states
 
-    def save_weight(self, weight):
-        if weight.shape[-1] == weight.shape[-2]:
-            global time
-            filename = f"weight_/attn_weight_{time}.pt"
-            torch.save(weight, filename)
-            time += 1
-
     def scaled_dot_product_attention(self, query, key, value, input_layout, head_num=None,
                                      atten_mask=None, scale=None, dropout_p=0.0, is_causal=False) -> torch.Tensor:
         # L, S = query.size(-2), key.size(-2)
@@ -412,7 +381,6 @@ class NPUConfig:
 
         attn_weight += attn_bias
         attn_weight = torch.softmax(attn_weight, dim=-1)
-        self.save_weight(attn_weight)
         attn_weight = torch.dropout(attn_weight, dropout_p, train=True)
         output = attn_weight @ value
         if input_layout == "BSH":

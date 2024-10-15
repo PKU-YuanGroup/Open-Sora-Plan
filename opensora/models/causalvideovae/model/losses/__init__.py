@@ -1,1 +1,1 @@
-from .perceptual_loss import SimpleLPIPS, LPIPSWithDiscriminator, LPIPSWithDiscriminator3D
+from .perceptual_loss import LPIPSWithDiscriminator3D

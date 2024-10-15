@@ -2,9 +2,6 @@ from typing import Union, Tuple
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from .resnet_block import ResnetBlock3D
-from .attention import TemporalAttnBlock
-from .normalize import Normalize
 from .ops import cast_tuple, video_to_image
 from .conv import CausalConv3d, CausalConv3d_GC
 from einops import rearrange
@@ -214,7 +211,7 @@ class TimeUpsample2x(Block):
             x = torch.concat([x, x_], dim=2)
         return x
     
-class TimeDownsampleRes2x(nn.Module):
+class TimeDownsampleRes2x(Block):
     def __init__(
         self,
         in_channels,
@@ -252,7 +249,7 @@ class TimeDownsampleRes2x(nn.Module):
             x = torch.concatenate((first_frame_pad, x), dim=2)
             return alpha * self.avg_pool(x) + (1 - alpha) * self.conv(x)
 
-class TimeUpsampleRes2x(nn.Module):
+class TimeUpsampleRes2x(Block):
     def __init__(
         self,
         in_channels,
@@ -279,64 +276,6 @@ class TimeUpsampleRes2x(nn.Module):
                 x_= F.interpolate(x_, scale_factor=(2,1,1), mode='trilinear')
             x = torch.concat([x, x_], dim=2)
         return alpha * x + (1-alpha) * self.conv(x)
-
-class TimeDownsampleResAdv2x(nn.Module):
-    def __init__(
-        self,
-        in_channels,
-        out_channels,
-        kernel_size: int = 3,
-        mix_factor: float = 1.5,
-    ):
-        super().__init__()
-        self.kernel_size = cast_tuple(kernel_size, 3)
-        self.avg_pool = nn.AvgPool3d((kernel_size,1,1), stride=(2,1,1))
-        self.attn = TemporalAttnBlock(in_channels)
-        self.res = ResnetBlock3D(in_channels=in_channels, out_channels=in_channels, dropout=0.0)
-        self.conv = nn.Conv3d(
-            in_channels, out_channels, self.kernel_size, stride=(2,1,1), padding=(0,1,1)
-        )
-        self.mix_factor = torch.nn.Parameter(torch.Tensor([mix_factor]))
-    
-    def forward(self, x):
-        first_frame_pad = x[:, :, :1, :, :].repeat(
-            (1, 1, self.kernel_size[0] - 1, 1, 1)
-        )
-        x = torch.concatenate((first_frame_pad, x), dim=2)
-        alpha = torch.sigmoid(self.mix_factor)
-        return alpha * self.avg_pool(x) + (1 - alpha) * self.conv(self.attn((self.res(x))))
-
-class TimeUpsampleResAdv2x(nn.Module):
-    def __init__(
-        self,
-        in_channels,
-        out_channels,
-        kernel_size: int = 3,
-        mix_factor: float = 1.5,
-    ):
-        super().__init__()
-        self.res = ResnetBlock3D(in_channels=in_channels, out_channels=in_channels, dropout=0.0)
-        self.attn = TemporalAttnBlock(in_channels)
-        self.norm = Normalize(in_channels=in_channels)
-        self.conv = CausalConv3d(
-            in_channels, out_channels, kernel_size, padding=1
-        )
-        self.mix_factor = torch.nn.Parameter(torch.Tensor([mix_factor]))
-        
-    def forward(self, x):
-        if x.size(2) > 1:
-            x,x_= x[:,:,:1],x[:,:,1:]
-            if npu_config is not None and npu_config.on_npu:
-                x_dtype = x_.dtype
-                x_ = x_.to(npu_config.replaced_type)
-                x_= F.interpolate(x_, scale_factor=(2,1,1), mode='trilinear')
-                x_ = x_.to(x_dtype)
-            else:
-                x_= F.interpolate(x_, scale_factor=(2,1,1), mode='trilinear')
-            x = torch.concat([x, x_], dim=2)
-        alpha = torch.sigmoid(self.mix_factor)
-        return alpha * x + (1 - alpha) * self.conv(self.attn(self.res(x)))
-
 
 class Spatial2xTime2x3DDownsample(Block):
     def __init__(self, in_channels, out_channels):
@@ -369,17 +308,41 @@ class Spatial2x3DUpsample(Block):
     def forward(self, x):
         x = F.interpolate(x, scale_factor=(1,2,2), mode='trilinear')
         return self.conv(x)
-    
+
 class Spatial2xTime2x3DUpsample(Block):
-    def __init__(self, in_channels, out_channels):
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        t_interpolation="trilinear",
+        enable_cached=False,
+    ):
         super().__init__()
+        self.t_interpolation = t_interpolation
         self.conv = CausalConv3d(in_channels, out_channels, kernel_size=3, padding=1)
+        self.enable_cached = enable_cached
+        self.causal_cached = None
+
     def forward(self, x):
-        if x.size(2) > 1:
-            x,x_= x[:,:,:1],x[:,:,1:]
-            x_= F.interpolate(x_, scale_factor=(2,2,2), mode='trilinear')
-            x = F.interpolate(x, scale_factor=(1,2,2), mode='trilinear')
-            x = torch.concat([x, x_], dim=2)
+        if x.size(2) > 1 or self.causal_cached is not None :
+            if self.enable_cached and self.causal_cached is not None:
+                x = torch.cat([self.causal_cached, x], dim=2)
+                self.causal_cached = x[:, :, -2:-1]
+                x = F.interpolate(x, scale_factor=(2, 1, 1), mode=self.t_interpolation)
+                x = x[:, :, 2:]
+                x = F.interpolate(x, scale_factor=(1, 2, 2), mode="trilinear")
+            else:
+                if self.enable_cached:
+                    self.causal_cached = x[:, :, -1:]
+                x, x_ = x[:, :, :1], x[:, :, 1:]
+                x_ = F.interpolate(
+                    x_, scale_factor=(2, 1, 1), mode=self.t_interpolation
+                )
+                x_ = F.interpolate(x_, scale_factor=(1, 2, 2), mode="trilinear")
+                x = F.interpolate(x, scale_factor=(1, 2, 2), mode="trilinear")
+                x = torch.concat([x, x_], dim=2)
         else:
-             x = F.interpolate(x, scale_factor=(1,2,2), mode='trilinear')
+            if self.enable_cached:
+                self.causal_cached = x[:, :, -1:]
+            x = F.interpolate(x, scale_factor=(1, 2, 2), mode="trilinear")
         return self.conv(x)

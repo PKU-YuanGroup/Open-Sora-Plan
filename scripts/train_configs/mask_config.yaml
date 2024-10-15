@@ -1,0 +1,16 @@
+# mask processor args
+min_clear_ratio: 0.0
+max_clear_ratio: 1.0 
+
+# mask_type_ratio_dict_video
+mask_type_ratio_dict_video:
+  t2iv: 1
+  i2v: 8
+  transition: 8
+  continuation: 2
+  clear: 0
+  random_temporal: 1
+
+mask_type_ratio_dict_image:
+  t2iv: 0
+  clear: 0

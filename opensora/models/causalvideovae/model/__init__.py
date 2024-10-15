@@ -1,4 +1,4 @@
-from .causal_vae import (
-    CausalVAEModel, CausalVAEModelWrapper
+from .registry import ModelRegistry
+from .vae import (
+    CausalVAEModel, WFVAEModel
 )
-from .ema_model import EMA

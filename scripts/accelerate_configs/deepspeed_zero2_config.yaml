@@ -5,9 +5,9 @@ deepspeed_config:
 fsdp_config: {}
 machine_rank: 0
 main_process_ip: null
-main_process_port: 29503
+main_process_port: 29513
 main_training_function: main
 num_machines: 1
 num_processes: 8
-# gpu_ids: 0
+gpu_ids: 0,1,2,3,4,5,6,7
 use_cpu: false

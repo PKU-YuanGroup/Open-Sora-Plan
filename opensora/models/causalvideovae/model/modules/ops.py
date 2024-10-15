@@ -5,9 +5,18 @@ def video_to_image(func):
     def wrapper(self, x, *args, **kwargs):
         if x.dim() == 5:
             t = x.shape[2]
-            x = rearrange(x, "b c t h w -> (b t) c h w")
-            x = func(self, x, *args, **kwargs)
-            x = rearrange(x, "(b t) c h w -> b c t h w", t=t)
+            if True:
+                x = rearrange(x, "b c t h w -> (b t) c h w")
+                x = func(self, x, *args, **kwargs)
+                x = rearrange(x, "(b t) c h w -> b c t h w", t=t)
+            else:
+                # Conv 2d slice infer
+                result = []
+                for i in range(t):
+                    frame = x[:, :, i, :, :]
+                    frame = func(self, frame, *args, **kwargs)
+                    result.append(frame.unsqueeze(2))
+                x = torch.concatenate(result, dim=2)
         return x
     return wrapper
 

@@ -1,11 +1,12 @@
 import sys
+sys.path.append(".")
 from PIL import Image
 import torch
 from torchvision.transforms import ToTensor, Compose, Resize, Normalize, Lambda
 from torch.nn import functional as F
 import argparse
 import numpy as np
-from opensora.models import CausalVAEModelWrapper
+from opensora.models.causalvideovae import ae_wrapper
 
 def preprocess(video_data: torch.Tensor, short_size: int = 128) -> torch.Tensor:
     transform = Compose(
@@ -26,7 +27,7 @@ def main(args: argparse.Namespace):
     kwarg = {}
     
     # vae = getae_wrapper(args.ae)(args.model_path, subfolder="vae", cache_dir='cache_dir', **kwarg).to(device)
-    vae = CausalVAEModelWrapper(args.ae_path, **kwarg).to(device)
+    vae = ae_wrapper[args.ae](args.ae_path, **kwarg).eval().to(device)
     if args.enable_tiling:
         vae.vae.enable_tiling()
         vae.vae.tile_overlap_factor = args.tile_overlap_factor
