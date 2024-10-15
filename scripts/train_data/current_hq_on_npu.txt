@@ -1,1 +1,0 @@
-/home/obs_data/20240426,/home/save_dir/captions/10.12_hwpkl_panda/panda_part5_final_1234792_hw.pkl

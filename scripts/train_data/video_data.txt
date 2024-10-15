@@ -1,1 +1,0 @@
-/storage/dataset,/storage/anno_pkl/vid_nocn_res160_pkl/sucai_final_3880570.pkl
