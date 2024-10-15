@@ -11,7 +11,7 @@ import decord
 from torch.nn import functional as F
 from .transform import ToTensorVideo, CenterCropVideo
 from torchvision.transforms._transforms_video import CenterCropVideo as TVCenterCropVideo
-from torchvision.transforms import Lambda, Compose
+from torchvision.transforms import Lambda, Compose, Resize
 import torch
 import os
 
@@ -86,6 +86,7 @@ class TrainVideoDataset(data.Dataset):
         self.transform = transforms.Compose(
             [
                 ToTensorVideo(),
+                Resize(self.resolution),
                 CenterCropVideo(self.resolution),
                 Lambda(lambda x: 2.0 * x - 1.0),
             ]
@@ -96,6 +97,7 @@ class TrainVideoDataset(data.Dataset):
 
     def _make_dataset(self):
         cache_file = osp.join(self.video_folder, self.cache_file)
+
         if osp.exists(cache_file):
             with open(cache_file, "rb") as f:
                 samples = pickle.load(f)
@@ -159,6 +161,8 @@ def resize(x, resolution):
     return resized_x
 
 class ValidVideoDataset(data.Dataset):
+    video_exts = ["avi", "mp4", "webm"]
+    
     def __init__(
         self,
         real_video_dir,
@@ -166,9 +170,12 @@ class ValidVideoDataset(data.Dataset):
         sample_rate=1,
         crop_size=None,
         resolution=128,
+        is_main_process=False
     ) -> None:
         super().__init__()
-        self.real_video_files = self._combine_without_prefix(real_video_dir)
+        self.is_main_process = is_main_process
+        self.real_video_files = self._make_dataset(real_video_dir)
+        
         self.num_frames = num_frames
         self.sample_rate = sample_rate
         self.crop_size = crop_size
@@ -176,16 +183,32 @@ class ValidVideoDataset(data.Dataset):
         self.v_decoder = DecordInit()
         self.transform = Compose(
             [
-                Lambda(lambda x: (x / 255.0)),  # [0, 1] for valid
-                Lambda(lambda x: resize(x, self.short_size)),
-                (
-                    TVCenterCropVideo(crop_size=crop_size)
-                    if crop_size is not None
-                    else Lambda(lambda x: x)
-                ),
+                ToTensorVideo(),
+                Resize(resolution),
+                CenterCropVideo(resolution) if crop_size is not None else Lambda(lambda x: x),
             ]
         )
+        
+    def _make_dataset(self, real_video_dir):
+        cache_file = osp.join(real_video_dir, "idx.pkl")
 
+        if osp.exists(cache_file):
+            with open(cache_file, "rb") as f:
+                samples = pickle.load(f)
+        else:
+            samples = []
+            samples += sum(
+                [
+                    glob(osp.join(real_video_dir, "**", f"*.{ext}"), recursive=True)
+                    for ext in self.video_exts
+                ],
+                [],
+            )
+            if self.is_main_process:
+                with open(cache_file, "wb") as f:
+                    pickle.dump(samples, f)
+        return samples
+    
     def __len__(self):
         return len(self.real_video_files)
 
@@ -195,6 +218,7 @@ class ValidVideoDataset(data.Dataset):
                 raise IndexError
             real_video_file = self.real_video_files[index]
             real_video_tensor = self._load_video(real_video_file)
+            real_video_tensor = self.transform(real_video_tensor)
             video_name = os.path.basename(real_video_file)
             return {'video': real_video_tensor, 'file_name': video_name }
         except:
@@ -217,29 +241,10 @@ class ValidVideoDataset(data.Dataset):
             e = s + sample_frames_len
             num_frames = num_frames
         else:
-            s = 0
-            e = total_frames
-            num_frames = int(total_frames / sample_frames_len * num_frames)
-            print(
-                f"sample_frames_len {sample_frames_len}, only can sample {num_frames * sample_rate}",
-                video_path,
-                total_frames,
-            )
+            raise Exception("video too short!")
             
         frame_id_list = np.linspace(s, e - 1, num_frames, dtype=int)
         video_data = decord_vr.get_batch(frame_id_list).asnumpy()
         video_data = torch.from_numpy(video_data)
         video_data = video_data.permute(3, 0, 1, 2)
-        self.transform(video_data)
-        return _format_video_shape(self.transform(video_data))
-
-    def _combine_without_prefix(self, folder_path, prefix="."):
-        folder = []
-        for name in os.listdir(folder_path):
-            if not name.endswith(".mp4"):
-                continue
-            if name[0] == prefix:
-                continue
-            folder.append(os.path.join(folder_path, name))
-        folder.sort()
-        return folder
+        return video_data

@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 from torchvision import models
 from collections import namedtuple
-from ...utils.taming_download import get_ckpt_path
+from .....utils.taming_download import get_ckpt_path
 
 class LPIPS(nn.Module):
     # Learned perceptual metric

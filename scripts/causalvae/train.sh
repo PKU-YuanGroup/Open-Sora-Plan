@@ -1,8 +1,4 @@
-# export https_proxy=http://127.0.0.1:8998
-# export http_proxy=http://127.0.0.1:8998
-unset https_proxy
-unset http_proxy
-export WANDB_PROJECT=causalvideovae_2.0
+export WANDB_PROJECT=WFVAE
 export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 export GLOO_SOCKET_IFNAME=bond0
 export NCCL_SOCKET_IFNAME=bond0
@@ -12,34 +8,40 @@ export NCCL_IB_TC=162
 export NCCL_IB_TIMEOUT=22
 export NCCL_PXN_DISABLE=0
 export NCCL_IB_QPS_PER_CONNECTION=4
+export NCCL_ALGO=Ring
+export OMP_NUM_THREADS=1
+export MKL_NUM_THREADS=1
 
-EXP_NAME=latent4_resume_2
+EXP_NAME=TRAIN
 
 torchrun \
     --nnodes=1 --nproc_per_node=8 \
     --master_addr=localhost \
-    --master_port=29600 \
-    scripts/causalvae/train_causalvae.py \
+    --master_port=12133 \
+    opensora/train/train_causalvae.py \
     --exp_name ${EXP_NAME} \
-    --model_config scripts/config.json \
-    --video_path /storage/dataset/pexels/ \
-    --eval_video_path /storage/dataset/pixabay_v2/folder_01 \
-    --resolution 320 \
-    --epochs 1000 \
+    --video_path /storage/dataset/vae_eval/OpenMMLab___Kinetics-400/raw/Kinetics-400/videos_train/  \
+    --eval_video_path /storage/dataset/vae_eval/OpenMMLab___Kinetics-400/raw/Kinetics-400/videos_val/ \
+    --model_name WFVAE \
+    --model_config scripts/causalvae/wfvae_4dim.json \
+    --resolution 256 \
     --num_frames 25 \
     --batch_size 1 \
-    --disc_start 2000 \
-    --save_ckpt_step 2000 \
-    --eval_steps 500 \
+    --lr 0.00001 \
+    --epochs 4 \
+    --disc_start 0 \
+    --save_ckpt_step 5000 \
+    --eval_steps 1000 \
     --eval_batch_size 1 \
     --eval_num_frames 33 \
-    --eval_sample_rate 3 \
-    --eval_subset_size 50 \
+    --eval_sample_rate 1 \
+    --eval_subset_size 500 \
     --eval_lpips \
     --ema \
     --ema_decay 0.999 \
     --perceptual_weight 1.0 \
     --loss_type l1 \
-    --disc_cls causalvideovae.model.losses.LPIPSWithDiscriminator3D \
-    --not_resume_training_process \
-    --resume_from_checkpoint /storage/lcm/Causal-Video-VAE/results/latent8_3d-lr1.00e-05-bs1-rs320-sr2-fr25/checkpoint-14000.ckpt
+    --sample_rate 1 \
+    --disc_cls opensora.models.causalvideovae.model.losses.LPIPSWithDiscriminator3D \
+    --wavelet_loss \
+    --wavelet_weight 0.1

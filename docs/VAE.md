@@ -19,11 +19,13 @@ Training Dataset
 |——video7.mp4
 |——video8.mp4
 ```
+
 ### Training
 ``` shell
 bash scripts/causalvae/train.sh
 ```
 We introduce the important args for training.
+
 | Argparse | Usage |
 |:---|:---|
 |_Training size_||
@@ -34,10 +36,13 @@ We introduce the important args for training.
 |_Data processing_||
 |`--video_path`|/path/to/dataset|
 |_Load weights_||
+|`--model_name`| `CausalVAE` or `WFVAE`|
 |`--model_config`|/path/to/config.json The model config of VAE. If you want to train from scratch use this parameter.|
 |`--pretrained_model_name_or_path`|A directory containing a model checkpoint and its config. Using this parameter will only load its weight but not load the state of the optimizer|
 |`--resume_from_checkpoint`|/path/to/checkpoint It will resume the training process from the checkpoint including the weight and the optimizer.|
+
 ### Inference
+
 ``` shell
 bash scripts/causalvae/rec_video.sh
 ```
@@ -60,33 +65,43 @@ We introduce the important args for inference.
 
 ### Evaluation
 
+The evaluation process consists of two steps:
 
-For evaluation, you should save the original video clips by using `--output_origin`.
-``` shell
-bash scripts/causalvae/prepare_eval.sh
+Reconstruct videos in batches: `bash scripts/causalvae/prepare_eval.sh`
+Evaluate video metrics: `bash scripts/causalvae/eval.sh`
+
+To simplify the evaluation, environment variables are used for control. For step 1 (`bash scripts/causalvae/prepare_eval.sh`):
+
+```bash
+# Experiment name
+EXP_NAME=wfvae
+# Video parameters
+SAMPLE_RATE=1
+NUM_FRAMES=33
+RESOLUTION=256
+# Model weights
+CKPT=ckpt
+# Select subset size (0 for full set)
+SUBSET_SIZE=0
+# Dataset directory
+DATASET_DIR=test_video
 ```
-We introduce the important args for inference.
-| Argparse | Usage |
-|:---|:---|
-|_Ouoput video size_||
-|`--num_frames`|The number of frames of generated videos|
-|`--resolution`|The resolution of generated videos|
-|_Data processing_||
-|`--real_video_dir`|The directory of the original videos.|
-|`--generated_video_dir`|The directory of the generated videos.|
-|_Load weights_||
-|`--ckpt`|/path/to/model_dir. A directory containing the checkpoint of VAE is used for inference and its model config.|
-|_Other_||
-|`--enable_tilintg`|Use tiling to deal with videos of high resolution and long time.|
-|`--output_origin`|Output the original video clips, fed into the VAE.|
 
+For step 2 (`scripts/causalvae/eval.sh`):
 
-Then, we begin to eval. We introduce the important args in the script for evaluation.
-``` shell
-bash scripts/causalvae/eval.sh
+```bash
+# Experiment name
+EXP_NAME=wfvae-4dim
+# Video parameters
+SAMPLE_RATE=1
+NUM_FRAMES=33
+RESOLUTION=256
+# Evaluation metric
+METRIC=lpips
+# Select subset size (0 for full set)
+SUBSET_SIZE=0
+# Path to the ground truth videos, which can be saved during video reconstruction by setting `--output_origin`
+ORIGIN_DIR=video_gen/${EXP_NAME}_sr${SAMPLE_RATE}_nf${NUM_FRAMES}_res${RESOLUTION}_subset${SUBSET_SIZE}/origin
+# Path to the reconstructed videos
+RECON_DIR=video_gen/${EXP_NAME}_sr${SAMPLE_RATE}_nf${NUM_FRAMES}_res${RESOLUTION}_subset${SUBSET_SIZE}
 ```
-| Argparse | Usage |
-|:---|:---|
-|`--metric`|The metric, such as psnr, ssim, lpips|
-|`--real_video_dir`|The directory of the original videos.|
-|`--generated_video_dir`|The directory of the generated videos.|
