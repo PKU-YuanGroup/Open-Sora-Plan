@@ -11,8 +11,8 @@
 			"image_reader_type": "Image",
 			"num_frames": 125,
 			"frame_interval": 1,
-			"max_height": 720,
-			"max_width": 800,
+			"max_height": 320,
+			"max_width": 320,
 			"train_fps": 18,
 			"speed_factor": 1.0,
 			"drop_short_ratio": 1.0,
@@ -25,7 +25,7 @@
 					{
 						"trans_type": "CenterCropResizeVideo",
 						"param": {
-							"size": [720, 800],
+							"size": [320, 320],
 							"use_short_edge": false,
 							"top_crop": false,
 							"align_corners": true,
@@ -42,7 +42,7 @@
 					{
 						"trans_type": "CenterCropResizeVideo",
 						"param": {
-							"size": [720, 800],
+							"size": [320, 320],
 							"use_short_edge": false,
 							"top_crop": true,
 							"align_corners": true,
@@ -78,8 +78,8 @@
 			"num_frames": 125,
 			"group_frame": false,
 			"group_resolution": false,
-			"max_height": 720,
-			"max_width": 800,
+			"max_height": 320,
+			"max_width": 320,
 			"ae_stride": 8,
 			"ae_stride_t": 4,
 			"patch_size": 2,

@@ -14,7 +14,7 @@ from mindspeed_mm.models.common.motion import MotionAdaLayerNormSingle
 from mindspeed_mm.models.common.communications import split_forward_gather_backward, gather_forward_split_backward
 from mindspeed_mm.models.common.ffn import FeedForward
 
-class VideoDiTSparse(ModelMixin, ConfigMixin):
+class OpenSoraT2V_v1_3(ModelMixin, ConfigMixin):
     """
     A video dit model for video generation. can process both standard continuous images of shape
     (batch_size, num_channels, width, height) as well as quantized image embeddings of shape
@@ -187,7 +187,6 @@ class VideoDiTSparse(ModelMixin, ConfigMixin):
         encoder_hidden_states: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         encoder_attention_mask: Optional[torch.Tensor] = None,
-        motion_score: Optional[torch.FloatTensor] = 1.0,
         **kwargs
     ) -> torch.Tensor:
         batch_size, c, frames, h, w = hidden_states.shape
@@ -294,35 +293,6 @@ class VideoDiTSparse(ModelMixin, ConfigMixin):
                             height=height,
                             width=width,
                         )
-
-        # if self.recompute_granularity == "full":
-        #     hidden_states = self._checkpointed_forward(
-        #         sparse_mask,
-        #         hidden_states,
-        #         attention_mask,
-        #         encoder_hidden_states,
-        #         encoder_attention_mask,
-        #         timestep,
-        #         frames,
-        #         height,
-        #         width
-        #     )
-        # else:
-        #     for i, block in enumerate(self.videodit_blocks):
-        #         if i > 1 and i < 30:
-        #             attention_mask, encoder_attention_mask = sparse_mask[block.self_atten.sparse_n][block.self_atten.sparse_group]
-        #         else:
-        #             attention_mask, encoder_attention_mask = sparse_mask[1][block.self_atten.sparse_group]
-        #         hidden_states = block(
-        #             hidden_states,
-        #             attention_mask=attention_mask,
-        #             encoder_hidden_states=encoder_hidden_states,
-        #             encoder_attention_mask=encoder_attention_mask,
-        #             timestep=timestep,
-        #             frames=frames,
-        #             height=height,
-        #             width=width,
-        #         )
 
         # To (b, t*h*w, h) or (b, t//sp*h*w, h)
         hidden_states = rearrange(hidden_states, 's b h -> b s h', b=batch_size).contiguous()

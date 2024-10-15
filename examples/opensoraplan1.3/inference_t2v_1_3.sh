@@ -19,8 +19,7 @@ PP=1
 CP=2
 MBS=1
 GBS=1
-MM_DATA="examples/opensoraplan1.3/data.json"
-MM_MODEL="examples/opensoraplan1.3/inference_model1_3.json"
+MM_MODEL="examples/opensoraplan1.3/inference_t2v_model1_3.json"
 
 DISTRIBUTED_ARGS="
     --nproc_per_node $NPUS_PER_NODE \
@@ -30,7 +29,6 @@ DISTRIBUTED_ARGS="
     --master_port $MASTER_PORT
 "
 MM_ARGS="
- --mm-data $MM_DATA
  --mm-model $MM_MODEL
 "
 

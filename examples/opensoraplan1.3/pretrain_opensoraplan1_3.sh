@@ -17,9 +17,9 @@ NNODES=${NUM_MACHINE}
 NODE_RANK=${MACHINE_RANK}
 WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
 
-TP=1
+TP=4
 PP=1
-CP=32
+CP=8
 MBS=1
 GBS=$(($WORLD_SIZE*$MBS/$CP/$TP))
 
@@ -71,9 +71,7 @@ GPT_ARGS="
     --no-save-optim \
     --no-save-rng \
     --bf16 \
-    --recompute-num-layers 32 \
     --use-distributed-optimizer \
-    --empty-unused-memory-level 2 \
 "
 
 MM_ARGS="

@@ -32,7 +32,7 @@
     },
     "predictor": {
         "dtype": "bf16",
-        "model_id": "videoditsparse",
+        "model_id": "OpenSoraI2V_v1_3",
         "num_layers" : 32,
         "num_heads": 24,
         "head_dim":96,
@@ -50,7 +50,7 @@
         "interpolation_scale":[1.0, 1.0, 1.0],
         "sparse1d":true,
         "sparse_n":4,
-        "from_pretrained": "/home/image_data/captions/vpre_latest_168k/model_ema/diffusion_pytorch_model.safetensors"
+        "from_pretrained": "/home/save_dir/runs/i2v_1_3_hq_finetune/checkpoint-5500/model/diffusion_pytorch_model.safetensors"
     },
     "diffusion": {
         "model_id": "EulerAncestralDiscrete",
@@ -62,7 +62,7 @@
     },
     "pipeline_config": {
         "use_attention_mask": true,
-        "input_size": [93, 320, 320]
+        "input_size": [93, 480, 640]
     },
     "micro_batch_size": 1,
     "frame_interval":1,

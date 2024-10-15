@@ -1,10 +1,4 @@
 {
-    "frames": 125,
-    "resolution": [320, 320],
-    "allow_tf32": true,
-    "allow_internal_format": false,
-    "load_video_features": false,
-    "load_text_features": false,
     "ae": {
         "model_id": "wfvae",
         "from_pretrained": "/home/image_data/captions/WFVAE_DISTILL_FORMAL/wfvae.ckpt",
@@ -20,14 +14,14 @@
         "use_attention": true,
         "norm_type": "layernorm",
         "t_interpolation": "nearest",
-        "vae_scale_factor":[4,8,8],
-        "use_tiling": true
+        "vae_scale_factor":[4,8,8]
     },
     "text_encoder": {
         "hub_backend": "hf",
         "model_id": "MT5",
         "from_pretrained": "/home/image_data/mt5-xxl",
-        "low_cpu_mem_usage": false,
+        "local_files_only": false,
+        "low_cpu_mem_usage": true,
         "dtype": "bf16"
     },
     "tokenizer":{
@@ -40,12 +34,12 @@
         "dtype": "bf16",
         "model_id": "OpenSoraT2V_v1_3",
         "num_layers" : 32,
-        "num_heads": 64,
+        "num_heads": 24,
         "head_dim":96,
         "in_channels":8,
         "out_channels":8,
         "dropout":0.0,
-        "cross_attention_dim":6144,
+        "cross_attention_dim":2304,
         "attention_bias":true,
         "patch_size":2,
         "patch_size_t":1,
@@ -56,11 +50,11 @@
         "interpolation_scale":[1.0, 1.0, 1.0],
         "sparse1d":true,
         "sparse_n":4,
-        "from_pretrained": null
+        "from_pretrained": "/home/image_data/captions/93x640x640_144k_ema/diffusion_pytorch_model.safetensors"
     },
     "diffusion": {
-        "model_id": "DDPM",
-        "num_train_steps":1000,
+        "model_id": "EulerAncestralDiscrete",
+        "num_inference_steps":100,
         "guidance_scale":7.5,
         "prediction_type": "v_prediction",
         "rescale_betas_zero_snr": true,
@@ -68,7 +62,7 @@
     },
     "pipeline_config": {
         "use_attention_mask": true,
-        "input_size": [125, 320, 320]
+        "input_size": [93, 480, 640]
     },
     "micro_batch_size": 1,
     "frame_interval":1,
