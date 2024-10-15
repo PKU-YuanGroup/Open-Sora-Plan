@@ -1,0 +1,134 @@
+
+### Data prepare
+We use a `data.txt` file to specify all the training data. Each line in the file consists of `DATA_ROOT` and `DATA_JSON`. The example of `data.txt` is as follows.
+```
+/path/to/data_root_1,/path/to/data_json_1.json
+/path/to/data_root_2,/path/to/data_json_2.json
+...
+```
+Then, we introduce the format of the annotation json file. The absolute data path is the concatenation of `DATA_ROOT` and the `"path"` field in the annotation json file.
+#### For image
+The format of image annotation file is as follows.
+```
+[
+  {
+    "path": "00168/001680102.jpg",
+    "cap": [
+      "xxxxx."
+    ],
+    "resolution": {
+      "height": 512,
+      "width": 683
+    }
+  },
+  ...
+]
+```
+
+#### For video
+The format of video annotation file is as follows. More details refer to [HF dataset](https://huggingface.co/datasets/LanguageBind/Open-Sora-Plan-v1.2.0).
+```
+[
+  {
+    "path": "panda70m_part_5565/qLqjjDhhD5Q/qLqjjDhhD5Q_segment_0.mp4",
+    "cap": [
+      "A man and a woman are sitting down on a news anchor talking to each other."
+    ],
+    "resolution": {
+      "height": 720,
+      "width": 1280
+    },
+    "fps": 29.97002997002997,
+    "duration": 11.444767
+  },
+  ...
+]
+```
+
+### Training
+```
+bash scripts/text_condition/gpu/train_t2v.sh
+```
+
+We introduce some key parameters in order to customize your training process.
+
+| Argparse | Usage |
+|:---|:---|
+|_Training size_||
+|`--num_frames 61`|To train videos of different durations, e.g, 29, 61, 93, 125...|
+|`--drop_short_ratio 1.0`|Do not want to train on videos of dynamic durations, discard all video data with frame counts not equal to `--num_frames`|
+|`--max_height 640`|To train videos of different resolutions|
+|`--max_width 480`|To train videos of different resolutions|
+|`--force_resolution`| Fixed resolution training: If enabled, the training resolution is determined by the specified `--max_height` and `--max_width`.|
+|`--max_hxw`| The product of the maximum resolution.  |
+|`--min_hxw`|The product of the minimum resolution. |
+|_Data processing_||
+|`--data /path/to/data.txt`|Specify your training data.|
+|`--speed_factor 1.25`|To accelerate 1.25x videos. |
+|`--group_data`|If you want to train with videos of dynamic durations, we highly recommend specifying `--group_data` as well. It improves computational efficiency during training.|
+|`--hw_stride`|Minimum step of resolution|
+|_Load weights_||
+|`--pretrained`|This is typically used for loading pretrained weights across stages, such as using 240p weights to initialize 480p training. Or when switching datasets and you do not want the previous optimizer state.|
+|`--resume_from_checkpoint`|It will resume the training process from the latest checkpoint in `--output_dir`. Typically, we set `--resume_from_checkpoint="latest"`, which is useful in cases of unexpected interruptions during training.|
+|_Sequence Parallelism_||
+|`--sp_size 8 --train_sp_batch_size 2`|It means running a batch size of 2 across 8 GPUs (8 GPUs on the same node).|
+
+> [!Warning]
+> <div align="left">
+> <b>
+> 🚨 We have two ways to load weights: `--pretrained` and `--resume_from_checkpoint`. The latter will override the former.
+> </b>
+> </div>
+
+To prevent confusion, we present some examples below:
+
+Case 1: If you want a fixed resolution of 480P and a fixed frame count of 93 frames. 
+
+```
+--max_height 480 --max_width 640 --force_resolution \
+--num_frames 93 --drop_short_ratio 1.0
+```
+
+Case 2: If you want to enable variable duration.
+
+```
+--drop_short_ratio 0.0 --group_data
+```
+
+Case 3: If you want to enable variable resolution, there are two approaches: one is using an absolute resolution, and the other is based on the resolution's area.
+
+```
+# absolute resolution
+--max_height 480 --max_width 640 --min_height 320 --min_width 320 --group_data
+# resolution's area
+--max_hxw 262144 --min_hxw 65536 --group_data
+```
+
+Finally, we can combine these approaches to enable bucketed training with variable resolution and variable duration.
+
+```
+--max_hxw 262144 --min_hxw 65536 --group_data \
+--num_frames 93 --drop_short_ratio 0.0
+```
+
+### Inference
+
+We provide multiple inference scripts to support various requirements. We recommend configuration `--guidance_scale 7.5 --num_sampling_steps 100 --sample_method EulerAncestralDiscrete` for sampling.
+
+#### 🖥️ 1 GPU 
+If you only have one GPU, it will perform inference on each sample sequentially, one at a time.
+```
+bash scripts/text_condition/gpu/sample_t2v.sh
+```
+
+#### 🖥️🖥️ Multi-GPUs 
+If you want to batch infer a large number of samples, each GPU will infer one sample.
+```
+bash scripts/text_condition/gpu/sample_t2v_ddp.sh
+```
+
+#### 🖥️🖥️ Multi-GPUs & Sequence Parallelism 
+If you want to quickly infer one sample, it will utilize all GPUs simultaneously to infer that sample.
+```
+bash scripts/text_condition/gpu/sample_t2v_sp.sh
+```

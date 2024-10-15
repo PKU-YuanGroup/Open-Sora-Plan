@@ -47,7 +47,7 @@ accelerate launch \
     --lr_warmup_steps=0 \
     --mixed_precision="bf16" \
     --report_to="wandb" \
-    --checkpointing_steps=250 \
+    --checkpointing_steps=500 \
     --allow_tf32 \
     --model_max_length 512 \
     --use_ema \
@@ -69,4 +69,4 @@ accelerate launch \
     --snr_gamma 5.0 \
     --force_resolution \
     --rescale_betas_zero_snr \
-    --output_dir="final_ft_93x352x640_v1_3_bs512_lr1e-5_snr5.0_fps16_zsnr_fixres_16node"
+    --output_dir="final_ft_93x352x640_v1_3_bs512_lr1e-5_snr5.0_fps16_zsnr_fixres_sucai_16node"
