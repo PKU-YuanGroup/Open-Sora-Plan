@@ -49,7 +49,6 @@ def main():
 
     prompts = load_prompts(args.prompt)
     start_idx = 0
-    motion_score = args.motion_score
     max_sequence_length = args.model_max_length
     save_fps = args.fps // args.frame_interval
     os.makedirs(args.save_path, exist_ok=True)
@@ -65,7 +64,7 @@ def main():
         batch_prompts = prompts[i: i + args.micro_batch_size]
 
         videos = sora_pipeline(prompt=batch_prompts, fps=save_fps, device=device, dtype=dtype,
-                               max_sequence_length=max_sequence_length, motion_score=motion_score)
+                               max_sequence_length=max_sequence_length)
         video_grids.append(videos)
         start_idx += len(batch_prompts)
     video_grids = torch.cat(video_grids, dim=0)

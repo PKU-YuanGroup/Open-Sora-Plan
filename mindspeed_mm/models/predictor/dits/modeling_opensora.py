@@ -10,7 +10,6 @@ from diffusers.models.modeling_utils import ModelMixin
 from megatron.core import mpu, tensor_parallel
 from megatron.training import get_args
 from mindspeed_mm.models.common.attention import MultiHeadSparseAttentionSBH
-from mindspeed_mm.models.common.motion import MotionAdaLayerNormSingle
 from mindspeed_mm.models.common.communications import split_forward_gather_backward, gather_forward_split_backward
 from mindspeed_mm.models.common.ffn import FeedForward
 
@@ -94,7 +93,6 @@ class OpenSoraT2V_v1_3(ModelMixin, ConfigMixin):
         self.caption_projection = PixArtAlphaTextProjection(
             in_features=self.config.caption_channels, hidden_size=self.config.hidden_size
         )
-        self.motion_projection = MotionAdaLayerNormSingle(self.config.hidden_size)
 
         self.pos_embed = PatchEmbed2D(
             patch_size=self.config.patch_size,
@@ -237,7 +235,7 @@ class OpenSoraT2V_v1_3(ModelMixin, ConfigMixin):
             -1] // self.config.patch_size
 
         hidden_states, encoder_hidden_states, timestep, embedded_timestep = self._operate_on_patched_inputs(
-            hidden_states, encoder_hidden_states, timestep, motion_score, batch_size, frames
+            hidden_states, encoder_hidden_states, timestep, batch_size, frames
         )
 
         # To
@@ -403,8 +401,7 @@ class OpenSoraT2V_v1_3(ModelMixin, ConfigMixin):
             buffers = tuple(self.buffers())
             return buffers[0].dtype
 
-    def _operate_on_patched_inputs(self, hidden_states, encoder_hidden_states, timestep, motion_score, batch_size,
-                                   frames):
+    def _operate_on_patched_inputs(self, hidden_states, encoder_hidden_states, timestep, batch_size, frames):
 
         hidden_states = self.pos_embed(hidden_states.to(self.dtype))
 
@@ -412,9 +409,6 @@ class OpenSoraT2V_v1_3(ModelMixin, ConfigMixin):
         timestep, embedded_timestep = self.adaln_single(
             timestep, added_cond_kwargs, batch_size=batch_size, hidden_dtype=self.dtype
         )  # b 6d, b d
-
-        motion_embed = self.motion_projection(motion_score, batch_size=batch_size, hidden_dtype=self.dtype)  # b 6d
-        timestep = timestep + motion_embed
 
         encoder_hidden_states = self.caption_projection(encoder_hidden_states)  # b, 1, l, d or b, 1, l, d
         assert encoder_hidden_states.shape[1] == 1

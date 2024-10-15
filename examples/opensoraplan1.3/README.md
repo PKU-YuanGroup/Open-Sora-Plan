@@ -18,7 +18,7 @@ cd Open-Sora-Plan
     conda create -n opensora python=3.8 -y
     conda activate opensora
     pip install torch==2.1.0
-    pip install torch_npu==2.1.0
+    pip install torch_npu==2.1.0.post6
     ```
    2. decord
     ```
@@ -42,6 +42,7 @@ cd Open-Sora-Plan
     cd apex/dist/
     pip3 uninstall apex
     pip3 install --upgrade apex-0.1_ascend*-cp38-cp38m-linux_aarch64.whl
+    cd ..
     ```
    4. Megatron-LM
     ```
@@ -69,7 +70,6 @@ cd Open-Sora-Plan
 ```shell
 bash examples/opensoraplan1.3/inference_t2v_1_3.sh
 ```
-Please modify the configuration information in `examples/opensoraplan1.3/inference_t2v_model1_3.json.`
 
 We support both tensor parallelism and sequence parallelism to accelerate the inference.
 
@@ -78,4 +78,15 @@ We support both tensor parallelism and sequence parallelism to accelerate the in
 | _Tensor Parallelism_                  | TP=2                                                                                                                                                                                                                                                                                                                                                  |
 | _Sequence Parallelism_                | CP=4                                                                                                                                                                                                                                                                                                                                                  |
 
+Please modify the configuration information in `examples/opensoraplan1.3/inference_t2v_model1_3.json.`
 
+| Argparse          | Usage                                                                                    |
+|:------------------|:-----------------------------------------------------------------------------------------|
+| _ae_              |                                                                                          |
+| `use_tiling`      | Use tiling to deal with videos of high resolution and long time.                         |
+| _Load weights_    |                                                                                          |
+| `from_pretrained` | /path/to/model_dir. A directory containing the checkpoint of model is used for inference |
+| _pipeline_config_ |                                                                                          |
+| `input_size`      | The number of frames and the resolution of generated videos                              |
+| _Other_           |                                                                                          |
+| `save_path`       | The output path of the generated videos.                                                                 |

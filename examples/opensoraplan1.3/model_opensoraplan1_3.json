@@ -75,7 +75,6 @@
     "model_max_length": 512,
     "save_path":"./opensora_samples/samples/",
     "fps":18,
-    "motion_score":0.95,
     "prompt":"examples/opensoraplan1.3/prompts.txt",
     "pipeline_class": "OpenSoraPlanPipeline",
     "device":"npu",

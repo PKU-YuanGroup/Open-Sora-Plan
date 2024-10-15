@@ -17,11 +17,13 @@ dependencies = [
     "beartype",
     "timm==1.0.8",
     "pandas==2.0.3",
-    "torchvision",
-    "diffusers==0.30.2",
+    "torch==2.1.0",
+    "torchvision==0.16.0",
+    "diffusers==0.30.3",
     "transformers==4.44.2",
     "accelerate==0.34.0",
-    "pandarallel"
+    "pandarallel",
+    "datasets"
 ]
 
 [build-system]

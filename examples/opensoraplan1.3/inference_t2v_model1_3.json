@@ -14,7 +14,8 @@
         "use_attention": true,
         "norm_type": "layernorm",
         "t_interpolation": "nearest",
-        "vae_scale_factor":[4,8,8]
+        "vae_scale_factor":[4,8,8],
+        "use_tiling": true
     },
     "text_encoder": {
         "hub_backend": "hf",
@@ -62,14 +63,13 @@
     },
     "pipeline_config": {
         "use_attention_mask": true,
-        "input_size": [93, 480, 640]
+        "input_size": [93, 640, 640]
     },
     "micro_batch_size": 1,
     "frame_interval":1,
     "model_max_length": 512,
     "save_path":"./opensora_samples/samples/",
     "fps":18,
-    "motion_score":0.95,
     "prompt":"examples/opensoraplan1.3/prompts.txt",
     "pipeline_class": "OpenSoraPlanPipeline",
     "device":"npu",
