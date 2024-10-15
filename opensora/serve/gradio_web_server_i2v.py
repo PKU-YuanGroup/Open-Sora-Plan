@@ -157,7 +157,7 @@ def generate(
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--model_path", type=str, default='LanguageBind/Open-Sora-Plan-v1.0.0')
-parser.add_argument("--version", type=str, default='v1_2', choices=['v1_2', 'v1_5'])
+parser.add_argument("--version", type=str, default='v1_3', choices=['v1_3', 'v1_5'])
 parser.add_argument("--caption_refiner", type=str, default=None)
 parser.add_argument("--ae", type=str, default='CausalVAEModel_4x8x8')
 parser.add_argument("--ae_path", type=str, default='CausalVAEModel_4x8x8')
@@ -174,7 +174,7 @@ parser.add_argument("--model_type", type=str, default='i2v')
 args = parser.parse_args()
 
 args.model_path = "/storage/gyy/hw/Open-Sora-Plan/runs/inpaint_93x1280x1280_stage3_gpu/checkpoint-1692/model_ema"
-args.version = "v1_2"
+args.version = "v1_3"
 args.caption_refiner = "/storage/ongoing/refine_model/llama3_1_instruct_lora/llama3_8B_lora_merged_cn"
 args.ae = "WFVAEModel_D8_4x8x8"
 args.ae_path = "/storage/lcm/wf-vae_trilinear"

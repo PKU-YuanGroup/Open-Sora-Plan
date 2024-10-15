@@ -25,7 +25,7 @@ sample_video*/
 512*
 720*
 1024*
-debug*
+*debug*
 private*
 .deepspeed_env
 256*
@@ -99,3 +99,9 @@ i2v.txt
 any*
 *nomotion*
 log*
+*svg
+*k8s*
+*rf*
+*lzj*
+final*
+opensora/train/*debug.py

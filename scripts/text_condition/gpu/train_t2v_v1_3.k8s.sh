@@ -35,24 +35,24 @@ accelerate launch \
     --num_machines=${NUM_MACHINES} \
     --num_processes=${NUM_PROCESSES} \
     --machine_rank=${MACHINE_RANK} \
-    opensora/train/train_t2v_diffusers.py \
+    opensora/train/train_t2v_diffusers_debug.py \
     --model OpenSoraT2V_v1_3-2B/122 \
     --text_encoder_name_1 google/mt5-xxl \
     --cache_dir "../../cache_dir/" \
     --dataset t2v \
-    --data "scripts/train_data/merge_data.txt" \
+    --data "scripts/train_data/video_data.txt" \
     --ae WFVAEModel_D8_4x8x8 \
     --ae_path "/storage/lcm/WF-VAE/results/latent8" \
     --sample_rate 1 \
     --num_frames 93 \
-    --max_hxw 236544 \
-    --min_hxw 102400 \
+    --max_height 352 \
+    --max_width 640 \
     --interpolation_scale_t 1.0 \
     --interpolation_scale_h 1.0 \
     --interpolation_scale_w 1.0 \
     --gradient_checkpointing \
-    --train_batch_size=1 \
-    --dataloader_num_workers 8 \
+    --train_batch_size=4 \
+    --dataloader_num_workers 16 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
     --learning_rate=2e-5 \
@@ -60,7 +60,7 @@ accelerate launch \
     --lr_warmup_steps=0 \
     --mixed_precision="bf16" \
     --report_to="wandb" \
-    --checkpointing_steps=1000 \
+    --checkpointing_steps=250 \
     --allow_tf32 \
     --model_max_length 512 \
     --use_ema \
@@ -69,15 +69,16 @@ accelerate launch \
     --resume_from_checkpoint="latest" \
     --speed_factor 1.0 \
     --ema_decay 0.9999 \
-    --drop_short_ratio 0.0 \
+    --drop_short_ratio 1.0 \
     --pretrained "/storage/ongoing/new/7.19anyres/Open-Sora-Plan/bs32x8x1_anyx93x640x640_fps16_lr1e-5_snr5_ema9999_sparse1d4_dit_l_mt5xxl_vpred_zerosnr/checkpoint-144000/model_ema/diffusion_pytorch_model.safetensors" \
     --hw_stride 32 \
     --sparse1d --sparse_n 4 \
-    --train_fps 18 \
+    --train_fps 16 \
     --seed 1234 \
     --trained_data_global_step 0 \
     --group_data \
     --use_decord \
     --prediction_type "v_prediction" \
     --snr_gamma 5.0 \
-    --output_dir="train_v1_3_any93x352x640_min320_vpre_nomotion_fps18_allvid_hqimg_aes5.25_nozsnr_snr5.0" 
+    --force_resolution \
+    --output_dir="final_ft_93x352x640_v1_3_bs1024_lr2e-5_snr5.0_fps16_new_fixed"

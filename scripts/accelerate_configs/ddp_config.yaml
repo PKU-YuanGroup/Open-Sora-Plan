@@ -6,6 +6,6 @@ main_process_ip: null
 main_process_port: 29501
 main_training_function: main
 num_machines: 1
-num_processes: 8
-gpu_ids: 0,1,2,3,4,5,6,7
+num_processes: 1
+gpu_ids: 0,
 use_cpu: false

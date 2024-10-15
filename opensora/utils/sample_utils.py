@@ -3,7 +3,8 @@ from diffusers.schedulers import (
     EulerDiscreteScheduler, DPMSolverMultistepScheduler,
     HeunDiscreteScheduler, EulerAncestralDiscreteScheduler,
     DEISMultistepScheduler, KDPM2AncestralDiscreteScheduler, 
-    DPMSolverSinglestepScheduler, CogVideoXDDIMScheduler
+    DPMSolverSinglestepScheduler, CogVideoXDDIMScheduler, 
+    FlowMatchEulerDiscreteScheduler
     )
 from einops import rearrange
 import time
@@ -29,9 +30,6 @@ except:
 from opensora.models.causalvideovae import ae_stride_config, ae_wrapper
 from opensora.sample.pipeline_opensora import OpenSoraPipeline
 from opensora.sample.pipeline_inpaint import OpenSoraInpaintPipeline
-from opensora.models.diffusion.opensora_v1_2.modeling_opensora import OpenSoraT2V_v1_2
-from opensora.models.diffusion.opensora_v1_2.modeling_inpaint import OpenSoraInpaint_v1_2
-from opensora.utils.utils import set_seed
 from opensora.models.diffusion.opensora_v1_3.modeling_opensora import OpenSoraT2V_v1_3
 from opensora.models.diffusion.opensora_v1_3.modeling_inpaint import OpenSoraInpaint_v1_3
 from transformers import T5EncoderModel, T5Tokenizer, AutoTokenizer, MT5EncoderModel, CLIPTextModelWithProjection
@@ -42,6 +40,10 @@ def get_scheduler(args):
         rescale_betas_zero_snr=args.rescale_betas_zero_snr, 
         timestep_spacing="trailing" if args.rescale_betas_zero_snr else 'leading', 
     )
+    if args.v1_5_scheduler:
+        kwargs['beta_start'] = 0.00085
+        kwargs['beta_end'] = 0.0120
+        kwargs['beta_schedule'] = "scaled_linear"
     if args.sample_method == 'DDIM':  
         scheduler_cls = DDIMScheduler
         kwargs['clip_sample'] = False
@@ -68,6 +70,11 @@ def get_scheduler(args):
         scheduler_cls = KDPM2AncestralDiscreteScheduler
     elif args.sample_method == 'CogVideoX':
         scheduler_cls = CogVideoXDDIMScheduler
+    elif args.sample_method == 'FlowMatchEulerDiscrete':
+        scheduler_cls = FlowMatchEulerDiscreteScheduler
+        kwargs = {}
+    else:
+        raise NameError(f'Unsupport sample_method {args.sample_method}')
     scheduler = scheduler_cls(**kwargs)
     return scheduler
 
@@ -106,18 +113,7 @@ def prepare_pipeline(args, dtype, device):
     else:
         text_encoder_2, tokenizer_2 = None, None
 
-    if args.version == 'v1_2':
-        if args.model_type == 'inpaint' or args.model_type == 'i2v':
-            transformer_model = OpenSoraInpaint_v1_2.from_pretrained(
-                args.model_path, cache_dir=args.cache_dir,
-                device_map=None, torch_dtype=weight_dtype
-                ).eval()
-        else:
-            transformer_model = OpenSoraT2V_v1_2.from_pretrained(
-                args.model_path, cache_dir=args.cache_dir,
-                device_map=None, torch_dtype=weight_dtype
-                ).eval()
-    elif args.version == 'v1_3':
+    if args.version == 'v1_3':
         if args.model_type == 'inpaint' or args.model_type == 'i2v':
             transformer_model = OpenSoraInpaint_v1_3.from_pretrained(
                 args.model_path, cache_dir=args.cache_dir,
@@ -135,7 +131,8 @@ def prepare_pipeline(args, dtype, device):
             from opensora.models.diffusion.opensora_v1_5.modeling_opensora import OpenSoraT2V_v1_5
             transformer_model = OpenSoraT2V_v1_5.from_pretrained(
                 args.model_path, cache_dir=args.cache_dir, 
-                device_map=None, torch_dtype=weight_dtype
+                # device_map=None, 
+                torch_dtype=weight_dtype
                 ).eval()
     
     scheduler = get_scheduler(args)
@@ -444,7 +441,7 @@ def run_model_and_save_samples_npu(args, pipeline, caption_refiner_model=None, e
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_path", type=str, default='LanguageBind/Open-Sora-Plan-v1.0.0')
-    parser.add_argument("--version", type=str, default='v1_2', choices=['v1_2', 'v1_3', 'v1_5'])
+    parser.add_argument("--version", type=str, default='v1_3', choices=['v1_3', 'v1_5'])
     parser.add_argument("--model_type", type=str, default='t2v', choices=['t2v', 'inpaint', 'i2v'])
     parser.add_argument("--num_frames", type=int, default=1)
     parser.add_argument("--height", type=int, default=512)
@@ -476,6 +473,7 @@ def get_args():
     parser.add_argument('--world_size', type=int, default=1)    
     parser.add_argument('--sp', action='store_true')
 
+    parser.add_argument('--v1_5_scheduler', action='store_true')
     parser.add_argument('--conditional_pixel_values_path', type=str, default=None)
     parser.add_argument('--mask_type', type=str, default=None)
     parser.add_argument('--crop_for_hw', action='store_true')

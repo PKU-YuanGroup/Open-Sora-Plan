@@ -11,7 +11,7 @@ try:
 except:
     torch_npu = None
     npu_config = None
-    from xformers import ops as xops
+    # from xformers import ops as xops
 
 class AttnBlock3D(Block):
     """Compatible with old versions, there are issues, use with caution."""
@@ -78,10 +78,19 @@ class AttnBlock3DFix(nn.Module):
         v = v.permute(0, 2, 3, 4, 1).reshape(b * t, h * w, c).contiguous()
         
         if torch_npu is None:
-            attn_output = xops.memory_efficient_attention(
-                q, k, v,
-                scale=c ** -0.5
+            # attn_output = xops.memory_efficient_attention(
+            #     q, k, v,
+            #     scale=c ** -0.5
+            # )
+            q = q.view(b * t, -1, 1, c).transpose(1, 2)
+            k = k.view(b * t, -1, 1, c).transpose(1, 2)
+            v = v.view(b * t, -1, 1, c).transpose(1, 2)
+
+            attn_output = F.scaled_dot_product_attention(
+                q, k, v, attn_mask=None, dropout_p=0.0, is_causal=False
             )
+            attn_output = attn_output.transpose(1, 2).reshape(b * t, -1, 1 * c)
+
         else:
             # print('npu_config.enable_FA, q.dtype == torch.float32', npu_config.enable_FA, q.dtype == torch.float32)
             if npu_config.enable_FA and q.dtype == torch.float32:

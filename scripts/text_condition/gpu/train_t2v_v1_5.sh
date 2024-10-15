@@ -29,9 +29,9 @@ accelerate launch \
     --text_encoder_name_2 laion/CLIP-ViT-bigG-14-laion2B-39B-b160k \
     --cache_dir "../../cache_dir/" \
     --dataset t2v \
-    --data "scripts/train_data/image_data_stage1_part1.txt" \
+    --data "scripts/train_data/image_data_stage1_part3.txt" \
     --ae WFVAEModel_D32_8x8x8 \
-    --ae_path "/storage/lcm/WF-VAE/results/formal_888" \
+    --ae_path "/storage/lcm/WF-VAE/results/formal_888_lbstd" \
     --sample_rate 1 \
     --num_frames 1 \
     --max_hxw 147456 \
@@ -44,8 +44,8 @@ accelerate launch \
     --dataloader_num_workers 16 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=1000000 \
-    --learning_rate=1e-4 \
-    --lr_scheduler="constant" \
+    --learning_rate=5e-5 \
+    --lr_scheduler="constant_with_warmup" \
     --lr_warmup_steps=0 \
     --mixed_precision="bf16" \
     --report_to="wandb" \
@@ -67,7 +67,8 @@ accelerate launch \
     --group_data \
     --use_decord \
     --prediction_type "v_prediction" \
-    --output_dir="any1x384x384_min192x192_lr1e-4_bs2048_mmdit8b_vpred_fp32vae32_cogsche_snr5.0" \
+    --output_dir="any1x384x384_min192x192_lr5e-5_wu5k_bs2048_mmdit8b_vpred_fp32vae888_snr5.0" \
     --vae_fp32 \
     --snr_gamma 5.0 \
-    --v1_5_scheduler > test_log_img_1.txt
+    --lr_warmup_steps 5000 \
+    --v1_5_scheduler > test_log_img_5.txt

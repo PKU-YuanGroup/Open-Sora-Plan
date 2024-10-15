@@ -135,6 +135,8 @@ def read_parquet(path):
     data = df.to_dict(orient='records')
     return data
 
+
+
 class DecordDecoder(object):
     def __init__(self, url, num_threads=1):
 
@@ -267,6 +269,7 @@ class T2V_dataset(Dataset):
         if video_data.get('aesthetic', None) is not None or video_data.get('aes', None) is not None:
             aes = video_data.get('aesthetic', None) or video_data.get('aes', None)
             text = [add_aesthetic_notice_video(text[0], aes)]
+        text = text_preprocessing(text, support_Chinese=self.support_Chinese)
 
         text = text if random.random() > self.cfg else ""
 
@@ -311,15 +314,12 @@ class T2V_dataset(Dataset):
         image = rearrange(image, 'h w c -> c h w').unsqueeze(0)  #  [1 c h w]
 
         image = self.transform(image) #  [1 C H W] -> num_img [1 C H W]
-        assert image.shape[2] == sample_h, image.shape[3] == sample_w
+        assert image.shape[2] == sample_h and image.shape[3] == sample_w, f"image_data: {image_data}, but found image {image.shape}"
         # image = torch.rand(1, 3, sample_h, sample_w)
         image = image.transpose(0, 1)  # [1 C H W] -> [C 1 H W]
 
         caps = image_data['cap'] if isinstance(image_data['cap'], list) else [image_data['cap']]
         caps = [random.choice(caps)]
-        # caps = [caps[0]]
-        if '/sam/' in image_data['path']:
-            caps = [add_masking_notice(caps[0])]
         if image_data.get('aesthetic', None) is not None or image_data.get('aes', None) is not None:
             aes = image_data.get('aesthetic', None) or image_data.get('aes', None)
             caps = [add_aesthetic_notice_image(caps[0], aes)]
@@ -571,7 +571,7 @@ class T2V_dataset(Dataset):
         start_frame_idx = video_data['start_frame_idx']
         clip_total_frames = video_data['num_frames']
         fps = video_data['fps']
-        s_x, e_x, s_y, e_y = video_data['crop']
+        s_x, e_x, s_y, e_y = video_data.get('crop', [None, None, None, None])
 
         predefine_num_frames = len(predefine_frame_indice)
         # decord_vr = decord.VideoReader(path, ctx=decord.cpu(0), num_threads=1)
@@ -584,9 +584,10 @@ class T2V_dataset(Dataset):
         # video_data = decord_vr.get_batch(frame_indices).asnumpy()
         # video_data = torch.from_numpy(video_data)
         video_data = decord_vr.get_batch(frame_indices)
-        if video_data != None:
+        if video_data is not None:
             video_data = video_data.permute(0, 3, 1, 2)  # (T, H, W, C) -> (T C H W)
-            video_data = video_data[:, :, s_y: e_y, s_x: e_x]
+            if s_y is not None:
+                video_data = video_data[:, :, s_y: e_y, s_x: e_x]
         else:
             raise ValueError(f'Get video_data {video_data}')
         # del decord_vr
@@ -599,7 +600,7 @@ class T2V_dataset(Dataset):
         start_frame_idx = video_data['start_frame_idx']
         clip_total_frames = video_data['num_frames']
         fps = video_data['fps']
-        s_x, e_x, s_y, e_y = video_data['crop']
+        s_x, e_x, s_y, e_y = video_data.get('crop', [None, None, None, None])
 
         predefine_num_frames = len(predefine_frame_indice)
         cv2_vr = cv2.VideoCapture(path)
@@ -617,7 +618,8 @@ class T2V_dataset(Dataset):
             video_data.append(torch.from_numpy(frame).permute(2, 0, 1))
         cv2_vr.release()
         video_data = torch.stack(video_data)  # (T C H W)
-        video_data = video_data[:, :, s_y: e_y, s_x: e_x]
+        if s_y is not None:
+            video_data = video_data[:, :, s_y: e_y, s_x: e_x]
         return video_data
 
     def get_actual_frame(self, fps, start_frame_idx, clip_total_frames, path, predefine_num_frames, predefine_frame_indice):

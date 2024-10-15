@@ -13,12 +13,12 @@ from diffusers.image_processor import VaeImageProcessor
 from diffusers.models import AutoencoderKL, HunyuanDiT2DModel
 from diffusers.models.embeddings import get_2d_rotary_pos_embed
 from diffusers.pipelines.stable_diffusion.safety_checker import StableDiffusionSafetyChecker
-from diffusers.schedulers import DDPMScheduler
+from diffusers.schedulers import DDPMScheduler, FlowMatchEulerDiscreteScheduler
 from diffusers.utils import logging, BaseOutput
 from diffusers.utils.torch_utils import randn_tensor
 from diffusers.pipelines.pipeline_utils import DiffusionPipeline
 
-from opensora.models.diffusion.opensora_v1_2.modeling_opensora import OpenSoraT2V_v1_2
+from opensora.models.diffusion.opensora_v1_3.modeling_opensora import OpenSoraT2V_v1_3
 try:
     import torch_npu
     from opensora.acceleration.parallel_states import get_sequence_parallel_state, hccl_info
@@ -47,6 +47,66 @@ def rescale_noise_cfg(noise_cfg, noise_pred_text, guidance_rescale=0.0):
     return noise_cfg
 
 
+# Copied from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion.retrieve_timesteps
+def retrieve_timesteps(
+    scheduler,
+    num_inference_steps: Optional[int] = None,
+    device: Optional[Union[str, torch.device]] = None,
+    timesteps: Optional[List[int]] = None,
+    sigmas: Optional[List[float]] = None,
+    **kwargs,
+):
+    """
+    Calls the scheduler's `set_timesteps` method and retrieves timesteps from the scheduler after the call. Handles
+    custom timesteps. Any kwargs will be supplied to `scheduler.set_timesteps`.
+
+    Args:
+        scheduler (`SchedulerMixin`):
+            The scheduler to get timesteps from.
+        num_inference_steps (`int`):
+            The number of diffusion steps used when generating samples with a pre-trained model. If used, `timesteps`
+            must be `None`.
+        device (`str` or `torch.device`, *optional*):
+            The device to which the timesteps should be moved to. If `None`, the timesteps are not moved.
+        timesteps (`List[int]`, *optional*):
+            Custom timesteps used to override the timestep spacing strategy of the scheduler. If `timesteps` is passed,
+            `num_inference_steps` and `sigmas` must be `None`.
+        sigmas (`List[float]`, *optional*):
+            Custom sigmas used to override the timestep spacing strategy of the scheduler. If `sigmas` is passed,
+            `num_inference_steps` and `timesteps` must be `None`.
+
+    Returns:
+        `Tuple[torch.Tensor, int]`: A tuple where the first element is the timestep schedule from the scheduler and the
+        second element is the number of inference steps.
+    """
+    if timesteps is not None and sigmas is not None:
+        raise ValueError("Only one of `timesteps` or `sigmas` can be passed. Please choose one to set custom values")
+    if timesteps is not None:
+        accepts_timesteps = "timesteps" in set(inspect.signature(scheduler.set_timesteps).parameters.keys())
+        if not accepts_timesteps:
+            raise ValueError(
+                f"The current scheduler class {scheduler.__class__}'s `set_timesteps` does not support custom"
+                f" timestep schedules. Please check whether you are using the correct scheduler."
+            )
+        scheduler.set_timesteps(timesteps=timesteps, device=device, **kwargs)
+        timesteps = scheduler.timesteps
+        num_inference_steps = len(timesteps)
+    elif sigmas is not None:
+        accept_sigmas = "sigmas" in set(inspect.signature(scheduler.set_timesteps).parameters.keys())
+        if not accept_sigmas:
+            raise ValueError(
+                f"The current scheduler class {scheduler.__class__}'s `set_timesteps` does not support custom"
+                f" sigmas schedules. Please check whether you are using the correct scheduler."
+            )
+        scheduler.set_timesteps(sigmas=sigmas, device=device, **kwargs)
+        timesteps = scheduler.timesteps
+        num_inference_steps = len(timesteps)
+    else:
+        scheduler.set_timesteps(num_inference_steps, device=device, **kwargs)
+        timesteps = scheduler.timesteps
+    return timesteps, num_inference_steps
+
+
 class OpenSoraPipeline(DiffusionPipeline):
 
     model_cpu_offload_seq = "text_encoder->text_encoder_2->transformer->vae"
@@ -69,7 +129,7 @@ class OpenSoraPipeline(DiffusionPipeline):
         vae: AutoencoderKL,
         text_encoder: T5EncoderModel,
         tokenizer: MT5Tokenizer,
-        transformer: OpenSoraT2V_v1_2,
+        transformer: OpenSoraT2V_v1_3,
         scheduler: DDPMScheduler,
         text_encoder_2: CLIPTextModelWithProjection = None,
         tokenizer_2: CLIPTokenizer = None,
@@ -376,8 +436,9 @@ class OpenSoraPipeline(DiffusionPipeline):
         else:
             latents = latents.to(device)
 
-        # scale the initial noise by the standard deviation required by the scheduler
-        latents = latents * self.scheduler.init_noise_sigma
+        if not isinstance(self.scheduler, FlowMatchEulerDiscreteScheduler):
+            # scale the initial noise by the standard deviation required by the scheduler
+            latents = latents * self.scheduler.init_noise_sigma
         return latents
 
     @property
@@ -408,6 +469,7 @@ class OpenSoraPipeline(DiffusionPipeline):
         height: Optional[int] = None,
         width: Optional[int] = None,
         num_inference_steps: Optional[int] = 50,
+        timesteps: List[int] = None,
         guidance_scale: Optional[float] = 5.0,
         negative_prompt: Optional[Union[str, List[str]]] = None,
         num_samples_per_prompt: Optional[int] = 1,
@@ -521,9 +583,15 @@ class OpenSoraPipeline(DiffusionPipeline):
             negative_prompt_attention_mask_2 = None
 
         # 4. Prepare timesteps
-        self.scheduler.set_timesteps(num_inference_steps, device=device)
-        timesteps = self.scheduler.timesteps
-
+        if not isinstance(self.scheduler, FlowMatchEulerDiscreteScheduler):
+            self.scheduler.set_timesteps(num_inference_steps, device=device)
+            timesteps = self.scheduler.timesteps
+            num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
+            self._num_timesteps = len(timesteps)
+        else:
+            timesteps, num_inference_steps = retrieve_timesteps(self.scheduler, num_inference_steps, device, timesteps)
+            num_warmup_steps = max(len(timesteps) - num_inference_steps * self.scheduler.order, 0)
+            self._num_timesteps = len(timesteps)
         # 5. Prepare latent variables
         if get_sequence_parallel_state():
             world_size = hccl_info.world_size if torch_npu is not None else nccl_info.world_size
@@ -541,8 +609,10 @@ class OpenSoraPipeline(DiffusionPipeline):
         )
 
         # 6. Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline
-        extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
-
+        if not isinstance(self.scheduler, FlowMatchEulerDiscreteScheduler):
+            extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
+        else:
+            extra_step_kwargs = {}
         # 7 create image_rotary_emb, style embedding & time ids
         if self.do_classifier_free_guidance:
             prompt_embeds = torch.cat([negative_prompt_embeds, prompt_embeds])
@@ -571,8 +641,6 @@ class OpenSoraPipeline(DiffusionPipeline):
         # ==================make sp=====================================
 
         # 8. Denoising loop
-        num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
-        self._num_timesteps = len(timesteps)
         with self.progress_bar(total=num_inference_steps) as progress_bar:
             for i, t in enumerate(timesteps):
                 if self.interrupt:
@@ -580,12 +648,16 @@ class OpenSoraPipeline(DiffusionPipeline):
 
                 # expand the latents if we are doing classifier free guidance
                 latent_model_input = torch.cat([latents] * 2) if self.do_classifier_free_guidance else latents
-                latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
+                if not isinstance(self.scheduler, FlowMatchEulerDiscreteScheduler):
+                    latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
 
                 # expand scalar t to 1-D tensor to match the 1st dim of latent_model_input
-                t_expand = torch.tensor([t] * latent_model_input.shape[0], device=device).to(
-                    dtype=latent_model_input.dtype
-                )
+                if not isinstance(self.scheduler, FlowMatchEulerDiscreteScheduler):
+                    timestep = torch.tensor([t] * latent_model_input.shape[0], device=device).to(
+                        dtype=latent_model_input.dtype
+                    )
+                else:
+                    timestep = t.expand(latent_model_input.shape[0])
 
                 # ==================prepare my shape=====================================
                 # predict the noise residual
@@ -609,7 +681,7 @@ class OpenSoraPipeline(DiffusionPipeline):
                     attention_mask=attention_mask, 
                     encoder_hidden_states=prompt_embeds,
                     encoder_attention_mask=prompt_attention_mask,
-                    timestep=t_expand,
+                    timestep=timestep,
                     pooled_projections=prompt_embeds_2,
                     return_dict=False,
                 )[0]
@@ -619,7 +691,7 @@ class OpenSoraPipeline(DiffusionPipeline):
                     noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
                     noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
 
-                if self.do_classifier_free_guidance and guidance_rescale > 0.0:
+                if self.do_classifier_free_guidance and guidance_rescale > 0.0 and not isinstance(self.scheduler, FlowMatchEulerDiscreteScheduler):
                     # Based on 3.4. in https://arxiv.org/pdf/2305.08891.pdf
                     noise_pred = rescale_noise_cfg(noise_pred, noise_pred_text, guidance_rescale=guidance_rescale)
 

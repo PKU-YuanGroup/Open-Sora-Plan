@@ -32,7 +32,7 @@ def getdataset(args):
     if torch_npu is not None:
         tokenizer_1 = AutoTokenizer.from_pretrained('/home/save_dir/pretrained/mt5-xxl', cache_dir=args.cache_dir)
     else:
-        tokenizer_1 = AutoTokenizer.from_pretrained('/storage/cache_dir/mt5-xxl', cache_dir=args.cache_dir)
+        tokenizer_1 = AutoTokenizer.from_pretrained('/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl', cache_dir=args.cache_dir)
     tokenizer_2 = None
     if args.text_encoder_name_2 is not None:
         # tokenizer_2 = AutoTokenizer.from_pretrained(args.text_encoder_name_2, cache_dir=args.cache_dir)
@@ -83,12 +83,12 @@ if __name__ == "__main__":
     from tqdm import tqdm
     args = type('args', (), 
     {
-        'ae': 'WFVAEModel_D8_4x8x8', 
-        'dataset': 'inpaint', 
+        'ae': 'WFVAEModel_D32_4x8x8', 
+        'dataset': 't2v', 
         'model_max_length': 512, 
         'max_height': 640,
         'max_width': 640,
-        'hw_stride': 32, 
+        'hw_stride': 16, 
         'num_frames': 93,
         'compress_kv_factor': 1, 
         'interpolation_scale_t': 1,
@@ -114,18 +114,20 @@ if __name__ == "__main__":
         'patch_size_t': 1, 
         'total_batch_size': 256, 
         'sp_size': 1, 
-        'max_hxw': 480*480, 
-        'min_hxw': 320*320, 
+        'max_hxw': 384*384, 
+        'min_hxw': 384*288, 
+        # 'max_hxw': 236544, 
+        # 'min_hxw': 102400, 
     }
     )
-    accelerator = Accelerator()
+    # accelerator = Accelerator()
     dataset = getdataset(args)
     # data = next(iter(dataset))
     # import ipdb;ipdb.set_trace()
     # print()
     sampler = LengthGroupedSampler(
                 args.train_batch_size,
-                world_size=accelerator.num_processes, 
+                world_size=1, 
                 gradient_accumulation_size=args.gradient_accumulation_steps, 
                 initial_global_step=0, 
                 lengths=dataset.lengths, 
