@@ -19,6 +19,8 @@ from typing import Union, Iterable
 import collections
 from collections import OrderedDict
 from torch.utils.tensorboard import SummaryWriter
+import wandb
+import time
 
 from diffusers.utils import is_bs4_available, is_ftfy_available
 
@@ -232,6 +234,32 @@ def write_tensorboard(writer, *args):
     if dist.get_rank() == 0:  # real tensorboard
         writer.add_scalar(args[0], args[1], args[2])
 
+def get_npu_power():
+    result = subprocess.run(["npu-smi", "info"], stdout=subprocess.PIPE, text=True)
+    power_data = {}
+    npu_id = None
+
+    # 解析npu-smi的输出
+    for line in result.stdout.splitlines():
+        if line.startswith("| NPU"):
+            npu_id = 0  # 开始新NPU记录
+        elif line.startswith("|") and npu_id is not None:
+            parts = line.split("|")
+            if len(parts) > 4:
+                power = parts[4].strip().split()[0]  # 提取Power(W)
+                
+                # 记录每个NPU的功率信息
+                power_data[f"NPU_{npu_id}_Power_W"] = float(power)
+                
+                npu_id += 1
+
+    return power_data
+
+def monitor_npu_power():
+    while wandb.run is not None:
+        power_data = get_npu_power()
+        wandb.log(power_data)  # 实时记录NPU功率信息到wandb
+        time.sleep(10)  # 每10秒采集一次数据
 
 #################################################################################
 #                      EMA Update/ DDP Training Utils                           #
@@ -264,6 +292,18 @@ def cleanup():
     """
     dist.destroy_process_group()
 
+
+# adapted from https://github.com/huggingface/accelerate/blob/main/src/accelerate/utils/random.py#L31
+def set_seed(seed, rank, device_specific=True):
+    if device_specific:
+        seed += rank
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 def setup_distributed(backend="nccl", port=None):
     """Initialize distributed training environment.

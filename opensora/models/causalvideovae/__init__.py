@@ -1,6 +1,14 @@
 from torchvision.transforms import Lambda
 from .model.vae import CausalVAEModel, WFVAEModel
 from einops import rearrange
+import torch
+try:
+    import torch_npu
+    from opensora.npu_config import npu_config
+except:
+    torch_npu = None
+    npu_config = None
+    pass
 import torch.nn as nn
 import torch
 

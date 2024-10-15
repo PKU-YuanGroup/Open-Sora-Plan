@@ -4,9 +4,14 @@ from transformers import AutoTokenizer, AutoImageProcessor
 from torchvision import transforms
 from torchvision.transforms import Lambda
 
-
+try:
+    import torch_npu
+except:
+    torch_npu = None
 
 from opensora.dataset.t2v_datasets import T2V_dataset
+from opensora.dataset.inpaint_dataset import Inpaint_dataset
+from opensora.dataset.dummy_dataset import Dummy_dataset
 from opensora.models.causalvideovae import ae_norm, ae_denorm
 from opensora.dataset.transform import ToTensorVideo, TemporalRandomCrop, MaxHWResizeVideo, CenterCropResizeVideo, LongSideResizeVideo, SpatialStrideCropVideo, NormalizeVideo, ToTensorAfterResize
 
@@ -22,24 +27,46 @@ def getdataset(args):
             MaxHWResizeVideo(args.max_hxw), 
             SpatialStrideCropVideo(stride=args.hw_stride), 
         ]
-    transform = transforms.Compose([
-        ToTensorVideo(),
-        *resize, 
-        norm_fun
-    ])  # also work for img, because img is video when frame=1
 
     # tokenizer_1 = AutoTokenizer.from_pretrained(args.text_encoder_name_1, cache_dir=args.cache_dir)
-    tokenizer_1 = AutoTokenizer.from_pretrained("/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl", cache_dir=args.cache_dir)
-    # tokenizer_1 = AutoTokenizer.from_pretrained('/storage/cache_dir/t5-v1_1-xl', cache_dir=args.cache_dir)
+    if torch_npu is not None:
+        tokenizer_1 = AutoTokenizer.from_pretrained('/home/save_dir/pretrained/mt5-xxl', cache_dir=args.cache_dir)
+    else:
+        tokenizer_1 = AutoTokenizer.from_pretrained('/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl', cache_dir=args.cache_dir)
     tokenizer_2 = None
     if args.text_encoder_name_2 is not None:
         # tokenizer_2 = AutoTokenizer.from_pretrained(args.text_encoder_name_2, cache_dir=args.cache_dir)
-        tokenizer_2 = AutoTokenizer.from_pretrained('/storage/cache_dir/CLIP-ViT-bigG-14-laion2B-39B-b160k', cache_dir=args.cache_dir)
+        if torch_npu is not None:
+            tokenizer_2 = AutoTokenizer.from_pretrained('/home/save_dir/pretrained/clip/models--laion--CLIP-ViT-bigG-14-laion2B-39B-b160k/snapshots/bc7788f151930d91b58474715fdce5524ad9a189', cache_dir=args.cache_dir)
+        else:
+            tokenizer_2 = AutoTokenizer.from_pretrained('/storage/cache_dir/CLIP-ViT-bigG-14-laion2B-39B-b160k', cache_dir=args.cache_dir)
     if args.dataset == 't2v':
+        transform = transforms.Compose([
+            ToTensorVideo(),
+            *resize, 
+            norm_fun
+        ])  # also work for img, because img is video when frame=1
         return T2V_dataset(
             args, transform=transform, temporal_sample=temporal_sample, 
             tokenizer_1=tokenizer_1, tokenizer_2=tokenizer_2
             )
+    elif args.dataset == 'i2v' or args.dataset == 'inpaint':
+        resize_transform = Compose(resize)
+        transform = Compose([
+            ToTensorAfterResize(),
+            norm_fun,
+        ])
+        return Inpaint_dataset(
+            args, resize_transform=resize_transform, transform=transform, 
+            temporal_sample=temporal_sample, tokenizer_1=tokenizer_1, tokenizer_2=tokenizer_2
+        )
+    elif args.dataset == 'dummy':
+        transform = transforms.Compose([
+            ToTensorVideo(),
+            *resize, 
+            norm_fun
+        ])
+        return Dummy_dataset(args, transform=transform, temporal_sample=temporal_sample, tokenizer_1=tokenizer_1, tokenizer_2=tokenizer_2)
     raise NotImplementedError(args.dataset)
 
 
@@ -68,14 +95,14 @@ if __name__ == "__main__":
         'interpolation_scale_h': 1,
         'interpolation_scale_w': 1,
         'cache_dir': '../cache_dir', 
-        'data': 'scripts/train_data/image_data_debug.txt', 
+        'data': '/home/image_data/gyy/mmdit/Open-Sora-Plan/scripts/train_data/current_hq_on_npu.txt', 
         'train_fps': 18, 
         'drop_short_ratio': 0.0, 
         'speed_factor': 1.0, 
         'cfg': 0.1, 
         'text_encoder_name_1': 'google/mt5-xxl', 
-        'text_encoder_name_2': 'google/mt5-xxl', 
-        'dataloader_num_workers': 10,
+        'text_encoder_name_2': None,
+        'dataloader_num_workers': 8,
         'force_resolution': False, 
         'use_decord': True, 
         'group_data': True, 

@@ -40,7 +40,8 @@ class OpenSoraInpaint_v1_3(OpenSoraT2V):
         dropout: float = 0.0,
         cross_attention_dim: Optional[int] = None,
         attention_bias: bool = True,
-        sample_size: Optional[int] = None,
+        sample_size_h: Optional[int] = None,
+        sample_size_w: Optional[int] = None,
         sample_size_t: Optional[int] = None,
         patch_size: Optional[int] = None,
         patch_size_t: Optional[int] = None,
@@ -68,7 +69,8 @@ class OpenSoraInpaint_v1_3(OpenSoraT2V):
             dropout=dropout,
             cross_attention_dim=cross_attention_dim,
             attention_bias=attention_bias,
-            sample_size=sample_size,
+            sample_size_h=sample_size_h,
+            sample_size_w=sample_size_w,
             sample_size_t=sample_size_t,
             patch_size=patch_size,
             patch_size_t=patch_size_t,
@@ -179,15 +181,15 @@ class OpenSoraInpaint_v1_3(OpenSoraT2V):
         self.transformer_model_custom_load_state_dict(pretrained_transformer_model_path)
 
 def OpenSoraInpaint_v1_3_2B_122(**kwargs):
-    return OpenSoraInpaint_v1_3(
+   return OpenSoraInpaint_v1_3(
         num_layers=32, attention_head_dim=96, num_attention_heads=24, patch_size_t=1, patch_size=2,
-        norm_type="ada_norm_single", caption_channels=4096, cross_attention_dim=2304, 
-        activation_fn="gelu-approximate", **kwargs)
+        caption_channels=4096, cross_attention_dim=2304, activation_fn="gelu-approximate", **kwargs
+    )
 
-OpenSoraInpaint_models = {
+OpenSoraInpaint_v1_3_models = {
     "OpenSoraInpaint_v1_3-2B/122": OpenSoraInpaint_v1_3_2B_122,  # 2.7B
 }
 
-OpenSoraInpaint_models_class = {
+OpenSoraInpaint_v1_3_models_class = {
     "OpenSoraInpaint_v1_3-2B/122": OpenSoraInpaint_v1_3,
 }

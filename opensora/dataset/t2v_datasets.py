@@ -535,13 +535,11 @@ class T2V_dataset(Dataset):
         len_before_filter_major = len(sample_size)
         filter_major_num = 4 * self.total_batch_size
         new_cap_list, sample_size = zip(*[[i, j] for i, j in zip(new_cap_list, sample_size) if counter[j] >= filter_major_num])
-
         for idx, shape in enumerate(sample_size):
             if shape_idx_dict.get(shape, None) is None:
                 shape_idx_dict[shape] = [idx]
             else:
                 shape_idx_dict[shape].append(idx)
-
         cnt_filter_minority = len_before_filter_major - len(sample_size) 
         counter = Counter(sample_size)
         
@@ -657,4 +655,3 @@ class T2V_dataset(Dataset):
         if len(frame_indices) < self.num_frames and self.drop_short_ratio >= 1:
             raise IndexError(f'video ({path}) has {clip_total_frames} frames, but need to sample {len(frame_indices)} frames ({frame_indices})')
         return frame_indices
-

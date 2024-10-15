@@ -7,6 +7,7 @@ from diffusers.schedulers import (
     FlowMatchEulerDiscreteScheduler
     )
 from einops import rearrange
+import time
 import torch
 import os
 import torch.distributed as dist
@@ -87,10 +88,16 @@ def prepare_pipeline(args, dtype, device):
     if args.enable_tiling:
         vae.vae.enable_tiling()
 
-    text_encoder_1 = MT5EncoderModel.from_pretrained(
-        args.text_encoder_name_1, cache_dir=args.cache_dir, 
-        torch_dtype=weight_dtype
-        ).eval()
+    if 'mt5' in args.text_encoder_name_1:
+        text_encoder_1 = MT5EncoderModel.from_pretrained(
+            args.text_encoder_name_1, cache_dir=args.cache_dir, 
+            torch_dtype=weight_dtype
+            ).eval()
+    else:
+        text_encoder_1 = T5EncoderModel.from_pretrained(
+            args.text_encoder_name_1, cache_dir=args.cache_dir, 
+            torch_dtype=weight_dtype
+            ).eval()
     tokenizer_1 = AutoTokenizer.from_pretrained(
         args.text_encoder_name_1, cache_dir=args.cache_dir
         )
@@ -213,7 +220,7 @@ def save_video_grid(video, nrow=None):
 
 def run_model_and_save_samples(args, pipeline, caption_refiner_model=None, enhance_video_model=None):
     if args.seed is not None:
-        torch.manual_seed(args.seed)
+        set_seed(args.seed, rank=args.local_rank, device_specific=True)
     if args.local_rank >= 0:
         torch.manual_seed(args.seed + args.local_rank)
     if not os.path.exists(args.save_img_path):
@@ -227,11 +234,13 @@ def run_model_and_save_samples(args, pipeline, caption_refiner_model=None, enhan
         args.text_prompt = [i.strip() for i in text_prompt]
     
     if args.model_type == 'inpaint' or args.model_type == 'i2v':
-        if not isinstance(args.conditional_images_path, list):
-            args.conditional_images_path = [args.conditional_images_path]
-        if len(args.conditional_images_path) == 1 and args.conditional_images_path[0].endswith('txt'):
-            temp = open(args.conditional_images_path[0], 'r').readlines()
-            conditional_images = [i.strip().split(',') for i in temp]
+        if not isinstance(args.conditional_pixel_values_path, list):
+            args.conditional_pixel_values_path = [args.conditional_pixel_values_path]
+        if len(args.conditional_pixel_values_path) == 1 and args.conditional_pixel_values_path[0].endswith('txt'):
+            temp = open(args.conditional_pixel_values_path[0], 'r').readlines()
+            conditional_pixel_values_path = [i.strip().split(',') for i in temp]
+        
+        mask_type = args.mask_type if args.mask_type is not None else None
 
     positive_prompt = """
     high quality, high aesthetic, {}
@@ -242,17 +251,26 @@ def run_model_and_save_samples(args, pipeline, caption_refiner_model=None, enhan
     low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry.
     """
     
-    def generate(prompt, images=None):
+    def generate(prompt, conditional_pixel_values_path=None, mask_type=None):
+        
         if args.caption_refiner is not None:
-            refine_prompt = caption_refiner_model.get_refiner_output(prompt)
-            print(f'\nOrigin prompt: {prompt}\n->\nRefine prompt: {refine_prompt}')
-            prompt = refine_prompt
+            if args.model_type != 'inpaint' and args.model_type != 'i2v':
+                refine_prompt = caption_refiner_model.get_refiner_output(prompt)
+                print(f'\nOrigin prompt: {prompt}\n->\nRefine prompt: {refine_prompt}')
+                prompt = refine_prompt
+            else:
+                # Due to the current use of LLM as the caption refiner, additional content that is not present in the control image will be added. Therefore, caption refiner is not used in this mode.
+                print('Caption refiner is not available for inpainting model, use the original prompt...')
+                time.sleep(3)
         input_prompt = positive_prompt.format(prompt)
+        
         if args.model_type == 'inpaint' or args.model_type == 'i2v':
+            print(f'\nConditional pixel values path: {conditional_pixel_values_path}')
             videos = pipeline(
-                conditional_images=images,
+                conditional_pixel_values_path=conditional_pixel_values_path,
+                mask_type=mask_type,
                 crop_for_hw=args.crop_for_hw,
-                max_hw_square=args.max_hw_square,
+                max_hxw=args.max_hxw,
                 prompt=input_prompt, 
                 negative_prompt=negative_prompt, 
                 num_frames=args.num_frames,
@@ -339,55 +357,58 @@ def run_model_and_save_samples(args, pipeline, caption_refiner_model=None, enhan
             video_grids.append(videos)
 
     if args.model_type == 'inpaint' or args.model_type == 'i2v':
-        for index, (prompt, images) in enumerate(zip(args.text_prompt, conditional_images)):
+        for index, (prompt, cond_path) in enumerate(zip(args.text_prompt, conditional_pixel_values_path)):
             if not args.sp and args.local_rank != -1 and index % args.world_size != args.local_rank:
                 continue
-            generate(prompt, images)
+            generate(prompt, cond_path, mask_type)
     else:
         for index, prompt in enumerate(args.text_prompt):
             if not args.sp and args.local_rank != -1 and index % args.world_size != args.local_rank:
                 continue  # skip when ddp
             generate(prompt)
 
-    if not args.sp:
-        if args.local_rank != -1:
-            dist.barrier()
-            video_grids = torch.cat(video_grids, dim=0).cuda()
-            shape = list(video_grids.shape)
-            shape[0] *= args.world_size
-            gathered_tensor = torch.zeros(shape, dtype=video_grids.dtype).cuda()
-            dist.all_gather_into_tensor(gathered_tensor, video_grids.contiguous())
-            video_grids = gathered_tensor.cpu()
-            dist.barrier()
-        else:
-            video_grids = torch.cat(video_grids, dim=0)
-    elif args.sp and args.local_rank <= 0:
-        video_grids = torch.cat(video_grids)
-    
-    if args.local_rank <= 0:
-        if args.num_frames == 1:
-            save_image(
-                video_grids / 255.0, 
-                os.path.join(
-                    args.save_img_path,
-                    f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}.jpg'
+    if (args.model_type == "inpaint" or args.model_type == "i2v") and not args.crop_for_hw:
+        print('completed, please check the saved images and videos')
+    else:
+        if not args.sp:
+            if args.local_rank != -1:
+                dist.barrier()
+                video_grids = torch.cat(video_grids, dim=0).cuda()
+                shape = list(video_grids.shape)
+                shape[0] *= args.world_size
+                gathered_tensor = torch.zeros(shape, dtype=video_grids.dtype).cuda()
+                dist.all_gather_into_tensor(gathered_tensor, video_grids.contiguous())
+                video_grids = gathered_tensor.cpu()
+                dist.barrier()
+            else:
+                video_grids = torch.cat(video_grids, dim=0)
+        elif args.sp and args.local_rank <= 0:
+            video_grids = torch.cat(video_grids)
+        
+        if args.local_rank <= 0:
+            if args.num_frames == 1:
+                save_image(
+                    video_grids / 255.0, 
+                    os.path.join(
+                        args.save_img_path,
+                        f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}.jpg'
+                        ), 
+                    nrow=math.ceil(math.sqrt(len(video_grids))), 
+                    normalize=True, 
+                    value_range=(0, 1)
+                    )
+            else:
+                video_grids = save_video_grid(video_grids)
+                imageio.mimwrite(
+                    os.path.join(
+                        args.save_img_path,
+                        f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}.mp4'
                     ), 
-                nrow=math.ceil(math.sqrt(len(video_grids))), 
-                normalize=True, 
-                value_range=(0, 1)
-                )
-        else:
-            video_grids = save_video_grid(video_grids)
-            imageio.mimwrite(
-                os.path.join(
-                    args.save_img_path,
-                    f'{args.sample_method}_gs{args.guidance_scale}_s{args.num_sampling_steps}.mp4'
-                ), 
-                video_grids, 
-                fps=args.fps, 
-                quality=6
-                )
-        print('save path {}'.format(args.save_img_path))
+                    video_grids, 
+                    fps=args.fps, 
+                    quality=6
+                    )
+            print('save path {}'.format(args.save_img_path))
 
 
 
@@ -397,7 +418,7 @@ def run_model_and_save_samples_npu(args, pipeline, caption_refiner_model=None, e
     #     profiler_level=torch_npu.profiler.ProfilerLevel.Level1,
     #     aic_metrics=torch_npu.profiler.AiCMetrics.PipeUtilization
     # )
-    # profile_output_path = "./npu_profiling_t2v"
+    # profile_output_path = "/home/image_data/npu_profiling_t2v"
     # os.makedirs(profile_output_path, exist_ok=True)
     # with torch_npu.profiler.profile(
     #         activities=[
@@ -452,10 +473,11 @@ def get_args():
     parser.add_argument('--world_size', type=int, default=1)    
     parser.add_argument('--sp', action='store_true')
 
-    parser.add_argument('--conditional_images_path', type=str, default=None)
     parser.add_argument('--v1_5_scheduler', action='store_true')
+    parser.add_argument('--conditional_pixel_values_path', type=str, default=None)
+    parser.add_argument('--mask_type', type=str, default=None)
     parser.add_argument('--crop_for_hw', action='store_true')
-    parser.add_argument('--max_hw_square', type=int, default=1024 * 1024)
+    parser.add_argument('--max_hxw', type=int, default=236544) # 480*480
     args = parser.parse_args()
     assert not (args.sp and args.num_frames == 1)
     return args
