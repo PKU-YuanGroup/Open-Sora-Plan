@@ -41,14 +41,9 @@ This project aims to create a simple and scalable repo, to reproduce [Sora](http
 
 # 😍 Gallery
 
-Text & Image to Video Generation. The video quality has been compressed for playback on GitHub. (Watch out for the sound.)
+Text & Image to Video Generation. 
 
-<table class="center">
-<tr>
-  <td><video src="https://github.com/user-attachments/assets/1c84bc92-d585-46c9-ae7c-e5f79cefea88" autoplay></td>
-</tr>
-</table>
-
+[![Demo Video of Open-Sora Plan V1.3](https://github.com/user-attachments/assets/4ff1d873-3dde-4905-a907-dbff51174c20)](https://www.bilibili.com/video/BV1KR2fYPEF5/?spm_id_from=333.999.0.0&vd_source=cfda99203e659100629b465161f1d87d)
 
 # 😮 Highlights
 
