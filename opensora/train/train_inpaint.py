@@ -567,9 +567,9 @@ def main(args):
         logs = {"step_loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
         progress_bar.set_postfix(**logs)
         # Regularly releasing memory
-        if progress_info.global_step % 100 == 0:
-            torch.cuda.empty_cache()
-            gc.collect()
+        # if progress_info.global_step % 100 == 0:
+        #     torch.cuda.empty_cache()
+        #     gc.collect()
 
     def run(model_input, model_kwargs, prof):
         global start_time
@@ -689,7 +689,8 @@ def main(args):
     def train_one_step(step_, data_item_, prof_=None):
         train_loss = 0.0
         x, attn_mask, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2 = data_item_
-        # print(f'step: {step_}, rank: {accelerator.process_index}, x: {x.shape}, dtype: {x.dtype}')
+        if accelerator.is_main_process:
+            print(f'\nstep: {step_}, x: {x.shape}, dtype: {x.dtype}')
         # assert not torch.any(torch.isnan(x)), 'torch.any(torch.isnan(x))'
         # print('after data collate')
         # print(f'x: {x.shape}, attn_mask: {attn_mask.shape}, input_ids_1: {input_ids_1.shape}, cond_mask_1: {cond_mask_1.shape}, input_ids_2: {input_ids_2.shape}, cond_mask_2: {cond_mask_2.shape}')

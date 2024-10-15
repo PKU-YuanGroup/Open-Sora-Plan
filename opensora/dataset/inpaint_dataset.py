@@ -145,13 +145,13 @@ class Inpaint_dataset(T2V_dataset):
         # import ipdb;ipdb.set_trace()
 
         video = self.resize_transform(video)  # T C H W -> T C H W
+        assert video.shape[2] == sample_h and video.shape[3] == sample_w, f'sample_h ({sample_h}), sample_w ({sample_w}), video ({video.shape}), video_path ({video_path})'
 
         inpaint_cond_data = self.mask_processor(video, mask_type_ratio_dict=self.mask_type_ratio_dict_video)
         mask, masked_video = inpaint_cond_data['mask'], inpaint_cond_data['masked_pixel_values']
 
         video = self.transform(video)  # T C H W -> T C H W
         masked_video = self.transform(masked_video)  # T C H W -> T C H W
-        assert video.shape[2] == sample_h and video.shape[3] == sample_w, f'sample_h ({sample_h}), sample_w ({sample_w}), video ({video.shape})'
 
         video = torch.cat([video, masked_video, mask], dim=1)  # T 2C+1 H W
 
@@ -206,13 +206,14 @@ class Inpaint_dataset(T2V_dataset):
         image = torch.from_numpy(np.array(image))  # [h, w, c]
         image = rearrange(image, 'h w c -> c h w').unsqueeze(0)  #  [1 c h w]
 
+        image = self.resize_transform(image)  # [1 c h w]
+        assert image.shape[2] == sample_h, image.shape[3] == sample_w
+
         inpaint_cond_data = self.mask_processor(image, mask_type_ratio_dict=self.mask_type_ratio_dict_image)
         mask, masked_image = inpaint_cond_data['mask'], inpaint_cond_data['masked_pixel_values']   
 
         image = self.transform(image)
         masked_image = self.transform(masked_image)
-
-        assert image.shape[2] == sample_h, image.shape[3] == sample_w
 
         image = torch.cat([image, masked_image, mask], dim=1)  #  [1 2C+1 H W]
         # image = [torch.rand(1, 3, 480, 640) for i in image_data]

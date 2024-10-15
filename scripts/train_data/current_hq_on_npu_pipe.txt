@@ -1,5 +1,3 @@
-/home/obs_data/open-sora-plan/datasets_sucai,/home/save_dir/captions/10.12_hwpkl_movie_sucai/sucai_final_3880570.pkl
-/home/obs_data/20240426,/home/save_dir/captions/10.12_hwpkl_panda/panda_part1_final_1193638_hw.pkl
 /home/obs_data/20240426,/home/save_dir/captions/10.12_hwpkl_panda/panda_part2_final_1238133_hw.pkl
 /home/obs_data/20240426,/home/save_dir/captions/10.12_hwpkl_panda/panda_part3_final_1151560_hw.pkl
 /home/obs_data/20240426,/home/save_dir/captions/10.12_hwpkl_panda/panda_part4_final_1236492_hw.pkl
