@@ -117,18 +117,26 @@ We provide multiple inference scripts to support various requirements. We recomm
 
 #### 🖥️ 1 GPU 
 If you only have one GPU, it will perform inference on each sample sequentially, one at a time.
+
+Remove `CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun --nnodes=1 --nproc_per_node 8` to `CUDA_VISIBLE_DEVICES=0 torchrun --nnodes=1 --nproc_per_node 1`.
+
 ```
-bash scripts/text_condition/gpu/sample_t2v.sh
+bash scripts/text_condition/gpu/sample_t2v_v1_3.sh
 ```
 
 #### 🖥️🖥️ Multi-GPUs 
 If you want to batch infer a large number of samples, each GPU will infer one sample.
+
+Remember add `CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun --nnodes=1 --nproc_per_node 8`.
+
 ```
-bash scripts/text_condition/gpu/sample_t2v_ddp.sh
+bash scripts/text_condition/gpu/sample_t2v_v1_3.sh
 ```
 
 #### 🖥️🖥️ Multi-GPUs & Sequence Parallelism 
 If you want to quickly infer one sample, it will utilize all GPUs simultaneously to infer that sample.
+
+You only add `--sp` to enable sequence parallelism inferencing, but it should based on `CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun --nnodes=1 --nproc_per_node 8`.
 ```
 bash scripts/text_condition/gpu/sample_t2v_sp.sh
 ```

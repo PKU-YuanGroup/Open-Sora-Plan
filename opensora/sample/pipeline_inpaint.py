@@ -91,7 +91,7 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
         vae: AutoencoderKL,
         text_encoder: T5EncoderModel,
         tokenizer: MT5Tokenizer,
-        transformer: OpenSoraInpaint_v1_2,
+        transformer: OpenSoraInpaint_v1_3,
         scheduler: DDPMScheduler,
         text_encoder_2: CLIPTextModelWithProjection = None,
         tokenizer_2: CLIPTokenizer = None,

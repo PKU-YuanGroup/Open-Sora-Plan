@@ -27,6 +27,7 @@ except:
     from opensora.utils.parallel_states import initialize_sequence_parallel_state, nccl_info
     pass
 
+from opensora.utils.utils import set_seed
 from opensora.models.causalvideovae import ae_stride_config, ae_wrapper
 from opensora.sample.pipeline_opensora import OpenSoraPipeline
 from opensora.sample.pipeline_inpaint import OpenSoraInpaintPipeline
