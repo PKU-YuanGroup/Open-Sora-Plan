@@ -22,12 +22,6 @@ from mindspeed_mm.models.internvl_model import InternVLModel
 from mindspeed_mm.utils.transformer_model_config import get_model_config
 
 
-def initialize():
-    args = get_args()
-    print("cfg", args)
-    print('++++++++++++++++++++++++++++++++++++ finish init ++++++++++++++++++++++++++++++++++++')
-
-
 def model_provider(pre_process=True, post_process=True):
     """Builds the model."""
     args = get_args()
@@ -61,7 +55,6 @@ def get_batch_on_this_tp_rank(data_iterator):
         image_flags = batch['image_flags'].to(torch.cuda.current_device())
         _broadcast(input_ids)
         _broadcast(labels)
-        _broadcast(attention_mask)
         _broadcast(attention_mask)
         _broadcast(image)
         _broadcast(image_flags)
@@ -136,6 +129,5 @@ if __name__ == "__main__":
         forward_step,
         extra_args_provider=mm_extra_args_provider,
         args_defaults={"dataloader_type": "external", 
-                       "vision_pretraining": False,
-                       'init_func': initialize}
+                       "vision_pretraining": False}
     )
