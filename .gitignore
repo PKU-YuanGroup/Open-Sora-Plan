@@ -104,3 +104,4 @@ logs*
 *rf*
 *lzj*
 final*
+opensora/train/*debug.py
