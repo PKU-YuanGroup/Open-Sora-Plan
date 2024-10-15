@@ -20,5 +20,4 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun --nnodes=1 --nproc_per_node 8 --ma
     --seed 1234 \
     --num_samples_per_prompt 1 \
     --rescale_betas_zero_snr \
-    --prediction_type "v_prediction" \
-    --sp
+    --prediction_type "v_prediction" 
