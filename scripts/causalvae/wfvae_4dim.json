@@ -1,0 +1,23 @@
+{
+    "_class_name": "WFVAEModel",
+    "_diffusers_version": "0.30.2",
+    "base_channels": 128,
+    "connect_res_layer_num": 1,
+    "decoder_energy_flow_hidden_size": 128,
+    "decoder_num_resblocks": 2,
+    "dropout": 0.0,
+    "encoder_energy_flow_hidden_size": 128,
+    "encoder_num_resblocks": 2,
+    "l1_dowmsample_block": "Downsample",
+    "l1_downsample_wavelet": "HaarWaveletTransform2D",
+    "l1_upsample_block": "Upsample",
+    "l1_upsample_wavelet": "InverseHaarWaveletTransform2D",
+    "l2_dowmsample_block": "Spatial2xTime2x3DDownsample",
+    "l2_downsample_wavelet": "HaarWaveletTransform3D",
+    "l2_upsample_block": "Spatial2xTime2x3DUpsample",
+    "l2_upsample_wavelet": "InverseHaarWaveletTransform3D",
+    "latent_dim": 4,
+    "norm_type": "layernorm",
+    "t_interpolation": "trilinear",
+    "use_attention": true
+ }
