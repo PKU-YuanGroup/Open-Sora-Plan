@@ -42,18 +42,21 @@ class InputsCheckMixin:
             raise ValueError(f"`height` and `width` have to be divisible by 8 but are {height} and {width}.")
 
     @staticmethod
-    def _preprocess_text(prompt, clean):
+    def _preprocess_text(prompt, clean, to_lower):
         if clean:
             prompt = TextProcesser.text_preprocessing(prompt)
         else:
-            prompt = prompt.lower().strip()
+            if to_lower:
+                prompt = prompt.lower().strip()
+            else:
+                prompt = prompt.strip()
         return prompt
 
     @staticmethod
-    def preprocess_text(prompt, clean):
+    def preprocess_text(prompt, clean, to_lower=True):
         if not isinstance(prompt, (tuple, list)):
             prompt = [prompt]
-        return [InputsCheckMixin._preprocess_text(prompt, clean) for prompt in prompt]
+        return [InputsCheckMixin._preprocess_text(prompt, clean, to_lower) for prompt in prompt]
 
     def image_prompt_checks(self, image_prompt, ):
         raise NotImplementedError()

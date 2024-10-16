@@ -2,7 +2,7 @@ import torch.nn.functional as F
 from megatron.core.transformer import TransformerConfig
 
 from mindspeed_mm.configs.config import ConfigReader
-from .utils import get_dtype
+from .utils import get_dtype, quick_gelu
 
 
 def get_class_variables(cls):
@@ -22,6 +22,8 @@ def get_model_config(config):
     t_config["params_dtype"] = get_dtype(t_config.get("params_dtype"))
     if t_config.get("activation_func") == "silu":
         t_config["activation_func"] = F.silu
+    elif t_config.get("activation_func") == "quick_gelu":
+        t_config["activation_func"] = quick_gelu
     else:
         t_config["activation_func"] = F.gelu
     

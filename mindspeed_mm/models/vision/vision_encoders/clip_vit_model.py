@@ -34,18 +34,14 @@ class CLIPViT(MultiModalModule):
             self,
             config: TransformerConfig,
             transformer_layer_spec: ModuleSpec,
-            add_class_token: bool = True,
-            class_token_len: int = 1,
-            patch_size: int = 14,
-            image_size: int = 336,
     ) -> None:
         super().__init__(config=config)
         self.device = get_device(config.device)
-        self.class_token_len = class_token_len
+        self.class_token_len = config.class_token_len
         self.visual_hidden_size = config.hidden_size
-        self.patch_size = patch_size
-        self.img_h = image_size
-        self.img_w = image_size
+        self.patch_size = config.patch_size
+        self.img_h = config.image_size
+        self.img_w = config.image_size
 
         if self.img_h % self.patch_size != 0:
             raise AssertionError("patch_size shoule be an exact divisor of img_height")
@@ -55,8 +51,8 @@ class CLIPViT(MultiModalModule):
         self.num_patches_per_dim_w = self.img_w // self.patch_size
         self.num_patches = self.num_patches_per_dim_h * self.num_patches_per_dim_w
 
-        self.add_class_token = add_class_token
-        self.class_token_len = class_token_len
+        self.add_class_token = config.add_class_token
+        self.class_token_len = config.class_token_len
 
         self.seq_length = self.num_patches + (self.class_token_len if self.add_class_token else 0)
 

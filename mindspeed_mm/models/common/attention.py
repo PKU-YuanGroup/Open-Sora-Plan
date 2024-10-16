@@ -2,6 +2,7 @@ from typing import Tuple, Optional
 from einops import rearrange, repeat
 import torch.nn.functional as F
 import math
+
 import torch
 import torch.nn as nn
 import torch_npu
@@ -977,3 +978,94 @@ class CausalConv3dAttnBlock(nn.Module):
         h_ = self.proj_out(attn_output)
 
         return x + h_
+
+class WhisperAttention(nn.Module):
+    """
+    A multi-head attention layer for both self-atten and cross-atten, layout "BSH".
+
+    Args:
+        query_dim: The number of channels in the query.
+        key_dim: The number of channels in the key, defaults to `query_dim`.
+        num_heads: The number of heads to use for multi-head attention.
+        head_dim: The number of channels in each head.
+        dropout: The dropout probability to use.
+        proj_qkv_bias: Whether to use bias in qkv projection.
+        proj_out_bias: Whether to use bias in out projection.
+        use_rope: Whether to use rope
+        interpolation_scale: The scale of interpolation.
+
+    """
+
+    def __init__(
+        self,
+        query_dim: int,
+        key_dim: int,
+        num_heads: int,
+        head_dim: int,
+        dropout: float = 0.0,
+        proj_qv_bias: bool = False,
+        proj_out_bias: bool = True,
+        interpolation_scale: Tuple[int] = (1, 1, 1),
+    ):
+        super().__init__()
+        self.num_heads = num_heads
+        self.head_dim = head_dim
+        self.inner_dim = self.num_heads * self.head_dim
+
+
+        key_dim = key_dim if key_dim is not None else query_dim
+
+        self.proj_q = nn.Linear(query_dim, self.inner_dim, bias=proj_qv_bias)
+        self.proj_k = nn.Linear(key_dim, self.inner_dim, bias=False)
+        self.proj_v = nn.Linear(key_dim, self.inner_dim, bias=proj_qv_bias)
+
+        self.proj_out = nn.Linear(self.inner_dim, query_dim, bias=proj_out_bias)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(
+        self,
+        query: torch.Tensor,
+        key: Optional[torch.Tensor] = None,
+        mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """
+        Args:
+            query: The hidden states of the query.
+            key: The hidden states of the key.
+            mask: The attention mask to use.
+            **kwargs: Additional keyword arguments to pass along
+        """
+        input_ndim = query.ndim
+        if input_ndim == 4:
+            b, c, h, w = query.shape
+            query = query.view(b, c, h * w).transpose(1, 2)
+
+        key = query if key is None else key
+        b, _, _ = query.shape
+
+        if mask is not None:
+            mask = mask.view(b, 1, -1, mask.shape[-1])
+
+        q = self.proj_q(query)
+        k = self.proj_k(key)
+        v = self.proj_v(key)
+
+        q = q.view(b, -1, self.inner_dim)
+        k = k.view(b, -1, self.inner_dim)
+
+        out = torch_npu.npu_fusion_attention(
+            q,
+            k,
+            v,
+            head_num=self.num_heads,
+            atten_mask=mask,
+            input_layout="BSH",
+            scale=1 / math.sqrt(self.head_dim)
+        )[0]
+
+        out = self.proj_out(out)
+        out = self.dropout(out)
+        if input_ndim == 4:
+            out = out.transpose(-1, -2).reshape(b, c, h, w)
+        return out
+

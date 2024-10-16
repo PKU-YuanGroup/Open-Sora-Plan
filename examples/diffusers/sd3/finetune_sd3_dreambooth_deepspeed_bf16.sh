@@ -14,6 +14,8 @@ mixed_precision="bf16"
 resolution=1024
 config_file="${scripts_path}/${mixed_precision}_accelerate_config.yaml"
 
+source /usr/local/Ascend/ascend-toolkit/set_env.
+
 #如果使用 input_dir="dog"，请修改dataset_name为input_dir
 for para in $*; do
   if [[ $para == --model_name* ]]; then

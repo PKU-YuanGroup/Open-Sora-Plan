@@ -17,7 +17,8 @@ import megatron
 from megatron.core.enums import ModelType
 from megatron.training import get_args
 from megatron.training.arguments import core_transformer_config_from_args
-from utils import is_enable_lora, merge_dicts
+
+from .utils import is_enable_lora, merge_dicts
 
 
 def model_provider_func_wrapper(model_provider_func):
@@ -101,7 +102,7 @@ def get_model_wrapper(fn):
     return wrapper
 
 
-def apply_patches():# TODO 后续使用patch管理方式执行patch
+def apply_patches():
     megatron.training.training.load_checkpoint = load_checkpoint_wrapper(
         megatron.training.checkpointing.load_checkpoint)
     megatron.training.checkpointing._load_base_checkpoint = _load_base_checkpoint_wrapper(

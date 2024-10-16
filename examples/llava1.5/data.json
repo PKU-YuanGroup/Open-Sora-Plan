@@ -2,8 +2,8 @@
     "dataset_param": {
         "dataset_type": "image",
         "basic_parameters": {
-            "data_path": "json_path",
-            "data_folder": "root_path"
+            "data_path": "/your_llava_data_path/LLaVA-Pretrain/blip_laion_cc_sbu_558k.json",
+            "data_folder": "/your_llava_data_path/LLaVA-Pretrain/images/"
         },
         "preprocess_parameters": {
             "image_reader_type": "CLIPImageProcessor",
@@ -26,7 +26,7 @@
         "tokenizer_config": {
             "hub_backend": "hf",
             "autotokenizer_name": "AutoTokenizer",
-            "from_pretrained": "your model path",
+            "from_pretrained": "/your_llava_weights_path/vicuna-7b-v1.5",
             "cache_dir":null,
             "model_max_length": 2048,
             "padding_side": "right",
@@ -37,9 +37,9 @@
         "mm_use_im_start_end": false
     },
     "dataloader_param": {
-        "dataloader_mode": "base",
-        "batch_size": 1,
-        "num_workers": 0,
+        "dataloader_mode": "sampler",
+        "batch_size": 8,
+        "num_workers": 8,
         "shuffle": false,
         "drop_last": false,
         "pin_memory": true,

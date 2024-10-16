@@ -5,39 +5,41 @@
 
 ## 目录
 
-
 - [环境安装](#jump1)
-  * [仓库拉取](#jump1.1)
-  * [环境搭建](#jump1.2)
+  - [仓库拉取](#jump1.1)
+  - [环境搭建](#jump1.2)
 - [权重下载及转换](#jump2)
-  * [权重下载](#jump2.1)
+  - [权重下载](#jump2.1)
 - [数据集准备及处理](#jump3)
-  * [数据集下载](#jump3.1)
+  - [数据集下载](#jump3.1)
 - [预训练](#jump4)
-  * [准备工作](#jump4.1)
-  * [配置参数](#jump4.2)
-  * [启动预训练](#jump4.3)
+  - [准备工作](#jump4.1)
+  - [配置参数](#jump4.2)
+  - [启动预训练](#jump4.3)
 - [推理](#jump5)
-  * [准备工作](#jump5.1)
-  * [配置参数](#jump5.2)
-  * [启动推理](#jump5.3)
----
+  - [准备工作](#jump5.1)
+  - [配置参数](#jump5.2)
+  - [启动推理](#jump5.3)
 
-## <span id="jump1"> 环境安装
+---
+<a id="jump1"></a>
+
+## 环境安装
 
 【模型开发时推荐使用配套的环境版本】
 
-|    软件     | [版本](https://www.hiascend.com/zh/) |
-|:---------:|:----------------------------------:|
-|  Python   |                3.8                 |
-|  Driver   |         在研版本          |
-| Firmware  |         在研版本          |
-|   CANN    |             在研版本             |
-|   Torch   |            2.1.0            |
-| Torch_npu |           在研版本           |
+|           软件            | [版本](https://www.hiascend.com/zh/) |
+| :-----------------------: |:----------------------------------:|
+|          Python           |                3.8                 |
+|          Driver           |         在研版本          |
+|         Firmware          |         在研版本          |
+|           CANN            |             在研版本             |
+|           Torch           |            2.1.0            |
+|         Torch_npu         |           2.1.0           |
 
+<a id="jump1.1"></a>
 
-#### <span id="jump1.1"> 1. 仓库拉取
+#### 1. 仓库拉取
 
 ```shell
     git clone https://gitee.com/ascend/MindSpeed-MM.git 
@@ -47,11 +49,11 @@
     cp -r megatron ../MindSpeed-MM/
     cd ..
     cd MindSpeed-MM
-    mkdir logs
-    mkdir dataset
-    mkdir ckpt
 ```
-#### <span id="jump1.2"> 2. 环境搭建
+
+<a id="jump1.2"></a>
+
+#### 2. 环境搭建
 
 ```bash
     # python3.8
@@ -65,13 +67,12 @@
     # apex for Ascend 参考 https://gitee.com/ascend/apex
     pip install apex-0.1_ascend*-cp38-cp38m-linux_aarch64.whl
 
-    # 修改 ascend-toolkit 路径
+    # 将shell脚本中的环境变量路径修改为真实路径，下面为参考路径
     source /usr/local/Ascend/ascend-toolkit/set_env.sh 
 
     # 安装加速库
     git clone https://gitee.com/ascend/MindSpeed.git
     cd MindSpeed
-    # checkout commit from MindSpeed core_r0.6.0
     git checkout 5dc1e83b
     pip install -r requirements.txt 
     pip3 install -e .
@@ -81,19 +82,39 @@
     pip install -e .
 ```
 
+#### 3. Decord搭建
+
+【X86版安装】
+
+```bash
+pip install decord==0.6.0
+```
+
+【ARM版安装】
+
+`apt`方式安装请[参考链接](https://github.com/dmlc/decord)
+
+`yum`方式安装请[参考脚本](https://github.com/dmlc/decord/blob/master/tools/build_manylinux2010.sh)
+
 ---
 
-## <span id="jump2"> 权重下载及转换
+<a id="jump2"></a>
 
-#### <span id="jump2.1"> 1. 权重下载
+## 权重下载及转换
+
+<a id="jump2.1"></a>
+
+#### 1. 权重下载
 
 从Huggingface等网站下载开源模型权重
 
-- [LanguageBind/Open-Sora-Plan-v1.2.0：CasualVAE模型和VideoDiT模型；
+- [LanguageBind/Open-Sora-Plan-v1.2.0](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0/tree/main)：CasualVAE模型和VideoDiT模型；
 
-* [DeepFloyd/mt5-xxl](https://huggingface.co/google/mt5-xxl/)： MT5模型；
+- [DeepFloyd/mt5-xxl](https://huggingface.co/google/mt5-xxl/)： MT5模型；
 
-#### <span id="jump2.2"> 2. 权重转换
+<a id="jump2.2"></a>
+
+#### 2. 权重转换
 
 MindSpeeed-MM修改了部分原始网络的结构名称，因此需要使用如下脚本代码对下载的预训练权重进行转换。
 
@@ -117,13 +138,15 @@ for key in pretrained_checkpoint.keys():
 torch.save(new_checkpoint, "videodit.pth")
 ```
 
-
-
 ---
 
-## <span id="jump3"> 数据集准备及处理
+<a id="jump3"></a>
 
-#### <span id="jump3.1"> 1. 数据集下载
+## 数据集准备及处理
+
+<a id="jump3.1"></a>
+
+#### 1. 数据集下载
 
 用户需自行获取并解压[pixabay_v2](https://huggingface.co/datasets/LanguageBind/Open-Sora-Plan-v1.1.0/tree/main/pixabay_v2_tar)数据集，获取数据结构如下：
 
@@ -142,17 +165,24 @@ torch.save(new_checkpoint, "videodit.pth")
 
 ---
 
+<a id="jump4"></a>
 
-## <span id="jump4"> 预训练
+## 预训练
 
-#### <span id="jump4.1"> 1. 准备工作
+<a id="jump4.1"></a>
+
+#### 1. 准备工作
+
 配置脚本前需要完成前置准备工作，包括：**环境安装**、**权重下载及转换**、**数据集准备及处理**，详情可查看对应章节。
 
-#### <span id="jump4.2"> 2. 配置参数
+<a id="jump4.2"></a>
+
+#### 2. 配置参数
 
 需根据实际情况修改`model_opensoraplan1_2.json`和`data.json`中的权重和数据集路径，包括`from_pretrained`、`data_path`、`data_folder`字段。
 
-【单机运行】 
+【单机运行】
+
 ```shell
     GPUS_PER_NODE=8
     MASTER_ADDR=locahost
@@ -161,7 +191,9 @@ torch.save(new_checkpoint, "videodit.pth")
     NODE_RANK=0  
     WORLD_SIZE=$(($GPUS_PER_NODE * $NNODES))
 ```
-【多机运行】 
+
+【多机运行】
+
 ```shell
     # 根据分布式集群实际情况配置分布式参数
     GPUS_PER_NODE=8  #每个节点的卡数
@@ -172,35 +204,44 @@ torch.save(new_checkpoint, "videodit.pth")
     WORLD_SIZE=$(($GPUS_PER_NODE * $NNODES))
 ```
 
+<a id="jump4.3"></a>
 
-#### <span id="jump4.3"> 3. 启动预训练
+#### 3. 启动预训练
 
 ```shell
     bash examples/opensoraplan1.2/pretrain_opensoraplan1_2.sh
 ```
 
 **注意**：
+
 - 多机训练需在多个终端同时启动预训练脚本(每个终端的预训练脚本只有NODE_RANK参数不同，其他参数均相同)
 - 如果使用多机训练，需要在每个节点准备训练数据和模型权重
 
 ---
 
+<a id="jump5"></a>
 
-## <span id="jump5">推理
+## 推理
 
+<a id="jump5.1"></a>
 
-
-#### <span id="jump5.1"> 1. 准备工作
+#### 1. 准备工作
 
 参考上述的权重下载及转换章节，需求的权重需要到huggingface中下载，以及参考上面的权重转换代码进行转换。
 链接参考: [predict_model](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0/tree/main/29x480p) [VAE](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0/tree/main/vae) [tokenizer/text_encoder](https://huggingface.co/google/mt5-xxl/tree/main)
 
-#### <span id="jump5.2"> 2. 配置参数
+<a id="jump5.2"></a>
+
+#### 2. 配置参数
+
 将准备好的权重传入到inference_model_29x480x640.json中，更改其中的路径，包括from_pretrained，自定义的prompt可以传入到prompt字段中
 
-#### <span id="jump5.3"> 3. 启动推理
+<a id="jump5.3"></a>
+
+#### 3. 启动推理
 
 启动推理脚本
+
 ```shell
 examples/opensoraplan1.2/inference_opensoraplan1_2.sh
 ```

@@ -4,17 +4,18 @@
         <b>简体中文</b> |
 </p>
 
-- [SD3](#StableDiffusion3)
+- [SD3](#jump1)
   - [模型介绍](#模型介绍)
   - [微调](#微调)
     - [环境搭建](#环境搭建)
-    - [微调](#微调)
+    - [微调](#jump2)
     - [性能](#性能)
   - [推理](#推理)
-    - [环境搭建](#环境搭建)
-    - [推理](#推理)
+    - [环境搭建及运行](#环境搭建及运行)
 - [引用](#引用)
   - [公网地址说明](#公网地址说明)
+
+<a id="jump1"></a>
 
 # Stable Diffusion 3
 
@@ -33,6 +34,17 @@
 
 ### 环境搭建
 
+【模型开发时推荐使用配套的环境版本】
+
+|           软件            | [版本](https://www.hiascend.com/zh/) |
+| :-----------------------: |:----------------------------------:|
+|          Python           |                3.8                 |
+|          Driver           |         在研版本          |
+|         Firmware          |         在研版本          |
+|           CANN            |             在研版本             |
+|           Torch           |            2.1.0            |
+|         Torch_npu         |           2.1.0           |
+
 1. 软件与驱动安装
 
     ```bash
@@ -45,7 +57,7 @@
     pip install torch-2.1.0*-cp38-cp38m-linux_aarch64.whl
     pip install apex-0.1_ascend*-cp38-cp38m-linux_aarch64.whl
 
-    # 修改 ascend-toolkit 路径
+    # 将shell脚本中的环境变量路径修改为真实路径，下面为参考路径
     source /usr/local/Ascend/ascend-toolkit/set_env.sh
     ```
 
@@ -62,7 +74,7 @@
     ```shell
     git clone https://github.com/huggingface/diffusers.git -b v0.30.0
     cd diffusers
-    git reset --hard e2ead7cdcc00859533e6bec7b0707a6fb0efef0a
+    git checkout e2ead7cdcc00859533e6bec7b0707a6fb0efef0a
     cp -r ../MindSpeed-MM/examples/diffusers/sd3 ./sd3
     ```
 
@@ -76,9 +88,11 @@
 
     ```shell
     pip install e .
-    vim examples/text_to_image/requirements_sdxl.txt #修改torchvision版本：torchvision==0.16.0, torch==2.1.0
+    vim examples/dreambooth/requirements_sd3.txt #修改torchvision版本：torchvision==0.16.0, torch==2.1.0
     pip install -r examples/dreambooth/requirements_sd3.txt # 安装对应依赖
     ```
+
+<a id="jump2"></a>
 
 ## 微调
 
@@ -177,18 +191,18 @@ SD3 在 **昇腾芯片** 和 **参考芯片** 上的性能对比：
 
 | 芯片 | 卡数 |     任务     |  FPS  | batch_size | AMP_Type | Torch_Version | deepspeed |
 |:---:|:---:|:----------:|:-----:|:----------:|:---:|:---:|:---:|
-| Atlas 900 A2 PODc | 8p | Dreambooth-全参微调  |   17.64 |     4      | bf16 | 2.1 | ✔ |
+| Atlas 900 A2 PODc | 8p | Dreambooth-全参微调  |   17.08 |     4      | bf16 | 2.1 | ✔ |
 | 竞品A | 8p | Dreambooth-全参微调  |  17.51 |     4      | bf16 | 2.1 | ✔ |
-| Atlas 900 A2 PODc | 8p | Dreambooth-全参微调 |  15.63 |     4      | fp16 | 2.1 | ✔ |
+| Atlas 900 A2 PODc | 8p | Dreambooth-全参微调 |  16.57 |     4      | fp16 | 2.1 | ✔ |
 | 竞品A | 8p | Dreambooth-全参微调 |   16.36 |     4      | fp16 | 2.1 | ✔ |
-| Atlas 900 A2 PODc |8p | Dreambooth-全参微调 | 10.72  | 1 | fp16 | 2.1 | ✘ |
+| Atlas 900 A2 PODc |8p | Dreambooth-全参微调 | 11.91  | 1 | fp16 | 2.1 | ✘ |
 | 竞品A | 8p | Dreambooth-全参微调 | 12.08 | 1 | fp16 | 2.1 | ✘ |
-| Atlas 900 A2 PODc |8p | DreamBooth-LoRA | 112.32 | 8 | fp16 | 2.1 | ✘ |
+| Atlas 900 A2 PODc |8p | DreamBooth-LoRA | 122.47 | 8 | fp16 | 2.1 | ✘ |
 | 竞品A | 8p | DreamBooth-LoRA | 120.32 | 8 | fp16 | 2.1 | ✘ |
 
 ## 推理
 
-### 环境搭建
+### 环境搭建及运行
 
   **同微调对应章节**
 

@@ -13,6 +13,8 @@ from mindspeed_mm.models.common.checkpoint import auto_grad_checkpoint
 from mindspeed_mm.models.common.communications import (
     gather_forward_split_backward,
     split_forward_gather_backward,
+    all_to_all,
+    cal_split_sizes
 )
 from mindspeed_mm.models.common.attention import (
     Attention,
@@ -73,12 +75,8 @@ class STDiT3Block(nn.Module):
         self.enable_flashattn = enable_flashattn
         self.enable_sequence_parallelism = enable_sequence_parallelism
 
-        if self.enable_sequence_parallelism and not temporal:
-            attn_cls = SeqParallelAttention
-            mha_cls = SeqParallelMultiHeadCrossAttention
-        else:
-            attn_cls = Attention
-            mha_cls = MultiHeadCrossAttention
+        attn_cls = Attention
+        mha_cls = MultiHeadCrossAttention
 
         self.norm1 = nn.LayerNorm(hidden_size, eps=1e-6, elementwise_affine=False)
         self.attn = attn_cls(
@@ -106,14 +104,6 @@ class STDiT3Block(nn.Module):
         # video_mask: [B, (T, S), C]
         x = torch.lerp(masked_x, x, video_mask)
         return x
-
-    def modulate(self, x, norm, shift_msa, scale_msa, shift_msa_zero, scale_msa_zero, video_mask, T, S):
-        x_norm = norm(x)
-        x_m = t2i_modulate(x_norm, shift_msa, scale_msa)
-        if video_mask is not None:
-            x_m_zero = t2i_modulate(x_norm, shift_msa_zero, scale_msa_zero)
-            x_m = self.t_mask_select(video_mask, x_m, x_m_zero, T, S)
-        return x_m
 
     def forward(
         self,
@@ -197,7 +187,7 @@ class STDiT3(MultiModalModule):
         depth=28,
         num_heads=16,
         mlp_ratio=4.0,
-        class_dropout_prob=0.0,
+        class_dropout_prob=0.1,
         pred_sigma=True,
         drop_path=0.0,
         caption_channels=4096,
@@ -223,7 +213,8 @@ class STDiT3(MultiModalModule):
         # computation related
         self.drop_path = drop_path
         self.enable_flashattn = enable_flashattn
-        self.enable_sequence_parallelism = enable_sequence_parallelism
+        self.sp_size = mpu.get_context_parallel_world_size()
+        self.enable_sequence_parallelism = enable_sequence_parallelism and self.sp_size > 1
 
         # input size related
         self.patch_size = patch_size
@@ -390,30 +381,76 @@ class STDiT3(MultiModalModule):
         video = rearrange(video, "B (T S) C -> B T S C", T=T, S=S)
         video = video + pos_emb
 
-        # shard over the sequence dim if sp is enabled
-        if self.enable_sequence_parallelism:
-            video = split_forward_gather_backward(video, mpu.get_context_parallel_group(), dim=2, grad_scale="down")
-            S = S // mpu.get_context_parallel_world_size()
 
-        video = rearrange(video, "B T S C -> B (T S) C", T=T, S=S)
-        
+        # === process video mask ===
         if video_mask is not None:
             video_mask = video_mask[:, :, None, None].expand(B, T, S, video.shape[-1]).contiguous()
-            video_mask = video_mask.view(B, T * S, video.shape[-1]).to(video.dtype)
+
+
+        # shard over the sequence dim if sp is enabled
+        if self.enable_sequence_parallelism:
+            s_split_sizes = cal_split_sizes(dim_size=video.size(2), world_size=self.sp_size)
+            t_split_sizes = cal_split_sizes(dim_size=video.size(1), world_size=self.sp_size)
+            video = split_forward_gather_backward(video, mpu.get_context_parallel_group(), 
+                                                    dim=1, grad_scale="down", split_sizes=t_split_sizes)
+            sp_rank = mpu.get_context_parallel_rank()
+            if video_mask is not None:
+                video_mask_split_s = video_mask[:, :, sum(s_split_sizes[:sp_rank]): sum(s_split_sizes[:sp_rank + 1]), :]
+                video_mask_split_t = video_mask[:, sum(t_split_sizes[:sp_rank]): sum(t_split_sizes[:sp_rank + 1]), :, :]
+                video_mask_split_s = video_mask_split_s.view(B, -1, video.shape[-1]).to(video.dtype)
+                video_mask_split_t = video_mask_split_t.view(B, -1, video.shape[-1]).to(video.dtype)
+            else:
+                video_mask_split_s, video_mask_split_t = None, None
+
+        T, S = video.size(1), video.size(2)
+        if video_mask is not None:
+            video_mask = video_mask.view(B, -1, video.shape[-1]).to(video.dtype)
+        video = rearrange(video, "B T S C -> B (T S) C", T=T, S=S)
 
         # === blocks ===
-        for spatial_block, temporal_block in zip(self.spatial_blocks, self.temporal_blocks):
-            video = auto_grad_checkpoint(spatial_block, video, prompt, t_mlp, y_lens, video_mask, t0_mlp, T, S)
-            video = auto_grad_checkpoint(temporal_block, video, prompt, t_mlp, y_lens, video_mask, t0_mlp, T, S)
+        for i, (spatial_block, temporal_block) in enumerate(zip(self.spatial_blocks, self.temporal_blocks)):
+            if self.enable_sequence_parallelism:
+                # === spatial block ===
+                video = auto_grad_checkpoint(spatial_block, video, prompt, t_mlp, y_lens, video_mask_split_t, t0_mlp, T, S)
+
+                # split T, gather S
+                video = rearrange(video, "B (T S) C -> B T S C", T=T, S=S)
+                video = all_to_all(video, mpu.get_context_parallel_group(),
+                                    scatter_dim=2, scatter_sizes=s_split_sizes,
+                                    gather_dim=1, gather_sizes=t_split_sizes)
+                T, S = video.size(1), video.size(2)
+                video = rearrange(video, "B T S C -> B (T S) C", T=T, S=S)
+                
+                # === temporal block ===
+                video = auto_grad_checkpoint(temporal_block, video, prompt, t_mlp, y_lens, video_mask_split_s, t0_mlp, T, S)
+
+                if i == self.depth - 1:
+                    #final block
+                    break
+                else:
+                    # split s, gather t
+                    video = rearrange(video, "B (T S) C -> B T S C", T=T, S=S)
+                    video = all_to_all(video, mpu.get_context_parallel_group(),
+                            scatter_dim=1, scatter_sizes=t_split_sizes,
+                            gather_dim=2, gather_sizes=s_split_sizes)
+                    T, S = video.size(1), video.size(2)
+                    video = rearrange(video, "B T S C -> B (T S) C", T=T, S=S)
+
+            else:
+                video = auto_grad_checkpoint(spatial_block, video, prompt, t_mlp, y_lens, video_mask, t0_mlp, T, S)
+                video = auto_grad_checkpoint(temporal_block, video, prompt, t_mlp, y_lens, video_mask, t0_mlp, T, S)
 
         if self.enable_sequence_parallelism:
+            # === final layer ===
+            video = self.final_layer(video, t, video_mask_split_s, t0, T, S)
             video = rearrange(video, "B (T S) C -> B T S C", T=T, S=S)
-            video = gather_forward_split_backward(video, mpu.get_context_parallel_group(), dim=2, grad_scale="up")
-            S = S * mpu.get_context_parallel_world_size()
+            video = gather_forward_split_backward(video, mpu.get_context_parallel_group(), 
+                                                    dim=2, grad_scale="up", gather_sizes=s_split_sizes)
+            S = video.size(2)
             video = rearrange(video, "B T S C -> B (T S) C", T=T, S=S)
-
-        # === final layer ===
-        video = self.final_layer(video, t, video_mask, t0, T, S)
+        else:
+            # === final layer ===
+            video = self.final_layer(video, t, video_mask, t0, T, S)
         video = self.unpatchify(video, T, H, W, Tx, Hx, Wx)
 
         # cast to float32 for better accuracy

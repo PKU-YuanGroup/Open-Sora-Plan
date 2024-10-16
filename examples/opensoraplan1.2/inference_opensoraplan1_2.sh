@@ -9,7 +9,6 @@ NODE_RANK=0
 NPUS_PER_NODE=1
 WORLD_SIZE=$(($NPUS_PER_NODE * $NNODES))
 
-export use_debug=0
 
 
 
@@ -18,7 +17,7 @@ PP=1
 CP=1
 MBS=1
 GBS=1
-MM_DATA="examples/opensoraplan1.2/data.json"
+
 MM_MODEL="examples/opensoraplan1.2/inference_model_29x480x640.json"
 
 DISTRIBUTED_ARGS="
@@ -29,7 +28,6 @@ DISTRIBUTED_ARGS="
     --master_port $MASTER_PORT
 "
 MM_ARGS="
- --mm-data $MM_DATA
  --mm-model $MM_MODEL
 "
 

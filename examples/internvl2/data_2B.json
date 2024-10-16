@@ -1,0 +1,53 @@
+{
+    "dataset_param": {
+        "dataset_type": "image",
+        "basic_parameters": {
+            "data_path": "/path/json_path",
+            "data_folder": "/path/root_path"
+        },
+        "preprocess_parameters": {
+            "image_reader_type": "torchvision",
+            "image_processer_type": "image2pixel",
+            "train_pipeline": {
+                "image":[
+                    {"trans_type": "Pad2Square", "param": {"mean": [0.485, 0.456, 0.406]}},
+                    {"trans_type": "Resize", "param": {"size": [448, 448], "interpolation": "BICUBIC"}},
+                    {"trans_type": "ToTensor"},
+                    {"trans_type": "norm_fun", "param": {"mean":[0.485, 0.456, 0.406], "std": [0.229, 0.224, 0.225]}}
+                ]   
+            }
+        },
+        "tokenizer_config": {
+            "hub_backend": "hf",
+            "autotokenizer_name": "AutoTokenizer",
+            "from_pretrained": "OpenGVLab/InternVL2-2B",
+            "model_max_length": 4096,
+            "add_eos_token": false,
+            "trust_remote_code": true,
+            "use_fast": false
+        },
+        "use_text_processer": true,
+        "template_name": "internlm2-chat",
+        "repeat_time": 1,
+        "patch_size": 14,
+        "image_size": 448,
+        "down_sample_ratio": 0.5,
+        "group_by_length": true,
+        "dynamic_image_size": true,
+        "use_thumbnail": true,
+        "min_dynamic_patch": 1,
+        "max_dynamic_patch": 12
+    },
+    "dataloader_param": {
+        "dataloader_mode": "sampler",
+        "batch_size": 1,
+        "num_workers": 0,
+        "shuffle": false,
+        "drop_last": false,
+        "pin_memory": true,
+        "collate_param": {
+            "model_name": "internvl",
+            "pad_id": 2
+        }
+    }
+}

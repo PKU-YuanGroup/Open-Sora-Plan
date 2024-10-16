@@ -9,13 +9,12 @@ NODE_RANK=0
 NPUS_PER_NODE=1
 WORLD_SIZE=$(($NPUS_PER_NODE * $NNODES))
 
-
 TP=1
 PP=1
 CP=1
 MBS=1
 GBS=1
-MM_DATA="examples/opensora1.0/data.json"
+
 MM_MODEL="examples/opensora1.0/inference_model_120x256x256.json"
 
 DISTRIBUTED_ARGS="
@@ -26,7 +25,6 @@ DISTRIBUTED_ARGS="
     --master_port $MASTER_PORT
 "
 MM_ARGS="
- --mm-data $MM_DATA
  --mm-model $MM_MODEL
 "
 

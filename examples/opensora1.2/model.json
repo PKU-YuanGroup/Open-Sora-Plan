@@ -8,7 +8,8 @@
     "allow_internal_format": false,
     "ae": {
         "model_id": "vae3D",
-        "from_pretrained": "your model path",
+        "from_pretrained": "stabilityai/sd-vae-ft-ema",
+        "from_pretrained_3dvae_ckpt": "OpenSora-VAE-v1.2/model.safetensors",
         "dtype": "bf16",
         "enable_sequence_parallelism": false,
         "cal_loss": false,
@@ -20,7 +21,7 @@
     "text_encoder": {
         "hub_backend": "hf",
         "model_id": "T5",
-        "from_pretrained": "your model path",
+        "from_pretrained": "DeepFloyd/t5-v1_1-xxl",
         "dtype": "fp32",
         "low_cpu_mem_usage": true
     },
@@ -35,11 +36,12 @@
         "time_scale": 1.0,
         "enable_flashattn": true,
         "enable_sequence_parallelism": false,
-        "from_pretrained": "your model path"
+        "from_pretrained": "PixArt-XL-2-512x512.pth"
     },
     "diffusion": {
-        "timestep_respacing": "",
-        "model_id": "rflow"
+        "model_id": "rflow",
+        "use_timestep_transform": true,
+        "sample_method": "logit-normal"
     },
     "model_max_length": 300
 }

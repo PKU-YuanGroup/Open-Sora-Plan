@@ -1,5 +1,3 @@
-# Copyright (c) 2024, NVIDIA CORPORATION. All rights reserved.
-
 import torch
 from torch import nn
 from torch.nn import CrossEntropyLoss
@@ -10,7 +8,6 @@ from megatron.core.models.gpt import GPTModel
 from .text_encoder.text_encoder import TextEncoder
 from .vision.vision_model import VisionModel
 from ..data.data_utils.constants import MODEL_CONSTANTS
-from ..utils.llava_layer_spec import get_layer_spec
 
 
 class VLModel(nn.Module):
@@ -54,17 +51,31 @@ class VLModel(nn.Module):
             self.IMAGE_TOKEN_INDEX = None
 
         if self.add_text_decoder:
-            language_tansformer_layer_spec = get_layer_spec(is_vit=False,
-                                                            normalization=config.text_decoder.normalization)
             self.text_decoder = GPTModel(
                 config=config.text_decoder,
-                transformer_layer_spec=language_tansformer_layer_spec,
+                transformer_layer_spec=config.text_decoder.language_tansformer_layer_spec,
                 vocab_size=config.text_decoder.language_vocab_size,
                 max_sequence_length=config.text_decoder.language_max_sequence_length,
                 position_embedding_type=config.text_decoder.lm_position_embedding_type,
             )
+            if hasattr(config.text_decoder, "ckpt_path"):
+                _load_checkpoint(self.text_decoder, config.text_decoder.ckpt_path)
+            else:
+                print("Warning: no checkpoint found at ckpt_path, skipping loading ckpt.")
         if self.add_image_encoder:
-            self.image_encoder = VisionModel(config.image_encoder)
+            self.image_encoder = VisionModel(
+                config.image_encoder,
+                config.image_encoder.vision_encoder.vision_transformer_layer_spec,
+                config.image_encoder.vision_projector.vision_projection_layer_spec,
+                )
+            if hasattr(config.image_encoder.vision_encoder, "ckpt_path") and hasattr(self.image_encoder, "encoder"):
+                _load_checkpoint(self.image_encoder.encoder, config.image_encoder.vision_encoder.ckpt_path)
+            else:
+                print("Warning: no model or checkpoint found at ckpt_path, skipping loading ckpt.")
+            if hasattr(config.image_encoder.vision_projector, "ckpt_path") and hasattr(self.image_encoder, "projector"):
+                _load_checkpoint(self.image_encoder.projector, config.image_encoder.vision_projector.ckpt_path)
+            else:
+                print("Warning: no model or checkpoint found at ckpt_path, skipping loading ckpt.")
 
     def shared_embedding_or_output_weight(self):
         """
@@ -307,3 +318,11 @@ class VLModel(nn.Module):
             loss = loss_fct(shift_logits, shift_labels)
 
         return loss
+
+
+def _load_checkpoint(model, ckpt_path):
+    if ckpt_path and len(ckpt_path) > 0:
+        load_params = torch.load(ckpt_path, map_location="cpu")
+        print(model.load_state_dict(load_params, strict=False))
+    else:
+        print("Warning: ckpt path is None or empty, skipping loading ckpt.")

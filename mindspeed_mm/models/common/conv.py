@@ -4,6 +4,7 @@ from collections import deque
 import torch
 from torch import nn
 import torch_npu
+
 from mindspeed_mm.utils.utils import cast_tuple, video_to_image
 
 

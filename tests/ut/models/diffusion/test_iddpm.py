@@ -1,5 +1,6 @@
 import torch
 from diffusers.schedulers import PNDMScheduler
+import mindspeed.megatron_adaptor
 
 from mindspeed_mm.models.diffusion.iddpm import IDDPM
 from mindspeed_mm.models.diffusion.diffusers_scheduler import DiffusersScheduler

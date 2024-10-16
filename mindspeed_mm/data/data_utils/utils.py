@@ -18,6 +18,11 @@ from fractions import Fraction
 from collections import Counter
 from typing import Any, Dict, Optional, Tuple, Union, Sequence
 
+try:
+    import decord
+except ImportError:
+    print("Failed to import decord module.")
+
 import av
 import ftfy
 import torch
@@ -41,11 +46,6 @@ from transformers.models.clip.image_processing_clip import CLIPImageProcessor
 from transformers.trainer_pt_utils import LabelSmoother
 from packaging import version
 import tokenizers
-
-try:
-    import decord
-except ImportError:
-    print("Failed to import decord module.")
 
 from mindspeed_mm.data.data_utils.data_transform import TemporalRandomCrop, Expand2Square
 from mindspeed_mm.data.data_utils.transform_pipeline import get_transforms

@@ -81,10 +81,9 @@ def pool_workaround(
     eos_token_mask = (input_ids == eos_token_id).int()
 
     # Use argmax to find the last index of the EOS token for each element in the batch
-    eos_token_index = torch.argmax(
-        eos_token_mask, dim=1
+    eos_token_index = torch.argmax(eos_token_mask, dim=1).to(
+        device=last_hidden_state.device
     )  # this will be 0 if there is no EOS token, it's fine
-    eos_token_index = eos_token_index.to(device=last_hidden_state.device)
 
     # get hidden states for EOS token
     pooled_output = last_hidden_state[
@@ -95,8 +94,7 @@ def pool_workaround(
     # apply projection: projection may be of different dtype than last_hidden_state
     pooled_output = text_encoder.text_projection(
         pooled_output.to(text_encoder.text_projection.weight.dtype)
-    )
-    pooled_output = pooled_output.to(last_hidden_state.dtype)
+    ).to(dtype=last_hidden_state.dtype, device=last_hidden_state.device)
 
     return pooled_output
 
@@ -182,7 +180,9 @@ def get_hidden_states_sdxl(
     return hidden_states1, hidden_states2, pool2
 
 
-def get_noise_noisy_latents_and_timesteps(args, noise_scheduler, latents, epoch, step):
+def get_noise_noisy_latents_and_timesteps(
+    args, noise_scheduler, latents, epoch, step, weight_dtype
+):
     # Sample noise that we'll add to the latents
     noise = torch.randn_like(latents, device=latents.device)
     # Sample a random timestep for each image
@@ -192,13 +192,14 @@ def get_noise_noisy_latents_and_timesteps(args, noise_scheduler, latents, epoch,
 
     timesteps = torch.randint(
         min_timestep, max_timestep, (b_size,), device=latents.device
-    )
-    timesteps = timesteps.long()
+    ).long()
 
     # Add noise to the latents according to the noise magnitude at each timestep
     # (this is the forward diffusion process)
 
-    noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
+    noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps).to(
+        weight_dtype
+    )
 
     return noise, noisy_latents, timesteps
 
@@ -249,24 +250,30 @@ class SdxlPretrainModels(nn.Module):
 
             embs = get_size_embeddings(
                 orig_size, crop_size, target_size, accelerator.device
-            ).to(self.weight_dtype)
+            ).to(device=accelerator.device, dtype=self.weight_dtype)
             time_ids = []
             for s, c in zip(batch["original_sizes"], batch["crop_top_lefts_list"]):
                 time_ids.append(compute_time_ids(s, c))
             add_time_ids = torch.cat(time_ids)
 
             # concat embeddings
-            vector_embedding = torch.cat([pool2, embs], dim=1).to(self.weight_dtype)
+            vector_embedding = torch.cat([pool2, embs], dim=1).to(
+                device=accelerator.device, dtype=self.weight_dtype
+            )
             text_embedding = torch.cat(
                 [encoder_hidden_state1, encoder_hidden_state2], dim=2
-            ).to(self.weight_dtype)
+            ).to(device=accelerator.device, dtype=self.weight_dtype)
 
             # Sample noise, sample a random timestep for each image, and add noise to the latents,
             # with noise offset and/or multires noise if specified
             noise, noisy_latents, timesteps = get_noise_noisy_latents_and_timesteps(
-                self.args, noise_scheduler, latent, epoch, step
+                self.args,
+                noise_scheduler,
+                latent,
+                epoch,
+                step,
+                self.weight_dtype,
             )
-            noisy_latents = noisy_latents.to(self.weight_dtype)
 
             unet_added_conditions = {
                 "time_ids": add_time_ids,

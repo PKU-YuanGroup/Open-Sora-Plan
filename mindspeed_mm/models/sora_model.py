@@ -17,6 +17,7 @@ import torch
 from torch import nn
 from megatron.training.arguments import core_transformer_config_from_args
 from megatron.training import get_args
+
 from mindspeed_mm.models.predictor import PredictModel
 from mindspeed_mm.models.diffusion import DiffusionModel
 from mindspeed_mm.models.ae import AEModel
@@ -49,7 +50,6 @@ class SoRAModel(nn.Module):
             self.ae = AEModel(config.ae).eval()
             self.ae.requires_grad_(False)
         if not self.load_text_features:
-            # TODO: t5固定输入权重情况下如何获取固定输出
             self.text_encoder = TextEncoder(config.text_encoder).eval()
             self.text_encoder.requires_grad_(False)
 
@@ -111,3 +111,6 @@ class SoRAModel(nn.Module):
             mask=video_mask,
         )
         return loss_dict
+    
+    def train(self, mode=True):
+        self.predictor.train()

@@ -1,0 +1,89 @@
+{
+	"dataset_param": {
+		"dataset_type": "t2v",
+		"basic_parameters": {
+			"data_path": "/home/ci_resource/data/OpenSoraPlan/v1.2/pixabay_v2/train_data.txt",
+			"data_folder": "/home/ci_resource/data/OpenSoraPlan/v1.2/",
+			"data_storage_mode": "combine"
+		},
+		"preprocess_parameters": {
+			"video_reader_type": "decoder",
+			"image_reader_type": "Image",
+			"num_frames": 93,
+			"frame_interval": 1,
+			"max_height": 480,
+			"max_width": 640,
+			"train_fps": 24,
+			"speed_factor": 1.0,
+			"drop_short_ratio": 1.0,
+			"cfg": 0.1,
+			"dataloader_num_workers": 4,
+			"train_pipeline": {
+				"video": [{
+						"trans_type": "ToTensorVideo"
+					},
+					{
+						"trans_type": "CenterCropResizeVideo",
+						"param": {
+							"size": [480, 640],
+							"use_short_edge": false,
+							"top_crop": false,
+							"align_corners": true,
+							"antialias": true
+						}
+					},
+					{
+						"trans_type": "ae_norm"
+					}
+				],
+				"image": [{
+						"trans_type": "ToTensorVideo"
+					},
+					{
+						"trans_type": "CenterCropResizeVideo",
+						"param": {
+							"size": [480, 640],
+							"use_short_edge": false,
+							"top_crop": true,
+							"align_corners": true,
+							"antialias": true
+						}
+					},
+					{
+						"trans_type": "ae_norm"
+					}
+				]
+			}
+		},
+		"use_text_processer": true,
+		"model_max_length": 512,
+		"tokenizer_config": {
+			"hub_backend": "hf",
+			"autotokenizer_name": "AutoTokenizer",
+			"from_pretrained": "/home/ci_resource/data/OpenSoraPlan/v1.2/weights/google/mt5-xxl"
+		}
+	},
+	"dataloader_param": {
+		"dataloader_mode": "sampler",
+        "sampler_type": "LengthGroupedSampler",
+		"batch_size": 1,
+		"num_workers": 4,
+		"shuffle": false,
+		"drop_last": true,
+		"pin_memory": false,
+		"group_frame": false,
+		"group_resolution": false,
+		"collate_param": {
+			"batch_size": 1,
+			"num_frames": 93,
+			"group_frame": false,
+			"group_resolution": false,
+			"max_height": 480,
+			"max_width": 640,
+			"ae_stride": 8,
+			"ae_stride_t": 4,
+			"patch_size": 2,
+			"patch_size_t": 1
+		}
+	}
+}
