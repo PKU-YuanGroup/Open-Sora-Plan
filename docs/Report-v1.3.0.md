@@ -547,6 +547,8 @@ Models such as [Open-Sora v1.2](https://github.com/hpcaitech/Open-Sora), [EasyAn
 
 By observing the differences between [CogVideoX-2B](https://github.com/THUDM/CogVideo) and its 5B variant, we can clearly see that the 5B model understands more physical laws than the 2B model. We speculate that instead of spending excessive effort designing for smaller models, it may be more effective to leverage scaling laws to solve these issues. In the next version, we will scale up the model to explore the boundaries of video generation.
 
+We currently have two plans: one is to continue using the Deepspeed/FSDP approach, sharding the EMA and text encoder across ranks with Zero3, which is sufficient for training 10-15B models. The other is to adopt [MindSpeed](https://gitee.com/ascend/MindSpeed) for various parallel strategies, enabling us to scale the model up to 30B.
+
 #### Supervised loss in training
 
 Whether flow-based models are more suitable than v-pred models remains uncertain and requires further ablation studies to determine.
