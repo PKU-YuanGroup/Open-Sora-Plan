@@ -42,6 +42,8 @@ def to_2tuple(x):
     return (x, x)
 
 
+
+
 def explicit_uniform_sampling(T, n, rank, bsz, device):
     """
     Explicit Uniform Sampling with integer timesteps and PyTorch.
@@ -56,15 +58,16 @@ def explicit_uniform_sampling(T, n, rank, bsz, device):
         torch.Tensor: A tensor of shape (bsz,) containing uniformly sampled integer timesteps
                       within the rank's interval.
     """
-    # Compute the interval boundaries (starting from 0)
     interval_size = T / n  # Integer division to ensure boundaries are integers
-    lower_bound = max(0, round(interval_size * rank))
-    upper_bound = min(round(interval_size * (rank + 1)) - 1, T-1)
+    lower_bound = interval_size * rank - 0.5
+    upper_bound = interval_size * (rank + 1) - 0.5
+    sampled_timesteps = [round(random.uniform(lower_bound, upper_bound)) for _ in range(bsz)]
 
     # Uniformly sample within the rank's interval, returning integers
-    sampled_timesteps = torch.randint(low=lower_bound, high=upper_bound+1, size=(bsz,), device=device)
+    sampled_timesteps = torch.LongTensor([round(random.uniform(lower_bound, upper_bound)) for _ in range(bsz)], device=device)
 
     return sampled_timesteps
+
 
 
 #################################################################################
