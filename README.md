@@ -30,7 +30,7 @@ This project aims to create a simple and scalable repo, to reproduce [Sora](http
   
   > 近期将新增华为昇腾多模态MindSpeed-MM分支，借助华为MindSpeed-MM套件的能力支撑Open-Sora Plan参数的扩增，为更大参数规模的模型训练提供TP、SP等分布式训练能力。
 
-* **[2024.10.16]** 🎉 We released version 1.3.0, featuring: a more powerful and cost-efficient WFVAE, pompt refiner, a high-quality data filtering strategy, DiT with new sparse attention, and dynamic resolution and duration. More details can be found at our latest [report](docs/Report-v1.3.0.md).
+* **[2024.10.16]** 🎉 We released version 1.3.0, featuring: **WFVAE**, **pompt refiner**, **data filtering strategy**, **sparse attention**, and **bucket training strategy**. We also support 93x480p within **24G VRAM**. More details can be found at our latest [report](docs/Report-v1.3.0.md).
 * **[2024.08.13]** 🎉 We are launching Open-Sora Plan v1.2.0 **I2V** model, which based on Open-Sora Plan v1.2.0. The current version supports image-to-video generation and transition generation (the starting and ending frames conditions for video generation). Checking out the Image-to-Video section in this [report](https://github.com/PKU-YuanGroup/Open-Sora-Plan/blob/main/docs/Report-v1.2.0.md#training-image-to-video-diffusion-model).
 * **[2024.07.24]** 🔥🔥🔥 v1.2.0 is here! Utilizing a 3D full attention architecture instead of 2+1D. We released a true 3D video diffusion model trained on 4s 720p. Checking out our latest [report](docs/Report-v1.2.0.md).
 * **[2024.05.27]** 🎉 We are launching Open-Sora Plan v1.1.0, which significantly improves video quality and length, and is fully open source! Please check out our latest [report](docs/Report-v1.1.0.md). Thanks to [ShareGPT4Video's](https://sharegpt4video.github.io/) capability to annotate long videos.
@@ -145,7 +145,7 @@ We currently have two plans: one is to continue using the Deepspeed/FSDP approac
 ## ⚡️ 24G VRAM Inferencing
 
 Please first ensure that you understand how to perform inference. Refer to the inference section in Text-to-Video.
-Simply specify `--save_memory`, and during inference, `enable_model_cpu_offload(), enable_sequential_cpu_offload(), and vae.vae.enable_tiling()` will be automatically activated.
+Simply specify `--save_memory`, and during inference, `enable_model_cpu_offload()`, `enable_sequential_cpu_offload(), and `vae.vae.enable_tiling()` will be automatically activated.
 
 # 💡 How to Contribute
 We greatly appreciate your contributions to the Open-Sora Plan open-source community and helping us make it even better than it is now!
