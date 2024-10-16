@@ -297,36 +297,45 @@ To deeply understand why nearly global attention is necessary and why Skiparse A
 
 For example, in Full 3D Attention, any token can connect with any other token in just one attention operation, resulting in an average attention distance of 1.
 
-In 2+1D Attention, the process is somewhat more complex, though still straightforward to understand. In all configurations above, any two different tokens can connect with an attention distance between 1 and 2 (Note that we define the attention distance between a token and itself as zero). For each of the other three attention methods, we can first determine which tokens have an attention distance of 1, thereby confirming the average attention distance. In even-numbered blocks (2N), attention is applied over the spatial $$(H, W)$$ dimensions, yielding an attention distance of 1 for those tokens. In odd-numbered blocks (2N+1), attention is applied along the temporal $$(T)$$ dimension, with tokens again having an attention distance of 1. Therefore, the average attention distance (AVG Attention Distance) for 2+1D Attention is calculated as follows:
+In 2+1D Attention, the process is somewhat more complex, though still straightforward to understand. In all configurations above, any two different tokens can connect with an attention distance between 1 and 2 (Note that we define the attention distance between a token and itself as zero). Thus, for the other three attention methods, we can first identify which tokens have an attention distance of 1. Subsequently, tokens with an attention distance of 2 can be determined, allowing us to calculate the average attention distance.
+
+In the $$2N$$ Block, attention operates over the $$(H, W)$$ dimensions, where tokens within this region have an attention distance of 1. In the $$2N+1$$ Block, attention operates along the $$(T)$$ dimension, also assigning an attention distance of 1 for these tokens. The total number of tokens with an attention distance of 1 in this case is $$HW + T - 2$$ (excluding the token itself, hence $$(HW + T - 1) - 1 = HW + T - 2$$).
+
+Therefore, in 2+1D Attention, the average attention distance (AVG Attention Distance) is:
 
 $$
-\begin{align}
-d&=\frac{1}{THW}\left[ \left( HW-1 \right) \times 1+\left( T-1 \right) \times 1+\left( THW-HW-T+1 \right) \times 2 \right] 
-\\
-&=2-\left( \frac{1}{T}+\frac{1}{HW} \right) 
-\end{align}
+\begin{aligned}
+	d&=\frac{1}{THW}\left[ 1\times 0+\left( HW+T-2 \right) \times 1+\left[ THW-\left( HW+T-1 \right) \right] \times 2 \right]\\
+	&=2-\left( \frac{1}{T}+\frac{1}{HW} \right)\\
+\end{aligned}
 $$
 
-In Skip + Window Attention, for each even-numbered block (2N), the attention distance is 1 among $$\frac{THW}{k}$$  tokens; for each odd-numbered block (2N+1), $$k$$ tokens share an attention distance of 1. Thus, the AVG Attention Distance for Skip + Window Attention is calculated as follows:
+In Skip+Window Attention, aside from the token itself, there are $$\frac{THW}{k} - 1$$ tokens with an attention distance of 1 in the $$2N$$ Block, and $$k - 1$$ tokens with an attention distance of 1 in the $$2N+1$$ Block. Thus, the total number of tokens with an attention distance of 1 is $$\frac{THW}{k} + k - 2$$.
+
+Therefore, in Skip+Window Attention, the average attention distance (AVG Attention Distance) is:
 
 $$
-\begin{align}
-d &= \frac{1}{THW} \left[ \left( \frac{THW}{k} - 1 \right) \times 1 + \left( k - 1 \right) \times 1 + \left( THW - \frac{THW}{k} - k + 1 \right) \times 2 \right] \\
-&= 2 - \left( \frac{1}{k} + \frac{k}{THW} \right)
-\end{align}
+\begin{aligned}
+	d&=\frac{1}{THW}\left[ 1\times 0+\left( \frac{THW}{k}+k-2 \right) \times 1+\left[ THW-\left( \frac{THW}{k}+k-1 \right) \right] \times 2 \right]\\
+	&=2-\left( \frac{1}{k}+\frac{k}{THW} \right)\\
+\end{aligned}
 $$
 
-In Skiparse Attention, for each even-numbered block (2N), an attention distance of 1 exists among $$\frac{THW}{k}$$ tokens; similarly, in each odd-numbered block (2N+1), $$\frac{THW}{k}$$ tokens also share an attention distance of 1. Notably, $$\frac{THW}{k^2}$$ tokens can establish connections within each block. Thus, the AVG Attention Distance in Skiparse Attention is calculated as follows:
+In Skiparse Attention, aside from the token itself, $$\frac{THW}{k} - 1$$ tokens have an attention distance of 1 in the $$2N$$ Block, and $$\frac{THW}{k} - 1$$ tokens have an attention distance of 1 in the $$2N+1$$ Block. Notably, $$\frac{THW}{k^2} - 1$$ tokens can establish an attention distance of 1 in both blocks and should not be counted twice.
+
+Therefore, in Skiparse Attention, the average attention distance (AVG Attention Distance) is:
 
 $$
-\begin{align}
-	d&=\frac{1}{THW}\left[ \left( \frac{THW}{k}-1 \right) \times 1+\left( \frac{THW}{k}-1 \right) \times 1+\left[ THW-\left( \frac{2THW}{k}-\frac{THW}{k^2} \right) \right] \times 2 \right]\\
-	&=2-\frac{2}{k}+\frac{2}{k^2}-\frac{2}{THW}\\
-	&=2-\frac{2}{k}+\frac{1}{k^2}\left( 2\ll THW \right)\\
-\end{align}
+\begin{aligned}
+	d&=\frac{1}{THW}\left[ 1\times 0+\left[ \frac{2THW}{k}-2-\left( \frac{THW}{k^2}-1 \right) \right] \times 1+\left[ THW-\left( \frac{2THW}{k}-\frac{THW}{k^2} \right) \right] \times 2 \right]\\
+	&=2-\frac{2}{k}+\frac{1}{k^2}-\frac{1}{THW}\\
+	&=2-\frac{2}{k}+\frac{1}{k^2}\left( 1\ll THW \right)\\
+\end{aligned}
 $$
 
-The above calculation assumes the ideal conditions where $$k \ll THW$$ and $$k$$ divides $$THW$$ exactly. When $$k$$  is large enough that it becomes difficult to find sufficient groups for group skip or when $$k$$ does not divide $$THW$$, padding is required for parallel computation. Specifically, when $$k = HW$$ and padding is ignored, Group Skip Attention simplifies to Window Attention, as $$T \ll HW$$, yielding a scope size equal to $$HW$$. Since padding does not affect the final result, Skiparse Attention becomes equivalent to 2+1D Attention when $$k = HW$$.
+In fact, in the Group Skip of the $$2N+1$$ Block, the actual sequence length is $$k\lceil \frac{THW}{k^2} \rceil$$ rather than $$\frac{THW}{k}$$. The prior calculation assumes the ideal case where $$k \ll THW$$ and $$k$$ divides $$THW$$ exactly, yielding $$k\lceil \frac{THW}{k^2} \rceil = k \cdot \frac{THW}{k^2} = \frac{THW}{k}$$. In practical applications, excessively large $$k$$ values are typically avoided, making this derivation a reasonably accurate approximation for general use.
+
+Specifically, when $$k = HW$$ and padding is disregarded, since $$T \ll HW$$, group skip attention reduces to window attention with a window size of $$HW$$. Given that padding does not affect the final computation, Skiparse Attention is equivalent to 2+1D Attention when $$k = HW$$.
 
 For the commonly used resolution of 93x512x512, using a causal VAE with a 4x8x8 compression rate and a DiT with a 1x2x2 patch embedding, we obtain a latent shape of 24x32x32 before applying attention. The AVG Attention Distance for different calculation methods would then be as follows:
 
@@ -349,7 +358,6 @@ In 2+1D Attention, the average attention distance is 1.957, larger than that of 
 	<img src="https://github.com/user-attachments/assets/80ca6d70-5033-454b-883f-11d12d140360" width=600/>
 </figure>
 </center>
-
 
 The figure above shows how Skiparse Attention’s AVG Attention Distance changes with sparse ratio $$k$$.
 
