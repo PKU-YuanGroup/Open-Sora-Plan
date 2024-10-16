@@ -267,11 +267,31 @@ MindSpeeed-MM修改了部分原始网络的结构名称，因此需要使用如�
 
 #### 1. 准备工作
 
+配置脚本前需要完成前置准备工作，包括：环境安装、权重下载及转换，详情可查看对应章节。
+
+推理任务除了需要上述提到的converted_vicuna.pt权重、converted_clip.pt权重，以及原始的vicuna-7b-v1.5权重外，还需要[clip-vit-large-patch14-336](https://huggingface.co/openai/clip-vit-large-patch14-336)权重和vision_projector的权重，vision_projector权重需要从此[链接](https://huggingface.co/liuhaotian/llava-v1.5-7b/resolve/main/mm_projector.bin?download=true)下载。
+vision_projector下载后需要做权重转换。
+
+```python
+import torch
+def convert_mlp(ckpt_path):
+    # ckpt_path 为原始权重
+    target_mlp = {}
+    mlp = torch.load(ckpt_path)
+    target_mlp["encoder.linear_fc1.weight"] = mlp["model.mm_projector.0.weight"]
+    target_mlp["encoder.linear_fc1.bias"] = mlp["model.mm_projector.0.bias"]
+    target_mlp["encoder.linear_fc2.weight"] = mlp["model.mm_projector.2.weight"]
+    target_mlp["encoder.linear_fc2.bias"] = mlp["model.mm_projector.2.bias"]
+    torch.save(target_mlp,"./mlp.pt")
+
+```
+
+
 <a id="jump5.2"></a>
 
 #### 2. 配置参数
 
-将准备好的权重传入到inference_llava.json中，更改其中的路径，包括from_pretrained，自定义的prompt可以传入到prompt字段中
+将准备好的权重传入到inference_llava.json中，根据json中路径的提示更改其中的路径，包括from_pretrained、ckpt_path等，自定义的prompt可以传入到prompt字段中。
 
 <a id="jump5.3"></a>
 
@@ -280,7 +300,7 @@ MindSpeeed-MM修改了部分原始网络的结构名称，因此需要使用如�
 启动推理脚本
 
 ```shell
-examples/llava1.5/inference_llava1_5.sh
+bash examples/llava1.5/inference_llava1_5.sh
 ```
 
 ---
