@@ -134,6 +134,19 @@ The data preparation, training and inferencing can be found [here](docs/T2V.md)
 
 The data preparation, training and inferencing can be found [here](docs/I2V.md)
 
+
+# ⚡️ Extra Save Memory
+
+## 🔆 Training
+During training, the entire EMA model remains in VRAM. You can enable `--offload_ema` or disable `--use_ema`. Additionally, VAE tiling is disabled by default, but you can pass `--enable_tiling` or disable `--vae_fp32`. Finally, a temporary but extreme saving memory option is enable `--extra_save_mem` to offload the text encoder and VAE to the CPU when not in use, though this will significantly slow down performance.
+
+We currently have two plans: one is to continue using the Deepspeed/FSDP approach, sharding the EMA and text encoder across ranks with Zero3, which is sufficient for training 10-15B models. The other is to adopt MindSpeed for various parallel strategies, enabling us to scale the model up to 30B.
+
+## ⚡️ 24G VRAM Inferencing
+
+Please first ensure that you understand how to perform inference. Refer to the inference section in Text-to-Video.
+Simply specify `--save_memory`, and during inference, `enable_model_cpu_offload(), enable_sequential_cpu_offload(), and vae.vae.enable_tiling()` will be automatically activated.
+
 # 💡 How to Contribute
 We greatly appreciate your contributions to the Open-Sora Plan open-source community and helping us make it even better than it is now!
 
