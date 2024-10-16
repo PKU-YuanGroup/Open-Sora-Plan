@@ -23,14 +23,14 @@
 
 【模型开发时推荐使用配套的环境版本】
 
-|    软件     | [版本](https://www.hiascend.com/zh/) |
-|:---------:|:----------------------------------:|
-|  Python   |                3.8                 |
-|  Driver   |                RC3 商发版本                |
-| Firmware  |                RC3 商发版本                |
-|   CANN    |                RC3 商发版本                |
-|   Torch   |               2.1.0                |
-| Torch_npu |               2.1.0                |
+|           软件            | [版本](https://www.hiascend.com/zh/) |
+| :-----------------------: |:----------------------------------:|
+|          Python           |                3.8                 |
+|          Driver           |         在研版本          |
+|         Firmware          |         在研版本          |
+|           CANN            |             在研版本             |
+|           Torch           |            2.1.0            |
+|         Torch_npu         |           2.1.0           |
 
 #### <span id="jump1.1"> 仓库拉取
 
@@ -42,9 +42,6 @@
     cp -r megatron ../MindSpeed-MM/
     cd ..
     cd MindSpeed-MM
-    mkdir logs
-    mkdir dataset
-    mkdir ckpt
 ```
 
 #### <span id="jump1.2"> 环境搭建
@@ -86,12 +83,11 @@
 
 若使用5B模型：
 
-模型地址为：https://huggingface.co/THUDM/CogVideoX-5b/tree/main
+模型地址为：<https://huggingface.co/THUDM/CogVideoX-5b/tree/main>
 
 若使用2B模型：
 
-模型地址为：https://huggingface.co/THUDM/CogVideoX-2b/tree/main
-
+模型地址为：<https://huggingface.co/THUDM/CogVideoX-2b/tree/main>
 
 ---
 

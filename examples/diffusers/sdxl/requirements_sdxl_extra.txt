@@ -1,5 +1,5 @@
 opencv-python
-scipy=1.10.1
+scipy==1.10.1
 torchvision==0.16.0
 toml
 voluptuous

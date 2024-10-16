@@ -28,14 +28,14 @@
 
 【模型开发时推荐使用配套的环境版本】
 
-|    软件     | [版本](https://www.hiascend.com/zh/) |
-|:---------:|:----------------------------------:|
-|  Python   |                3.8                 |
-|  Driver   |         RC3 商发版本          |
-| Firmware  |         RC3 商发版本          |
-|   CANN    |             RC3 商发版本             |
-|   Torch   |            2.1.0            |
-| Torch_npu |           2.1.0           |
+|           软件            | [版本](https://www.hiascend.com/zh/) |
+| :-----------------------: |:----------------------------------:|
+|          Python           |                3.8                 |
+|          Driver           |         在研版本          |
+|         Firmware          |         在研版本          |
+|           CANN            |             在研版本             |
+|           Torch           |            2.1.0            |
+|         Torch_npu         |           2.1.0           |
 
 <a id="jump1.1"></a>
 
@@ -49,9 +49,6 @@
     cp -r megatron ../MindSpeed-MM/
     cd ..
     cd MindSpeed-MM
-    mkdir logs
-    mkdir dataset
-    mkdir ckpt
 ```
 
 <a id="jump1.2"></a>
@@ -84,6 +81,20 @@
     # 安装其余依赖库
     pip install -e .
 ```
+
+#### 3. Decord搭建
+
+【X86版安装】
+
+```bash
+pip install decord==0.6.0
+```
+
+【ARM版安装】
+
+`apt`方式安装请[参考链接](https://github.com/dmlc/decord)
+
+`yum`方式安装请[参考脚本](https://github.com/dmlc/decord/blob/master/tools/build_manylinux2010.sh)
 
 ---
 

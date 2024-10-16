@@ -6,7 +6,7 @@ description = "MindSpeed-MM is designed to provide end-to-end large multi-modal 
 readme = "README.md"
 license = {file = "LICENSE"}
 authors = [
-  { name = "The MindSpeed-MM Team", email = "contact@mindspeed-mm.cn" },
+  { name = "The MindSpeed-MM Team" },
 ]
 keywords = ["AI", "Ascend", "DeepLearning", "MultiModal", "MindSpeed"]
 dependencies = [

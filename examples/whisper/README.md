@@ -26,9 +26,9 @@
 |    软件     | [版本](https://www.hiascend.com/zh/) |
 |:---------:|:----------------------------------:|
 |  Python   |                3.10                |
-|  Driver   |                RC3 商发版本                |
-| Firmware  |                RC3 商发版本                |
-|   CANN    |                RC3 商发版本                |
+|  Driver   |                在研版本                |
+| Firmware  |                在研版本                |
+|   CANN    |                在研版本                |
 |   Torch   |               2.1.0                |
 | Torch_npu |                2.1.0                |
 
@@ -44,9 +44,6 @@
     cp -r megatron ../MindSpeed-MM/
     cd ..
     cd MindSpeed-MM
-    mkdir logs
-    mkdir dataset
-    mkdir ckpt
 ```
 
 <a id="jump1.2"></a>
@@ -82,7 +79,6 @@
     conda install -c conda-forge libsndfile
     pip install -e .
 ```
-
 
 <a id="jump2"></a>
 

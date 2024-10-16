@@ -36,14 +36,14 @@
 
 【模型开发时推荐使用配套的环境版本】
 
-|    软件     | [版本](https://www.hiascend.com/zh/) |
-|:---------:|:----------------------------------:|
-|  Python   |                3.8                 |
-|  Driver   |         RC3 商发版本          |
-| Firmware  |         RC3 商发版本          |
-|   CANN    |             RC3 商发版本             |
-|   Torch   |            2.1.0            |
-| Torch_npu |           2.1.0           |
+|           软件            | [版本](https://www.hiascend.com/zh/) |
+| :-----------------------: |:----------------------------------:|
+|          Python           |                3.8                 |
+|          Driver           |         在研版本          |
+|         Firmware          |         在研版本          |
+|           CANN            |             在研版本             |
+|           Torch           |            2.1.0            |
+|         Torch_npu         |           2.1.0           |
 
 1. 软件与驱动安装
 
@@ -74,7 +74,7 @@
     ```shell
     git clone https://github.com/huggingface/diffusers.git -b v0.30.0
     cd diffusers
-    git reset --hard e2ead7cdcc00859533e6bec7b0707a6fb0efef0a
+    git checkout e2ead7cdcc00859533e6bec7b0707a6fb0efef0a
     cp -r ../MindSpeed-MM/examples/diffusers/sd3 ./sd3
     ```
 
@@ -88,7 +88,7 @@
 
     ```shell
     pip install e .
-    vim examples/text_to_image/requirements_sdxl.txt #修改torchvision版本：torchvision==0.16.0, torch==2.1.0
+    vim examples/dreambooth/requirements_sd3.txt #修改torchvision版本：torchvision==0.16.0, torch==2.1.0
     pip install -r examples/dreambooth/requirements_sd3.txt # 安装对应依赖
     ```
 

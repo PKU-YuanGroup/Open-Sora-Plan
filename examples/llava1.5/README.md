@@ -32,9 +32,9 @@
 |    软件     | [版本](https://www.hiascend.com/zh/) |
 |:---------:|:----------------------------------:|
 |  Python   |                3.10                 |
-|  Driver   |         RC3 商发版本          |
-| Firmware  |         RC3 商发版本          |
-|   CANN    |             RC3 商发版本             |
+|  Driver   |         在研版本          |
+| Firmware  |         在研版本          |
+|   CANN    |             在研版本             |
 |   Torch   |            2.1.0            |
 | Torch_npu |           2.1.0           |
 
@@ -51,8 +51,6 @@
     cd ..
     cd MindSpeed-MM
     mkdir logs
-    mkdir dataset
-    mkdir ckpt
 ```
 
 <a id="jump1.2"></a>
@@ -86,7 +84,8 @@
     # 安装其余依赖库
     pip install -e .
 ```
-**注意事项:** 
+
+**注意事项:**
 
   需要修改 mindspeed/core/transformer/dot_product_attention.py的65行，修改如下：
 ```python
@@ -101,7 +100,7 @@ def dot_product_attention_forward_wrapper(fn):
 
     return wrapper
 ```
-    
+
 ---
 
 <a id="jump2"></a>
@@ -126,16 +125,20 @@ MindSpeeed-MM修改了部分原始网络的结构名称，因此需要使用如�
 
 - ViT-L-14-336px权重转换
 
-  参考 NVIDIA/Megatron-LM中[Vision model](https://github.com/NVIDIA/Megatron-LM/blob/main/examples/multimodal/README.md#vision-model) , 
+  参考 NVIDIA/Megatron-LM中[Vision model](https://github.com/NVIDIA/Megatron-LM/blob/main/examples/multimodal/README.md#vision-model) ,
   执行如下命令：
+
   ```
   python examples/multimodal/clip_converter.py --download-root /some/download/folder --output /some/output/folder --tensor-parallel-size 1 --use-te
   ```
+
   如果执行环境连接不到外网下载ViT-L-14-336px模型，建议手动下载，再在clip_converter.py中将ViT-L-14-336px路径修改成本地路径
+
   ```
   model, _ = clip.load("{dir_to_model}/ViT-L-14-336px.pt", device=device, download_root="")
   ```
-  其中{dir_to_model}为模型所在的路径。 
+
+  其中{dir_to_model}为模型所在的路径。
   转换的结果在： /some/output/folder/iter_0000001/mp_rank_00/model_optim_rng.pt
   
   对于转换后的结果，需要再执行如下转换，其中{target_dir}为最终的权重文件保存路径：
@@ -163,9 +166,11 @@ MindSpeeed-MM修改了部分原始网络的结构名称，因此需要使用如�
        --tokenizer-model ${TOKENIZER_MODEL} \
        --params-dtype bf16
   ```
+
   其中： {dir_to_model}为vicuna-7b-v1.5所在路径，{target_dir}为转换结果文件路径, {cann_dir}为cann包安装路径。转换的结果在：{target_dir}/iter_0000001/mp_rank_00/model_optim_rng.pt。
 
 由于MindSpeed-MM中模型变量名称跟转换结果有差异，需要再做一次适配：
+
   - 在megatron同级目录，创建convert.py脚本，将如下代码复制到convert.py中，
   - 修改{target_dir}为上一步model_optim_rng.pt所在路径，
   - 修改{dir_to_save_file}为结果文件所在路径，
@@ -193,6 +198,7 @@ MindSpeeed-MM修改了部分原始网络的结构名称，因此需要使用如�
   if __name__ == "__main__":
       convert_param()
   ```
+
 ---
 
 <a id="jump3"></a>
@@ -260,8 +266,6 @@ MindSpeeed-MM修改了部分原始网络的结构名称，因此需要使用如�
 <a id="jump5.1"></a>
 
 #### 1. 准备工作
-
-
 
 <a id="jump5.2"></a>
 

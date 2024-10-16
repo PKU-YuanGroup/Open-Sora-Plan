@@ -56,6 +56,7 @@ from diffusers.utils import check_min_version, is_wandb_available
 from diffusers.utils.import_utils import is_torch_npu_available, is_xformers_available
 from huggingface_hub import create_repo, upload_folder
 from packaging import version
+from patch_sdxl import TorchPatcher, config_gc
 from torchvision import transforms
 from torchvision.transforms.functional import crop
 from tqdm.auto import tqdm
@@ -65,6 +66,9 @@ from transformers import (
     CLIPTextModelWithProjection,
     PretrainedConfig,
 )
+
+TorchPatcher.apply_patch()
+config_gc()
 
 try:
     from torch_npu.utils.profiler import Profile
@@ -96,7 +100,6 @@ DATASET_NAME_MAPPING = {
 }
 
 torch.npu.config.allow_internal_format = False
-gc.set_threshold(700, 10, 1000)
 
 
 def save_model_card(
@@ -802,7 +805,7 @@ def main(args):
                         weights.pop()
 
         def load_model_hook(models, input_dir):
-            for i in range(len(models)):
+            for _ in range(len(models)):
                 # pop models so that they are not loaded again
                 model = models.pop()
 
@@ -1064,8 +1067,6 @@ def main(args):
                     pool2,
                 )
 
-                target = noise
-
                 # Get the target for loss depending on the prediction type
                 if args.prediction_type is not None:
                     # set prediction_type of scheduler if defined
@@ -1081,7 +1082,7 @@ def main(args):
                     # We set the target to latents here, but the model_pred will return the noise sample prediction.
                     target = latents
                     # We will have to subtract the noise residual from the prediction to get the target sample.
-                    model_pred = model_pred - noise
+                    model_pred = noise_pred - noise
                 else:
                     raise ValueError(
                         f"Unknown prediction type {noise_scheduler.config.prediction_type}"
@@ -1112,8 +1113,7 @@ def main(args):
                     loss = (
                         loss.mean(dim=list(range(1, len(loss.shape))))
                         * mse_loss_weights
-                    )
-                    loss = loss.mean()
+                    ).mean()
 
                 # Gather the losses across all processes for logging (if we use distributed training).
                 avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
@@ -1232,6 +1232,8 @@ def main(args):
                 pipeline.scheduler.config, **scheduler_args
             )
         pipeline.save_pretrained(args.output_dir)
+
+        del pipeline
 
     accelerator.end_training()
 

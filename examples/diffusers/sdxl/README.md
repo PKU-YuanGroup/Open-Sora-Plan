@@ -32,7 +32,7 @@
 
   ```
   url=https://github.com/huggingface/diffusers
-  commit_id=eda36c4c286d281f216dfeb79e64adad3f85d37a
+  commit_id=5956b68a6927126daffc2c5a6d1a9a189defe288
   ```
 
 ## 预训练
@@ -41,14 +41,14 @@
 
 【模型开发时推荐使用配套的环境版本】
 
-|    软件     | [版本](https://www.hiascend.com/zh/) |
-|:---------:|:----------------------------------:|
-|  Python   |                3.8                 |
-|  Driver   |         RC3 商发版本          |
-| Firmware  |         RC3 商发版本          |
-|   CANN    |             RC3 商发版本             |
-|   Torch   |            2.1.0            |
-| Torch_npu |           2.1.0           |
+|           软件            | [版本](https://www.hiascend.com/zh/) |
+| :-----------------------: |:----------------------------------:|
+|          Python           |                3.8                 |
+|          Driver           |         在研版本          |
+|         Firmware          |         在研版本          |
+|           CANN            |             在研版本             |
+|           Torch           |            2.1.0            |
+|         Torch_npu         |           2.1.0           |
 
 1. 软件与驱动安装
 
@@ -62,7 +62,7 @@
     pip install torch-2.1.0*-cp38-cp38m-linux_aarch64.whl
     pip install apex-0.1_ascend*-cp38-cp38m-linux_aarch64.whl
 
-    #  将shell脚本中的环境变量路径修改为真实路径，下面为参考路径
+    # 将shell脚本中的环境变量路径修改为真实路径，下面为参考路径
     source /usr/local/Ascend/ascend-toolkit/set_env.sh
     ```
 
@@ -79,7 +79,7 @@
     ```shell
     git clone https://github.com/huggingface/diffusers.git -b v0.30.0
     cd diffusers
-    git reset --hard eda36c4c286d281f216dfeb79e64adad3f85d37a
+    git checkout 5956b68a6927126daffc2c5a6d1a9a189defe288
     cp -r ../MindSpeed-MM/examples/diffusers/sdxl ./sdxl
     ```
 
@@ -91,10 +91,10 @@
 
     3.2【安装 `{任务pretrain/train}_sdxl_deepspeed_{混精fp16/bf16}.sh` 需要[适配昇腾AI处理器的实现](https://gitee.com/ascend/ModelZoo-PyTorch.git)】
 
-    转移 `collect_dataset.py` 与 `pretrain_model.py` 与 `train_text_to_image_sdxl_pretrain.py` 到 `examples/text_to_image/` 路径
+    转移 `collect_dataset.py` 与 `pretrain_model.py` 与 `train_text_to_image_sdxl_pretrain.py` 与 `patch_sdxl.py` 到 `examples/text_to_image/` 路径
 
     ```shell
-    # Example, 需要修改.py名字进行三次任务
+    # Example: 需要修改.py名字进行四次任务
     cp ./sdxl/train_text_to_image_sdxl_pretrain.py ./examples/text_to_image/
     ```
 
@@ -186,6 +186,33 @@
     deepspeed_config_file: ./sdxl/deepspeed_fp16.json # deepspeed JSON文件路径
     ```
 
+    修改`examples/text_to_image/train_text_to_image_sdxl.py`文件
+
+    ```bash
+    vim examples/text_to_image/train_text_to_image_sdxl.py
+    ```
+
+    1. 在文件58行修改修改version
+
+        ```python
+        # 讲minimum version从0.31.0修改为0.30.0
+        check_min_version("0.30.0")
+        ```
+
+    2. 在文件59行添加代码
+
+        ```python
+        from patch_sdxl import TorchPatcher, compute_vae_encode, config_gc
+        TorchPathcer.apply_patch()
+        config_gic()
+        ```
+
+    3. 在文件918行修改`compute_vae_encodings_fn`
+
+        ```python
+        compute_vae_encodings_fn = functools.partial(compute_vae_encode, accelerator=accelerator, vae=vae)
+        ```
+
 3. 【启动 SDXL 预训练脚本】
 
     本任务主要提供**混精fp16**和**混精bf16**两种**8卡**训练脚本，默认使用**deepspeed**分布式训练。
@@ -221,7 +248,7 @@ SDXL 在 **昇腾芯片** 和 **参考芯片** 上的性能对比：
 
 ### 环境搭建
 
-#### LORA微调
+#### LORA微调-数据集
 
    > **说明：**
    > 数据集同预训练的`pokemon-blip-captions`，请参考预训练章节。
@@ -231,16 +258,15 @@ SDXL 在 **昇腾芯片** 和 **参考芯片** 上的性能对比：
   sdxl/finetune_sdxl_lora_deepspeed_fp16.sh
   ```
 
-#### Controlnet微调
+#### Controlnet微调-数据集
 
-   1. 联网情况下，数据集会自动下载。
-   2. 无网络情况下，用户需自行获取fill50k数据集，并在以下启动shell脚本中将`dataset_name`参数设置为本地数据集的绝对路径，以及需要修改里面fill50k.py文件。
+   用户需自行获取[fill50k](https://huggingface.co/datasets/fusing/fill50k)数据集，并在以下启动shell脚本中将`dataset_name`参数设置为本地数据集的绝对路径，以及需要修改里面fill50k.py文件
 
    ```shell
    sdxl/finetune_sdxl_controlnet_deepspeed_fp16.sh
    ```
 
-   3. 参考如下修改controlnet/train_controlnet_sdxl.py, 追加trust_remote_code=True
+   参考如下修改controlnet/train_controlnet_sdxl.py, 追加trust_remote_code=True
 
    ```shell
    dataset = load_dataset(
@@ -273,19 +299,27 @@ SDXL 在 **昇腾芯片** 和 **参考芯片** 上的性能对比：
    > **说明：**
    >该数据集的训练过程脚本只作为一种参考示例。
 
-#### 全参微调
+#### 全参微调-数据集
 
    > **说明：**
    > 数据集同Lora微调，请参考Lora章节。
    >
-  【获取预训练模型】
+
+#### 获取预训练模型
 
    获取[sdxl-base模型](https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0) `model_name`模型与[sdxl-vae模型](https://huggingface.co/madebyollin/sdxl-vae-fp16-fix) `vae_name`。
   
-   获取对应的预训练模型后，在以下shell启动脚本中将`model_name`参数设置为本地预训练模型绝对路径，将`vae_name`参数设置为本地`vae`模型绝对路径。
+   获取对应的预训练模型后，在`Controlnet微调`shell启动脚本中将`model_name`参数设置为本地预训练模型绝对路径，将`vae_name`参数设置为本地`vae`模型绝对路径。
+  
+   ```shell
+   sdxl/finetune_sdxl_controlnet_deepspeed_fp16.sh
+   ```
+
+   `Lora微调`与`全参微调`shell启动脚本中将`model_name`参数设置为本地预训练模型绝对路径
 
    ```shell
    sdxl/finetune_sdxl_deepspeed_fp16.sh
+   sdxl/finetune_sdxl_lora_deepspeed_fp16.sh
    ```
 
    > **说明：**

@@ -28,14 +28,14 @@
 
 【模型开发时推荐使用配套的环境版本】
 
-|    软件     | [版本](https://www.hiascend.com/zh/) |
-|:---------:|:----------------------------------:|
-|  Python   |                3.10                 |
-|  Driver   |         RC3 商发版本          |
-| Firmware  |         RC3 商发版本          |
-|   CANN    |             RC3 商发版本             |
-|   Torch   |            2.1.0            |
-| Torch_npu |           2.1.0           |
+|           软件            | [版本](https://www.hiascend.com/zh/) |
+| :-----------------------: |:----------------------------------:|
+|          Python           |                3.10                 |
+|          Driver           |         在研版本          |
+|         Firmware          |         在研版本          |
+|           CANN            |             在研版本             |
+|           Torch           |            2.1.0            |
+|         Torch_npu         |           2.1.0           |
 
 <a id="jump1.1"></a>
 
@@ -83,9 +83,10 @@
     pip install -e .
 ```
 
-**注意事项:** 
+**注意事项:**
 
   需要修改 mindspeed/core/transformer/dot_product_attention.py的65行，修改如下：
+
 ```python
 def dot_product_attention_forward_wrapper(fn):
     @wraps(fn)
@@ -114,7 +115,6 @@ def dot_product_attention_forward_wrapper(fn):
 - [InternVL2-2B](https://huggingface.co/OpenGVLab/InternVL2-2B/tree/main)；
 - [InternVL2-8B](https://huggingface.co/OpenGVLab/InternVL2-8B/tree/main)；
 
-
 <a id="jump2.2"></a>
 
 #### 2. 权重转换
@@ -129,12 +129,15 @@ MindSpeeed-MM修改了部分原始网络的结构名称，使用`examples/intern
   pipeline_layer_index = None
   num_layers=24
 ```
+
 启动脚本
+
 ```shell
   python examples/internvl2/inernvl_convert_to_mm_ckpt.py
 ```
 
 同步修改`examples/internvl2/finetune_internvl2_2b.sh`中的`--load`参数.
+
 ```shell
   --load ckpt/InternVL2-2B
 ```
@@ -176,11 +179,13 @@ MindSpeeed-MM修改了部分原始网络的结构名称，使用`examples/intern
 <a id="jump4.2"></a>
 
 #### 2. 配置参数
+
 【数据目录配置】
 
 根据实际情况修改`data.json`中的数据集路径，包括`from_pretrained`、`data_path`、`data_folder`等字段。
 
 以InternVL2-2B为例，`data.json`进行以下修改
+
 ```json
 {
   "dataset_param": {
@@ -200,6 +205,7 @@ MindSpeeed-MM修改了部分原始网络的结构名称，使用`examples/intern
   ...
 }
 ```
+
 【单机运行配置】
 
 配置`examples/internvl2/finetune_internvl2.sh`参数如下
@@ -220,6 +226,7 @@ MindSpeeed-MM修改了部分原始网络的结构名称，使用`examples/intern
 #### 3. 启动微调
 
 以InternVL2-2B为例，启动微调。
+
 ```shell
     bash examples/internvl2/finetune_internvl2_2B.sh
 ```
@@ -227,4 +234,5 @@ MindSpeeed-MM修改了部分原始网络的结构名称，使用`examples/intern
 <a id="jump5"></a>
 
 ## 推理
+
 Coming Soon...
