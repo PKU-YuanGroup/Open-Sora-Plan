@@ -1,12 +1,13 @@
 
 ### Data prepare
-We use a `data.txt` file to specify all the training data. Each line in the file consists of `DATA_ROOT` and `DATA_JSON`. The example of `data.txt` is as follows.
+We use a `data.txt` file to specify all the training data. Each line in the file consists of `DATA_ROOT` and `DATA_JSON`. The example of `data.txt` is as follows. The `.pkl` also be supported, because `.pkl` can save memory and speed up.
 ```
 /path/to/data_root_1,/path/to/data_json_1.json
 /path/to/data_root_2,/path/to/data_json_2.json
 ...
 ```
 Then, we introduce the format of the annotation json file. The absolute data path is the concatenation of `DATA_ROOT` and the `"path"` field in the annotation json file.
+
 #### For image
 The format of image annotation file is as follows.
 ```
@@ -14,19 +15,23 @@ The format of image annotation file is as follows.
   {
     "path": "00168/001680102.jpg",
     "cap": [
-      "xxxxx."
+      "a image caption."
     ],
     "resolution": {
       "height": 512,
       "width": 683
-    }
+    }, 
+    "aesthetic": 5.3, 
   },
   ...
 ]
 ```
 
 #### For video
-The format of video annotation file is as follows. More details refer to [HF dataset](https://huggingface.co/datasets/LanguageBind/Open-Sora-Plan-v1.2.0).
+The format of video annotation file is as follows. 
+
+The keys "aesthetic," "cut," "crop," and "tech" can all be optional. If "aesthetic" is missing, no additional high-aesthetic prompt will be applied. If "cut" is missing, the entire video frame is assumed to be usable. If "crop" is missing, the full resolution is assumed to be usable. "Tech" and "motion" are used only for preprocessing and filtering. For more details, please refer to our [report](https://github.com/PKU-YuanGroup/Open-Sora-Plan/blob/main/docs/Report-v1.3.0.md#data-construction).
+
 ```
 [
   {
@@ -38,8 +43,13 @@ The format of video annotation file is as follows. More details refer to [HF dat
       "height": 720,
       "width": 1280
     },
-    "fps": 29.97002997002997,
-    "duration": 11.444767
+    "num_frames": 100, 
+    "fps": 24, 
+    "aesthetic": 5.3, 
+    "cut": [start_frame_idx, end_frame_idx],
+    "crop": [start_of_x, end_of_x, start_of_y, end_of_y], 
+    "tech": 1.1, 
+    "motion": 0.02
   },
   ...
 ]
