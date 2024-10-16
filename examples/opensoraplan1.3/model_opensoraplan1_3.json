@@ -7,7 +7,7 @@
     "load_text_features": false,
     "ae": {
         "model_id": "wfvae",
-        "from_pretrained": "/home/image_data/captions/WFVAE_DISTILL_FORMAL/wfvae.ckpt",
+        "from_pretrained": null,
         "dtype": "bf16",
         "output_dtype": "bf16",
         "base_channels": 128,

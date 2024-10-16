@@ -97,37 +97,25 @@ def _single_all_to_all(
     input_: torch.Tensor,
     group: dist.ProcessGroup,
     scatter_dim: int,
-    gather_dim: int
+    gather_dim: int,
+    scatter_sizes: List = None,
+    gather_sizes: List = None
 ):
-    world_size = dist.get_world_size(group=group)
-    rank = dist.get_rank(group=group)
+    sp_size = dist.get_world_size(group)
+    inp_shape = list(input_.shape)
+    inp_shape[scatter_dim] = inp_shape[scatter_dim] // sp_size
+    if scatter_dim < 1:
+        input_t = input_.reshape([sp_size, inp_shape[scatter_dim]] + inp_shape[scatter_dim + 1:])
+    else:
+        input_t = input_.reshape([-1, sp_size, inp_shape[scatter_dim]]
+                                 + inp_shape[scatter_dim + 1:]).transpose(0, 1).contiguous()
 
-    if world_size == 1:
-        return input_
-    
-    if scatter_sizes is None:
-        scatter_sizes = cal_split_sizes(scatter_sizes, world_size)
-    if gather_sizes is None:
-        gather_sizes = [input_.size(gather_dim) for _ in range(world_size)]
-    
-    # Adjust the tensor dimensions
-    adjusted_input, adjusted_dims = _adjust_tensor_dimensions(input_, scatter_dim, gather_dim)
+    output = torch.empty_like(input_t)
+    dist.all_to_all_single(output, input_t, group=group)
 
-    # Compared to adjusted_input, the positions of the first two dimensions are swapped in adjusted_output
-    adjusted_output = torch.empty((sum(gather_sizes), scatter_sizes[rank], *adjusted_input.shape[2:]),
-                                    dtype=adjusted_input.dtype, device=adjusted_input.device)
-    adjusted_dims[1], adjusted_dims[0] = adjusted_dims[0], adjusted_dims[1]
-
-    dist.all_to_all_single(
-        adjusted_output,
-        adjusted_input, 
-        output_split_sizes=gather_sizes,
-        input_split_sizes=scatter_sizes,
-        group=group
-    )
-
-    # Adjust the dimensions back to the original order
-    return output_
+    if scatter_dim < 1:
+        output = output.transpose(0, 1).contiguous()
+    return output.reshape(inp_shape[:gather_dim] + [inp_shape[gather_dim] * sp_size, ] + inp_shape[gather_dim + 1:])
 
 
 class _AllToAll(torch.autograd.Function):
