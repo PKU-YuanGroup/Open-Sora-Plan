@@ -679,16 +679,12 @@ def main(args):
                                                         device=model_input.device)
 
             # Sample a random timestep for each image without bias.
-            # if accelerator.num_processes > noise_scheduler.config.num_train_timesteps: 
-            if True: 
-                timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=model_input.device)
-            else:
-                timesteps = explicit_uniform_sampling(
-                    T=noise_scheduler.config.num_train_timesteps, 
-                    n=accelerator.num_processes, 
-                    rank=accelerator.process_index, 
-                    bsz=bsz, device=model_input.device, 
-                    )
+            timesteps = explicit_uniform_sampling(
+                T=noise_scheduler.config.num_train_timesteps, 
+                n=accelerator.num_processes, 
+                rank=accelerator.process_index, 
+                bsz=bsz, device=model_input.device, 
+                )
             if get_sequence_parallel_state():  # image do not need sp, disable when image batch
                 broadcast(timesteps)
 
