@@ -320,7 +320,7 @@ In Skiparse Attention, for each even-numbered block (2N), an attention distance 
 
 $$
 \begin{align}
-	d&=\frac{1}{THW}\left[ \left( \frac{THW}{k}-1 \right) \times 1+\left( \frac{THW}{k}-1 \right) \times 1+\left[ THW-\left( \frac{THW}{k}+\frac{THW}{k^2} \right) \right] \times 2 \right]\\
+	d&=\frac{1}{THW}\left[ \left( \frac{THW}{k}-1 \right) \times 1+\left( \frac{THW}{k}-1 \right) \times 1+\left[ THW-\left( \frac{2THW}{k}-\frac{THW}{k^2} \right) \right] \times 2 \right]\\
 	&=2-\frac{2}{k}+\frac{2}{k^2}-\frac{2}{THW}\\
 	&=2-\frac{2}{k}+\frac{1}{k^2}\left( 2\ll THW \right)\\
 \end{align}
