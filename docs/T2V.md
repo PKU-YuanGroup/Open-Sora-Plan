@@ -123,6 +123,10 @@ Finally, we can combine these approaches to enable bucketed training with variab
 
 ### Inference
 
+You need download the models manually.
+First, you need to download checkpoint including [diffusion model](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.3.0/tree/main/any93x640x640), [vae](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.3.0/tree/main/vae) and [text encoder](https://huggingface.co/google/mt5-xxl). The [prompt refiner](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.3.0/tree/main/prompt_refiner) is optional.
+Then, modify `--model_path`, `--text_encoder_name_1` and `--ae_path` the path in [script](https://github.com/PKU-YuanGroup/Open-Sora-Plan/blob/main/scripts/text_condition/gpu/sample_t2v_v1_3.sh#L4). The `--caption_refiner` is optional.
+
 We provide multiple inference scripts to support various requirements. We recommend configuration `--guidance_scale 7.5 --num_sampling_steps 100 --sample_method EulerAncestralDiscrete` for sampling.
 
 #### 🖥️ 1 GPU 
