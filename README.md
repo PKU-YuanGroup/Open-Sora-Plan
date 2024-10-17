@@ -147,7 +147,7 @@ We currently have two plans: one is to continue using the Deepspeed/FSDP approac
 ## ⚡️ 24G VRAM Inferencing
 
 Please first ensure that you understand how to perform inference. Refer to the inference section in Text-to-Video.
-Simply specify `--save_memory`, and during inference, `enable_model_cpu_offload()`, `enable_sequential_cpu_offload(), and `vae.vae.enable_tiling()` will be automatically activated.
+Simply specify `--save_memory`, and during inference, `enable_model_cpu_offload()`, `enable_sequential_cpu_offload()`, and `vae.vae.enable_tiling()` will be automatically activated.
 
 # 💡 How to Contribute
 We greatly appreciate your contributions to the Open-Sora Plan open-source community and helping us make it even better than it is now!
@@ -167,11 +167,10 @@ For more details, please refer to the [Contribution Guidelines](docs/Contributio
 # 🔒 License
 * See [LICENSE](LICENSE) for details.
 
-<!--
 ## ✨ Star History
 
 [![Star History](https://api.star-history.com/svg?repos=PKU-YuanGroup/Open-Sora-Plan)](https://star-history.com/#PKU-YuanGroup/Open-Sora-Plan&Date)
--->
+
 
 
 # ✏️ Citing
