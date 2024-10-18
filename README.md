@@ -146,7 +146,7 @@ We currently have two plans: one is to continue using the Deepspeed/FSDP approac
 
 ## ⚡️ 24G VRAM Inferencing
 
-Please first ensure that you understand how to perform inference. Refer to the inference section in Text-to-Video.
+Please first ensure that you understand how to inference. Refer to the [inference](https://github.com/PKU-YuanGroup/Open-Sora-Plan/blob/main/docs/T2V.md#inference) instructions in Text-to-Video.
 Simply specify `--save_memory`, and during inference, `enable_model_cpu_offload()`, `enable_sequential_cpu_offload()`, and `vae.vae.enable_tiling()` will be automatically activated.
 
 # 💡 How to Contribute
