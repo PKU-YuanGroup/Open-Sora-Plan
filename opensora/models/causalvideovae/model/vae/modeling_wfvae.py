@@ -242,26 +242,26 @@ class Decoder(VideoBaseAE):
         self.connect_l1 = nn.Sequential(
             *[
                 ResnetBlock3D(
-                    in_channels=base_channels,
-                    out_channels=base_channels,
+                    in_channels=energy_flow_hidden_size,
+                    out_channels=energy_flow_hidden_size,
                     dropout=dropout,
                     norm_type=norm_type,
                 )
                 for _ in range(connect_res_layer_num)
             ],
-            Conv2d(base_channels, l1_channels, kernel_size=3, stride=1, padding=1),
+            Conv2d(energy_flow_hidden_size, l1_channels, kernel_size=3, stride=1, padding=1),
         )
         self.connect_l2 = nn.Sequential(
             *[
                 ResnetBlock3D(
-                    in_channels=base_channels,
-                    out_channels=base_channels,
+                    in_channels=energy_flow_hidden_size,
+                    out_channels=energy_flow_hidden_size,
                     dropout=dropout,
                     norm_type=norm_type,
                 )
                 for _ in range(connect_res_layer_num)
             ],
-            Conv2d(base_channels, 24, kernel_size=3, stride=1, padding=1),
+            Conv2d(energy_flow_hidden_size, 24, kernel_size=3, stride=1, padding=1),
         )
         # Out
         self.norm_out = Normalize(base_channels, norm_type=norm_type)
