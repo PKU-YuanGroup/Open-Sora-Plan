@@ -271,7 +271,7 @@ class Decoder(VideoBaseAE):
         self.inverse_wavelet_tranform_l2 = resolve_str_to_obj(l2_upsample_wavelet)()
 
     def forward(self, z):
-        print("z.shape", z.shape)
+        # print("z.shape", z.shape)
         h = self.conv_in(z)
         h = self.mid(h)
         l2_coeffs = self.connect_l2(h[:, -self.energy_flow_hidden_size :])
@@ -285,7 +285,7 @@ class Decoder(VideoBaseAE):
         l1 = self.inverse_wavelet_tranform_l1(l1_coeffs)
 
         h = self.up1(h[:, : -self.energy_flow_hidden_size])
-        print(h.shape)
+        # print(h.shape)
         h = self.layer(h)
         if npu_config is None:
             h = self.norm_out(h)
