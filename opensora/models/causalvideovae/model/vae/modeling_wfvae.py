@@ -271,6 +271,7 @@ class Decoder(VideoBaseAE):
         self.inverse_wavelet_tranform_l2 = resolve_str_to_obj(l2_upsample_wavelet)()
 
     def forward(self, z):
+        print("z.shape", z.shape)
         h = self.conv_in(z)
         h = self.mid(h)
         l2_coeffs = self.connect_l2(h[:, -self.energy_flow_hidden_size :])
@@ -284,7 +285,7 @@ class Decoder(VideoBaseAE):
         l1 = self.inverse_wavelet_tranform_l1(l1_coeffs)
 
         h = self.up1(h[:, : -self.energy_flow_hidden_size])
-
+        print(h.shape)
         h = self.layer(h)
         if npu_config is None:
             h = self.norm_out(h)
@@ -328,7 +329,6 @@ class WFVAEModel(VideoBaseAE):
         self.use_tiling = False
         # Hardcode for now
         self.t_chunk_enc = 16
-        self.t_upsample_times = 4 // 2
         self.t_chunk_dec = 4
         self.use_quant_layer = False
         self.encoder = Encoder(
@@ -361,8 +361,17 @@ class WFVAEModel(VideoBaseAE):
         )
 
         # Set cache offset for trilinear lossless upsample.
-        self._set_cache_offset([self.decoder.up2, self.decoder.connect_l2, self.decoder.conv_in, self.decoder.mid], 1)
-        self._set_cache_offset([self.decoder.up2[-2:], self.decoder.up1, self.decoder.connect_l1, self.decoder.layer], self.t_upsample_times)
+        if l1_dowmsample_block == "Downsample":
+            # 4 times temporal upsample
+            self.temporal_uptimes = 4
+            self._set_cache_offset([self.decoder.up2, self.decoder.connect_l2, self.decoder.conv_in, self.decoder.mid], 1)
+            self._set_cache_offset([self.decoder.up2[-2:], self.decoder.up1, self.decoder.connect_l1, self.decoder.layer], 2)
+        else:
+            # 8 times temporal upsample
+            self.temporal_uptimes = 8
+            self._set_cache_offset([self.decoder.up2, self.decoder.connect_l2, self.decoder.conv_in, self.decoder.mid], 1)
+            self._set_cache_offset([self.decoder.up2[-2:], self.decoder.connect_l1, self.decoder.up1], 2)
+            self._set_cache_offset([self.decoder.up1[-2:], self.decoder.layer], 4)
 
     def get_encoder(self):
         if self.use_quant_layer:
@@ -474,7 +483,7 @@ class WFVAEModel(VideoBaseAE):
             chunk = self.decoder(chunk)
             
             if end + 1 < t:
-                chunk = chunk[:, :, :-2]
+                chunk = chunk[:, :, :- self.temporal_uptimes // 2]
                 result.append(chunk.clone())
             else:
                 result.append(chunk.clone())
