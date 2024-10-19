@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "opensora"
-version = "1.2.1"
+version = "1.5.0"
 description = "Reproduce OpenAI's Sora."
 readme = "README.md"
 requires-python = ">=3.8"
@@ -25,8 +25,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-gpu = ["torch==2.4.1", "torchvision==0.19.1", "xformers==0.0.28.post1", "deepspeed==0.15.1"]
-npu = ["torch==2.1.0", "torchvision==0.16.0", "xformers==0.0.22.post7", "deepspeed==0.12.6"]
+gpu = ["torch==2.4.1", "torchvision==0.19.1", "deepspeed==0.15.1"]
+npu = ["torch==2.1.0", "torchvision==0.16.0", "deepspeed==0.12.6"]
 dev = ["mypy==1.8.0"]
 
 

@@ -69,4 +69,4 @@ accelerate launch \
     --vae_fp32 \
     --lr_warmup_steps 0 \
     --rf_scheduler \
-    --log_name "test_a_name"
+    --log_name "ema_in_cpu" --ema_cpu_only
