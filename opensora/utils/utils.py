@@ -64,8 +64,8 @@ def explicit_uniform_sampling(T, n, rank, bsz, device):
     sampled_timesteps = [round(random.uniform(lower_bound, upper_bound)) for _ in range(bsz)]
 
     # Uniformly sample within the rank's interval, returning integers
-    sampled_timesteps = torch.LongTensor([round(random.uniform(lower_bound, upper_bound)) for _ in range(bsz)], device=device)
-
+    sampled_timesteps = torch.tensor([round(random.uniform(lower_bound, upper_bound)) for _ in range(bsz)], device=device)
+    sampled_timesteps = sampled_timesteps.long()
     return sampled_timesteps
 
 
