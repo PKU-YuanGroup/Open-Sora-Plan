@@ -174,7 +174,6 @@ parser.add_argument("--model_type", type=str, default='t2v')
 parser.add_argument("--cache_dir", type=str, default="cache_dir")
 
 parser.add_argument("--prediction_type", type=str, default="v_prediction")
-parser.add_argument('--', action='store_true') 
 parser.add_argument('--v1_5_scheduler', action='store_true') 
 
 parser.add_argument('--sample_method', type=str, default='EulerAncestralDiscrete') 

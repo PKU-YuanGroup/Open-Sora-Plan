@@ -197,6 +197,7 @@ class T2V_dataset(Dataset):
         self.generator = torch.Generator().manual_seed(self.seed) 
         self.hw_aspect_thr = 2.0  # just a threshold
         self.too_long_factor = 5.0
+        self.random_data = args.random_data
 
         self.support_Chinese = False
         if 'mt5' in args.text_encoder_name_1:
@@ -249,17 +250,19 @@ class T2V_dataset(Dataset):
         assert os.path.exists(video_path), f"file {video_path} do not exist!"
         sample_h = video_data['resolution']['sample_height']
         sample_w = video_data['resolution']['sample_width']
-        if self.video_reader == 'decord':
-            video = self.decord_read(video_data)
-        elif self.video_reader == 'opencv':
-            video = self.opencv_read(video_data)
+
+        if self.random_data:
+            video = torch.rand(video_data['num_frames'], 3, sample_h, sample_w)
         else:
-            NotImplementedError(f'Found {self.video_reader}, but support decord or opencv')
-        # import ipdb;ipdb.set_trace()
-        video = self.transform(video)  # T C H W -> T C H W
+            if self.video_reader == 'decord':
+                video = self.decord_read(video_data)
+            elif self.video_reader == 'opencv':
+                video = self.opencv_read(video_data)
+            else:
+                NotImplementedError(f'Found {self.video_reader}, but support decord or opencv')
+            video = self.transform(video)  # T C H W -> T C H W
         assert video.shape[2] == sample_h and video.shape[3] == sample_w, f'sample_h ({sample_h}), sample_w ({sample_w}), video ({video.shape})'
 
-        # video = torch.rand(105, 3, 640, 640)
 
         video = video.transpose(0, 1)  # T C H W -> C T H W
         text = video_data['cap']
@@ -309,13 +312,17 @@ class T2V_dataset(Dataset):
         sample_h = image_data['resolution']['sample_height']
         sample_w = image_data['resolution']['sample_width']
 
-        image = Image.open(image_data['path']).convert('RGB')  # [h, w, c]
-        image = torch.from_numpy(np.array(image))  # [h, w, c]
-        image = rearrange(image, 'h w c -> c h w').unsqueeze(0)  #  [1 c h w]
 
-        image = self.transform(image) #  [1 C H W] -> num_img [1 C H W]
+        if self.random_data:
+            image = torch.rand(1, 3, sample_h, sample_w)
+        else:
+            image = Image.open(image_data['path']).convert('RGB')  # [h, w, c]
+            image = torch.from_numpy(np.array(image))  # [h, w, c]
+            image = rearrange(image, 'h w c -> c h w').unsqueeze(0)  #  [1 c h w]
+            image = self.transform(image) #  [1 C H W] -> num_img [1 C H W]
+            
         assert image.shape[2] == sample_h and image.shape[3] == sample_w, f"image_data: {image_data}, but found image {image.shape}"
-        # image = torch.rand(1, 3, sample_h, sample_w)
+        
         image = image.transpose(0, 1)  # [1 C H W] -> [C 1 H W]
 
         caps = image_data['cap'] if isinstance(image_data['cap'], list) else [image_data['cap']]

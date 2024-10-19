@@ -27,10 +27,13 @@ def getdataset(args):
             SpatialStrideCropVideo(stride=args.hw_stride), 
         ]
 
-    tokenizer_1 = AutoTokenizer.from_pretrained(args.text_encoder_name_1, cache_dir=args.cache_dir)
+    # tokenizer_1 = AutoTokenizer.from_pretrained(args.text_encoder_name_1, cache_dir=args.cache_dir)
+    tokenizer_1 = AutoTokenizer.from_pretrained('/storage/cache_dir/t5-v1_1-xl', cache_dir=args.cache_dir)
+    # tokenizer_1 = AutoTokenizer.from_pretrained('/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl', cache_dir=args.cache_dir)
     tokenizer_2 = None
     if args.text_encoder_name_2 is not None:
-        tokenizer_2 = AutoTokenizer.from_pretrained(args.text_encoder_name_2, cache_dir=args.cache_dir)
+        # tokenizer_2 = AutoTokenizer.from_pretrained(args.text_encoder_name_2, cache_dir=args.cache_dir)
+        tokenizer_2 = AutoTokenizer.from_pretrained('/storage/cache_dir/CLIP-ViT-bigG-14-laion2B-39B-b160k', cache_dir=args.cache_dir)
     if args.dataset == 't2v':
         transform = transforms.Compose([
             ToTensorVideo(),

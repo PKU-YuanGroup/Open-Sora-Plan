@@ -7,6 +7,7 @@
 """
 A minimal training script for DiT using PyTorch DDP.
 """
+import deepspeed
 import argparse
 import logging
 import math
@@ -151,11 +152,22 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
     gc.collect()
     torch.cuda.empty_cache()
 
-
 class ProgressInfo:
-    def __init__(self, global_step, train_loss=0.0):
+    def __init__(
+        self, global_step, train_loss=0.0, grad_norm=0.0, weight_norm=0.0, 
+        moving_avg_grad_norm=-1e6, moving_avg_grad_norm_std=3.0, 
+        clip_coef=1.0, grad_norm_clip=0.0, max_norm=1.0, grad_norm_std=0.0
+        ):
         self.global_step = global_step
         self.train_loss = train_loss
+        self.grad_norm = grad_norm
+        self.weight_norm = weight_norm
+        self.moving_avg_grad_norm = moving_avg_grad_norm
+        self.moving_avg_grad_norm_std = moving_avg_grad_norm_std
+        self.clip_coef = clip_coef
+        self.grad_norm_clip = grad_norm_clip
+        self.max_norm = max_norm
+        self.grad_norm_std = grad_norm_std
 
 
 #################################################################################
@@ -163,6 +175,7 @@ class ProgressInfo:
 #################################################################################
 
 def main(args):
+
     logging_dir = Path(args.output_dir, args.logging_dir)
 
     if torch_npu is not None and npu_config is not None:
@@ -176,6 +189,9 @@ def main(args):
         log_with=args.report_to,
         project_config=accelerator_project_config,
     )
+    if args.skip_abnorml_step and accelerator.distributed_type == DistributedType.DEEPSPEED:
+        from opensora.utils.deepspeed_utils import backward
+        deepspeed.runtime.engine.DeepSpeedEngine.backward = backward
 
     if args.num_frames != 1:
         initialize_sequence_parallel_state(args.sp_size)
@@ -469,7 +485,15 @@ def main(args):
     if args.trained_data_global_step is not None:
         initial_global_step_for_sampler = args.trained_data_global_step
     else:
-        initial_global_step_for_sampler = 0
+        if args.resume_from_checkpoint:
+            if args.resume_from_checkpoint == "latest":
+                # Get the most recent checkpoint
+                dirs = os.listdir(args.output_dir)
+                dirs = [d for d in dirs if d.startswith("checkpoint")]
+                dirs = sorted(dirs, key=lambda x: int(x.split("-")[1]))
+                initial_global_step_for_sampler = int(dirs[-1].split("-")[1]) if len(dirs) > 0 else 0
+            else:
+                initial_global_step_for_sampler = 0
     
 
     total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
@@ -600,7 +624,7 @@ def main(args):
         # Only show the progress bar once on each machine.
         disable=not accelerator.is_local_main_process,
     )
-    progress_info = ProgressInfo(global_step, train_loss=0.0)
+    progress_info = ProgressInfo(global_step, train_loss=0.0, grad_norm=0.0)
 
     
     def get_sigmas(timesteps, n_dim=4, dtype=torch.float32):
@@ -626,14 +650,35 @@ def main(args):
         progress_info.global_step += 1
         end_time = time.time()
         one_step_duration = end_time - start_time
-        if progress_info.global_step % args.log_interval == 0:
-            train_loss = progress_info.train_loss.item() / args.log_interval
-            accelerator.log({"train_loss": train_loss, "lr": lr_scheduler.get_last_lr()[0]}, step=progress_info.global_step)
-            if torch_npu is not None and npu_config is not None:
-                npu_config.print_msg(f"Step: [{progress_info.global_step}], local_loss={loss.detach().item()}, "
-                                    f"train_loss={train_loss}, time_cost={one_step_duration}",
-                                    rank=0)
-            progress_info.train_loss = torch.tensor(0.0, device=loss.device)
+        
+        train_loss = progress_info.train_loss
+        accelerator.log(
+                {
+                    "train_loss": train_loss, "grad_norm": progress_info.grad_norm, 
+                    "weight_norm": progress_info.weight_norm, 
+                    "grad_norm_clip": progress_info.grad_norm_clip, 
+                    "moving_avg_grad_norm": progress_info.moving_avg_grad_norm, 
+                    "moving_avg_grad_norm_std": progress_info.moving_avg_grad_norm_std, 
+                    "max_norm": progress_info.max_norm, 
+                    "clip_coef": progress_info.clip_coef, 
+                    "grad_norm_std": progress_info.grad_norm_std, 
+                    "lr": lr_scheduler.get_last_lr()[0]
+                }, step=progress_info.global_step
+            )
+
+        if torch_npu is not None and npu_config is not None:
+            npu_config.print_msg(f"Step: [{progress_info.global_step}], local_loss={loss.detach().item()}, "
+                                f"train_loss={train_loss}, grad_norm={progress_info.grad_norm}, grad_norm_clip={grad_norm_clip}, "
+                                f"weight_norm={progress_info.weight_norm}, time_cost={one_step_duration}",
+                                rank=0)
+        progress_info.train_loss = 0.0
+        progress_info.grad_norm = 0.0
+        progress_info.weight_norm = 0.0
+        progress_info.clip_coef = 1.0
+        progress_info.grad_norm_clip = 0.0
+        progress_info.max_norm = 1.0
+        progress_info.grad_norm_std = 0.0
+        
 
         # DeepSpeed requires saving weights on every device; saving weights only on the main process would cause issues.
         if accelerator.distributed_type == DistributedType.DEEPSPEED or accelerator.is_main_process:
@@ -679,16 +724,12 @@ def main(args):
                                                         device=model_input.device)
 
             # Sample a random timestep for each image without bias.
-            # if accelerator.num_processes > noise_scheduler.config.num_train_timesteps: 
-            if True: 
-                timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=model_input.device)
-            else:
-                timesteps = explicit_uniform_sampling(
-                    T=noise_scheduler.config.num_train_timesteps, 
-                    n=accelerator.num_processes, 
-                    rank=accelerator.process_index, 
-                    bsz=bsz, device=model_input.device, 
-                    )
+            timesteps = explicit_uniform_sampling(
+                T=noise_scheduler.config.num_train_timesteps, 
+                n=accelerator.num_processes, 
+                rank=accelerator.process_index, 
+                bsz=bsz, device=model_input.device, 
+                )
             if get_sequence_parallel_state():  # image do not need sp, disable when image batch
                 broadcast(timesteps)
 
@@ -799,17 +840,36 @@ def main(args):
 
         # Gather the losses across all processes for logging (if we use distributed training).
         avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
-        # avg_loss = accelerator.reduce(loss, reduction="mean")
-        # progress_info.train_loss += avg_loss.detach().item() / args.gradient_accumulation_steps
-        progress_info.train_loss += avg_loss.detach() / args.gradient_accumulation_steps
+        progress_info.train_loss += avg_loss.detach().item() / args.gradient_accumulation_steps
         # Backpropagate
-        accelerator.backward(loss)
-        if accelerator.sync_gradients:
-            params_to_clip = model.parameters()
-            accelerator.clip_grad_norm_(params_to_clip, args.max_grad_norm)
-        optimizer.step()
-        lr_scheduler.step()
+        if args.skip_abnorml_step and accelerator.distributed_type == DistributedType.DEEPSPEED:
+            results = accelerator.deepspeed_engine_wrapped.engine.backward(
+                loss, process_index=accelerator.process_index, step_=step_, 
+                moving_avg_grad_norm=progress_info.moving_avg_grad_norm, 
+                moving_avg_grad_norm_std=progress_info.moving_avg_grad_norm_std, accelerator=accelerator
+                )
+            _, grad_norm, weight_norm, moving_avg_grad_norm, grad_norm_clip, max_norm, \
+                moving_avg_grad_norm_std, grad_norm_std, clip_coef = results
+            print('rank {} | step {} | grad_norm {}'.format(accelerator.process_index, step_, grad_norm))
+            progress_info.grad_norm += grad_norm / args.gradient_accumulation_steps
+            progress_info.weight_norm += weight_norm / args.gradient_accumulation_steps
+            progress_info.moving_avg_grad_norm = moving_avg_grad_norm / args.gradient_accumulation_steps
+            progress_info.moving_avg_grad_norm_std = moving_avg_grad_norm_std / args.gradient_accumulation_steps
+            progress_info.clip_coef = clip_coef
+            progress_info.max_norm = max_norm
+            progress_info.grad_norm_clip = grad_norm_clip / args.gradient_accumulation_steps
+            progress_info.grad_norm_std += grad_norm_std / args.gradient_accumulation_steps
+            
+            accelerator.deepspeed_engine_wrapped.engine.step()
+        else:
+            accelerator.backward(loss)
+            if accelerator.sync_gradients:
+                params_to_clip = model.parameters()
+                accelerator.clip_grad_norm_(params_to_clip, args.max_grad_norm)
+            optimizer.step()
+
         optimizer.zero_grad()
+        lr_scheduler.step()
         if accelerator.sync_gradients:
             sync_gradients_info(loss)
 
@@ -841,10 +901,8 @@ def main(args):
 
     def train_one_step(step_, data_item_, prof_=None):
         train_loss = 0.0
-        # print("rank {} | step {} | unzip data".format(accelerator.process_index, step_))
         x, attn_mask, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2 = data_item_
         # print(f'step: {step_}, rank: {accelerator.process_index}, x: {x.shape}, dtype: {x.dtype}')
-        # assert not torch.any(torch.isnan(x)), 'torch.any(torch.isnan(x))'
         if args.extra_save_mem:
             torch.cuda.empty_cache()
             ae.vae.to(accelerator.device, dtype=torch.float32 if args.vae_fp32 else weight_dtype)
@@ -853,7 +911,6 @@ def main(args):
                 text_enc_2.to(accelerator.device, dtype=weight_dtype)
 
         x = x.to(accelerator.device, dtype=ae.vae.dtype)  # B C T H W
-        # x = x.to(accelerator.device, dtype=torch.float32)  # B C T H W
         attn_mask = attn_mask.to(accelerator.device)  # B T H W
         input_ids_1 = input_ids_1.to(accelerator.device)  # B 1 L
         cond_mask_1 = cond_mask_1.to(accelerator.device)  # B 1 L
@@ -865,21 +922,34 @@ def main(args):
             # use batch inference
             input_ids_1 = input_ids_1.reshape(-1, L)
             cond_mask_1 = cond_mask_1.reshape(-1, L)
-            cond_1 = text_enc_1(input_ids_1, cond_mask_1)  # B L D
+            if args.random_data:
+                cond_1 = torch.rand(B, L, 2048, device=x.device, dtype=weight_dtype)
+            else:
+                cond_1 = text_enc_1(input_ids_1, cond_mask_1)  # B L D
             cond_1 = cond_1.reshape(B, N, L, -1)
             cond_mask_1 = cond_mask_1.reshape(B, N, L)
             if text_enc_2 is not None:
                 B_, N_, L_ = input_ids_2.shape  # B 1 L
                 input_ids_2 = input_ids_2.reshape(-1, L_)
-                cond_2 = text_enc_2(input_ids_2, cond_mask_2)  # B D
+                if args.random_data:
+                    cond_2 = torch.rand(B, 1280, device=x.device, dtype=weight_dtype)
+                else:
+                    cond_2 = text_enc_2(input_ids_2, cond_mask_2)  # B D
                 cond_2 = cond_2.reshape(B_, 1, -1)  # B 1 D
             else:
                 cond_2 = None
 
             # Map input images to latent space + normalize latents
-            x = ae.encode(x)  # B C T H W
+            if args.random_data:
+                b, c, t, h, w = x.shape
+                x = torch.rand(
+                    b, ae_channel_config[args.ae], 
+                    (t - 1) // ae_stride_t + 1, h // ae_stride_h, w // ae_stride_w, 
+                    device=x.device, dtype=x.dtype)
+            else:
+                x = ae.encode(x)  # B C T H W
             # print(f'step: {step_}, rank: {accelerator.process_index}, after vae.encode, x: {x.shape}, dtype: {x.dtype}, mean: {x.mean()}, std: {x.std()}')
-            # x = torch.rand(1, 32, 14, 80, 80).to(x.device, dtype=x.dtype)
+            
             # def custom_to_video(x: torch.Tensor, fps: float = 2.0, output_file: str = 'output_video.mp4') -> None:
             #     from examples.rec_video import array_to_video
             #     x = x.detach().cpu()
@@ -1004,6 +1074,15 @@ def main(args):
                 train_one_epoch(prof)
         else:
             train_one_epoch()
+
+
+    
+    # DeepSpeed requires saving weights on every device; saving weights only on the main process would cause issues.
+    if accelerator.distributed_type == DistributedType.DEEPSPEED or accelerator.is_main_process:
+        save_path = os.path.join(args.output_dir, f"checkpoint-{progress_info.global_step}")
+        accelerator.save_state(save_path)
+        logger.info(f"Saved state to {save_path}")
+
     accelerator.wait_for_everyone()
     accelerator.end_training()
     if get_sequence_parallel_state():
@@ -1036,6 +1115,7 @@ if __name__ == "__main__":
     parser.add_argument("--force_resolution", action="store_true")
     parser.add_argument("--trained_data_global_step", type=int, default=None)
     parser.add_argument("--use_decord", action="store_true")
+    parser.add_argument('--random_data', action='store_true')
 
     # text encoder & vae & diffusion model
     parser.add_argument('--vae_fp32', action='store_true')
@@ -1057,6 +1137,7 @@ if __name__ == "__main__":
     parser.add_argument('--cogvideox_scheduler', action='store_true')
     parser.add_argument('--v1_5_scheduler', action='store_true')
     parser.add_argument('--rf_scheduler', action='store_true')
+    parser.add_argument('--skip_abnorml_step', action='store_true')
     parser.add_argument("--weighting_scheme", type=str, default="logit_normal", choices=["sigma_sqrt", "logit_normal", "mode", "cosmap"])
     parser.add_argument("--logit_mean", type=float, default=0.0, help="mean to use when using the `'logit_normal'` weighting scheme.")
     parser.add_argument("--logit_std", type=float, default=1.0, help="std to use when using the `'logit_normal'` weighting scheme.")

@@ -30,7 +30,7 @@ This project aims to create a simple and scalable repo, to reproduce [Sora](http
   
   > 近期将新增华为昇腾多模态MindSpeed-MM分支，借助华为MindSpeed-MM套件的能力支撑Open-Sora Plan参数的扩增，为更大参数规模的模型训练提供TP、SP等分布式训练能力。
 
-* **[2024.10.16]** 🎉 We released version 1.3.0, featuring: a more powerful and cost-efficient WFVAE, pompt refiner, a high-quality data filtering strategy, DiT with new sparse attention, and dynamic resolution and duration. More details can be found at our latest [report](docs/Report-v1.3.0.md).
+* **[2024.10.16]** 🎉 We released version 1.3.0, featuring: **WFVAE**, **pompt refiner**, **data filtering strategy**, **sparse attention**, and **bucket training strategy**. We also support 93x480p within **24G VRAM**. More details can be found at our latest [report](docs/Report-v1.3.0.md).
 * **[2024.08.13]** 🎉 We are launching Open-Sora Plan v1.2.0 **I2V** model, which based on Open-Sora Plan v1.2.0. The current version supports image-to-video generation and transition generation (the starting and ending frames conditions for video generation). Checking out the Image-to-Video section in this [report](https://github.com/PKU-YuanGroup/Open-Sora-Plan/blob/main/docs/Report-v1.2.0.md#training-image-to-video-diffusion-model).
 * **[2024.07.24]** 🔥🔥🔥 v1.2.0 is here! Utilizing a 3D full attention architecture instead of 2+1D. We released a true 3D video diffusion model trained on 4s 720p. Checking out our latest [report](docs/Report-v1.2.0.md).
 * **[2024.05.27]** 🎉 We are launching Open-Sora Plan v1.1.0, which significantly improves video quality and length, and is fully open source! Please check out our latest [report](docs/Report-v1.1.0.md). Thanks to [ShareGPT4Video's](https://sharegpt4video.github.io/) capability to annotate long videos.
@@ -80,7 +80,7 @@ Coming soon...
 
 | Version | Architecture |  Diffusion Model | CausalVideoVAE | Data | Prompt Refiner |
 |:---|:---|:---|:---|:---|:---|
-| v1.3.0 | 3D | [Anysize in 93x640x640](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.3.0/tree/main/93x640x640), more checkpoints are coming soon | [Anysize](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.3.0/tree/main/vae)| - | [checkpoint](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.3.0/tree/main/prompt_refiner)| |
+| v1.3.0 | 3D | [Anysize in 93x640x640](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.3.0/tree/main/any93x640x640)[3], more checkpoints are coming soon | [Anysize](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.3.0/tree/main/vae)| - | [checkpoint](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.3.0/tree/main/prompt_refiner)| |
 | v1.2.0 | 3D | [93x720p](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0/tree/main/93x720p), [29x720p](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0/tree/main/29x720p)[1], [93x480p](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0/tree/main/93x480p)[1,2], [29x480p](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0/tree/main/29x480p), [1x480p](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0/tree/main/1x480p), [93x480p_i2v](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0/tree/main/93x480p_i2v) | [Anysize](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0/tree/main/vae)| [Annotations](https://huggingface.co/datasets/LanguageBind/Open-Sora-Plan-v1.2.0) | - |
 | v1.1.0 | 2+1D | [221x512x512](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.1.0/tree/main/221x512x512), [65x512x512](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.1.0/tree/main/65x512x512) |[Anysize](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.1.0/tree/main/vae) |[Data and Annotations](https://huggingface.co/datasets/LanguageBind/Open-Sora-Plan-v1.1.0)| - |
 | v1.0.0 | 2+1D | [65x512x512](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.0.0/tree/main/65x512x512), [65x256x256](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.0.0/tree/main/65x256x256), [17x256x256](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.0.0/tree/main/17x256x256) | [Anysize](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.0.0/tree/main/vae) | [Data and Annotations](https://huggingface.co/datasets/LanguageBind/Open-Sora-Plan-v1.0.0)| - |
@@ -88,6 +88,8 @@ Coming soon...
 > [1] Please note that the weights for v1.2.0 29×720p and 93×480p were trained on Panda70M and have not undergone final high-quality data fine-tuning, so they may produce watermarks.
 
 > [2] We fine-tuned 3.5k steps from 93×720p to get 93×480p for community research use.
+
+> [3] The model is trained arbitrarily on stride=32. So keep the resolution of the inference a multiple of 32. Frames needs to be 4n+1, e.g. 93, 77, 61, 45, 29, 1 (image).
 
 > [!Warning]
 >
@@ -134,6 +136,19 @@ The data preparation, training and inferencing can be found [here](docs/T2V.md)
 
 The data preparation, training and inferencing can be found [here](docs/I2V.md)
 
+
+# ⚡️ Extra Save Memory
+
+## 🔆 Training
+During training, the entire EMA model remains in VRAM. You can enable `--offload_ema` or disable `--use_ema`. Additionally, VAE tiling is disabled by default, but you can pass `--enable_tiling` or disable `--vae_fp32`. Finally, a temporary but extreme saving memory option is enable `--extra_save_mem` to offload the text encoder and VAE to the CPU when not in use, though this will significantly slow down performance.
+
+We currently have two plans: one is to continue using the Deepspeed/FSDP approach, sharding the EMA and text encoder across ranks with Zero3, which is sufficient for training 10-15B models. The other is to adopt MindSpeed for various parallel strategies, enabling us to scale the model up to 30B.
+
+## ⚡️ 24G VRAM Inferencing
+
+Please first ensure that you understand how to inference. Refer to the [inference](https://github.com/PKU-YuanGroup/Open-Sora-Plan/blob/main/docs/T2V.md#inference) instructions in Text-to-Video.
+Simply specify `--save_memory`, and during inference, `enable_model_cpu_offload()`, `enable_sequential_cpu_offload()`, and `vae.vae.enable_tiling()` will be automatically activated.
+
 # 💡 How to Contribute
 We greatly appreciate your contributions to the Open-Sora Plan open-source community and helping us make it even better than it is now!
 
@@ -152,11 +167,10 @@ For more details, please refer to the [Contribution Guidelines](docs/Contributio
 # 🔒 License
 * See [LICENSE](LICENSE) for details.
 
-<!--
 ## ✨ Star History
 
 [![Star History](https://api.star-history.com/svg?repos=PKU-YuanGroup/Open-Sora-Plan)](https://star-history.com/#PKU-YuanGroup/Open-Sora-Plan&Date)
--->
+
 
 
 # ✏️ Citing

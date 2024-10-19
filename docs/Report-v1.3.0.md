@@ -181,7 +181,7 @@ We estimated the average position of subtitles on common video platforms to be a
 
 #### Aesthetic
 
-As before, we used the [Laion aesthetic predictor](https://github.com/christophschuhmann/improved-aesthetic-predictor) for evaluation. Based on the visualization [website](http://captions.christoph-schuhmann.de/aesthetic_viz_laion_sac+logos+ava1-l14-linearMSE-en-2.37B.html), we determined that a score of 4.75 serves as a suitable threshold, effectively filtering out excessive text while retaining high-quality aesthetics.
+As before, we used the [Laion aesthetic predictor](https://github.com/christophschuhmann/improved-aesthetic-predictor) for evaluation. Based on the visualization [website](http://captions.christoph-schuhmann.de/aesthetic_viz_laion_sac+logos+ava1-l14-linearMSE-en-2.37B.html), we determined that a score of 4.75 serves as a suitable threshold, effectively filtering out excessive text while retaining high-quality aesthetics. We will add an additional aesthetic prompt, such as `A high-aesthetic scene, ` for data with a score above 6.25.
 
 #### Video Quality
 
@@ -251,7 +251,7 @@ To accelerate training while ensuring adequate performance, we propose the **Ski
 </figure>
 </center>
 
-**Skiparse DiT modifies only the Attention component** within the Transformer Block, using two alternating Skip Sparse Transformer Blocks. With a fixed sparse ratio $$k$$ , the attention scope size is reduced to $$\frac{1}{k}$$ of its original size, theoretically reducing the time complexity of self attention to $$\frac{2}{k^2}$$  and that of cross attention to $$\frac{2}{k}$$ of the original complexity. 
+**Skiparse DiT modifies only the Attention component** within the Transformer Block, using two alternating Skip Sparse Transformer Blocks. With sparse ratio $$k$$, the sequence length in the attention operation reduces to $$\frac{1}{k}$$ of the original, and batch size increases by $$k$$-fold, lowering the theoretical complexity of self-attention to $$\frac{1}{k}$$ of the original, while cross-attention complexity remains unchanged. Due to GPU/NPU parallel processing, increasing the batch size by $$k$$-fold does not linearly decrease speed to $$\frac{1}{k}$$, resulting in a performance boost that exceeds theoretical expectations.
 
 <center>
 <figure>
@@ -293,40 +293,49 @@ In Skiparse Attention, Single Skip is a straightforward operation, easily unders
 </figure>
 </center>
 
-To deeply understand why nearly global attention is necessary and why Skiparse Attention theoretically approximates Full 3D Attention more closely than other common methods, we introduce the concept of **Average Attention Distance**. This concept is defined as follows: for any two tokens, if it takes $$m$$ attention operations to establish a connection between them, the attention distance is  $$m$$ . The average attention distance for a tensor is then the mean of the attention distances across all token pairs, representing the corresponding attention method’s overall connectivity efficiency. The average attention distance of all tokens within a tensor is defined as the average attention distance for that particular attention method.
+To deeply understand why nearly global attention is necessary and why Skiparse Attention theoretically approximates Full 3D Attention more closely than other common methods, we introduce the concept of **Average Attention Distance**. This concept is defined as follows: for any two tokens, if it takes $$m$$ attention operations to establish a connection between them, the attention distance is  $$m$$ . The average attention distance for a tensor is then the mean of the attention distances across all token pairs, representing the corresponding attention method’s overall connectivity efficiency. The average attention distance of all tokens within a tensor is defined as the average attention distance for that particular attention method. 
 
 For example, in Full 3D Attention, any token can connect with any other token in just one attention operation, resulting in an average attention distance of 1.
 
-In 2+1D Attention, the process is somewhat more complex, though still straightforward to understand. In all configurations above, any two tokens can connect with an attention distance between 1 and 2. For each of the other three attention methods, we can first determine which tokens have an attention distance of 1, thereby defining the average attention distance. In even-numbered blocks (2N), attention is applied over the spatial $$(H, W)$$ dimensions, yielding an attention distance of 1 for those tokens. In odd-numbered blocks (2N+1), attention is applied along the temporal $$(T)$$ dimension, with tokens again having an attention distance of 1. Therefore, the average attention distance (AVG Attention Distance) for 2+1D Attention is calculated as follows:
+In 2+1D Attention, the process is somewhat more complex, though still straightforward to understand. In all configurations above, any two different tokens can connect with an attention distance between 1 and 2 (Note that we define the attention distance between a token and itself as zero). Thus, for the other three attention methods, we can first identify which tokens have an attention distance of 1. Subsequently, tokens with an attention distance of 2 can be determined, allowing us to calculate the average attention distance.
+
+In the $$2N$$ Block, attention operates over the $$(H, W)$$ dimensions, where tokens within this region have an attention distance of 1. In the $$2N+1$$ Block, attention operates along the $$(T)$$ dimension, also assigning an attention distance of 1 for these tokens. The total number of tokens with an attention distance of 1 in this case is $$HW + T - 2$$ (excluding the token itself, hence $$(HW + T - 1) - 1 = HW + T - 2$$).
+
+Therefore, in 2+1D Attention, the average attention distance (AVG Attention Distance) is:
 
 $$
-\begin{align}
-d&=\frac{1}{THW}\left[ \left( HW-1 \right) \times 1+\left( T-1 \right) \times 1+\left( THW-HW-T+1 \right) \times 2 \right] 
-\\
-&=2-\left( \frac{1}{T}+\frac{1}{HW} \right) 
-\end{align}
+\begin{aligned}
+	d&=\frac{1}{THW}\left[ 1\times 0+\left( HW+T-2 \right) \times 1+\left[ THW-\left( HW+T-1 \right) \right] \times 2 \right]\\
+	&=2-\left( \frac{1}{T}+\frac{1}{HW} \right)\\
+\end{aligned}
 $$
 
-In Skip + Window Attention, for each even-numbered block (2N), the attention distance is 1 among $$\frac{THW}{k}$$  tokens; for each odd-numbered block (2N+1), $$k$$ tokens share an attention distance of 1. Thus, the AVG Attention Distance for Skip + Window Attention is calculated as follows:
+In Skip+Window Attention, aside from the token itself, there are $$\frac{THW}{k} - 1$$ tokens with an attention distance of 1 in the $$2N$$ Block, and $$k - 1$$ tokens with an attention distance of 1 in the $$2N+1$$ Block. Thus, the total number of tokens with an attention distance of 1 is $$\frac{THW}{k} + k - 2$$.
+
+Therefore, in Skip+Window Attention, the average attention distance (AVG Attention Distance) is:
 
 $$
-\begin{align}
-d &= \frac{1}{THW} \left[ \left( \frac{THW}{k} - 1 \right) \times 1 + \left( k - 1 \right) \times 1 + \left( THW - \frac{THW}{k} - k + 1 \right) \times 2 \right] \\
-&= 2 - \left( \frac{1}{k} + \frac{k}{THW} \right)
-\end{align}
+\begin{aligned}
+	d&=\frac{1}{THW}\left[ 1\times 0+\left( \frac{THW}{k}+k-2 \right) \times 1+\left[ THW-\left( \frac{THW}{k}+k-1 \right) \right] \times 2 \right]\\
+	&=2-\left( \frac{1}{k}+\frac{k}{THW} \right)\\
+\end{aligned}
 $$
 
-In Skiparse Attention, for each even-numbered block (2N), an attention distance of 1 exists among $$\frac{THW}{k}$$ tokens; similarly, in each odd-numbered block (2N+1), $$\frac{THW}{k}$$ tokens also share an attention distance of 1. Notably, $$\frac{THW}{k^2}$$ tokens can establish connections within each block. Thus, the AVG Attention Distance in Skiparse Attention is calculated as follows:
+In Skiparse Attention, aside from the token itself, $$\frac{THW}{k} - 1$$ tokens have an attention distance of 1 in the $$2N$$ Block, and $$\frac{THW}{k} - 1$$ tokens have an attention distance of 1 in the $$2N+1$$ Block. Notably, $$\frac{THW}{k^2} - 1$$ tokens can establish an attention distance of 1 in both blocks and should not be counted twice.
+
+Therefore, in Skiparse Attention, the average attention distance (AVG Attention Distance) is:
 
 $$
-\begin{align}
-	d&=\frac{1}{THW}\left[ \left( \frac{THW}{k}-1 \right) \times 1+\left( \frac{THW}{k}-1 \right) \times 1+\left[ THW-\left( \frac{THW}{k}+\frac{THW}{k^2} \right) \right] \times 2 \right]\\
-	&=2-\frac{2}{k}+\frac{2}{k^2}-\frac{2}{THW}\\
-	&=2-\frac{2}{k}+\frac{1}{k^2}\left( 2\ll THW \right)\\
-\end{align}
+\begin{aligned}
+	d&=\frac{1}{THW}\left[ 1\times 0+\left[ \frac{2THW}{k}-2-\left( \frac{THW}{k^2}-1 \right) \right] \times 1+\left[ THW-\left( \frac{2THW}{k}-\frac{THW}{k^2} \right) \right] \times 2 \right]\\
+	&=2-\frac{2}{k}+\frac{1}{k^2}-\frac{1}{THW}\\
+	&=2-\frac{2}{k}+\frac{1}{k^2}\left( 1\ll THW \right)\\
+\end{aligned}
 $$
 
-The above calculation assumes the ideal conditions where $$k \ll THW$$ and $$k$$ divides $$THW$$ exactly. When $$k$$  is large enough that it becomes difficult to find sufficient groups for group skip or when $$k$$ does not divide $$THW$$, padding is required for parallel computation. Specifically, when $$k = HW$$ and padding is ignored, Group Skip Attention simplifies to Window Attention, as $$T \ll HW$$, yielding a scope size equal to $$HW$$. Since padding does not affect the final result, Skiparse Attention becomes equivalent to 2+1D Attention when $$k = HW$$.
+In fact, in the Group Skip of the $$2N+1$$ Block, the actual sequence length is $$k\lceil \frac{THW}{k^2} \rceil$$ rather than $$\frac{THW}{k}$$. The prior calculation assumes the ideal case where $$k \ll THW$$ and $$k$$ divides $$THW$$ exactly, yielding $$k\lceil \frac{THW}{k^2} \rceil = k \cdot \frac{THW}{k^2} = \frac{THW}{k}$$. In practical applications, excessively large $$k$$ values are typically avoided, making this derivation a reasonably accurate approximation for general use.
+
+Specifically, when $$k = HW$$ and padding is disregarded, since $$T \ll HW$$, group skip attention reduces to window attention with a window size of $$HW$$. Given that padding does not affect the final computation, Skiparse Attention is equivalent to 2+1D Attention when $$k = HW$$.
 
 For the commonly used resolution of 93x512x512, using a causal VAE with a 4x8x8 compression rate and a DiT with a 1x2x2 patch embedding, we obtain a latent shape of 24x32x32 before applying attention. The AVG Attention Distance for different calculation methods would then be as follows:
 
@@ -349,7 +358,6 @@ In 2+1D Attention, the average attention distance is 1.957, larger than that of 
 	<img src="https://github.com/user-attachments/assets/80ca6d70-5033-454b-883f-11d12d140360" width=600/>
 </figure>
 </center>
-
 
 The figure above shows how Skiparse Attention’s AVG Attention Distance changes with sparse ratio $$k$$.
 
@@ -382,7 +390,9 @@ In our early implementation, we specified `--max_width`, `--max_height`, `--min_
 
 #### Training scheduler
 
-**Stage 1**: We initially initialized from the image weights of version 1.2.0 and trained images at a resolution of 1x320x320. The objective of this phase was to fine-tune the 3D dense attention model to a sparse attention model. Additionally, we replaced the eps-pred loss with v-pred loss. The entire fine-tuning process involved approximately 100k steps, with a batch size of 1024 and a learning rate of 2e-5. The image data was primarily sourced from SAM in version 1.2.0.
+We replaced the eps-pred loss with v-pred loss and enable ZeroSNR. For videos, we resample to 16 FPS for training.
+
+**Stage 1**: We initially initialized from the image weights of version 1.2.0 and trained images at a resolution of 1x320x320. The objective of this phase was to fine-tune the 3D dense attention model to a sparse attention model. The entire fine-tuning process involved approximately 100k steps, with a batch size of 1024 and a learning rate of 2e-5. The image data was primarily sourced from SAM in version 1.2.0.
 
 
 **Stage 2**: We trained the model jointly on images and videos, with a maximum resolution of 93x320x320. The entire fine-tuning process involved approximately 300k steps, with a batch size of 1024 and a learning rate of 2e-5. The image data was primarily sourced from SAM in version 1.2.0, while the video data consisted of the unfiltered Panda70m. In fact, the model had nearly converged around 100k steps, and by 300k steps, there were no significant gains. Subsequently, we performed data cleaning and caption rewriting, with further data analysis discussed at the end.
@@ -544,6 +554,8 @@ Models such as [Open-Sora v1.2](https://github.com/hpcaitech/Open-Sora), [EasyAn
 #### The model still needs to scale
 
 By observing the differences between [CogVideoX-2B](https://github.com/THUDM/CogVideo) and its 5B variant, we can clearly see that the 5B model understands more physical laws than the 2B model. We speculate that instead of spending excessive effort designing for smaller models, it may be more effective to leverage scaling laws to solve these issues. In the next version, we will scale up the model to explore the boundaries of video generation.
+
+We currently have two plans: one is to continue using the Deepspeed/FSDP approach, sharding the EMA and text encoder across ranks with Zero3, which is sufficient for training 10-15B models. The other is to adopt [MindSpeed](https://gitee.com/ascend/MindSpeed) for various parallel strategies, enabling us to scale the model up to 30B.
 
 #### Supervised loss in training
 
