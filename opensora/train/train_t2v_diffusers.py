@@ -189,6 +189,7 @@ def main(args):
         log_with=args.report_to,
         project_config=accelerator_project_config,
     )
+
     if args.skip_abnorml_step and accelerator.distributed_type == DistributedType.DEEPSPEED:
         from opensora.utils.deepspeed_utils import backward
         deepspeed.runtime.engine.DeepSpeedEngine.backward = backward
@@ -199,10 +200,13 @@ def main(args):
     if args.report_to == "wandb":
         if not is_wandb_available():
             raise ImportError("Make sure to install wandb if you want to use it for logging during training.")
+        wandb_init_kwargs = {"wandb": {"name": args.log_name or args.output_dir}}
 
-        # if accelerator.is_main_process:
-        #     from threading import Thread
-        #     Thread(target=monitor_npu_power, daemon=True).start()
+    # We need to initialize the trackers we use, and also store our configuration.
+    # The trackers initializes automatically on the main process.
+    if accelerator.is_main_process:
+        accelerator.init_trackers(os.path.basename(args.output_dir), config=vars(args), 
+                                  init_kwargs=wandb_init_kwargs if args.report_to == "wandb" else None)
 
     # Make one log on every process with the configuration for debugging.
     logging.basicConfig(
@@ -308,7 +312,7 @@ def main(args):
     # # use pretrained model?
     if args.pretrained:
         model_state_dict = model.state_dict()
-        print(f'Load from {args.pretrained}')
+        logger.info(f'Load from {args.pretrained}')
         if args.pretrained.endswith('.safetensors'):  
             from safetensors.torch import load_file as safe_load
             pretrained_checkpoint = safe_load(args.pretrained, device="cpu")
@@ -329,8 +333,8 @@ def main(args):
             common_keys = list(pretrained_keys & model_keys)
             checkpoint = {k: pretrained_checkpoint[k] for k in common_keys if model_state_dict[k].numel() == pretrained_checkpoint[k].numel()}
             missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=False)
-        print(f'missing_keys {len(missing_keys)} {missing_keys}, unexpected_keys {len(unexpected_keys)}')
-        print(f'Successfully load {len(model_state_dict) - len(missing_keys)}/{len(model_state_dict)} keys from {args.pretrained}!')
+        logger.info(f'missing_keys {len(missing_keys)} {missing_keys}, unexpected_keys {len(unexpected_keys)}')
+        logger.info(f'Successfully load {len(model_state_dict) - len(missing_keys)}/{len(model_state_dict)} keys from {args.pretrained}!')
 
     model.gradient_checkpointing = args.gradient_checkpointing
     # Freeze vae and text encoders.
@@ -561,14 +565,7 @@ def main(args):
     # Afterwards we recalculate our number of training epochs
     args.num_train_epochs = math.ceil(args.max_train_steps / num_update_steps_per_epoch)
 
-    # We need to initialize the trackers we use, and also store our configuration.
-    # The trackers initializes automatically on the main process.
-    if accelerator.is_main_process:
-        accelerator.init_trackers(os.path.basename(args.output_dir), config=vars(args))
-
     # Train!
-    print(f"  Args = {args}")
-    print(f"  noise_scheduler = {noise_scheduler}")
     logger.info("***** Running training *****")
     logger.info(f"  Model = {model}")
     logger.info(f"  Args = {args}")
@@ -836,8 +833,6 @@ def main(args):
             else:
                 loss = loss_mse.mean()
 
-
-
         # Gather the losses across all processes for logging (if we use distributed training).
         avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
         progress_info.train_loss += avg_loss.detach().item() / args.gradient_accumulation_steps
@@ -850,7 +845,7 @@ def main(args):
                 )
             _, grad_norm, weight_norm, moving_avg_grad_norm, grad_norm_clip, max_norm, \
                 moving_avg_grad_norm_std, grad_norm_std, clip_coef = results
-            print('rank {} | step {} | grad_norm {}'.format(accelerator.process_index, step_, grad_norm))
+            # print('rank {} | step {} | grad_norm {}'.format(accelerator.process_index, step_, grad_norm))
             progress_info.grad_norm += grad_norm / args.gradient_accumulation_steps
             progress_info.weight_norm += weight_norm / args.gradient_accumulation_steps
             progress_info.moving_avg_grad_norm = moving_avg_grad_norm / args.gradient_accumulation_steps
@@ -874,9 +869,7 @@ def main(args):
             sync_gradients_info(loss)
 
         if accelerator.is_main_process:
-
             if progress_info.global_step % args.checkpointing_steps == 0:
-
                 if args.enable_tracker:
                     log_validation(
                         args, model, ae, [text_enc_1.text_enc, getattr(text_enc_2, 'text_enc', None)], 
@@ -1163,6 +1156,7 @@ if __name__ == "__main__":
     parser.add_argument("--enable_tracker", action="store_true")
     parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
     parser.add_argument("--output_dir", type=str, default=None, help="The output directory where the model predictions and checkpoints will be written.")
+    parser.add_argument("--log_name", type=str, default=None, help="Custom names for the runs in W&B logger, default to output_dir.")
     parser.add_argument("--checkpoints_total_limit", type=int, default=None, help=("Max number of checkpoints to store."))
     parser.add_argument("--checkpointing_steps", type=int, default=500,
                         help=(

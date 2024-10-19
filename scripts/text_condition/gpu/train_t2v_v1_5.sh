@@ -1,7 +1,5 @@
-export WANDB_KEY="953e958793b218efb850fa194e85843e2c3bd88b"
+export WANDB_API_KEY="953e958793b218efb850fa194e85843e2c3bd88b"
 # export WANDB_MODE="offline"
-export ENTITY="linbin"
-export PROJECT="bs32x8x2_61x480p_lr1e-4_snr5_noioff0.02_opensora122_rope_mt5xxl_pandamovie_aes_mo_sucai_mo_speed1.2"
 export HF_DATASETS_OFFLINE=1 
 export TRANSFORMERS_OFFLINE=1
 export PDSH_RCMD_TYPE=ssh
@@ -71,4 +69,4 @@ accelerate launch \
     --vae_fp32 \
     --lr_warmup_steps 0 \
     --rf_scheduler \
-    --skip_abnorml_step 
+    --log_name "test_a_name"

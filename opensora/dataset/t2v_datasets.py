@@ -87,15 +87,7 @@ class DataSetProg(metaclass=SingletonMeta):
         self.n_elements = n_elements
         self.elements = list(range(n_elements))
         
-        print(f"n_elements: {len(self.elements)}", flush=True)
-        # if torch_npu is not None:
-        #     random.shuffle(self.elements)
-        #     for i in range(self.num_workers):
-        #         self.n_used_elements[i] = 0
-        #         per_worker = int(math.ceil(len(self.elements) / float(self.num_workers)))
-        #         start = i * per_worker
-        #         end = min(start + per_worker, len(self.elements))
-        #         self.worker_elements[i] = self.elements[start: end]
+        logger.info(f"n_elements: {len(self.elements)}")
 
     def get_item(self, work_info):
         if work_info is None:
@@ -166,7 +158,7 @@ class DecordDecoder(object):
             video_data = torch.from_numpy(video_data)
             return video_data
         except Exception as e:
-            print('get_batch execption:', e)
+            logger.info('get_batch execption:', e)
             return None
         
 class T2V_dataset(Dataset):
@@ -208,12 +200,12 @@ class T2V_dataset(Dataset):
         s = time.time()
         cap_list, self.sample_size, self.shape_idx_dict = self.define_frame_index(self.data)
         e = time.time()
-        print(f'Build data time: {e-s}')
+        logger.info(f'Build data time: {e-s}')
         self.lengths = self.sample_size
 
         n_elements = len(cap_list)
         dataset_prog.set_cap_list(args.dataloader_num_workers, cap_list, n_elements)
-        print(f"Data length: {len(dataset_prog.cap_list)}")
+        logger.info(f"Data length: {len(dataset_prog.cap_list)}")
         self.executor = ThreadPoolExecutor(max_workers=1)
         self.timeout = 60
 
@@ -233,7 +225,7 @@ class T2V_dataset(Dataset):
         except Exception as e:
             if len(str(e)) < 2:
                 e = f"TimeoutError, {self.timeout}s timeout occur with {dataset_prog.cap_list[idx]['path']}"
-            print(f'Error with {e}')
+            logger.info(f'Error with {e}')
             index_cand = self.shape_idx_dict[self.sample_size[idx]]  # pick same shape
             return self.__getitem__(random.choice(index_cand))
 
@@ -391,7 +383,7 @@ class T2V_dataset(Dataset):
         with open(data, 'r') as f:
             folder_anno = [i.strip().split(',') for i in f.readlines() if len(i.strip()) > 0]
         for sub_root, anno in tqdm(folder_anno):
-            print(f'Building {anno}...')
+            logger.info(f'Building {anno}...')
             if anno.endswith('.json'):
                 with open(anno, 'r') as f:
                     sub_list = json.load(f)
@@ -550,7 +542,7 @@ class T2V_dataset(Dataset):
         cnt_filter_minority = len_before_filter_major - len(sample_size) 
         counter = Counter(sample_size)
         
-        print(f'no_cap: {cnt_no_cap}, no_resolution: {cnt_no_resolution}\n'
+        logger.info(f'no_cap: {cnt_no_cap}, no_resolution: {cnt_no_resolution}\n'
                 f'too_long: {cnt_too_long}, too_short: {cnt_too_short}\n'
                 f'cnt_img_res_mismatch_stride: {cnt_img_res_mismatch_stride}, cnt_vid_res_mismatch_stride: {cnt_vid_res_mismatch_stride}\n'
                 f'cnt_img_res_too_small: {cnt_img_res_too_small}, cnt_vid_res_too_small: {cnt_vid_res_too_small}\n'
@@ -564,7 +556,7 @@ class T2V_dataset(Dataset):
         
         if len(aesthetic_score) > 0:
             stats_aesthetic = calculate_statistics(aesthetic_score)
-            print(f"before filter: {cnt}, after filter: {len(new_cap_list)}\n"
+            logger.info(f"before filter: {cnt}, after filter: {len(new_cap_list)}\n"
                 f"aesthetic_score: {len(aesthetic_score)}, cnt_no_aesthetic: {cnt_no_aesthetic}\n"
                 f"{len([i for i in aesthetic_score if i>=5.75])} > 5.75, 4.5 > {len([i for i in aesthetic_score if i<=4.5])}\n"
                 f"Mean: {stats_aesthetic['mean']}, Var: {stats_aesthetic['variance']}, Std: {stats_aesthetic['std_dev']}\n"
