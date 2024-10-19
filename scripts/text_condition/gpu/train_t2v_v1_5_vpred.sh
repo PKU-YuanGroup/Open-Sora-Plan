@@ -45,7 +45,7 @@ accelerate launch \
     --text_encoder_name_2 laion/CLIP-ViT-bigG-14-laion2B-39B-b160k \
     --cache_dir "../../cache_dir/" \
     --dataset t2v \
-    --data "scripts/train_data/video_data_debug.txt" \
+    --data "scripts/train_data/image_data_debug.txt" \
     --ae WFVAEModel_D32_8x8x8 \
     --ae_path "/storage/lcm/WF-VAE/results/Middle888" \
     --sample_rate 1 \
@@ -53,7 +53,7 @@ accelerate launch \
     --max_hxw 147456 \
     --mim_hxw 110592 \
     --gradient_checkpointing \
-    --train_batch_size=8 \
+    --train_batch_size=1 \
     --dataloader_num_workers 16 \
     --learning_rate=1e-4 \
     --lr_scheduler="constant_with_warmup" \
@@ -73,9 +73,11 @@ accelerate launch \
     --seed 1234 \
     --group_data \
     --use_decord \
-    --output_dir="mmdit13b_rf_bs1024_lr1e-4_max1x384x384_min1x384x288_noema_emaclip9999" \
+    --output_dir="mmdit13b_vpred_bs1024_lr1e-4_max1x384x384_min1x384x288_noema_emaclip9999" \
     --vae_fp32 \
-    --rf_scheduler \
+    --prediction_type "v_prediction" \
+    --rescale_betas_zero_snr \
+    --v1_5_scheduler \
     --proj_name "10.19_mmdit13b" \
-    --log_name "rf_bs1024_lr1e-4_max1x384x384_min1x384x288_emaclip9999" \
+    --log_name "vpred_bs1024_lr1e-4_max1x384x384_min1x384x288_emaclip9999" \
     --skip_abnorml_step --ema_decay_grad_clipping 0.9999

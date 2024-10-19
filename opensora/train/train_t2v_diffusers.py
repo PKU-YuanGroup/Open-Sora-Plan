@@ -200,12 +200,12 @@ def main(args):
     if args.report_to == "wandb":
         if not is_wandb_available():
             raise ImportError("Make sure to install wandb if you want to use it for logging during training.")
-        wandb_init_kwargs = {"wandb": {"name": args.log_name or args.output_dir}}
+        wandb_init_kwargs = {"wandb": {"name": args.log_name or args.proj_name or args.output_dir}}
 
     # We need to initialize the trackers we use, and also store our configuration.
     # The trackers initializes automatically on the main process.
     if accelerator.is_main_process:
-        accelerator.init_trackers(os.path.basename(args.output_dir), config=vars(args), 
+        accelerator.init_trackers(os.path.basename(args.proj_name or args.output_dir), config=vars(args), 
                                   init_kwargs=wandb_init_kwargs if args.report_to == "wandb" else None)
 
     # Make one log on every process with the configuration for debugging.
@@ -841,6 +841,7 @@ def main(args):
             results = accelerator.deepspeed_engine_wrapped.engine.backward(
                 loss, process_index=accelerator.process_index, step_=step_, 
                 moving_avg_grad_norm=progress_info.moving_avg_grad_norm, 
+                ema_decay_grad_clipping=args.ema_decay_grad_clipping, 
                 moving_avg_grad_norm_std=progress_info.moving_avg_grad_norm_std, accelerator=accelerator
                 )
             _, grad_norm, weight_norm, moving_avg_grad_norm, grad_norm_clip, max_norm, \
@@ -1106,6 +1107,7 @@ if __name__ == "__main__":
     parser.add_argument("--group_data", action="store_true")
     parser.add_argument("--hw_stride", type=int, default=32)
     parser.add_argument("--force_resolution", action="store_true")
+    parser.add_argument("--force_5_ratio", action="store_true")
     parser.add_argument("--trained_data_global_step", type=int, default=None)
     parser.add_argument("--use_decord", action="store_true")
     parser.add_argument('--random_data', action='store_true')
@@ -1147,6 +1149,7 @@ if __name__ == "__main__":
     parser.add_argument("--noise_offset", type=float, default=0.0, help="The scale of noise offset.")
     parser.add_argument("--prediction_type", type=str, default='epsilon', help="The prediction_type that shall be used for training. Choose between 'epsilon' or 'v_prediction' or leave `None`. If left to `None` the default prediction type of the scheduler: `noise_scheduler.config.prediciton_type` is chosen.")
     parser.add_argument('--rescale_betas_zero_snr', action='store_true')
+    parser.add_argument("--ema_decay_grad_clipping", type=float, default=0.9999)
 
     # validation & logs
     parser.add_argument("--log_interval", type=int, default=10)
@@ -1156,7 +1159,8 @@ if __name__ == "__main__":
     parser.add_argument("--enable_tracker", action="store_true")
     parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
     parser.add_argument("--output_dir", type=str, default=None, help="The output directory where the model predictions and checkpoints will be written.")
-    parser.add_argument("--log_name", type=str, default=None, help="Custom names for the runs in W&B logger, default to output_dir.")
+    parser.add_argument("--proj_name", type=str, default=None, help="Custom project names for the runs in W&B logger, default to output_dir.")
+    parser.add_argument("--log_name", type=str, default=None, help="Custom run names for the runs in W&B logger, default to proj_name or output_dir.")
     parser.add_argument("--checkpoints_total_limit", type=int, default=None, help=("Max number of checkpoints to store."))
     parser.add_argument("--checkpointing_steps", type=int, default=500,
                         help=(
@@ -1186,11 +1190,11 @@ if __name__ == "__main__":
     
     # optimizer & scheduler
     parser.add_argument("--num_train_epochs", type=int, default=100)
-    parser.add_argument("--max_train_steps", type=int, default=None, help="Total number of training steps to perform.  If provided, overrides num_train_epochs.")
+    parser.add_argument("--max_train_steps", type=int, default=1000000, help="Total number of training steps to perform.  If provided, overrides num_train_epochs.")
     parser.add_argument("--gradient_accumulation_steps", type=int, default=1, help="Number of updates steps to accumulate before performing a backward/update pass.")
     parser.add_argument("--optimizer", type=str, default="adamW", help='The optimizer type to use. Choose between ["AdamW", "prodigy"]')
     parser.add_argument("--learning_rate", type=float, default=1e-4, help="Initial learning rate (after the potential warmup period) to use.")
-    parser.add_argument("--lr_warmup_steps", type=int, default=500, help="Number of steps for the warmup in the lr scheduler.")
+    parser.add_argument("--lr_warmup_steps", type=int, default=0, help="Number of steps for the warmup in the lr scheduler.")
     parser.add_argument("--use_8bit_adam", action="store_true", help="Whether or not to use 8-bit Adam from bitsandbytes. Ignored if optimizer is not set to AdamW")
     parser.add_argument("--adam_beta1", type=float, default=0.9, help="The beta1 parameter for the Adam and Prodigy optimizers.")
     parser.add_argument("--adam_beta2", type=float, default=0.999, help="The beta2 parameter for the Adam and Prodigy optimizers.")

@@ -164,7 +164,8 @@ def get_grad_norm(parameters, norm_type=2, mpu=None):
 @instrument_w_nvtx
 def backward(
     self, loss, allreduce_gradients=True, release_loss=False, retain_graph=False, scale_wrt_gas=True, 
-    process_index=0, step_=0, moving_avg_grad_norm=-1e-6, moving_avg_grad_norm_std=0.0, accelerator=None
+    process_index=0, step_=0, moving_avg_grad_norm=-1e-6, moving_avg_grad_norm_std=0.0, accelerator=None, 
+    ema_decay_grad_clipping=0.9999, 
     ):
     r"""Execute backward pass on the loss
     Arguments:
@@ -238,7 +239,7 @@ def backward(
     grad_norm_std = grad_norm_list.std().item()
 
     is_first_step = True if moving_avg_grad_norm < 0.0 else False # the value of init is -1e6, before first step
-    ema_decay = 0.995
+    ema_decay = ema_decay_grad_clipping
     if is_first_step:  
         moving_avg_grad_norm = grad_norm
         moving_avg_grad_norm_std = grad_norm_std

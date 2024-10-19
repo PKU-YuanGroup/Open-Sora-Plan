@@ -253,18 +253,35 @@ class RandomCropVideo:
         return f"{self.__class__.__name__}(size={self.size})"
 
 
-def get_params(h, w, stride):
-    
-    th, tw = h // stride * stride, w // stride * stride
+RATIOS = [
+    [16, 9],
+    [9, 16],
+    [1, 1],
+    [4, 3],
+    [3, 4]
+]
 
+def find_closest_ratio(h, w):
+    input_ratio = h / w
+    closest_ratio = min(RATIOS, key=lambda r: abs(r[0]/r[1] - input_ratio))
+    return closest_ratio[0], closest_ratio[1]
+
+def get_params(h, w, stride, force_5_ratio):
+    if not force_5_ratio:
+        th, tw = h // stride * stride, w // stride * stride
+    else:
+        closest_ratio_h, closest_ratio_w = find_closest_ratio(h, w)
+        stride_h, stride_w = closest_ratio_h * stride, closest_ratio_w * stride
+        min_k = min(h // stride_h, w // stride_w)
+        th, tw = stride_h * min_k, stride_w * min_k
     i = (h - th) // 2
     j = (w - tw) // 2
-
     return i, j, th, tw 
     
 class SpatialStrideCropVideo:
-    def __init__(self, stride):
+    def __init__(self, stride, force_5_ratio=False):
         self.stride = stride
+        self.force_5_ratio = force_5_ratio
 
     def __call__(self, clip):
         """
@@ -275,7 +292,7 @@ class SpatialStrideCropVideo:
                 size is (T, C, OH, OW)
         """
         h, w = clip.shape[-2:] 
-        i, j, h, w = get_params(h, w, self.stride)
+        i, j, h, w = get_params(h, w, self.stride, self.force_5_ratio)
         return crop(clip, i, j, h, w)
 
 

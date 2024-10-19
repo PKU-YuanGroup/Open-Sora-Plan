@@ -190,6 +190,7 @@ class T2V_dataset(Dataset):
         self.hw_aspect_thr = 2.0  # just a threshold
         self.too_long_factor = 5.0
         self.random_data = args.random_data
+        self.force_5_ratio = args.force_5_ratio
 
         self.support_Chinese = False
         if 'mt5' in args.text_encoder_name_1:
@@ -427,7 +428,7 @@ class T2V_dataset(Dataset):
                                 continue
                             
                             tr_h, tr_w = maxhwresize(height, width, self.max_hxw)
-                            _, _, sample_h, sample_w = get_params(tr_h, tr_w, self.hw_stride)
+                            _, _, sample_h, sample_w = get_params(tr_h, tr_w, self.hw_stride, self.force_5_ratio)
 
                             if sample_h <= 0 or sample_w <= 0:
                                 if path.endswith('.mp4'):
@@ -542,7 +543,7 @@ class T2V_dataset(Dataset):
         cnt_filter_minority = len_before_filter_major - len(sample_size) 
         counter = Counter(sample_size)
         
-        logger.info(f'no_cap: {cnt_no_cap}, no_resolution: {cnt_no_resolution}\n'
+        print(f'no_cap: {cnt_no_cap}, no_resolution: {cnt_no_resolution}\n'
                 f'too_long: {cnt_too_long}, too_short: {cnt_too_short}\n'
                 f'cnt_img_res_mismatch_stride: {cnt_img_res_mismatch_stride}, cnt_vid_res_mismatch_stride: {cnt_vid_res_mismatch_stride}\n'
                 f'cnt_img_res_too_small: {cnt_img_res_too_small}, cnt_vid_res_too_small: {cnt_vid_res_too_small}\n'
@@ -556,7 +557,7 @@ class T2V_dataset(Dataset):
         
         if len(aesthetic_score) > 0:
             stats_aesthetic = calculate_statistics(aesthetic_score)
-            logger.info(f"before filter: {cnt}, after filter: {len(new_cap_list)}\n"
+            print(f"before filter: {cnt}, after filter: {len(new_cap_list)}\n"
                 f"aesthetic_score: {len(aesthetic_score)}, cnt_no_aesthetic: {cnt_no_aesthetic}\n"
                 f"{len([i for i in aesthetic_score if i>=5.75])} > 5.75, 4.5 > {len([i for i in aesthetic_score if i<=4.5])}\n"
                 f"Mean: {stats_aesthetic['mean']}, Var: {stats_aesthetic['variance']}, Std: {stats_aesthetic['std_dev']}\n"

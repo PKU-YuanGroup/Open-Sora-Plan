@@ -15,6 +15,8 @@ from opensora.models.causalvideovae import ae_norm, ae_denorm
 from opensora.dataset.transform import ToTensorVideo, TemporalRandomCrop, MaxHWResizeVideo, CenterCropResizeVideo, LongSideResizeVideo, SpatialStrideCropVideo, NormalizeVideo, ToTensorAfterResize
 
 
+from accelerate.logging import get_logger
+logger = get_logger(__name__)
 
 def getdataset(args):
     temporal_sample = TemporalRandomCrop(args.num_frames)  # 16 x
@@ -24,7 +26,7 @@ def getdataset(args):
     else:
         resize = [
             MaxHWResizeVideo(args.max_hxw), 
-            SpatialStrideCropVideo(stride=args.hw_stride), 
+            SpatialStrideCropVideo(stride=args.hw_stride, force_5_ratio=args.force_5_ratio), 
         ]
 
     # tokenizer_1 = AutoTokenizer.from_pretrained(args.text_encoder_name_1, cache_dir=args.cache_dir)
@@ -82,7 +84,7 @@ if __name__ == "__main__":
         'interpolation_scale_h': 1,
         'interpolation_scale_w': 1,
         'cache_dir': '../cache_dir', 
-        'data': '/home/image_data/gyy/mmdit/Open-Sora-Plan/scripts/train_data/current_hq_on_npu.txt', 
+        'data': '/storage/ongoing/9.29/mmdit/1.5/Open-Sora-Plan/scripts/train_data/image_data_debug.txt', 
         'train_fps': 18, 
         'drop_short_ratio': 0.0, 
         'speed_factor': 1.0, 
@@ -101,17 +103,15 @@ if __name__ == "__main__":
         'patch_size_t': 1, 
         'total_batch_size': 256, 
         'sp_size': 1, 
-        'max_hxw': 384*384, 
-        'min_hxw': 384*288, 
-        # 'max_hxw': 236544, 
-        # 'min_hxw': 102400, 
+        'max_hxw': 256*256, 
+        'min_hxw': 256*192, 
+        'force_5_ratio': True, 
+        'random_data': False, 
     }
     )
-    # accelerator = Accelerator()
+    accelerator = Accelerator()
     dataset = getdataset(args)
-    # data = next(iter(dataset))
-    # import ipdb;ipdb.set_trace()
-    # print()
+    import ipdb;ipdb.set_trace()
     sampler = LengthGroupedSampler(
                 args.train_batch_size,
                 world_size=1, 
@@ -131,7 +131,6 @@ if __name__ == "__main__":
         drop_last=False, 
         prefetch_factor=4
     )
-    import ipdb;ipdb.set_trace()
     import imageio
     import numpy as np
     from einops import rearrange
