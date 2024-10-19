@@ -10,11 +10,7 @@ from diffusers.models.normalization import RMSNorm, AdaLayerNorm
 from diffusers.models.attention_processor import Attention
 from diffusers.models.embeddings import PixArtAlphaTextProjection, Timesteps, TimestepEmbedding
 
-from opensora.models.diffusion.common import RoPE3D, PositionGetter3D
-
 logger = logging.get_logger(__name__)
-
-
 
 
 import torch
@@ -87,11 +83,12 @@ class RoPE3D(torch.nn.Module):
         output:
             * tokens after appplying RoPE3D (ntokens x batch_size x nheads x dim)
         """
-        assert dim % 3 == 0, "number of dimensions should be a multiple of three"
-        D = dim // 3
+        assert dim % 16 == 0, "number of dimensions should be a multiple of 16"
+        D_t = dim // 16 * 4
+        D = dim // 16 * 6
         poses, max_poses = positions
-        assert len(poses) == 3 and poses[0].ndim == 2# Batch, Seq, 3
-        cos_t, sin_t = self.get_cos_sin(D, max_poses[0] + 1, device, dtype, self.interpolation_scale_t)
+        assert len(poses) == 3 and poses[0].ndim == 2 # Batch, Seq, 3
+        cos_t, sin_t = self.get_cos_sin(D_t, max_poses[0] + 1, device, dtype, self.interpolation_scale_t)
         cos_y, sin_y = self.get_cos_sin(D, max_poses[1] + 1, device, dtype, self.interpolation_scale_h)
         cos_x, sin_x = self.get_cos_sin(D, max_poses[2] + 1, device, dtype, self.interpolation_scale_w)
         return poses, cos_t, sin_t, cos_y, sin_y, cos_x, sin_x
@@ -115,7 +112,10 @@ def apply_rope1d(tokens, pos1d, cos, sin):
 def apply_rotary_emb(tokens, video_rotary_emb):
     poses, cos_t, sin_t, cos_y, sin_y, cos_x, sin_x = video_rotary_emb
     # split features into three along the feature dimension, and apply rope1d on each half
-    t, y, x = tokens.chunk(3, dim=-1)
+    dim = tokens.shape[-1]
+    D_t = dim // 16 * 4
+    D = dim // 16 * 6
+    t, y, x = torch.split(tokens, [D_t, D, D], dim=-1)
     t = apply_rope1d(t, poses[0], cos_t, sin_t)
     y = apply_rope1d(y, poses[1], cos_y, sin_y)
     x = apply_rope1d(x, poses[2], cos_x, sin_x)

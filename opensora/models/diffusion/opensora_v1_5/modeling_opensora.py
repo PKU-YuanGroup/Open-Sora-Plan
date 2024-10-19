@@ -561,9 +561,9 @@ def OpenSoraT2V_v1_5_6B_122(**kwargs):
 def OpenSoraT2V_v1_5_13B_122(**kwargs):
     if kwargs.get('sparse_n', None) is not None:
         kwargs.pop('sparse_n')
-    return OpenSoraT2V_v1_5(  # 32 layers
-        num_layers=[2, 4, 6, 8, 6, 4, 2], sparse_n=[1, 2, 4, 8, 4, 2, 1], 
-        attention_head_dim=144, num_attention_heads=32, 
+    return OpenSoraT2V_v1_5(  # 40 layers
+        num_layers=[2, 6, 8, 8, 8, 6, 2], sparse_n=[1, 2, 4, 8, 4, 2, 1], 
+        attention_head_dim=128, num_attention_heads=32, 
         timestep_embed_dim=1536, patch_size_t=1, patch_size=2, 
         caption_channels=2048, pooled_projection_dim=1280, **kwargs
     )

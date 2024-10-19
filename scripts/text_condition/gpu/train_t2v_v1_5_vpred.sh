@@ -73,11 +73,11 @@ accelerate launch \
     --seed 1234 \
     --group_data \
     --use_decord \
-    --output_dir="mmdit13b_vpred_bs1024_lr1e-4_max1x384x384_min1x384x288_noema_emaclip9999" \
+    --output_dir="mmdit13b_vpred_bs1024_lr1e-4_max1x256x256_min1x256x192_noema_emaclip9999" \
     --vae_fp32 \
     --prediction_type "v_prediction" \
     --rescale_betas_zero_snr \
     --v1_5_scheduler \
     --proj_name "10.19_mmdit13b" \
-    --log_name "vpred_bs1024_lr1e-4_max1x384x384_min1x384x288_emaclip9999" \
+    --log_name "vpred_bs1024_lr1e-4_max1x256x256_min1x256x192_emaclip9999" \
     --skip_abnorml_step --ema_decay_grad_clipping 0.9999
