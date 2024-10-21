@@ -8,49 +8,45 @@ export TRANSFORMERS_OFFLINE=1
 
 export TASK_QUEUE_ENABLE=0
 export HCCL_OP_BASE_FFTS_MODE_ENABLE=TRUE
-export MULTI_STREAM_MEMORY_REUSE=1
-export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
 # export HCCL_ALGO="level0:NA;level1:H-D_R"
-# --machine_rank=${MACHINE_RANK} \
-# --main_process_ip=${MAIN_PROCESS_IP_VALUE} \
-# multi_node_example_by_deepspeed.yaml
-# deepspeed_zero2_config.yaml
+# --machine_rank=${MACHINE_RANK} \ 
+# --main_process_ip=${MAIN_PROCESS_IP_VALUE} \ 
+# --multi_node_example_by_deepspeed.yaml
 
 accelerate launch \
     --config_file scripts/accelerate_configs/multi_node_example_by_deepspeed.yaml \
     --machine_rank=${MACHINE_RANK} \
     --main_process_ip=${MAIN_PROCESS_IP_VALUE} \
-    opensora/train/train_inpaint.py \
-    --model OpenSoraInpaint_v1_3-2B/122 \
-    --text_encoder_name_1 google/mt5-xxl \
+    opensora/train/train_t2v_diffusers.py \
+    --model OpenSoraT2V_v1_5-2B/122 \
+    --text_encoder_name_1 google/t5-v1_1-xl \
     --cache_dir "../../cache_dir/" \
-    --dataset inpaint \
-    --data "scripts/train_data/current_hq_on_npu.txt" \
-    --ae WFVAEModel_D8_4x8x8 \
-    --ae_path "/home/save_dir/lzj/formal_8dim/latent8" \
+    --text_encoder_name_2 laion/CLIP-ViT-bigG-14-laion2B-39B-b160k \
+    --cache_dir "../../cache_dir/" \
+    --dataset t2v \
+    --data "scripts/train_data/image_data_debug_on_npu.txt" \
+    --ae WFVAEModel_D32_8x8x8 \
+    --ae_path "/home/save_dir/lzj/formal_888" \
     --vae_fp32 \
     --sample_rate 1 \
-    --num_frames 93 \
-    --max_hxw 236544 \
-    --min_hxw 102400 \
-    --force_resolution \
-    --max_height 352 \
-    --max_width 640 \
+    --num_frames 1 \
+    --max_hxw 147456 \
+    --min_hxw 36864 \
     --snr_gamma 5.0 \
     --interpolation_scale_t 1.0 \
     --interpolation_scale_h 1.0 \
     --interpolation_scale_w 1.0 \
     --gradient_checkpointing \
-    --train_batch_size=2 \
-    --dataloader_num_workers 4 \
-    --gradient_accumulation_steps=1 \
+    --train_batch_size=1 \
+    --dataloader_num_workers 16 \
+    --gradient_accumulation_steps=4 \
     --max_train_steps=1000000 \
-    --learning_rate=5e-6 \
+    --learning_rate=1e-4 \
     --lr_scheduler="constant" \
     --lr_warmup_steps=0 \
     --mixed_precision="bf16" \
     --report_to="wandb" \
-    --checkpointing_steps=300 \
+    --checkpointing_steps=500 \
     --allow_tf32 \
     --model_max_length 512 \
     --use_ema \
@@ -59,18 +55,15 @@ accelerate launch \
     --speed_factor 1.0 \
     --ema_decay 0.9999 \
     --drop_short_ratio 0.0 \
-    --hw_stride 32 \
-    --sparse1d --sparse_n=4 \
+    --hw_stride 16 \
+    --sparse1d \
     --train_fps 16 \
     --seed 1234 \
     --trained_data_global_step 0 \
     --group_data \
     --use_decord \
     --prediction_type "v_prediction" \
+    --v1_5_scheduler \
     --output_dir="/home/save_dir/runs/$PROJECT" \
-    --mask_config scripts/train_configs/mask_config.yaml \
-    --default_text_ratio 0.5 \
-    --add_noise_to_condition \
-    --rescale_betas_zero_snr  \
-    --resume_from_checkpoint="latest" \
-    # --pretrained_transformer_model_path /home/image_data/gyy/mmdit/Open-Sora-Plan/opensora_inpaint_v1_3 \
+    # --resume_from_checkpoint="latest" \
+    # --force_resolution

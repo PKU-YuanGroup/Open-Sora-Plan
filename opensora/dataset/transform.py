@@ -8,6 +8,8 @@ import ftfy
 import regex as re
 import html
 
+from math import ceil, floor
+
 
 def _is_tensor_video_clip(clip):
     if not torch.is_tensor(clip):
@@ -266,20 +268,29 @@ def find_closest_ratio(h, w):
     closest_ratio = min(RATIOS, key=lambda r: abs(r[0]/r[1] - input_ratio))
     return closest_ratio[0], closest_ratio[1]
 
-def get_params(h, w, stride, force_5_ratio):
+def get_params(h, w, stride, force_5_ratio=True):
+
     if not force_5_ratio:
         th, tw = h // stride * stride, w // stride * stride
+        i = (h - th) // 2
+        j = (w - tw) // 2
     else:
-        closest_ratio_h, closest_ratio_w = find_closest_ratio(h, w)
-        stride_h, stride_w = closest_ratio_h * stride, closest_ratio_w * stride
-        min_k = min(h // stride_h, w // stride_w)
-        th, tw = stride_h * min_k, stride_w * min_k
-    i = (h - th) // 2
-    j = (w - tw) // 2
+        ratio_h, ratio_w = find_closest_ratio(h, w)
+        if h / w > ratio_h / ratio_w:
+            target_h, target_w = int(w * ratio_h / ratio_w), w
+        else:
+            target_h, target_w = h, int(h * ratio_w / ratio_h)
+        # center crop
+        i, j = (h - target_h) // 2, (w - target_w) // 2
+        # stride crop
+        th, tw = target_h // stride * stride, target_w // stride * stride
+        i = (target_h - th) // 2 + i
+        j = (target_w - tw) // 2 + j
+
     return i, j, th, tw 
     
 class SpatialStrideCropVideo:
-    def __init__(self, stride, force_5_ratio=False):
+    def __init__(self, stride, force_5_ratio=True):
         self.stride = stride
         self.force_5_ratio = force_5_ratio
 
@@ -299,6 +310,33 @@ class SpatialStrideCropVideo:
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(stride={self.stride})"  
 
+def get_hw_for_ratio(ratio_h, ratio_w, max_hxw, hw_stride):
+    k = floor(np.sqrt(max_hxw / (ratio_h * ratio_w * hw_stride * hw_stride)))
+    if k > 0:
+        h = int(ratio_h * k * hw_stride)
+        w = int(ratio_w * k * hw_stride)
+    else:
+        k = np.sqrt(max_hxw / (ratio_h * ratio_w))
+        h = int(ratio_h * k)
+        w = int(ratio_w * k)
+    return h, w
+
+def shortsideresize(h, w, size, skip_low_resolution):
+    if h <= size[0] and w <= size[1] and skip_low_resolution:
+        return h, w
+    
+    if h / w > size[0] / size[1]:
+        # hxw 720x1280  size 320x640  hw_raito 9/16 > size_ratio 8/16  neww=320/720*1280=568  newh=320  
+        h = int(size[1] / w * h)
+        w = size[1]
+    else:
+        # hxw 720x1280  size 480x640  hw_raito 9/16 < size_ratio 12/16   newh=640/1280*720=360 neww=640  
+        # hxw 1080x1920  size 720x1280  hw_raito 9/16 = size_ratio 9/16   newh=1280/1920*1080=720 neww=1280  
+        w = int(size[0] / h * w)
+        h = size[0]
+    return h, w
+
+
 def longsideresize(h, w, size, skip_low_resolution):
     if h <= size[0] and w <= size[1] and skip_low_resolution:
         return h, w
@@ -314,14 +352,25 @@ def longsideresize(h, w, size, skip_low_resolution):
         w = size[1]
     return h, w
 
-def maxhwresize(ori_height, ori_width, max_hxw):
+def maxhwresize(ori_height, ori_width, max_hxw, force_5_ratio=True, hw_stride=16):
+
     if ori_height * ori_width > max_hxw:
-        scale_factor = np.sqrt(max_hxw / (ori_height * ori_width))
-        new_height = int(ori_height * scale_factor)
-        new_width = int(ori_width * scale_factor)
+        if force_5_ratio:
+            ratio_h, ratio_w = find_closest_ratio(ori_height, ori_width)
+            target_h, target_w = get_hw_for_ratio(ratio_h, ratio_w, max_hxw, hw_stride)
+            new_height, new_width = shortsideresize(ori_height, ori_width, (target_h, target_w), skip_low_resolution=False)
+        else:
+            scale_factor = np.sqrt(max_hxw / (ori_height * ori_width))
+            new_height = int(ori_height * scale_factor)
+            new_width = int(ori_width * scale_factor)
     else:
-        new_height = ori_height
-        new_width = ori_width
+        if force_5_ratio:
+            ratio_h, ratio_w = find_closest_ratio(ori_height, ori_width)
+            target_h, target_w = get_hw_for_ratio(ratio_h, ratio_w, ori_height * ori_width, hw_stride)
+            new_height, new_width = shortsideresize(ori_height, ori_width, (target_h, target_w), skip_low_resolution=False)
+        else:
+            new_height = ori_height
+            new_width = ori_width
     return new_height, new_width
 
 class LongSideResizeVideo:
@@ -353,6 +402,45 @@ class LongSideResizeVideo:
             return clip
         resize_clip = resize(clip, target_size=(tr_h, tr_w),
                                          interpolation_mode=self.interpolation_mode)
+        return resize_clip
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(size={self.size}, interpolation_mode={self.interpolation_mode}"
+
+
+class MaxHWStrideResizeVideo:
+    '''
+    First use the h*w,
+    then resize to the specified size
+    '''
+
+    def __init__(
+            self,
+            max_hxw,
+            interpolation_mode="bilinear",
+            force_5_ratio=True,
+            hw_stride=16,
+    ):
+        self.max_hxw = max_hxw
+        self.interpolation_mode = interpolation_mode
+        self.force_5_ratio = force_5_ratio
+        self.hw_stride = hw_stride
+        
+
+    def __call__(self, clip):
+        """
+        Args:
+            clip (torch.tensor): Video clip to be cropped. Size is (T, C, H, W)
+        Returns:
+            torch.tensor: scale resized video clip.
+        """
+        _, _, h, w = clip.shape
+        tr_h, tr_w = maxhwresize(h, w, self.max_hxw, force_5_ratio=self.force_5_ratio, hw_stride=self.hw_stride)
+        if h == tr_h and w == tr_w:
+            return clip
+        resize_clip = resize(clip, target_size=(tr_h, tr_w),
+                                         interpolation_mode=self.interpolation_mode)
+        
         return resize_clip
 
     def __repr__(self) -> str:
@@ -858,55 +946,71 @@ def calculate_statistics(data):
     }
 
 if __name__ == '__main__':
+
     from torchvision import transforms
-    import torchvision.io as io
-    import numpy as np
-    from torchvision.utils import save_image
-    import os
+    import torch
 
-    vframes, aframes, info = io.read_video(
-        filename='./v_Archery_g01_c03.avi',
-        pts_unit='sec',
-        output_format='TCHW'
-    )
+    max_hxw = 384 * 384
+    hw_stride = 64
 
-    trans = transforms.Compose([
-        ToTensorVideo(),
-        RandomHorizontalFlipVideo(),
-        UCFCenterCropVideo(512),
-        # NormalizeVideo(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], inplace=True),
-        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], inplace=True)
+    transform = transforms.Compose([
+        MaxHWStrideResizeVideo(max_hxw=max_hxw, force_5_ratio=True, hw_stride=hw_stride), 
+        SpatialStrideCropVideo(stride=hw_stride, force_5_ratio=True), 
     ])
 
-    target_video_len = 32
-    frame_interval = 1
-    total_frames = len(vframes)
-    print(total_frames)
+    image = torch.randn([1, 3, 352, 640])
+    print(transform(image).shape)
 
-    temporal_sample = TemporalRandomCrop(target_video_len * frame_interval)
 
-    # Sampling video frames
-    start_frame_ind, end_frame_ind = temporal_sample(total_frames)
-    # print(start_frame_ind)
-    # print(end_frame_ind)
-    assert end_frame_ind - start_frame_ind >= target_video_len
-    frame_indice = np.linspace(start_frame_ind, end_frame_ind - 1, target_video_len, dtype=int)
-    print(frame_indice)
+    # from torchvision import transforms
+    # import torchvision.io as io
+    # import numpy as np
+    # from torchvision.utils import save_image
+    # import os
 
-    select_vframes = vframes[frame_indice]
-    print(select_vframes.shape)
-    print(select_vframes.dtype)
+    # vframes, aframes, info = io.read_video(
+    #     filename='./v_Archery_g01_c03.avi',
+    #     pts_unit='sec',
+    #     output_format='TCHW'
+    # )
 
-    select_vframes_trans = trans(select_vframes)
-    print(select_vframes_trans.shape)
-    print(select_vframes_trans.dtype)
+    # trans = transforms.Compose([
+    #     ToTensorVideo(),
+    #     RandomHorizontalFlipVideo(),
+    #     UCFCenterCropVideo(512),
+    #     # NormalizeVideo(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], inplace=True),
+    #     transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], inplace=True)
+    # ])
 
-    select_vframes_trans_int = ((select_vframes_trans * 0.5 + 0.5) * 255).to(dtype=torch.uint8)
-    print(select_vframes_trans_int.dtype)
-    print(select_vframes_trans_int.permute(0, 2, 3, 1).shape)
+    # target_video_len = 32
+    # frame_interval = 1
+    # total_frames = len(vframes)
+    # print(total_frames)
 
-    io.write_video('./test.avi', select_vframes_trans_int.permute(0, 2, 3, 1), fps=8)
+    # temporal_sample = TemporalRandomCrop(target_video_len * frame_interval)
 
-    for i in range(target_video_len):
-        save_image(select_vframes_trans[i], os.path.join('./test000', '%04d.png' % i), normalize=True,
-                   value_range=(-1, 1))
+    # # Sampling video frames
+    # start_frame_ind, end_frame_ind = temporal_sample(total_frames)
+    # # print(start_frame_ind)
+    # # print(end_frame_ind)
+    # assert end_frame_ind - start_frame_ind >= target_video_len
+    # frame_indice = np.linspace(start_frame_ind, end_frame_ind - 1, target_video_len, dtype=int)
+    # print(frame_indice)
+
+    # select_vframes = vframes[frame_indice]
+    # print(select_vframes.shape)
+    # print(select_vframes.dtype)
+
+    # select_vframes_trans = trans(select_vframes)
+    # print(select_vframes_trans.shape)
+    # print(select_vframes_trans.dtype)
+
+    # select_vframes_trans_int = ((select_vframes_trans * 0.5 + 0.5) * 255).to(dtype=torch.uint8)
+    # print(select_vframes_trans_int.dtype)
+    # print(select_vframes_trans_int.permute(0, 2, 3, 1).shape)
+
+    # io.write_video('./test.avi', select_vframes_trans_int.permute(0, 2, 3, 1), fps=8)
+
+    # for i in range(target_video_len):
+    #     save_image(select_vframes_trans[i], os.path.join('./test000', '%04d.png' % i), normalize=True,
+    #                value_range=(-1, 1))

@@ -85,26 +85,26 @@ class NPUConfig:
         self.pickle_save_path = f"{self.work_path}/pickles"
         self.mm = dict()
 
-        if self.on_npu:
-            import deepspeed
-            import sys
-            torch_npu.npu.set_compile_mode(jit_compile=False)
+        # if self.on_npu:
+        #     import deepspeed
+        #     import sys
+        #     torch_npu.npu.set_compile_mode(jit_compile=False)
 
-            import deepspeed.runtime.utils as utils
-            from opensora.adaptor.utils import all_gather_dp_groups, all_gather_into_tensor_dp_groups
-            utils.all_gather_dp_groups = all_gather_dp_groups
+        #     import deepspeed.runtime.utils as utils
+        #     from opensora.adaptor.utils import all_gather_dp_groups, all_gather_into_tensor_dp_groups
+        #     utils.all_gather_dp_groups = all_gather_dp_groups
 
-            import deepspeed.runtime.bf16_optimizer as bf16_optimizer
-            from opensora.adaptor.bf16_optimizer import BF16_Optimizer
-            self.replace_methods(bf16_optimizer.BF16_Optimizer, BF16_Optimizer)
+        #     import deepspeed.runtime.bf16_optimizer as bf16_optimizer
+        #     from opensora.adaptor.bf16_optimizer import BF16_Optimizer
+        #     self.replace_methods(bf16_optimizer.BF16_Optimizer, BF16_Optimizer)
 
-            from opensora.adaptor.stage_1_and_2 import DeepSpeedZeroOptimizer
-            import deepspeed.runtime.zero.stage_1_and_2 as stage_1_and_2
-            self.replace_methods(stage_1_and_2.DeepSpeedZeroOptimizer, DeepSpeedZeroOptimizer, ['_has_inf_or_nan'])
+        #     from opensora.adaptor.stage_1_and_2 import DeepSpeedZeroOptimizer
+        #     import deepspeed.runtime.zero.stage_1_and_2 as stage_1_and_2
+        #     self.replace_methods(stage_1_and_2.DeepSpeedZeroOptimizer, DeepSpeedZeroOptimizer, ['_has_inf_or_nan'])
 
-            import deepspeed.runtime.engine as engine
-            from opensora.adaptor.engine import DeepSpeedEngine
-            self.replace_methods(engine.DeepSpeedEngine, DeepSpeedEngine, skip_fcns=['__init__', '_copy_recovery_script', '_change_recovery_script_permissions'])
+        #     import deepspeed.runtime.engine as engine
+        #     from opensora.adaptor.engine import DeepSpeedEngine
+        #     self.replace_methods(engine.DeepSpeedEngine, DeepSpeedEngine, skip_fcns=['__init__', '_copy_recovery_script', '_change_recovery_script_permissions'])
 
         if "RANK" in os.environ:
             self.rank = int(os.environ["RANK"])

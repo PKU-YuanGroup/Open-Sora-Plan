@@ -1,0 +1,4 @@
+/home/obs_data,/home/save_dir/captions/10.12_hwpkl_movie_sucai/sucai_movie_part1_final_1409218.pkl
+/home/obs_data,/home/save_dir/captions/10.12_hwpkl_movie_sucai/sucai_movie_part2_final_1409218.pkl
+/home/obs_data,/home/save_dir/captions/10.12_hwpkl_movie_sucai/sucai_movie_part3_final_1409218.pkl
+/home/obs_data,/home/save_dir/captions/10.12_hwpkl_movie_sucai/sucai_movie_part4_final_1409218.pkl

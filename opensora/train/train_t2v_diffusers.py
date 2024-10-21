@@ -208,6 +208,10 @@ def main(args):
         accelerator.init_trackers(os.path.basename(args.proj_name or args.output_dir), config=vars(args), 
                                   init_kwargs=wandb_init_kwargs if args.report_to == "wandb" else None)
 
+        # if accelerator.is_main_process:
+        #     from threading import Thread
+        #     Thread(target=monitor_npu_power, daemon=True).start()
+
     # Make one log on every process with the configuration for debugging.
     logging.basicConfig(
         format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",

@@ -427,7 +427,7 @@ class T2V_dataset(Dataset):
                                 cnt_no_resolution += 1
                                 continue
                             
-                            tr_h, tr_w = maxhwresize(height, width, self.max_hxw)
+                            tr_h, tr_w = maxhwresize(height, width, self.max_hxw, self.force_5_ratio, self.hw_stride)
                             _, _, sample_h, sample_w = get_params(tr_h, tr_w, self.hw_stride, self.force_5_ratio)
 
                             if sample_h <= 0 or sample_w <= 0:

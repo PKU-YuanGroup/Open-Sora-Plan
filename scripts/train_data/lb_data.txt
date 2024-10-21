@@ -1,0 +1,3 @@
+/home/obs_data/open-sora-plan/datasets_sucai,/home/image_data/captions/sucai_aes_hq1478618_hw.json
+/home/obs_data/open-sora-plan/datasets_sucai/ideogram/Images_ideogram_v1,/home/image_data/captions/ideogram_v1_71637_resolution.json
+/home/obs_data/open-sora-plan/datasets_sucai/civitai/Images_civitai_v1,/home/image_data/captions/civitai_v1_1940032_resolution.json

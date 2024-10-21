@@ -3,7 +3,7 @@ export TASK_QUEUE_ENABLE=0
 torchrun --nnodes=1 --nproc_per_node 8 --master_port 29522 \
     -m opensora.sample.sample \
     --model_type "inpaint" \
-    --model_path model_path \
+    --model_path /home/save_dir/runs/i2v_1_3_hq_finetune_from_org_sucai_movie_final/checkpoint-6600/model \
     --version v1_3 \
     --num_frames 93 \
     --crop_for_hw \
@@ -16,7 +16,7 @@ torchrun --nnodes=1 --nproc_per_node 8 --master_port 29522 \
     --conditional_pixel_values_path /home/image_data/gyy/mmdit/Open-Sora-Plan/validation_dir/cond_imgs_path.txt \
     --ae WFVAEModel_D8_4x8x8 \
     --ae_path "/home/save_dir/lzj/formal_8dim/latent8" \
-    --save_img_path "./test" \
+    --save_img_path "./test_movie_sucai_noise_001_no_ema" \
     --fps 18 \
     --guidance_scale 7.5 \
     --num_sampling_steps 50 \
@@ -25,6 +25,5 @@ torchrun --nnodes=1 --nproc_per_node 8 --master_port 29522 \
     --seed 2514 \
     --num_samples_per_prompt 1 \
     --prediction_type "v_prediction" \
-    --rescale_betas_zero_snr \
     # --mask_type i2v \
     # --enable_tiling 

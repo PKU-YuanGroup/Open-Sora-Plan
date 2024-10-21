@@ -1,0 +1,1 @@
+/home/obs_data,/home/save_dir/captions/10.12_hwpkl_movie_sucai/sucai_movie_part3_final_1409218.pkl

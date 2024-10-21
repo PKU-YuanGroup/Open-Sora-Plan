@@ -1,0 +1,1 @@
+/home/obs_data/open-sora-plan/datasets_sucai,/home/save_dir/hxy/video_jsons/allinpaint_50w/combine/combined.json

@@ -11,8 +11,9 @@ except:
 
 from opensora.dataset.t2v_datasets import T2V_dataset
 from opensora.dataset.inpaint_dataset import Inpaint_dataset
+from opensora.dataset.dummy_dataset import Dummy_dataset
 from opensora.models.causalvideovae import ae_norm, ae_denorm
-from opensora.dataset.transform import ToTensorVideo, TemporalRandomCrop, MaxHWResizeVideo, CenterCropResizeVideo, LongSideResizeVideo, SpatialStrideCropVideo, NormalizeVideo, ToTensorAfterResize
+from opensora.dataset.transform import ToTensorVideo, TemporalRandomCrop, MaxHWResizeVideo, CenterCropResizeVideo, LongSideResizeVideo, SpatialStrideCropVideo, NormalizeVideo, ToTensorAfterResize, MaxHWStrideResizeVideo
 
 
 from accelerate.logging import get_logger
@@ -25,17 +26,22 @@ def getdataset(args):
         resize = [CenterCropResizeVideo((args.max_height, args.max_width)), ]
     else:
         resize = [
-            MaxHWResizeVideo(args.max_hxw), 
+            MaxHWStrideResizeVideo(max_hxw=args.max_hxw, force_5_ratio=args.force_5_ratio, hw_stride=args.hw_stride), 
             SpatialStrideCropVideo(stride=args.hw_stride, force_5_ratio=args.force_5_ratio), 
         ]
 
     # tokenizer_1 = AutoTokenizer.from_pretrained(args.text_encoder_name_1, cache_dir=args.cache_dir)
-    tokenizer_1 = AutoTokenizer.from_pretrained('/storage/cache_dir/t5-v1_1-xl', cache_dir=args.cache_dir)
-    # tokenizer_1 = AutoTokenizer.from_pretrained('/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl', cache_dir=args.cache_dir)
+    if torch_npu is not None:
+        tokenizer_1 = AutoTokenizer.from_pretrained('/home/save_dir/pretrained/mt5-xxl', cache_dir=args.cache_dir)
+    else:
+        tokenizer_1 = AutoTokenizer.from_pretrained('/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl', cache_dir=args.cache_dir)
     tokenizer_2 = None
     if args.text_encoder_name_2 is not None:
         # tokenizer_2 = AutoTokenizer.from_pretrained(args.text_encoder_name_2, cache_dir=args.cache_dir)
-        tokenizer_2 = AutoTokenizer.from_pretrained('/storage/cache_dir/CLIP-ViT-bigG-14-laion2B-39B-b160k', cache_dir=args.cache_dir)
+        if torch_npu is not None:
+            tokenizer_2 = AutoTokenizer.from_pretrained('/home/save_dir/pretrained/clip/models--laion--CLIP-ViT-bigG-14-laion2B-39B-b160k/snapshots/bc7788f151930d91b58474715fdce5524ad9a189', cache_dir=args.cache_dir)
+        else:
+            tokenizer_2 = AutoTokenizer.from_pretrained('/storage/cache_dir/CLIP-ViT-bigG-14-laion2B-39B-b160k', cache_dir=args.cache_dir)
     if args.dataset == 't2v':
         transform = transforms.Compose([
             ToTensorVideo(),
@@ -56,6 +62,13 @@ def getdataset(args):
             args, resize_transform=resize_transform, transform=transform, 
             temporal_sample=temporal_sample, tokenizer_1=tokenizer_1, tokenizer_2=tokenizer_2
         )
+    elif args.dataset == 'dummy':
+        transform = transforms.Compose([
+            ToTensorVideo(),
+            *resize, 
+            norm_fun
+        ])
+        return Dummy_dataset(args, transform=transform, temporal_sample=temporal_sample, tokenizer_1=tokenizer_1, tokenizer_2=tokenizer_2)
     raise NotImplementedError(args.dataset)
 
 
@@ -84,7 +97,7 @@ if __name__ == "__main__":
         'interpolation_scale_h': 1,
         'interpolation_scale_w': 1,
         'cache_dir': '../cache_dir', 
-        'data': '/storage/ongoing/9.29/mmdit/1.5/Open-Sora-Plan/scripts/train_data/image_data_debug.txt', 
+        'data': '/home/image_data/gyy/mmdit/Open-Sora-Plan/scripts/train_data/image_data_debug_on_npu.txt', 
         'train_fps': 18, 
         'drop_short_ratio': 1.0, 
         'speed_factor': 1.0, 
@@ -104,42 +117,43 @@ if __name__ == "__main__":
         'total_batch_size': 256, 
         'sp_size': 1, 
         'max_hxw': 256*256, 
-        'min_hxw': 256*144, 
+        'min_hxw': 192*192, 
         'force_5_ratio': True, 
         'random_data': False, 
     }
     )
     accelerator = Accelerator()
     dataset = getdataset(args)
-    import ipdb;ipdb.set_trace()
-    sampler = LengthGroupedSampler(
-                args.train_batch_size,
-                world_size=1, 
-                gradient_accumulation_size=args.gradient_accumulation_steps, 
-                initial_global_step=0, 
-                lengths=dataset.lengths, 
-                group_data=args.group_data, 
-            )
-    train_dataloader = DataLoader(
-        dataset,
-        shuffle=False,
-        # pin_memory=True,
-        collate_fn=Collate(args),
-        batch_size=args.train_batch_size,
-        num_workers=args.dataloader_num_workers,
-        sampler=sampler, 
-        drop_last=False, 
-        prefetch_factor=4
-    )
-    import imageio
-    import numpy as np
-    from einops import rearrange
-    while True:
-        for idx, i in enumerate(tqdm(train_dataloader)):
-            pixel_values = i[0][0]
-            pixel_values_ = (pixel_values+1)/2
-            pixel_values_ = rearrange(pixel_values_, 'c t h w -> t h w c') * 255.0
-            pixel_values_ = pixel_values_.numpy().astype(np.uint8)
-            imageio.mimwrite(f'output{idx}.mp4', pixel_values_, fps=args.train_fps)
-            dist.barrier()
-            pass
+    # print(dataset[0])
+    # import ipdb;ipdb.set_trace()
+    # sampler = LengthGroupedSampler(
+    #             args.train_batch_size,
+    #             world_size=1, 
+    #             gradient_accumulation_size=args.gradient_accumulation_steps, 
+    #             initial_global_step=0, 
+    #             lengths=dataset.lengths, 
+    #             group_data=args.group_data, 
+    #         )
+    # train_dataloader = DataLoader(
+    #     dataset,
+    #     shuffle=False,
+    #     # pin_memory=True,
+    #     collate_fn=Collate(args),
+    #     batch_size=args.train_batch_size,
+    #     num_workers=args.dataloader_num_workers,
+    #     sampler=sampler, 
+    #     drop_last=False, 
+    #     prefetch_factor=4
+    # )
+    # import imageio
+    # import numpy as np
+    # from einops import rearrange
+    # while True:
+    #     for idx, i in enumerate(tqdm(train_dataloader)):
+    #         pixel_values = i[0][0]
+    #         pixel_values_ = (pixel_values+1)/2
+    #         pixel_values_ = rearrange(pixel_values_, 'c t h w -> t h w c') * 255.0
+    #         pixel_values_ = pixel_values_.numpy().astype(np.uint8)
+    #         imageio.mimwrite(f'output{idx}.mp4', pixel_values_, fps=args.train_fps)
+    #         dist.barrier()
+    #         pass

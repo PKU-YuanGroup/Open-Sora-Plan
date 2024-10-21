@@ -28,8 +28,7 @@ from diffusers.pipelines.pipeline_utils import DiffusionPipeline
 from opensora.models.diffusion.opensora_v1_3.modeling_inpaint import OpenSoraInpaint_v1_3
 from opensora.sample.pipeline_opensora import OpenSoraPipeline, OpenSoraPipelineOutput, rescale_noise_cfg
 from opensora.dataset.transform import CenterCropResizeVideo, SpatialStrideCropVideo,ToTensorAfterResize, maxhwresize
-from opensora.utils.mask_utils import MaskProcessor, MaskCompressor, MaskType, STR_TO_TYPE, TYPE_TO_STR
-
+from opensora.utils.mask_utils import MaskProcessor, MaskCompressor, MaskType, STR_TO_TYPE, TYPE_TO_STR, GaussianNoiseAdder
 try:
     import torch_npu
     from opensora.npu_config import npu_config
@@ -111,6 +110,9 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
 
         self.mask_compressor = MaskCompressor(ae_stride_t=self.vae.vae_scale_factor[0], ae_stride_h=self.vae.vae_scale_factor[1], ae_stride_w=self.vae.vae_scale_factor[2])
         
+        # e-4.6 ~ 0.01
+        self.noise_adder = GaussianNoiseAdder(mean=-4.6, std=0.01, clear_ratio=0)
+
     def check_inputs(
         self,
         conditional_pixel_values_path,
@@ -261,6 +263,10 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
 
         masked_pixel_values = masked_pixel_values.unsqueeze(0).repeat(batch_size * num_samples_per_prompt, 1, 1, 1, 1).transpose(1, 2).contiguous() # b c t h w
         mask = mask.unsqueeze(0).repeat(batch_size * num_samples_per_prompt, 1, 1, 1, 1).transpose(1, 2).contiguous() # b c t h w
+
+        # add some noise to improve generalization
+        masked_pixel_values = self.noise_adder(masked_pixel_values, mask)
+
         masked_pixel_values = masked_pixel_values.to(self.vae.vae.dtype)
         masked_pixel_values = self.vae.encode(masked_pixel_values)
 
