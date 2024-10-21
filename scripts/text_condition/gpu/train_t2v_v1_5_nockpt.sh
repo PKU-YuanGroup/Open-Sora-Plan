@@ -39,7 +39,7 @@ export TOKENIZERS_PARALLELISM=false
 accelerate launch \
     --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
     opensora/train/train_t2v_diffusers.py \
-    --model OpenSoraT2V_v1_5-13B/122 \
+    --model OpenSoraT2V_v1_5-3B/122 \
     --text_encoder_name_1 google/t5-v1_1-xl \
     --cache_dir "../../cache_dir/" \
     --text_encoder_name_2 laion/CLIP-ViT-bigG-14-laion2B-39B-b160k \
@@ -50,16 +50,16 @@ accelerate launch \
     --ae_path "/storage/lcm/WF-VAE/results/Middle888" \
     --sample_rate 1 \
     --num_frames 1 \
-    --max_hxw 147456 \
-    --min_hxw 110592 \
-    --gradient_checkpointing \
-    --train_batch_size=1 \
+    --max_width 256 \
+    --max_height 256 \
+    --force_resolution \
+    --train_batch_size=4 \
     --dataloader_num_workers 16 \
     --learning_rate=1e-4 \
     --lr_scheduler="constant_with_warmup" \
     --mixed_precision="bf16" \
     --report_to="wandb" \
-    --checkpointing_steps=1000 \
+    --checkpointing_steps=100000000 \
     --allow_tf32 \
     --model_max_length 512 \
     --ema_start_step 0 \
@@ -73,11 +73,9 @@ accelerate launch \
     --seed 1234 \
     --group_data \
     --use_decord \
-    --output_dir="mmdit13b_vpred_bs1024_lr1e-4_max1x256x256_min1x256x192_noema_emaclip9999" \
+    --output_dir="debug3b_nockpt" \
     --vae_fp32 \
-    --prediction_type "v_prediction" \
-    --rescale_betas_zero_snr \
-    --v1_5_scheduler \
+    --rf_scheduler \
     --proj_name "10.19_mmdit13b" \
-    --log_name "vpred_bs1024_lr1e-4_max1x256x256_min1x256x192_emaclip9999" \
-    --skip_abnorml_step --ema_decay_grad_clipping 0.9999
+    --log_name "debug3b_nockpt" \
+    --skip_abnorml_step --ema_decay_grad_clipping 0.99

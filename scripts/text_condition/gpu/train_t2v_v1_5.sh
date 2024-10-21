@@ -51,7 +51,7 @@ accelerate launch \
     --sample_rate 1 \
     --num_frames 1 \
     --max_hxw 147456 \
-    --mim_hxw 110592 \
+    --min_hxw 110592 \
     --gradient_checkpointing \
     --train_batch_size=8 \
     --dataloader_num_workers 16 \

@@ -336,7 +336,6 @@ def main(args):
         logger.info(f'missing_keys {len(missing_keys)} {missing_keys}, unexpected_keys {len(unexpected_keys)}')
         logger.info(f'Successfully load {len(model_state_dict) - len(missing_keys)}/{len(model_state_dict)} keys from {args.pretrained}!')
 
-    model.gradient_checkpointing = args.gradient_checkpointing
     # Freeze vae and text encoders.
     ae.vae.requires_grad_(False)
     text_enc_1.requires_grad_(False)
@@ -417,6 +416,9 @@ def main(args):
 
         accelerator.register_save_state_pre_hook(save_model_hook)
         accelerator.register_load_state_pre_hook(load_model_hook)
+
+    if args.gradient_checkpointing:
+        model.enable_gradient_checkpointing()
 
     # Enable TF32 for faster training on Ampere GPUs,
     # cf https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices
@@ -834,8 +836,9 @@ def main(args):
                 loss = loss_mse.mean()
 
         # Gather the losses across all processes for logging (if we use distributed training).
-        avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
-        progress_info.train_loss += avg_loss.detach().item() / args.gradient_accumulation_steps
+        # avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
+        # progress_info.train_loss += avg_loss.detach().item() / args.gradient_accumulation_steps
+        progress_info.train_loss += loss.detach().item() / args.gradient_accumulation_steps
         # Backpropagate
         if args.skip_abnorml_step and accelerator.distributed_type == DistributedType.DEEPSPEED:
             results = accelerator.deepspeed_engine_wrapped.engine.backward(
@@ -904,12 +907,12 @@ def main(args):
             if text_enc_2 is not None:
                 text_enc_2.to(accelerator.device, dtype=weight_dtype)
 
-        x = x.to(accelerator.device, dtype=ae.vae.dtype)  # B C T H W
-        attn_mask = attn_mask.to(accelerator.device)  # B T H W
-        input_ids_1 = input_ids_1.to(accelerator.device)  # B 1 L
-        cond_mask_1 = cond_mask_1.to(accelerator.device)  # B 1 L
-        input_ids_2 = input_ids_2.to(accelerator.device) if input_ids_2 is not None else input_ids_2 # B 1 L
-        cond_mask_2 = cond_mask_2.to(accelerator.device) if cond_mask_2 is not None else cond_mask_2 # B 1 L
+        x = x.to(accelerator.device, dtype=ae.vae.dtype, non_blocking=True)  # B C T H W
+        attn_mask = attn_mask.to(accelerator.device, non_blocking=True)  # B T H W
+        input_ids_1 = input_ids_1.to(accelerator.device, non_blocking=True)  # B 1 L
+        cond_mask_1 = cond_mask_1.to(accelerator.device, non_blocking=True)  # B 1 L
+        input_ids_2 = input_ids_2.to(accelerator.device, non_blocking=True) if input_ids_2 is not None else input_ids_2 # B 1 L
+        cond_mask_2 = cond_mask_2.to(accelerator.device, non_blocking=True) if cond_mask_2 is not None else cond_mask_2 # B 1 L
         
         with torch.no_grad():
             B, N, L = input_ids_1.shape  # B 1 L

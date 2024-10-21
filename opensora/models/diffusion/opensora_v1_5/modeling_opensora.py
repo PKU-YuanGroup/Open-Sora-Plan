@@ -68,16 +68,7 @@ def prepare_sparse_mask(attention_mask, encoder_attention_mask, sparse_n, head_n
             }
 
 
-def create_custom_forward(module, return_dict=None):
-    def custom_forward(*inputs):
-        if return_dict is not None:
-            return module(*inputs, return_dict=return_dict)
-        else:
-            return module(*inputs)
 
-    return custom_forward
-
-ckpt_kwargs: Dict[str, Any] = {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
                 
 
 class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
@@ -116,7 +107,7 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
         # Set some common variables used across the board.
         self.out_channels = in_channels if out_channels is None else out_channels
         self.config.hidden_size = self.config.num_attention_heads * self.config.attention_head_dim
-        self.gradient_checkpointing = True
+        self.gradient_checkpointing = False
         if norm_cls == 'rms_norm':
             self.norm_cls = RMSNorm
         elif norm_cls == 'layer_norm':
@@ -130,6 +121,10 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
             self.config.sparse_n = self.sparse_n = [1] * len(self.config.sparse_n)
 
         self._init_patched_inputs()
+
+    def _set_gradient_checkpointing(self, module, value=False):
+        if hasattr(module, "gradient_checkpointing"):
+            module.gradient_checkpointing = value
 
     def _init_patched_inputs(self):
 
@@ -231,8 +226,6 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
             self.config.hidden_size, self.config.patch_size_t * self.config.patch_size * self.config.patch_size * self.out_channels
         )
 
-    def _set_gradient_checkpointing(self, module, value=False):
-        self.gradient_checkpointing = value
 
     def forward(
         self,
@@ -352,6 +345,16 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
                 #       f'sparse_mask {block.sparse_n}, sparse_group {block.sparse_group}')
                 attention_mask = self.sparse_mask[block.sparse_n][block.sparse_group]
                 if self.training and self.gradient_checkpointing:
+                    def create_custom_forward(module, return_dict=None):
+                        def custom_forward(*inputs):
+                            if return_dict is not None:
+                                return module(*inputs, return_dict=return_dict)
+                            else:
+                                return module(*inputs)
+
+                        return custom_forward
+
+                    ckpt_kwargs: Dict[str, Any] = {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
                     hidden_states, encoder_hidden_states = torch.utils.checkpoint.checkpoint(
                         create_custom_forward(block),
                         hidden_states,
@@ -394,6 +397,19 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
             #         f'sparse_mask {block.sparse_n}, sparse_group {block.sparse_group}')
             attention_mask = self.sparse_mask[block.sparse_n][block.sparse_group]
             if self.training and self.gradient_checkpointing:
+
+                
+                def create_custom_forward(module, return_dict=None):
+                    def custom_forward(*inputs):
+                        if return_dict is not None:
+                            return module(*inputs, return_dict=return_dict)
+                        else:
+                            return module(*inputs)
+
+                    return custom_forward
+
+                ckpt_kwargs: Dict[str, Any] = {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
+
                 hidden_states, encoder_hidden_states = torch.utils.checkpoint.checkpoint(
                     create_custom_forward(block),
                     hidden_states,
@@ -446,6 +462,19 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
                 #       f'sparse_mask {block.sparse_n}, sparse_group {block.sparse_group}')
                 attention_mask = self.sparse_mask[block.sparse_n][block.sparse_group]
                 if self.training and self.gradient_checkpointing:
+
+                    
+                    def create_custom_forward(module, return_dict=None):
+                        def custom_forward(*inputs):
+                            if return_dict is not None:
+                                return module(*inputs, return_dict=return_dict)
+                            else:
+                                return module(*inputs)
+
+                        return custom_forward
+
+                    ckpt_kwargs: Dict[str, Any] = {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
+
                     hidden_states, encoder_hidden_states = torch.utils.checkpoint.checkpoint(
                         create_custom_forward(block),
                         hidden_states,
@@ -558,6 +587,16 @@ def OpenSoraT2V_v1_5_6B_122(**kwargs):
         caption_channels=2048, pooled_projection_dim=1280, **kwargs
     )
 
+def OpenSoraT2V_v1_5_9B_122(**kwargs):
+    if kwargs.get('sparse_n', None) is not None:
+        kwargs.pop('sparse_n')
+    return OpenSoraT2V_v1_5(  # 32 layers
+        num_layers=[2, 4, 6, 8, 6, 4, 2], sparse_n=[1, 2, 4, 8, 4, 2, 1], 
+        attention_head_dim=96, num_attention_heads=40, 
+        timestep_embed_dim=1280, patch_size_t=1, patch_size=2, 
+        caption_channels=2048, pooled_projection_dim=1280, **kwargs
+    )
+
 def OpenSoraT2V_v1_5_13B_122(**kwargs):
     if kwargs.get('sparse_n', None) is not None:
         kwargs.pop('sparse_n')
@@ -582,6 +621,7 @@ OpenSora_v1_5_models = {
     "OpenSoraT2V_v1_5-2B/122": OpenSoraT2V_v1_5_2B_122, 
     "OpenSoraT2V_v1_5-3B/122": OpenSoraT2V_v1_5_3B_122, 
     "OpenSoraT2V_v1_5-6B/122": OpenSoraT2V_v1_5_6B_122, 
+    "OpenSoraT2V_v1_5-9B/122": OpenSoraT2V_v1_5_9B_122, 
     "OpenSoraT2V_v1_5-13B/122": OpenSoraT2V_v1_5_13B_122, 
     "OpenSoraT2V_v1_5-32B/122": OpenSoraT2V_v1_5_32B_122, 
 }
@@ -590,6 +630,7 @@ OpenSora_v1_5_models_class = {
     "OpenSoraT2V_v1_5-2B/122": OpenSoraT2V_v1_5,
     "OpenSoraT2V_v1_5-3B/122": OpenSoraT2V_v1_5,
     "OpenSoraT2V_v1_5-6B/122": OpenSoraT2V_v1_5,
+    "OpenSoraT2V_v1_5-9B/122": OpenSoraT2V_v1_5,
     "OpenSoraT2V_v1_5-13B/122": OpenSoraT2V_v1_5,
     "OpenSoraT2V_v1_5-32B/122": OpenSoraT2V_v1_5,
 }
@@ -627,7 +668,7 @@ if __name__ == '__main__':
 
     # device = torch.device('cpu')
     device = torch.device('cuda:0')
-    model = OpenSoraT2V_v1_5_13B_122(
+    model = OpenSoraT2V_v1_5_8B_122(
         in_channels=c, 
         out_channels=c, 
         sample_size_h=latent_size, 

@@ -106,3 +106,4 @@ log*
 final*
 opensora/train/*debug.py
 mmdit*
+vpred*

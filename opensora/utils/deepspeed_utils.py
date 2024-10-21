@@ -240,20 +240,22 @@ def backward(
 
     is_first_step = True if moving_avg_grad_norm < 0.0 else False # the value of init is -1e6, before first step
     ema_decay = ema_decay_grad_clipping
+
     if is_first_step:  
         moving_avg_grad_norm = grad_norm
         moving_avg_grad_norm_std = grad_norm_std
-    else:  # other steps use ema_decay
-        moving_avg_grad_norm = ema_decay * moving_avg_grad_norm + (1 - ema_decay) * grad_norm
-        moving_avg_grad_norm_std = ema_decay * moving_avg_grad_norm_std + (1 - ema_decay) * grad_norm_std
-
-    max_norm = min(moving_avg_grad_norm + 3.0 * moving_avg_grad_norm_std, self.gradient_clipping())
-    _, clip_coef = clip_grad_norm_(parameters=self.module.parameters(), max_norm=max_norm, mpu=self.mpu)
-    grad_norm_clip = get_grad_norm(parameters=self.module.parameters(), mpu=self.mpu)
-    grad_norm_clip = accelerator.gather(grad_norm_clip).mean().item()
-    
-    if clip_coef != 1.0:
-        print(f'rank {process_index} | step {step_} | after gather grad_norm {grad_norm} | after clip_grad_norm_ {grad_norm_clip}')
+        max_norm = 1.0
+        clip_coef = 1.0
+        grad_norm_clip = grad_norm
+    else:
+        # out of 3 sigma mean abnormal step.
+        max_norm = min(moving_avg_grad_norm + 3.0 * moving_avg_grad_norm_std, self.gradient_clipping())
+        _, clip_coef = clip_grad_norm_(parameters=self.module.parameters(), max_norm=max_norm, mpu=self.mpu)
+        grad_norm_clip = get_grad_norm(parameters=self.module.parameters(), mpu=self.mpu)
+        grad_norm_clip = accelerator.gather(grad_norm_clip).mean().item()
+        if clip_coef == 1.0:  # mean normal step!!! otherwise we do not update ema.
+            moving_avg_grad_norm = ema_decay * moving_avg_grad_norm + (1 - ema_decay) * grad_norm
+            moving_avg_grad_norm_std = ema_decay * moving_avg_grad_norm_std + (1 - ema_decay) * grad_norm_std
     # =======================================================================================
 
     self._stop_timers(self.engine_timers.backward_inner_timers)
