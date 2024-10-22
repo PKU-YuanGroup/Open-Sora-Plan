@@ -154,20 +154,20 @@ def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weigh
 
 class ProgressInfo:
     def __init__(
-        self, global_step, train_loss=0.0, max_grad_norm=0.0, weight_norm=0.0, 
-        moving_avg_max_grad_norm=-1e6, moving_avg_max_grad_norm_var=3.0, 
-        clip_coef=1.0, max_grad_norm_clip=0.0, max_norm=1.0, max_grad_norm_var=0.0
+        self, global_step, train_loss=0.0, grad_norm=0.0, weight_norm=0.0, 
+        moving_avg_grad_norm=-1e6, moving_avg_grad_norm_std=3.0, 
+        clip_coef=1.0, grad_norm_clip=0.0, max_norm=1.0, grad_norm_std=0.0
         ):
         self.global_step = global_step
         self.train_loss = train_loss
-        self.max_grad_norm = max_grad_norm
+        self.grad_norm = grad_norm
         self.weight_norm = weight_norm
-        self.moving_avg_max_grad_norm = moving_avg_max_grad_norm
-        self.moving_avg_max_grad_norm_var = moving_avg_max_grad_norm_var
+        self.moving_avg_grad_norm = moving_avg_grad_norm
+        self.moving_avg_grad_norm_std = moving_avg_grad_norm_std
         self.clip_coef = clip_coef
-        self.max_grad_norm_clip = max_grad_norm_clip
+        self.grad_norm_clip = grad_norm_clip
         self.max_norm = max_norm
-        self.max_grad_norm_var = max_grad_norm_var
+        self.grad_norm_std = grad_norm_std
 
 
 #################################################################################
@@ -623,7 +623,7 @@ def main(args):
         # Only show the progress bar once on each machine.
         disable=not accelerator.is_local_main_process,
     )
-    progress_info = ProgressInfo(global_step, train_loss=0.0, max_grad_norm=0.0)
+    progress_info = ProgressInfo(global_step, train_loss=0.0, grad_norm=0.0)
 
     
     def get_sigmas(timesteps, n_dim=4, dtype=torch.float32):
@@ -653,30 +653,30 @@ def main(args):
         train_loss = progress_info.train_loss
         accelerator.log(
                 {
-                    "train_loss": train_loss, "max_grad_norm": progress_info.max_grad_norm, 
+                    "train_loss": train_loss, "grad_norm": progress_info.grad_norm, 
                     "weight_norm": progress_info.weight_norm, 
-                    "max_grad_norm_clip": progress_info.max_grad_norm_clip, 
-                    "moving_avg_max_grad_norm": progress_info.moving_avg_max_grad_norm, 
-                    "moving_avg_max_grad_norm_var": progress_info.moving_avg_max_grad_norm_var, 
+                    "grad_norm_clip": progress_info.grad_norm_clip, 
+                    "moving_avg_grad_norm": progress_info.moving_avg_grad_norm, 
+                    "moving_avg_grad_norm_std": progress_info.moving_avg_grad_norm_std, 
                     "max_norm": progress_info.max_norm, 
                     "clip_coef": progress_info.clip_coef, 
-                    "max_grad_norm_var": progress_info.max_grad_norm_var, 
+                    "grad_norm_std": progress_info.grad_norm_std, 
                     "lr": lr_scheduler.get_last_lr()[0]
                 }, step=progress_info.global_step
             )
 
         if torch_npu is not None and npu_config is not None:
             npu_config.print_msg(f"Step: [{progress_info.global_step}], local_loss={loss.detach().item()}, "
-                                f"train_loss={train_loss}, max_grad_norm={progress_info.max_grad_norm}, max_grad_norm_clip={max_grad_norm_clip}, "
+                                f"train_loss={train_loss}, grad_norm={progress_info.grad_norm}, grad_norm_clip={grad_norm_clip}, "
                                 f"weight_norm={progress_info.weight_norm}, time_cost={one_step_duration}",
                                 rank=0)
         progress_info.train_loss = 0.0
-        progress_info.max_grad_norm = 0.0
+        progress_info.grad_norm = 0.0
         progress_info.weight_norm = 0.0
         progress_info.clip_coef = 1.0
-        progress_info.max_grad_norm_clip = 0.0
+        progress_info.grad_norm_clip = 0.0
         progress_info.max_norm = 1.0
-        progress_info.max_grad_norm_var = 0.0
+        progress_info.grad_norm_std = 0.0
         
 
         # DeepSpeed requires saving weights on every device; saving weights only on the main process would cause issues.
@@ -836,28 +836,28 @@ def main(args):
                 loss = loss_mse.mean()
 
         # Gather the losses across all processes for logging (if we use distributed training).
-        # avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
-        # progress_info.train_loss += avg_loss.detach().item() / args.gradient_accumulation_steps
-        progress_info.train_loss += loss.detach().item() / args.gradient_accumulation_steps
+        avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
+        progress_info.train_loss += avg_loss.detach().item() / args.gradient_accumulation_steps
+        # progress_info.train_loss += loss.detach().item() / args.gradient_accumulation_steps
         # Backpropagate
         if args.skip_abnorml_step and accelerator.distributed_type == DistributedType.DEEPSPEED:
             results = accelerator.deepspeed_engine_wrapped.engine.backward(
                 loss, process_index=accelerator.process_index, step_=step_, 
-                moving_avg_max_grad_norm=progress_info.moving_avg_max_grad_norm, 
+                moving_avg_grad_norm=progress_info.moving_avg_grad_norm, 
                 ema_decay_grad_clipping=args.ema_decay_grad_clipping, 
-                moving_avg_max_grad_norm_var=progress_info.moving_avg_max_grad_norm_var, accelerator=accelerator
+                moving_avg_grad_norm_std=progress_info.moving_avg_grad_norm_std, accelerator=accelerator
                 )
-            _, max_grad_norm, weight_norm, moving_avg_max_grad_norm, max_grad_norm_clip, max_norm, \
-                moving_avg_max_grad_norm_var, max_grad_norm_var, clip_coef = results
-            # print('rank {} | step {} | max_grad_norm {}'.format(accelerator.process_index, step_, max_grad_norm))
-            progress_info.max_grad_norm += max_grad_norm / args.gradient_accumulation_steps
+            _, grad_norm, weight_norm, moving_avg_grad_norm, grad_norm_clip, max_norm, \
+                moving_avg_grad_norm_std, grad_norm_std, clip_coef = results
+            # print('rank {} | step {} | grad_norm {}'.format(accelerator.process_index, step_, grad_norm))
+            progress_info.grad_norm += grad_norm / args.gradient_accumulation_steps
             progress_info.weight_norm += weight_norm / args.gradient_accumulation_steps
-            progress_info.moving_avg_max_grad_norm = moving_avg_max_grad_norm / args.gradient_accumulation_steps
-            progress_info.moving_avg_max_grad_norm_var = moving_avg_max_grad_norm_var / args.gradient_accumulation_steps
+            progress_info.moving_avg_grad_norm = moving_avg_grad_norm / args.gradient_accumulation_steps
+            progress_info.moving_avg_grad_norm_std = moving_avg_grad_norm_std / args.gradient_accumulation_steps
             progress_info.clip_coef = clip_coef
             progress_info.max_norm = max_norm
-            progress_info.max_grad_norm_clip = max_grad_norm_clip / args.gradient_accumulation_steps
-            progress_info.max_grad_norm_var += max_grad_norm_var / args.gradient_accumulation_steps
+            progress_info.grad_norm_clip = grad_norm_clip / args.gradient_accumulation_steps
+            progress_info.grad_norm_std += grad_norm_std / args.gradient_accumulation_steps
             
             accelerator.deepspeed_engine_wrapped.engine.step()
         else:

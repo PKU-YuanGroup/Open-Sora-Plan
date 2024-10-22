@@ -28,7 +28,7 @@ from deepspeed.runtime.utils import bwc_tensor_model_parallel_rank, is_model_par
 
 
 
-def clip_grad_norm_(parameters, max_norm, norm_type=2, mpu=None):
+def clip_grad_norm_(parameters, max_norm, norm_type=2, mpu=None, clip=True, accelerator=None):
     """Clips gradient norm of an iterable of parameters.
 
     This has been adapted from Nvidia megatron. We add norm averaging
@@ -84,14 +84,21 @@ def clip_grad_norm_(parameters, max_norm, norm_type=2, mpu=None):
             dist.all_reduce(total_norm, op=dist.ReduceOp.SUM, group=mpu.get_model_parallel_group())
         total_norm = total_norm.pow(1. / norm_type)
 
+    if not clip:
+        return total_norm
     # Need to average total_norm across different GPUs due to the presence of moe params
-    pg = groups._get_data_parallel_group()
-    scaled_norm = total_norm * 1.0 / float(dist.get_world_size(group=pg))
-    scaled_norm_tensor = scaled_norm
+    # pg = groups._get_data_parallel_group()
+    # print('befor scale', dist.get_world_size(group=pg), total_norm, flush=True)
+    # scaled_norm = total_norm * 1.0 / float(dist.get_world_size(group=pg))
+    # scaled_norm_tensor = scaled_norm
 
-    dist.all_reduce(scaled_norm_tensor, group=pg)
-    total_norm = scaled_norm_tensor
-    total_norm = total_norm.to(origin_device)
+    # dist.all_reduce(scaled_norm_tensor, group=pg)
+    # total_norm = scaled_norm_tensor
+    # total_norm = total_norm.to(origin_device)
+    # print('after scale', total_norm, flush=True)
+
+    total_norm_list = accelerator.gather(total_norm)
+    total_norm = total_norm_list.max()
 
     max_norm = torch.tensor([float(max_norm)], device=parameters[0].device)
     clip_coef = max_norm / (total_norm + 1e-6)
@@ -164,7 +171,7 @@ def get_grad_norm(parameters, norm_type=2, mpu=None):
 @instrument_w_nvtx
 def backward(
     self, loss, allreduce_gradients=True, release_loss=False, retain_graph=False, scale_wrt_gas=True, 
-    process_index=0, step_=0, moving_avg_grad_norm=-1e-6, moving_avg_grad_norm_std=0.0, accelerator=None, 
+    process_index=0, step_=0, moving_avg_max_grad_norm=-1e-6, moving_avg_max_grad_norm_var=0.0, accelerator=None, 
     ema_decay_grad_clipping=0.9999, 
     ):
     r"""Execute backward pass on the loss
@@ -233,29 +240,42 @@ def backward(
     # ==============================================
     weight_norm = get_weight_norm(parameters=self.module.parameters(), mpu=self.mpu)
 
-    grad_norm = get_grad_norm(parameters=self.module.parameters(), mpu=self.mpu)
-    grad_norm_list = accelerator.gather(grad_norm)  # (rank, )
-    grad_norm = grad_norm_list.mean().item() 
-    grad_norm_std = grad_norm_list.std().item()
+    grad_norm = clip_grad_norm_(parameters=self.module.parameters(), max_norm=None, mpu=self.mpu, clip=False)
+    grad_norm_list = accelerator.gather(grad_norm)
+    # print(f"process_index {process_index}, step_ {step_}, grad_norm_list {grad_norm_list}")
+    get_grad_norm_grad_norm = get_grad_norm(parameters=self.module.parameters(), mpu=self.mpu)
+    get_grad_norm_grad_norm_list = accelerator.gather(get_grad_norm_grad_norm)
+    # print(f"process_index {process_index}, step_ {step_}, get_grad_norm_grad_norm_list {get_grad_norm_grad_norm_list}")
 
-    is_first_step = True if moving_avg_grad_norm < 0.0 else False # the value of init is -1e6, before first step
+    # if torch.isnan(grad_norm_list).any() or torch.isinf(grad_norm_list).any():
+    #     print(grad_norm_list)
+    #     raise ValueError("Detected NaN or Inf in gathered gradient norms.")
+    max_grad_norm = grad_norm_list.max().item()  # (rank, )
+
+    is_first_step = True if moving_avg_max_grad_norm < 0.0 else False # the value of init is -1e6, before first step
     ema_decay = ema_decay_grad_clipping
 
     if is_first_step:  
-        moving_avg_grad_norm = grad_norm
-        moving_avg_grad_norm_std = grad_norm_std
+        moving_avg_max_grad_norm = max_grad_norm
+        moving_avg_max_grad_norm_var = 0
+        max_grad_norm_var = max_grad_norm
         max_norm = 1.0
         clip_coef = 1.0
-        grad_norm_clip = grad_norm
+        max_grad_norm_clip = max_grad_norm
     else:
         # out of 3 sigma mean abnormal step.
-        max_norm = min(moving_avg_grad_norm + 3.0 * moving_avg_grad_norm_std, self.gradient_clipping())
-        _, clip_coef = clip_grad_norm_(parameters=self.module.parameters(), max_norm=max_norm, mpu=self.mpu)
-        grad_norm_clip = get_grad_norm(parameters=self.module.parameters(), mpu=self.mpu)
-        grad_norm_clip = accelerator.gather(grad_norm_clip).mean().item()
+        max_norm = min(moving_avg_max_grad_norm + 3.0 * (moving_avg_max_grad_norm_var ** 0.5), self.gradient_clipping())
+        _, clip_coef = clip_grad_norm_(parameters=self.module.parameters(), max_norm=max_norm, mpu=self.mpu, accelerator=accelerator)
+        grad_norm_clip = clip_grad_norm_(parameters=self.module.parameters(), max_norm=None, mpu=self.mpu, clip=False)
+        grad_norm_clip_list = accelerator.gather(grad_norm_clip)
+        # print(f"process_index {process_index}, step_ {step_}, grad_norm_clip_list {grad_norm_clip_list}")
+        max_grad_norm_clip = grad_norm_clip_list.max().item()
         if clip_coef == 1.0:  # mean normal step!!! otherwise we do not update ema.
-            moving_avg_grad_norm = ema_decay * moving_avg_grad_norm + (1 - ema_decay) * grad_norm
-            moving_avg_grad_norm_std = ema_decay * moving_avg_grad_norm_std + (1 - ema_decay) * grad_norm_std
+            moving_avg_max_grad_norm = ema_decay * moving_avg_max_grad_norm + (1 - ema_decay) * max_grad_norm
+            max_grad_norm_var = (moving_avg_max_grad_norm - max_grad_norm) ** 2
+            moving_avg_max_grad_norm_var = ema_decay * moving_avg_max_grad_norm_var + (1 - ema_decay) * max_grad_norm_var
+        else:
+            max_grad_norm_var = (moving_avg_max_grad_norm - max_grad_norm) ** 2
     # =======================================================================================
 
     self._stop_timers(self.engine_timers.backward_inner_timers)
@@ -275,4 +295,4 @@ def backward(
 
     see_memory_usage("Engine after backward", force=self.memory_breakdown())
 
-    return loss, grad_norm, weight_norm, moving_avg_grad_norm, grad_norm_clip, max_norm, moving_avg_grad_norm_std, grad_norm_std, clip_coef
+    return loss, max_grad_norm, weight_norm, moving_avg_max_grad_norm, max_grad_norm_clip, max_norm, moving_avg_max_grad_norm_var, max_grad_norm_var, clip_coef
