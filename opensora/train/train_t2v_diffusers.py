@@ -484,14 +484,7 @@ def main(args):
         accelerator.load_state(checkpoint_path)
     logger.info(f"Load diffusion model finish, memory_allocated: {torch.cuda.memory_allocated()/GB:.2f} GB", main_process_only=True)
  
-    # STEP 3: Prepare EMA model
-    accelerator.state.select_deepspeed_plugin("ema")
-    if args.use_ema:
-        ema_model.model = accelerator.prepare(ema_model.model)
-        ema_model.model.eval()
-        logger.info(f"Load EMA model finish, memory_allocated: {torch.cuda.memory_allocated()/GB:.2f} GB", main_process_only=True)
-
-    # STEP 4: Prepare text encoder model
+    # STEP 3: Prepare text encoder model
     accelerator.state.select_deepspeed_plugin("text_encoder")
     text_enc_1 = get_text_warpper(args.text_encoder_name_1)(args)
     text_enc_1 = accelerator.prepare(text_enc_1)
@@ -504,6 +497,13 @@ def main(args):
         text_enc_2 = accelerator.prepare(text_enc_2)
         text_enc_2.eval()
         logger.info(f"Load text encoder model 2 finish, memory_allocated: {torch.cuda.memory_allocated()/GB:.2f} GB", main_process_only=True)
+
+    # STEP 4: Prepare EMA model
+    accelerator.state.select_deepspeed_plugin("ema")
+    if args.use_ema:
+        ema_model.model = accelerator.prepare(ema_model.model)
+        ema_model.model.eval()
+        logger.info(f"Load EMA model finish, memory_allocated: {torch.cuda.memory_allocated()/GB:.2f} GB", main_process_only=True)
 
     # STEP 5: All models have been prepared, start training
     accelerator.state.select_deepspeed_plugin("train")

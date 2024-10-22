@@ -18,6 +18,7 @@
     "zero_optimization": {
         "stage": 3,
         "overlap_comm": true,
+        "zero_hpz_partition_size": 16,
         "contiguous_gradients": true,
         "sub_group_size": 1e9,
         "reduce_bucket_size": 5e8,
