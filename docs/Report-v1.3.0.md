@@ -67,6 +67,7 @@ In our experiments, we used the K400 training and validation sets, conducted on 
 
 #### Performance
 
+The following metrics were tested on H100 with float32 precision. For fairness, tiling was disabled for all models, and direct inference was performed.
 
 <center>
 <figure>
