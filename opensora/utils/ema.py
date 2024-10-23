@@ -1,7 +1,6 @@
 import os
-import contextlib
 import copy
-import random
+import math
 from typing import Any, Dict, Iterable, List, Optional, Union
 
 from diffusers.utils import (
@@ -195,13 +194,38 @@ class EMAModel:
         self.cur_decay_value = decay
         one_minus_decay = 1 - decay
 
+        # https://github.com/microsoft/DeepSpeed/blob/master/deepspeed/runtime/zero/partition_parameters.py#L1543
         for s_param, param in zip(self.model.parameters(), parameters):
-            params_to_fetch = _z3_params_to_fetch([s_param, param])
-            with deepspeed.zero.GatheredParameters(params_to_fetch, enabled=len(params_to_fetch) > 0):
-                if param.requires_grad:
-                    s_param.data.sub_(one_minus_decay * (s_param.data - param.data))
-                else:
-                    s_param.data.copy_(param.data)
+            s_tensor, tensor = None, None
+            if hasattr(s_param, "ds_tensor"): # EMA ZeRO-3
+                s_tensor = s_param.ds_tensor
+                if hasattr(param, "ds_tensor"): # DiT ZeRO-3
+                    tensor = param.ds_tensor
+                else: # DiT ZeRO-2
+                    rank, world_size = int(os.getenv("RANK")), int(os.getenv("WORLD_SIZE"))
+                    partition_size = math.ceil(param.numel()/world_size)
+                    start = partition_size * rank
+                    end = start + partition_size
+
+                    one_dim_param = param.data.contiguous().view(-1)
+                    if start < param.numel() and end <= param.numel():
+                        tensor = one_dim_param.narrow(0, start, partition_size)
+                    elif start < param.numel():
+                        elems_to_copy = param.numel() - start
+                        s_tensor = s_param.ds_tensor.narrow(0, 0, elems_to_copy)
+                        tensor = one_dim_param.narrow(0, start, elems_to_copy)
+                    else:
+                        continue
+            else: # DiT/EMA ZeRO-2
+                s_tensor = s_param.data
+                tensor = param.data
+
+            assert s_tensor.shape == tensor.shape, f"mismatch shape, s_tensor: {s_tensor.shape}, tensor: {tensor.shape}"
+
+            if param.requires_grad:
+                s_tensor.sub_(one_minus_decay * (s_tensor - tensor))
+            else:
+                s_tensor.copy_(tensor)
 
     def copy_to(self, parameters: Iterable[torch.nn.Parameter]) -> None:
         """
@@ -320,10 +344,10 @@ if __name__ == "__main__":
     import ipdb
     from opensora.models.diffusion.opensora_v1_3.modeling_opensora import OpenSoraT2V_v1_3
 
-    model_path = ""
+    model_path = "/mnt/bn/genai-video1/tiger_opensoraplan/experiments/formal/910b_720_1600_finetune_bucket_splitdatav3_lr1e-5/checkpoint-1000-250/model_ema"
     ema_model = EMAModel.from_pretrained(model_path, OpenSoraT2V_v1_3)
     ipdb.set_trace()
 
-    save_path = ""
+    save_path = "/mnt/bn/wuxibin-hl-dev/outputs/open-sora-plan/formal/ema_model"
     ema_model.save_pretrained(save_path)
     ema_model2 = EMAModel.from_pretrained(save_path, OpenSoraT2V_v1_3)
