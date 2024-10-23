@@ -264,7 +264,7 @@ from deepspeed.runtime.utils import bwc_tensor_model_parallel_rank, is_model_par
 
 
 
-def clip_grad_norm_(parameters, max_norm, norm_type=2, mpu=None, clip=True, accelerator=None):
+def zero_grad_abnormal_(parameters, max_norm, norm_type=2, mpu=None, clip=True, accelerator=None):
     """Clips gradient norm of an iterable of parameters.
 
     This has been adapted from Nvidia megatron. We add norm averaging
@@ -333,7 +333,7 @@ def clip_grad_norm_(parameters, max_norm, norm_type=2, mpu=None, clip=True, acce
     # total_norm = total_norm.to(origin_device)
     # print('after scale', total_norm, flush=True)
     # 这个rank是不是nan
-    need_zeros_ = torch.isnan(total_norm).any() or torch.isinf(total_norm).any()  # nan or inf in abnormal local rank
+    zero_grad = torch.isnan(total_norm).any() or torch.isinf(total_norm).any()  # nan or inf in abnormal local rank
     # total_norm_list = accelerator.gather(total_norm)
     # nan_or_inf_list = torch.isnan(total_norm_list) | torch.isinf(total_norm_list)
     # total_norm_list = torch.where(
@@ -342,19 +342,17 @@ def clip_grad_norm_(parameters, max_norm, norm_type=2, mpu=None, clip=True, acce
     #     total_norm_list
     #     )  # filter normal grad_norm to calculate clip_coef for other normal ranks
     # total_norm = total_norm_list.max()
-    # 以下是只裁剪当前rank，标准量是ema的max grad norm，比如max_norm 1.0，被裁剪量是当前rank的grad norm
-    # 如果这个rank就是异常大grad norm的rank，那么只有这个rank会被裁，clip_coef=1.0/几万
-    # 如果是第二大的异常大grad norm，那也会被裁大部分，比如clip_coef=1.0/几千
-    max_norm = torch.tensor([float(max_norm)], device=parameters[0].device)
-    clip_coef = max_norm / (total_norm + 1e-6)
-    tmp_tensor = torch.tensor([1.0], device=parameters[0].device)
-    clip_coef = torch.min(tmp_tensor, clip_coef)
-    for p in parameters:
-        if need_zeros_:  # zero_ in abnormal local rank
+    # total_norm > 统计量就认为异常，异常丢掉
+    if not zero_grad:
+        zero_grad = total_norm > max_norm
+    # max_norm = torch.tensor([float(max_norm)], device=parameters[0].device)
+    # clip_coef = max_norm / (total_norm + 1e-6)
+    # tmp_tensor = torch.tensor([1.0], device=parameters[0].device)
+    # clip_coef = torch.min(tmp_tensor, clip_coef)
+    if zero_grad:  # zero_ in abnormal local rank
+        for p in parameters:
             p.grad.data.zero_()
-        else:  # clipping in other normal ranks
-            p.grad.data.mul_(clip_coef)
-    return total_norm, clip_coef
+    return total_norm, zero_grad
 
 
 
@@ -431,7 +429,7 @@ def backward(
     # ==============================================
     weight_norm = get_weight_norm(parameters=self.module.parameters(), mpu=self.mpu)
 
-    grad_norm = clip_grad_norm_(parameters=self.module.parameters(), max_norm=None, mpu=self.mpu, clip=False)
+    grad_norm = zero_grad_abnormal_(parameters=self.module.parameters(), max_norm=None, mpu=self.mpu, clip=False)
     grad_norm_list = accelerator.gather(grad_norm)
 
     detect_nan = 0
@@ -454,26 +452,19 @@ def backward(
 
     if is_first_step:  
         moving_avg_max_grad_norm = max_grad_norm
-        moving_avg_max_grad_norm_var = 0
+        moving_avg_max_grad_norm_var = max_grad_norm
         max_grad_norm_var = max_grad_norm
         max_norm = 1.0
-        clip_coef = 1.0
-        max_grad_norm_clip = max_grad_norm        
-        clip_coef_min = 0.0
-        clip_coef_max = 1.0
-        clip_coef_avg = 0.5
-        num_clip = 0.0
+        num_zero_grad = 0.0
+        max_grad_norm_clip = max_grad_norm  
     else:
         # out of 3 sigma mean abnormal step.
-        max_norm = min(moving_avg_max_grad_norm + 3.0 * (moving_avg_max_grad_norm_var ** 0.5), self.gradient_clipping())
-        _, clip_coef = clip_grad_norm_(parameters=self.module.parameters(), max_norm=max_norm, mpu=self.mpu, accelerator=accelerator)
+        max_norm = moving_avg_max_grad_norm + 3.0 * (moving_avg_max_grad_norm_var ** 0.5)
+        _, zero_grad = zero_grad_abnormal_(parameters=self.module.parameters(), max_norm=max_norm, mpu=self.mpu, accelerator=accelerator)
         # 每个rank不一定都被裁，只有当这个rank的gradnorm比较大时候才被裁，统计log需要先gather
-        clip_coef_list = accelerator.gather(clip_coef)
-        clip_coef_min = clip_coef_list.min().item()
-        clip_coef_max = clip_coef_list.max().item()
-        clip_coef_avg = clip_coef_list.mean().item()
-        num_clip = (clip_coef_list != 1.0).sum().item()
-        grad_norm_clip = clip_grad_norm_(parameters=self.module.parameters(), max_norm=None, mpu=self.mpu, clip=False)
+        zero_grad_list = accelerator.gather(zero_grad)
+        num_zero_grad = zero_grad_list.sum().item()
+        grad_norm_clip = zero_grad_abnormal_(parameters=self.module.parameters(), max_norm=None, mpu=self.mpu, clip=False)
         grad_norm_clip_list = accelerator.gather(grad_norm_clip)
         # print(f"process_index {process_index}, step_ {step_}, grad_norm_clip_list {grad_norm_clip_list}")
         max_grad_norm_clip = grad_norm_clip_list.max().item()
@@ -509,6 +500,6 @@ def backward(
     see_memory_usage("Engine after backward", force=self.memory_breakdown())
 
     return loss, max_grad_norm, weight_norm, moving_avg_max_grad_norm, max_grad_norm_clip, max_norm, \
-        moving_avg_max_grad_norm_var, max_grad_norm_var, (clip_coef_min, clip_coef_max, clip_coef_avg, num_clip), detect_nan
+        moving_avg_max_grad_norm_var, max_grad_norm_var, num_zero_grad, detect_nan
 
 

@@ -663,10 +663,7 @@ def main(args):
                     "moving_avg_max_grad_norm": progress_info.moving_avg_max_grad_norm, 
                     "moving_avg_max_grad_norm_var": progress_info.moving_avg_max_grad_norm_var, 
                     "max_norm": progress_info.max_norm, 
-                    "clip_coef_min": progress_info.clip_coef_min, 
-                    "clip_coef_max": progress_info.clip_coef_max, 
-                    "clip_coef_avg": progress_info.clip_coef_avg, 
-                    "num_clip": progress_info.num_clip, 
+                    "num_zero_grad": progress_info.num_zero_grad, 
                     "detect_nan": progress_info.detect_nan, 
                     "min_timesteps": progress_info.min_timesteps, 
                     "max_timesteps": progress_info.max_timesteps, 
@@ -683,10 +680,7 @@ def main(args):
         progress_info.train_loss = 0.0
         progress_info.max_grad_norm = 0.0
         progress_info.weight_norm = 0.0
-        progress_info.clip_coef_min = 0.0
-        progress_info.clip_coef_max = 1.0
-        progress_info.clip_coef_avg = 0.5
-        progress_info.num_clip = 1.0
+        progress_info.num_zero_grad = 1.0
         progress_info.max_grad_norm_clip = 0.0
         progress_info.max_norm = 1.0
         progress_info.max_grad_norm_var = 0.0
@@ -867,17 +861,14 @@ def main(args):
                 moving_avg_max_grad_norm_var=progress_info.moving_avg_max_grad_norm_var, accelerator=accelerator,
                 )
             _, max_grad_norm, weight_norm, moving_avg_max_grad_norm, max_grad_norm_clip, max_norm, \
-                moving_avg_max_grad_norm_var, max_grad_norm_var, clip_coef, detect_nan = results
-            clip_coef_min, clip_coef_max, clip_coef_avg, num_clip = clip_coef
+                moving_avg_max_grad_norm_var, max_grad_norm_var, num_zero_grad, detect_nan = results
+                
             # print('rank {} | step {} | max_grad_norm {}'.format(accelerator.process_index, step_, max_grad_norm))
             progress_info.max_grad_norm += max_grad_norm / args.gradient_accumulation_steps
             progress_info.weight_norm += weight_norm / args.gradient_accumulation_steps
             progress_info.moving_avg_max_grad_norm = moving_avg_max_grad_norm / args.gradient_accumulation_steps
             progress_info.moving_avg_max_grad_norm_var = moving_avg_max_grad_norm_var / args.gradient_accumulation_steps
-            progress_info.clip_coef_min = clip_coef_min
-            progress_info.clip_coef_max = clip_coef_max
-            progress_info.clip_coef_avg = clip_coef_avg
-            progress_info.num_clip = num_clip
+            progress_info.num_zero_grad = num_zero_grad
             progress_info.max_norm = max_norm
             progress_info.detect_nan = detect_nan
             progress_info.max_timesteps = max_timesteps
