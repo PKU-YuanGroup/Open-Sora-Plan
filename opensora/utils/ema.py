@@ -344,10 +344,10 @@ if __name__ == "__main__":
     import ipdb
     from opensora.models.diffusion.opensora_v1_3.modeling_opensora import OpenSoraT2V_v1_3
 
-    model_path = "/mnt/bn/genai-video1/tiger_opensoraplan/experiments/formal/910b_720_1600_finetune_bucket_splitdatav3_lr1e-5/checkpoint-1000-250/model_ema"
+    model_path = ""
     ema_model = EMAModel.from_pretrained(model_path, OpenSoraT2V_v1_3)
     ipdb.set_trace()
 
-    save_path = "/mnt/bn/wuxibin-hl-dev/outputs/open-sora-plan/formal/ema_model"
+    save_path = ""
     ema_model.save_pretrained(save_path)
     ema_model2 = EMAModel.from_pretrained(save_path, OpenSoraT2V_v1_3)
