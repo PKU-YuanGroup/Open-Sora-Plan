@@ -112,14 +112,14 @@ cd Open-Sora-Plan
 We recommend the requirements as follows.
 * Python >= 3.8
 * Pytorch >= 2.1.0
-* CUDA Version >= 11.7
+
+### GPU
 ```
 conda create -n opensora python=3.8 -y
 conda activate opensora
 pip install -e .
 ```
-
-**For NPU**
+### NPU
 ```
 pip install torch_npu==2.1.0.post6
 # ref https://github.com/dmlc/decord
