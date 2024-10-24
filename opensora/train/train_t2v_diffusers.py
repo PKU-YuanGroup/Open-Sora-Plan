@@ -395,17 +395,18 @@ def main(args):
 
         def load_model_hook(models, input_dir):
             if args.use_ema:
-                load_model = EMAModel.from_pretrained(
-                    os.path.join(input_dir, "model_ema"), 
-                    Diffusion_models_class[args.model], 
-                    foreach=args.foreach_ema, 
-                    )
-                ema_model.load_state_dict(load_model.state_dict())
-                if args.offload_ema:
-                    ema_model.pin_memory()
-                else:
-                    ema_model.to(accelerator.device)
-                del load_model
+                if os.path.exists(os.path.join(input_dir, "model_ema")):
+                    load_model = EMAModel.from_pretrained(
+                        os.path.join(input_dir, "model_ema"), 
+                        Diffusion_models_class[args.model], 
+                        foreach=args.foreach_ema, 
+                        )
+                    ema_model.load_state_dict(load_model.state_dict())
+                    if args.offload_ema:
+                        ema_model.pin_memory()
+                    else:
+                        ema_model.to(accelerator.device, dtype=torch.float32 if args.ema_fp32 else weight_dtype)
+                    del load_model
 
             for i in range(len(models)):
                 # pop models so that they are not loaded again
@@ -563,6 +564,8 @@ def main(args):
             ema_model.pin_memory()
         else:
             ema_model.to(accelerator.device)
+        if args.ema_bf16:
+            ema_model.to(dtype=torch.bfloat16)
 
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
@@ -665,6 +668,7 @@ def main(args):
                     "max_norm": progress_info.max_norm, 
                     "num_zero_grad": progress_info.num_zero_grad, 
                     "detect_nan": progress_info.detect_nan, 
+                    "clip_coef": progress_info.clip_coef,
                     "min_timesteps": progress_info.min_timesteps, 
                     "max_timesteps": progress_info.max_timesteps, 
                     "max_grad_norm_var": progress_info.max_grad_norm_var, 
@@ -682,6 +686,7 @@ def main(args):
         progress_info.weight_norm = 0.0
         progress_info.num_zero_grad = 1.0
         progress_info.max_grad_norm_clip = 0.0
+        progress_info.clip_coef = 1.0
         progress_info.max_norm = 1.0
         progress_info.max_grad_norm_var = 0.0
         progress_info.detect_nan = 0.0
@@ -861,7 +866,7 @@ def main(args):
                 moving_avg_max_grad_norm_var=progress_info.moving_avg_max_grad_norm_var, accelerator=accelerator,
                 )
             _, max_grad_norm, weight_norm, moving_avg_max_grad_norm, max_grad_norm_clip, max_norm, \
-                moving_avg_max_grad_norm_var, max_grad_norm_var, num_zero_grad, detect_nan = results
+                moving_avg_max_grad_norm_var, max_grad_norm_var, num_zero_grad, detect_nan, clip_coef = results
                 
             # print('rank {} | step {} | max_grad_norm {}'.format(accelerator.process_index, step_, max_grad_norm))
             progress_info.max_grad_norm += max_grad_norm / args.gradient_accumulation_steps
@@ -870,6 +875,7 @@ def main(args):
             progress_info.moving_avg_max_grad_norm_var = moving_avg_max_grad_norm_var / args.gradient_accumulation_steps
             progress_info.num_zero_grad = num_zero_grad
             progress_info.max_norm = max_norm
+            progress_info.clip_coef = clip_coef
             progress_info.detect_nan = detect_nan
             progress_info.max_timesteps = max_timesteps
             progress_info.min_timesteps = min_timesteps
@@ -1134,6 +1140,7 @@ if __name__ == "__main__":
 
     # text encoder & vae & diffusion model
     parser.add_argument('--vae_fp32', action='store_true')
+    parser.add_argument('--ema_bf16', action='store_true')
     parser.add_argument('--extra_save_mem', action='store_true')
     parser.add_argument("--model", type=str, choices=list(Diffusion_models.keys()), default="Latte-XL/122")
     parser.add_argument('--enable_tiling', action='store_true')
@@ -1217,11 +1224,11 @@ if __name__ == "__main__":
     parser.add_argument("--lr_warmup_steps", type=int, default=0, help="Number of steps for the warmup in the lr scheduler.")
     parser.add_argument("--use_8bit_adam", action="store_true", help="Whether or not to use 8-bit Adam from bitsandbytes. Ignored if optimizer is not set to AdamW")
     parser.add_argument("--adam_beta1", type=float, default=0.9, help="The beta1 parameter for the Adam and Prodigy optimizers.")
-    parser.add_argument("--adam_beta2", type=float, default=0.999, help="The beta2 parameter for the Adam and Prodigy optimizers.")
+    parser.add_argument("--adam_beta2", type=float, default=0.95, help="The beta2 parameter for the Adam and Prodigy optimizers.")
     parser.add_argument("--prodigy_decouple", type=bool, default=True, help="Use AdamW style decoupled weight decay")
-    parser.add_argument("--adam_weight_decay", type=float, default=1e-02, help="Weight decay to use for unet params")
+    parser.add_argument("--adam_weight_decay", type=float, default=1e-01, help="Weight decay to use for unet params")
     parser.add_argument("--adam_weight_decay_text_encoder", type=float, default=None, help="Weight decay to use for text_encoder")
-    parser.add_argument("--adam_epsilon", type=float, default=1e-15, help="Epsilon value for the Adam optimizer and Prodigy optimizers.")
+    parser.add_argument("--adam_epsilon", type=float, default=1e-8, help="Epsilon value for the Adam optimizer and Prodigy optimizers.")
     parser.add_argument("--prodigy_use_bias_correction", type=bool, default=True, help="Turn on Adam's bias correction. True by default. Ignored if optimizer is adamW")
     parser.add_argument("--prodigy_safeguard_warmup", type=bool, default=True, help="Remove lr from the denominator of D estimate to avoid issues during warm-up stage. True by default. Ignored if optimizer is adamW")
     parser.add_argument("--max_grad_norm", default=1.0, type=float, help="Max gradient norm.")

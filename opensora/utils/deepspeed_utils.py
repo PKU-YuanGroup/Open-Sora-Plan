@@ -345,6 +345,9 @@ def zero_grad_abnormal_(parameters, max_norm, norm_type=2, mpu=None, clip=True, 
     # total_norm > 统计量就认为异常，异常丢掉
     if not zero_grad:
         zero_grad = total_norm > max_norm
+
+    zero_grad_list = accelerator.gather(zero_grad)
+    clip_coef = torch.mean((~zero_grad_list).float(), dim=-1, keepdim=True)
     # max_norm = torch.tensor([float(max_norm)], device=parameters[0].device)
     # clip_coef = max_norm / (total_norm + 1e-6)
     # tmp_tensor = torch.tensor([1.0], device=parameters[0].device)
@@ -352,7 +355,10 @@ def zero_grad_abnormal_(parameters, max_norm, norm_type=2, mpu=None, clip=True, 
     if zero_grad:  # zero_ in abnormal local rank
         for p in parameters:
             p.grad.data.zero_()
-    return total_norm, zero_grad
+    elif clip_coef != 1.0:
+        for p in parameters:
+            p.grad.data.mul_(clip_coef)
+    return total_norm, zero_grad_list, clip_coef
 
 
 
@@ -456,18 +462,17 @@ def backward(
         max_grad_norm_var = max_grad_norm
         max_norm = 1.0
         num_zero_grad = 0.0
+        clip_coef = 1.0
         max_grad_norm_clip = max_grad_norm  
     else:
         # out of 3 sigma mean abnormal step.
-        max_norm = moving_avg_max_grad_norm + 3.0 * (moving_avg_max_grad_norm_var ** 0.5)
-        _, zero_grad = zero_grad_abnormal_(parameters=self.module.parameters(), max_norm=max_norm, mpu=self.mpu, accelerator=accelerator)
-        # 每个rank不一定都被裁，只有当这个rank的gradnorm比较大时候才被裁，统计log需要先gather
-        zero_grad_list = accelerator.gather(zero_grad)
+        max_norm = moving_avg_max_grad_norm + 2.5 * (moving_avg_max_grad_norm_var ** 0.5)
+        _, zero_grad_list, clip_coef = zero_grad_abnormal_(parameters=self.module.parameters(), max_norm=max_norm, mpu=self.mpu, accelerator=accelerator)
         num_zero_grad = zero_grad_list.sum().item()
         grad_norm_clip = zero_grad_abnormal_(parameters=self.module.parameters(), max_norm=None, mpu=self.mpu, clip=False)
         grad_norm_clip_list = accelerator.gather(grad_norm_clip)
         # print(f"process_index {process_index}, step_ {step_}, grad_norm_clip_list {grad_norm_clip_list}")
-        max_grad_norm_clip = grad_norm_clip_list.max().item()
+        max_grad_norm_clip = grad_norm_clip_list.max().item() / clip_coef
         if torch.isnan(grad_norm_clip_list).any() or torch.isinf(grad_norm_clip_list).any():
             print(grad_norm_clip_list)
             raise ValueError("Detected NaN or Inf in gathered clipping gradient norms.")
@@ -475,11 +480,12 @@ def backward(
         # moving_avg_max_grad_norm = ema_decay * moving_avg_max_grad_norm + (1 - ema_decay) * max_grad_norm
         # max_grad_norm_var = (moving_avg_max_grad_norm - max_grad_norm) ** 2
         # 用裁过的max grad norm作为ema统计量，裁过的一定是之前认为合理的最大范围
-        moving_avg_max_grad_norm = ema_decay * moving_avg_max_grad_norm + (1 - ema_decay) * max_grad_norm_clip
-        max_grad_norm_var = (moving_avg_max_grad_norm - max_grad_norm_clip) ** 2
-        moving_avg_max_grad_norm_var = ema_decay * moving_avg_max_grad_norm_var + (1 - ema_decay) * max_grad_norm_var
-        # else:
-        #     max_grad_norm_var = (moving_avg_max_grad_norm - max_grad_norm) ** 2
+        if num_zero_grad < 2:
+            moving_avg_max_grad_norm = ema_decay * moving_avg_max_grad_norm + (1 - ema_decay) * max_grad_norm_clip
+            max_grad_norm_var = (moving_avg_max_grad_norm - max_grad_norm_clip) ** 2
+            moving_avg_max_grad_norm_var = ema_decay * moving_avg_max_grad_norm_var + (1 - ema_decay) * max_grad_norm_var
+        else:
+            max_grad_norm_var = (moving_avg_max_grad_norm - max_grad_norm) ** 2
     # =======================================================================================
 
     self._stop_timers(self.engine_timers.backward_inner_timers)
@@ -500,6 +506,6 @@ def backward(
     see_memory_usage("Engine after backward", force=self.memory_breakdown())
 
     return loss, max_grad_norm, weight_norm, moving_avg_max_grad_norm, max_grad_norm_clip, max_norm, \
-        moving_avg_max_grad_norm_var, max_grad_norm_var, num_zero_grad, detect_nan
+        moving_avg_max_grad_norm_var, max_grad_norm_var, num_zero_grad, detect_nan, clip_coef
 
 
