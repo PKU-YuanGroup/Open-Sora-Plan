@@ -119,6 +119,21 @@ conda activate opensora
 pip install -e .
 ```
 
+**For NPU**
+```
+pip install torch_npu==2.1.0.post6
+# ref https://github.com/dmlc/decord
+git clone --recursive https://github.com/dmlc/decord
+mkdir build && cd build 
+cmake .. -DUSE_CUDA=0 -DCMAKE_BUILD_TYPE=Release -DFFMPEG_DIR=/usr/local/ffmpeg 
+make 
+cd ../python 
+pwd=$PWD 
+echo "PYTHONPATH=$PYTHONPATH:$pwd" >> ~/.bashrc 
+source ~/.bashrc 
+python3 setup.py install --user
+```
+
 3. Install optional requirements such as static type checking:
 ```
 pip install -e '.[dev]'
