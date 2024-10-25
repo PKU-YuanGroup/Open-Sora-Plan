@@ -13,22 +13,14 @@ def zero_module(module):
         nn.init.zeros_(p)
     return module
 
-def reconstitute_checkpoint(pretrained_checkpoint, model_state_dict):
-    pretrained_keys = set(list(pretrained_checkpoint.keys()))
-    model_keys = set(list(model_state_dict.keys()))
-    common_keys = list(pretrained_keys & model_keys)
-    checkpoint = {k: pretrained_checkpoint[k] for k in common_keys if model_state_dict[k].numel() == pretrained_checkpoint[k].numel()}
-    return checkpoint
-
-
 class OpenSoraInpaint_v1_3(OpenSoraT2V_v1_3):
     _supports_gradient_checkpointing = True
 
     @register_to_config
     def __init__(
         self,
-        num_attention_heads: int = 16,
-        attention_head_dim: int = 88,
+        num_heads: int = 16,
+        head_dim: int = 88,
         in_channels: Optional[int] = None,
         out_channels: Optional[int] = None,
         num_layers: int = 1,
@@ -49,11 +41,11 @@ class OpenSoraInpaint_v1_3(OpenSoraT2V_v1_3):
         sparse_n: int = 2,
         # inpaint
         vae_scale_factor_t: int = 4,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(
-            num_attention_heads=num_attention_heads,
-            attention_head_dim=attention_head_dim,
+            num_heads=num_heads,
+            head_dim=head_dim,
             in_channels=in_channels,
             out_channels=out_channels,
             num_layers=num_layers,
@@ -104,7 +96,6 @@ class OpenSoraInpaint_v1_3(OpenSoraT2V_v1_3):
 
     def _operate_on_patched_inputs(self, hidden_states, encoder_hidden_states, timestep, batch_size, frame):
         # inpaint
-        print(hidden_states.shape, self.config.in_channels, self.vae_scale_factor_t)
         assert hidden_states.shape[1] == 2 * self.config.in_channels + self.vae_scale_factor_t
         in_channels = self.config.in_channels
 
@@ -130,37 +121,3 @@ class OpenSoraInpaint_v1_3(OpenSoraT2V_v1_3):
         encoder_hidden_states = rearrange(encoder_hidden_states, 'b 1 l d -> (b 1) l d')
 
         return hidden_states, encoder_hidden_states, timestep, embedded_timestep
-
-    def transformer_model_custom_load_state_dict(self, pretrained_model_path):
-        pretrained_model_path = os.path.join(pretrained_model_path, 'diffusion_pytorch_model.*')
-        pretrained_model_path = glob.glob(pretrained_model_path)
-        assert len(pretrained_model_path) > 0, f"Cannot find pretrained model in {pretrained_model_path}"
-        pretrained_model_path = pretrained_model_path[0]
-
-        print(f'Loading {self.__class__.__name__} pretrained weights...')
-        print(f'Loading pretrained model from {pretrained_model_path}...')
-        model_state_dict = self.state_dict()
-        if 'safetensors' in pretrained_model_path:  # pixart series
-            from safetensors.torch import load_file as safe_load
-            # import ipdb;ipdb.set_trace()
-            pretrained_checkpoint = safe_load(pretrained_model_path, device="cpu")
-        else:  # latest stage training weight
-            pretrained_checkpoint = torch.load(pretrained_model_path, map_location='cpu')
-            if 'model' in pretrained_checkpoint:
-                pretrained_checkpoint = pretrained_checkpoint['model']
-        checkpoint = reconstitute_checkpoint(pretrained_checkpoint, model_state_dict)
-
-        if not 'pos_embed_masked_hidden_states.0.weight' in checkpoint:
-            checkpoint['pos_embed_masked_hidden_states.0.proj.weight'] = checkpoint['pos_embed.proj.weight']
-            checkpoint['pos_embed_masked_hidden_states.0.proj.bias'] = checkpoint['pos_embed.proj.bias']
-
-        missing_keys, unexpected_keys = self.load_state_dict(checkpoint, strict=False)
-        print(f'missing_keys {len(missing_keys)} {missing_keys}, unexpected_keys {len(unexpected_keys)}')
-        print(f'Successfully load {len(self.state_dict()) - len(missing_keys)}/{len(model_state_dict)} keys from {pretrained_model_path}!')
-
-    def custom_load_state_dict(self, pretrained_model_path):
-        assert isinstance(pretrained_model_path, dict), "pretrained_model_path must be a dict"
-
-        pretrained_transformer_model_path = pretrained_model_path.get('transformer_model', None)
-
-        self.transformer_model_custom_load_state_dict(pretrained_transformer_model_path)

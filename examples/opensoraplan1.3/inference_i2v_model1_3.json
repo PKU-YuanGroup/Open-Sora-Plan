@@ -1,7 +1,7 @@
 {
     "ae": {
         "model_id": "wfvae",
-        "from_pretrained": "/home/image_data/captions/WFVAE_DISTILL_FORMAL/wfvae.ckpt",
+        "from_pretrained": "/home/save_dir/lzj/formal_8dim/merged.ckpt",
         "dtype": "bf16",
         "output_dtype": "bf16",
         "base_channels": 128,
@@ -13,9 +13,12 @@
         "latent_dim": 8,
         "use_attention": true,
         "norm_type": "layernorm",
-        "t_interpolation": "nearest",
+        "t_interpolation": "trilinear", 
         "vae_scale_factor":[4,8,8],
-        "use_tiling": true
+        "use_tiling": false,
+        "scale": [0.18215, 0.18215, 0.18215, 0.18215, 0.18215, 0.18215, 0.18215, 0.18215],
+        "shift": [0, 0, 0, 0, 0, 0, 0, 0],
+        "connect_res_layer_num": 2
     },
     "text_encoder": {
         "hub_backend": "hf",
@@ -33,10 +36,10 @@
     },
     "predictor": {
         "dtype": "bf16",
-        "model_id": "OpenSoraI2V_v1_3",
-        "num_layers" : 32,
+        "model_id": "OpenSoraInpaint_v1_3",
+        "num_layers": 32,
         "num_heads": 24,
-        "head_dim":96,
+        "head_dim": 96,
         "in_channels":8,
         "out_channels":8,
         "dropout":0.0,
@@ -51,11 +54,11 @@
         "interpolation_scale":[1.0, 1.0, 1.0],
         "sparse1d":true,
         "sparse_n":4,
-        "from_pretrained": "/home/save_dir/runs/i2v_1_3_hq_finetune/checkpoint-5500/model/diffusion_pytorch_model.safetensors"
+        "from_pretrained": "/home/save_dir/runs/i2v_1_3_hq_finetune_from_org_sucai_movie_final/checkpoint-10200/model/diffusion_pytorch_model.safetensors"
     },
     "diffusion": {
         "model_id": "EulerAncestralDiscrete",
-        "num_inference_steps":100,
+        "num_inference_steps":50,
         "guidance_scale":7.5,
         "prediction_type": "v_prediction",
         "rescale_betas_zero_snr": true,
@@ -63,15 +66,19 @@
     },
     "pipeline_config": {
         "use_attention_mask": true,
-        "input_size": [93, 640, 640]
+        "add_noise_to_condition": false,
+        "input_size": [93, 352, 640]
     },
     "micro_batch_size": 1,
     "frame_interval":1,
     "model_max_length": 512,
     "save_path":"./opensora_samples/samples/",
     "fps":18,
-    "prompt":"examples/opensoraplan1.3/prompts.txt",
-    "pipeline_class": "OpenSoraPlanPipeline",
+    "prompt":"/home/image_data/gyy/mmdit/Open-Sora-Plan/validation_dir/prompt.txt",
+    "conditional_pixel_values_path": "/home/image_data/gyy/mmdit/Open-Sora-Plan/validation_dir/cond_imgs_path.txt",
+    "mask_type": null,
+    "crop_for_hw": true,
+    "pipeline_class": "OpenSoraPlanInpaintPipeline",
     "device":"npu",
     "dtype": "bf16"
 }

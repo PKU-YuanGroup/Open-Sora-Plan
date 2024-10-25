@@ -6,7 +6,7 @@ from .dits import OpenSoraT2V_v1_3, OpenSoraInpaint_v1_3, VideoDiT, Latte, STDiT
 
 PREDICTOR_MODEL_MAPPINGS = {
     "OpenSoraT2V_v1_3": OpenSoraT2V_v1_3,
-    "OpenSoraI2V_v1_3": OpenSoraInpaint_v1_3,
+    "OpenSoraInpaint_v1_3": OpenSoraInpaint_v1_3,
     "videodit": VideoDiT,
     "latte": Latte,
     "stdit": STDiT,
@@ -27,8 +27,10 @@ class PredictModel(nn.Module):
     def __init__(self, config):
         super().__init__()
         model_cls = PREDICTOR_MODEL_MAPPINGS[config.model_id]
+        print(f"predict model config: {config.to_dict()}")
         self.predictor = model_cls(**config.to_dict())
         if config.from_pretrained is not None and config.model_id != "cogvideox":
+            print_rank_0(f"load predictor's checkpoint from {config.from_pretrained}")
             load_checkpoint(self.predictor, config.from_pretrained)
             print_rank_0("load predictor's checkpoint sucessfully")
 

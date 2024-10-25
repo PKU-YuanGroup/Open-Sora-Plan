@@ -1,7 +1,7 @@
 {
     "ae": {
         "model_id": "wfvae",
-        "from_pretrained": "/home/image_data/captions/WFVAE_DISTILL_FORMAL/wfvae.ckpt",
+        "from_pretrained": "/home/save_dir/lzj/formal_8dim/merged.ckpt",
         "dtype": "bf16",
         "output_dtype": "bf16",
         "base_channels": 128,
@@ -13,9 +13,12 @@
         "latent_dim": 8,
         "use_attention": true,
         "norm_type": "layernorm",
-        "t_interpolation": "nearest",
+        "t_interpolation": "trilinear",
         "vae_scale_factor":[4,8,8],
-        "use_tiling": true
+        "use_tiling": true,
+        "scale": [0.18215, 0.18215, 0.18215, 0.18215, 0.18215, 0.18215, 0.18215, 0.18215],
+        "shift": [0, 0, 0, 0, 0, 0, 0, 0],
+        "connect_res_layer_num": 2
     },
     "text_encoder": {
         "hub_backend": "hf",
@@ -55,7 +58,7 @@
     },
     "diffusion": {
         "model_id": "EulerAncestralDiscrete",
-        "num_inference_steps":100,
+        "num_inference_steps":50,
         "guidance_scale":7.5,
         "prediction_type": "v_prediction",
         "rescale_betas_zero_snr": true,
@@ -63,7 +66,7 @@
     },
     "pipeline_config": {
         "use_attention_mask": true,
-        "input_size": [93, 640, 640]
+        "input_size": [93, 352, 640]
     },
     "micro_batch_size": 1,
     "frame_interval":1,

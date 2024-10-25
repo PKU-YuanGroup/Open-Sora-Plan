@@ -3,6 +3,7 @@ import torch.nn.functional as F
 import torch.nn as nn
 from ..common.conv import CausalConv3d
 from einops import rearrange
+from ...utils.utils import cast_tuple, video_to_image
 
 class HaarWaveletTransform3D(nn.Module):
     def __init__(self, *args, **kwargs) -> None:
@@ -173,6 +174,7 @@ class HaarWaveletTransform2D(nn.Module):
         self.register_buffer('da', torch.tensor([[1, -1], [1, -1]]).view(1, 1, 2, 2) / 2)
         self.register_buffer('dd', torch.tensor([[1, -1], [-1, 1]]).view(1, 1, 2, 2) / 2)
 
+    @video_to_image
     def forward(self, x):
         b, c, h, w = x.shape
         x = x.reshape(b * c, 1, h, w)
@@ -191,6 +193,7 @@ class InverseHaarWaveletTransform2D(nn.Module):
         self.register_buffer('da', torch.tensor([[1, -1], [1, -1]]).view(1, 1, 2, 2) / 2)
         self.register_buffer('dd', torch.tensor([[1, -1], [-1, 1]]).view(1, 1, 2, 2) / 2)
 
+    @video_to_image
     def forward(self, coeffs):
         low_low, low_high, high_low, high_high = coeffs.chunk(4, dim=1)
         b, c, height_half, width_half = low_low.shape
