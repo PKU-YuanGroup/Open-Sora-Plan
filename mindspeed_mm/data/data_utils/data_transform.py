@@ -60,6 +60,17 @@ def to_tensor(clip):
     # return clip.float().permute(3, 0, 1, 2) / 255.0
     return clip.float() / 255.0
 
+def to_tensor_after_resize(clip):
+    """
+    Convert resized tensor to [0, 1]
+    Args:
+        clip (torch.tensor, dtype=torch.float): Size is (T, C, H, W)
+    Return:
+        clip (torch.tensor, dtype=torch.float): Size is (T, C, H, W), but in [0, 1]
+    """
+    _is_tensor_video_clip(clip)
+    # return clip.float().permute(3, 0, 1, 2) / 255.0
+    return clip.float() / 255.0
 
 def hflip(clip):
     """
@@ -96,6 +107,16 @@ def resize(clip, target_size, interpolation_mode, align_corners=False, antialias
         antialias=antialias,
     )
 
+def maxhwresize(ori_height, ori_width, max_hxw):
+
+    if ori_height * ori_width > max_hxw:
+        scale_factor = np.sqrt(max_hxw / (ori_height * ori_width))
+        new_height = int(ori_height * scale_factor)
+        new_width = int(ori_width * scale_factor)
+    else:
+        new_height = ori_height
+        new_width = ori_width
+    return new_height, new_width
 
 def resize_scale(clip, target_size, interpolation_mode):
     if len(target_size) != 2:
@@ -285,6 +306,28 @@ class ToTensorVideo:
 
     def __repr__(self) -> str:
         return self.__class__.__name__
+    
+
+class ToTensorAfterResize:
+    """
+    Convert tensor data type from uint8 to float, divide value by 255.0 and
+    permute the dimensions of clip tensor
+    """
+
+    def __init__(self):
+        pass
+
+    def __call__(self, clip):
+        """
+        Args:
+            clip (torch.tensor, dtype=torch.float): Size is (T, C, H, W)
+        Return:
+            clip (torch.tensor, dtype=torch.float): Size is (T, C, H, W), but in [0, 1]
+        """
+        return to_tensor_after_resize(clip)
+
+    def __repr__(self) -> str:
+        return self.__class__.__name__
 
 
 class RandomHorizontalFlipVideo:
@@ -310,6 +353,39 @@ class RandomHorizontalFlipVideo:
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(p={self.p})"
+
+class MaxHWStrideResizeVideo:
+    '''
+    First use the h*w,
+    then resize to the specified size
+    '''
+
+    def __init__(
+            self,
+            max_hxw,
+            interpolation_mode="bilinear",
+    ):
+        self.max_hxw = max_hxw
+        self.interpolation_mode = interpolation_mode
+
+    def __call__(self, clip):
+        """
+        Args:
+            clip (torch.tensor): Video clip to be cropped. Size is (T, C, H, W)
+        Returns:
+            torch.tensor: scale resized video clip.
+        """
+        _, _, h, w = clip.shape
+        tr_h, tr_w = maxhwresize(h, w, self.max_hxw)
+        if h == tr_h and w == tr_w:
+            return clip
+        resize_clip = resize(clip, target_size=(tr_h, tr_w),
+                                         interpolation_mode=self.interpolation_mode)
+        
+        return resize_clip
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(size={self.size}, interpolation_mode={self.interpolation_mode}"
 
 
 class SpatialStrideCropVideo:

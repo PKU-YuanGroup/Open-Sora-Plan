@@ -4,7 +4,7 @@ export TASK_QUEUE_ENABLE=0
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 export PYTHONPATH=/home/image_data/yancen/MindSpeed-MM:$PYTHONPATH
 MASTER_ADDR=localhost
-MASTER_PORT=12875
+MASTER_PORT=12872
 NNODES=1
 NODE_RANK=0
 NPUS_PER_NODE=8
@@ -12,11 +12,9 @@ WORLD_SIZE=$(($NPUS_PER_NODE * $NNODES))
 
 export use_debug=0
 
-
-
-TP=4
+TP=1
 PP=1
-CP=2
+CP=1
 MBS=1
 GBS=1
 MM_MODEL="examples/opensoraplan1.3/inference_t2v_model1_3.json"

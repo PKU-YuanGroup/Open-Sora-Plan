@@ -215,6 +215,12 @@ class DiffusersScheduler:
             latents = _split(latents, mpu.get_context_parallel_group(), dim=2)
             model_kwargs["encoder_hidden_states"] = _split(model_kwargs["encoder_hidden_states"],
                                           mpu.get_context_parallel_group(), dim=2)
+        
+        masked_pixel_values = None
+        mask = None
+        if model_kwargs.get('masked_pixel_values', None) is not None and model_kwargs.get('mask', None) is not None:
+            masked_pixel_values = model_kwargs['masked_pixel_values']
+            mask = model_kwargs['mask']
 
         # for loop denoising to get latents
         with tqdm(total=self.num_inference_steps) as progress_bar:
@@ -222,6 +228,11 @@ class DiffusersScheduler:
                 # timestep = torch.tensor([i] * shape[0], device=self.device)
                 latent_model_input = torch.cat([latents] * 2) if self.do_classifier_free_guidance else latents
                 latent_model_input = self.diffusion.scale_model_input(latent_model_input, t)
+
+                # inpaint
+                if masked_pixel_values is not None and mask is not None:
+                    latent_model_input = torch.cat([latent_model_input, masked_pixel_values, mask], dim=1)
+
                 current_timestep = t
                 current_timestep = current_timestep.expand(latent_model_input.shape[0])
                 model_kwargs["hidden_states"] = latent_model_input

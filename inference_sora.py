@@ -8,7 +8,7 @@ from megatron.core import mpu
 
 from mindspeed_mm.configs.config import merge_mm_args, mm_extra_args_provider
 from mindspeed_mm.tasks.inference.pipeline import SoraPipeline_dict
-from mindspeed_mm.tasks.inference.pipeline.utils.sora_utils import save_videos, load_prompts
+from mindspeed_mm.tasks.inference.pipeline.utils.sora_utils import save_videos, save_one_video, load_prompts, load_conditional_pixel_values_path
 from mindspeed_mm.models.predictor import PredictModel
 from mindspeed_mm.models.diffusion import DiffusionModel
 from mindspeed_mm.models.ae import AEModel
@@ -48,6 +48,8 @@ def main():
     device = get_device(args.device)
 
     prompts = load_prompts(args.prompt)
+    if "Inpaint" in args.pipeline_class:
+        conditional_pixel_values_path = load_conditional_pixel_values_path(args.conditional_pixel_values_path)
     start_idx = 0
     max_sequence_length = args.model_max_length
     save_fps = args.fps // args.frame_interval
@@ -59,14 +61,26 @@ def main():
 
     # == Iter over all samples ==
     video_grids = []
-    for i in range(0, len(prompts), args.micro_batch_size):
-        # == prepare batch prompts ==
-        batch_prompts = prompts[i: i + args.micro_batch_size]
-
-        videos = sora_pipeline(prompt=batch_prompts, fps=save_fps, device=device, dtype=dtype,
-                               max_sequence_length=max_sequence_length)
-        video_grids.append(videos)
-        start_idx += len(batch_prompts)
+    if "Inpaint" in args.pipeline_class:
+        print("Inpainting mode")
+        for i in range(0, len(prompts)):
+            prompt = prompts[i]
+            condition = conditional_pixel_values_path[i]
+            videos = sora_pipeline(prompt=prompt, conditional_pixel_values_path=condition, fps=save_fps, device=device,
+                                   dtype=dtype, max_sequence_length=max_sequence_length)
+            save_one_video(videos[0], args.save_path, save_fps, start_idx)
+            video_grids.append(videos)
+            start_idx += 1
+    else:
+        print("T2V mode")
+        for i in range(0, len(prompts)):
+            # == prepare batch prompts ==
+            prompt = prompts[i]
+            videos = sora_pipeline(prompt=prompt, fps=save_fps, device=device, dtype=dtype,
+                                max_sequence_length=max_sequence_length)
+            save_one_video(videos[0], args.save_path, save_fps, start_idx)
+            video_grids.append(videos)
+            start_idx += 1
     video_grids = torch.cat(video_grids, dim=0)
     if mpu.get_context_parallel_rank() == 0 and mpu.get_tensor_model_parallel_rank() == 0:
         save_videos(video_grids, args.save_path, save_fps, value_range=(-1, 1), normalize=True)

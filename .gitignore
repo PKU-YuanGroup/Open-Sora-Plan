@@ -158,3 +158,6 @@ cython_debug/
 /tests/st/run_logs/
 
 fusion_result.json
+
+#sample dir
+/opensora_samples/
