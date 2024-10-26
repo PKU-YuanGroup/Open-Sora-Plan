@@ -264,7 +264,7 @@ from deepspeed.runtime.utils import bwc_tensor_model_parallel_rank, is_model_par
 
 
 
-def zero_grad_abnormal_(parameters, max_norm, norm_type=2, mpu=None, clip=True, accelerator=None):
+def zero_grad_abnormal_(parameters, max_norm, norm_type=2, mpu=None, clip=True, accelerator=None, force_zero_grad_step=0, step_=0):
     """Clips gradient norm of an iterable of parameters.
 
     This has been adapted from Nvidia megatron. We add norm averaging
@@ -322,36 +322,24 @@ def zero_grad_abnormal_(parameters, max_norm, norm_type=2, mpu=None, clip=True, 
 
     if not clip:
         return total_norm
-    # Need to average total_norm across different GPUs due to the presence of moe params
-    # pg = groups._get_data_parallel_group()
-    # print('befor scale', dist.get_world_size(group=pg), total_norm, flush=True)
-    # scaled_norm = total_norm * 1.0 / float(dist.get_world_size(group=pg))
-    # scaled_norm_tensor = scaled_norm
-
-    # dist.all_reduce(scaled_norm_tensor, group=pg)
-    # total_norm = scaled_norm_tensor
-    # total_norm = total_norm.to(origin_device)
-    # print('after scale', total_norm, flush=True)
-    # 这个rank是不是nan
+    
     zero_grad = torch.isnan(total_norm).any() or torch.isinf(total_norm).any()  # nan or inf in abnormal local rank
-    # total_norm_list = accelerator.gather(total_norm)
-    # nan_or_inf_list = torch.isnan(total_norm_list) | torch.isinf(total_norm_list)
-    # total_norm_list = torch.where(
-    #     nan_or_inf_list, 
-    #     torch.zeros_like(total_norm_list, device=total_norm_list.device), 
-    #     total_norm_list
-    #     )  # filter normal grad_norm to calculate clip_coef for other normal ranks
-    # total_norm = total_norm_list.max()
-    # total_norm > 统计量就认为异常，异常丢掉
     if not zero_grad:
         zero_grad = total_norm > max_norm
 
     zero_grad_list = accelerator.gather(zero_grad)
     clip_coef = torch.mean((~zero_grad_list).float(), dim=-1, keepdim=True)
-    # max_norm = torch.tensor([float(max_norm)], device=parameters[0].device)
-    # clip_coef = max_norm / (total_norm + 1e-6)
-    # tmp_tensor = torch.tensor([1.0], device=parameters[0].device)
-    # clip_coef = torch.min(tmp_tensor, clip_coef)
+
+    # -------------for debug all batch zero grad---------------
+    force_zero_grad = force_zero_grad_step == step_
+    if force_zero_grad:
+        zero_grad_list = torch.ones_like(zero_grad_list, device=zero_grad_list.device)
+        clip_coef = torch.FloatTensor([0.0]).to(parameters[0].device)
+        for p in parameters:
+            p.grad.data.mul_(clip_coef)
+        return total_norm, zero_grad_list, clip_coef
+    # -------------for debug all batch zero grad---------------
+    
     if zero_grad:  # zero_ in abnormal local rank
         for p in parameters:
             p.grad.data.zero_()
@@ -366,8 +354,8 @@ def zero_grad_abnormal_(parameters, max_norm, norm_type=2, mpu=None, clip=True, 
 @instrument_w_nvtx
 def backward(
     self, loss, allreduce_gradients=True, release_loss=False, retain_graph=False, scale_wrt_gas=True, 
-    process_index=0, step_=0, moving_avg_max_grad_norm=-1e-6, moving_avg_max_grad_norm_var=0.0, accelerator=None, 
-    ema_decay_grad_clipping=0.9999
+    step_=0, moving_avg_max_grad_norm=-1e-6, moving_avg_max_grad_norm_var=0.0, accelerator=None, 
+    ema_decay_grad_clipping=0.99, force_zero_grad_step=-1, 
     ):
     r"""Execute backward pass on the loss
     Arguments:
@@ -449,7 +437,6 @@ def backward(
         torch.zeros_like(grad_norm_list, device=grad_norm_list.device), 
         grad_norm_list
         )  # filter normal grad_norm
-    # print(f"process_index {process_index}, step_ {step_}, grad_norm_list {grad_norm_list}")
 
     max_grad_norm = grad_norm_list.max().item()  # (rank, )
 
@@ -463,22 +450,21 @@ def backward(
         max_norm = 1.0
         num_zero_grad = 0.0
         clip_coef = 1.0
+        zero_grad_list = torch.zeros_like(grad_norm_list, device=grad_norm_list.device)
         max_grad_norm_clip = max_grad_norm  
     else:
         # out of 3 sigma mean abnormal step.
-        max_norm = moving_avg_max_grad_norm + 2.5 * (moving_avg_max_grad_norm_var ** 0.5)
-        _, zero_grad_list, clip_coef = zero_grad_abnormal_(parameters=self.module.parameters(), max_norm=max_norm, mpu=self.mpu, accelerator=accelerator)
+        max_norm = moving_avg_max_grad_norm + 3.0 * (moving_avg_max_grad_norm_var ** 0.5)
+        _, zero_grad_list, clip_coef = zero_grad_abnormal_(
+            parameters=self.module.parameters(), max_norm=max_norm, mpu=self.mpu, accelerator=accelerator, step_=step_, force_zero_grad_step=force_zero_grad_step)
         num_zero_grad = zero_grad_list.sum().item()
-        grad_norm_clip = zero_grad_abnormal_(parameters=self.module.parameters(), max_norm=None, mpu=self.mpu, clip=False)
+        grad_norm_clip = zero_grad_abnormal_(parameters=self.module.parameters(), max_norm=None, mpu=self.mpu, clip=False, accelerator=accelerator)
         grad_norm_clip_list = accelerator.gather(grad_norm_clip)
         # print(f"process_index {process_index}, step_ {step_}, grad_norm_clip_list {grad_norm_clip_list}")
         max_grad_norm_clip = grad_norm_clip_list.max().item() / clip_coef
         if torch.isnan(grad_norm_clip_list).any() or torch.isinf(grad_norm_clip_list).any():
             print(grad_norm_clip_list)
             raise ValueError("Detected NaN or Inf in gathered clipping gradient norms.")
-        # if clip_coef == 1.0:  # mean normal step!!! otherwise we do not update ema.
-        # moving_avg_max_grad_norm = ema_decay * moving_avg_max_grad_norm + (1 - ema_decay) * max_grad_norm
-        # max_grad_norm_var = (moving_avg_max_grad_norm - max_grad_norm) ** 2
         # 用裁过的max grad norm作为ema统计量，裁过的一定是之前认为合理的最大范围
         if num_zero_grad < 2:
             moving_avg_max_grad_norm = ema_decay * moving_avg_max_grad_norm + (1 - ema_decay) * max_grad_norm_clip
@@ -506,6 +492,6 @@ def backward(
     see_memory_usage("Engine after backward", force=self.memory_breakdown())
 
     return loss, max_grad_norm, weight_norm, moving_avg_max_grad_norm, max_grad_norm_clip, max_norm, \
-        moving_avg_max_grad_norm_var, max_grad_norm_var, num_zero_grad, detect_nan, clip_coef
+        moving_avg_max_grad_norm_var, max_grad_norm_var, num_zero_grad, detect_nan, clip_coef, zero_grad_list
 
 

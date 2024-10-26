@@ -25,7 +25,7 @@ def getdataset(args):
         resize = [CenterCropResizeVideo((args.max_height, args.max_width)), ]
     else:
         resize = [
-            MaxHWResizeVideo(args.max_hxw), 
+            MaxHWResizeVideo(args.max_hxw, interpolation_mode="bicubic"), 
             SpatialStrideCropVideo(stride=args.hw_stride, force_5_ratio=args.force_5_ratio), 
         ]
 
@@ -84,7 +84,7 @@ if __name__ == "__main__":
         'interpolation_scale_h': 1,
         'interpolation_scale_w': 1,
         'cache_dir': '../cache_dir', 
-        'data': '/storage/ongoing/9.29/mmdit/1.5/Open-Sora-Plan/scripts/train_data/image_data_debug.txt', 
+        'data': '/storage/anno_pkl/recap_coyo_merge_1025/part1.txt', 
         'train_fps': 18, 
         'drop_short_ratio': 1.0, 
         'speed_factor': 1.0, 

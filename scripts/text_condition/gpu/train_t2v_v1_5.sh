@@ -45,13 +45,14 @@ accelerate launch \
     --text_encoder_name_2 laion/CLIP-ViT-bigG-14-laion2B-39B-b160k \
     --cache_dir "../../cache_dir/" \
     --dataset t2v \
-    --data "scripts/train_data/video_data_debug.txt" \
+    --data scripts/train_data/image_data_debug.txt \
     --ae WFVAEModel_D32_8x8x8 \
     --ae_path "/storage/lcm/WF-VAE/results/Middle888" \
     --sample_rate 1 \
     --num_frames 1 \
-    --max_hxw 147456 \
-    --min_hxw 110592 \
+    --max_hxw 65536 \
+    --min_hxw 49152 \
+    --force_5_ratio \
     --gradient_checkpointing \
     --train_batch_size=8 \
     --dataloader_num_workers 16 \
@@ -65,17 +66,20 @@ accelerate launch \
     --ema_start_step 0 \
     --cfg 0.1 \
     --resume_from_checkpoint="latest" \
-    --ema_decay 0.9999 \
-    --drop_short_ratio 1.0 \
+    --offload_ema \
+    --ema_update_freq 100 \
+    --ema_decay 0.99 \
+    --drop_short_ratio 0.0 \
     --hw_stride 16 \
-    --sparse1d \
     --train_fps 16 \
     --seed 1234 \
     --group_data \
     --use_decord \
-    --output_dir="mmdit13b_rf_bs1024_lr1e-4_max1x384x384_min1x384x288_noema_emaclip9999" \
+    --output_dir="mmdit13b_dense_rf_bs2048_lr1e-4_max1x256x256_min1x256x192_99ema100_emaclip99" \
     --vae_fp32 \
+    --pretrained "/storage/ongoing/9.29/mmdit/1.5/Open-Sora-Plan/mmdit13b_rf_bs2048_lr1e-4_max1x256x256_min1x256x192_noema_emaclip99/checkpoint-54000/model" \
     --rf_scheduler \
-    --proj_name "10.19_mmdit13b" \
-    --log_name "rf_bs1024_lr1e-4_max1x384x384_min1x384x288_emaclip9999" \
-    --skip_abnorml_step --ema_decay_grad_clipping 0.9999
+    --proj_name "10.19_mmdit13b_dense_rf_bs2048_lr1e-4_max1x256x256_min1x256x192_99ema100_emaclip99" \
+    --log_name debug \
+    --trained_data_global_step 0 \
+    --skip_abnorml_step --ema_decay_grad_clipping 0.99

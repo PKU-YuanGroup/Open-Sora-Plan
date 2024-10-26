@@ -69,7 +69,7 @@ from opensora.dataset import getdataset
 from opensora.models import CausalVAEModelWrapper
 from opensora.models.diffusion import Diffusion_models, Diffusion_models_class
 from opensora.utils.dataset_utils import Collate, LengthGroupedSampler
-from opensora.utils.utils import explicit_uniform_sampling
+from opensora.utils.utils import explicit_uniform_sampling, get_common_weights
 from opensora.sample.pipeline_opensora import OpenSoraPipeline
 from opensora.models.causalvideovae import ae_stride_config, ae_wrapper
 
@@ -157,7 +157,7 @@ class ProgressInfo:
         self, global_step, train_loss=0.0, max_grad_norm=0.0, weight_norm=0.0, 
         moving_avg_max_grad_norm=-1e6, moving_avg_max_grad_norm_var=3.0, 
         clip_coef=1.0, max_grad_norm_clip=0.0, max_norm=1.0, max_grad_norm_var=0.0, 
-        detect_nan=0.0, max_timesteps=1000.0, min_timesteps=1.0, 
+        detect_nan=0.0, max_timesteps=1000.0, min_timesteps=1.0, max_train_loss=0.0, 
         ):
         self.global_step = global_step
         self.train_loss = train_loss
@@ -172,6 +172,7 @@ class ProgressInfo:
         self.detect_nan = detect_nan
         self.max_timesteps = max_timesteps
         self.min_timesteps = min_timesteps
+        self.max_train_loss = max_train_loss
 
 
 #################################################################################
@@ -320,26 +321,30 @@ def main(args):
         if args.pretrained.endswith('.safetensors'):  
             from safetensors.torch import load_file as safe_load
             pretrained_checkpoint = safe_load(args.pretrained, device="cpu")
+            checkpoint = get_common_weights(pretrained_checkpoint, model_state_dict)
+            missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=False)
+        elif os.path.isdir(args.pretrained):
+            model_pretrained = Diffusion_models_class[args.model].from_pretrained(args.pretrained)
+            pretrained_checkpoint = model_pretrained.state_dict()
+            # checkpoint = get_common_weights(pretrained_checkpoint, model_state_dict)
             pretrained_keys = set(list(pretrained_checkpoint.keys()))
             model_keys = set(list(model_state_dict.keys()))
             common_keys = list(pretrained_keys & model_keys)
             checkpoint = {k: pretrained_checkpoint[k] for k in common_keys if model_state_dict[k].numel() == pretrained_checkpoint[k].numel()}
             missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=False)
-        elif os.path.isdir(args.pretrained):
-            model = Diffusion_models_class[args.model].from_pretrained(args.pretrained)
-            missing_keys, unexpected_keys = [], []
+            model_pretrained = None
+            del model_pretrained
         else:
             pretrained_checkpoint = torch.load(args.pretrained, map_location='cpu')
             if 'model' in checkpoint:
                 pretrained_checkpoint = pretrained_checkpoint['model']
-                pretrained_keys = set(list(pretrained_checkpoint.keys()))
-            model_keys = set(list(model_state_dict.keys()))
-            common_keys = list(pretrained_keys & model_keys)
-            checkpoint = {k: pretrained_checkpoint[k] for k in common_keys if model_state_dict[k].numel() == pretrained_checkpoint[k].numel()}
+            checkpoint = get_common_weights(pretrained_checkpoint, model_state_dict)
             missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=False)
         logger.info(f'missing_keys {len(missing_keys)} {missing_keys}, unexpected_keys {len(unexpected_keys)}')
         logger.info(f'Successfully load {len(model_state_dict) - len(missing_keys)}/{len(model_state_dict)} keys from {args.pretrained}!')
-
+        del model_state_dict, checkpoint, missing_keys, unexpected_keys
+        gc.collect()
+    
     # Freeze vae and text encoders.
     ae.vae.requires_grad_(False)
     text_enc_1.requires_grad_(False)
@@ -373,12 +378,11 @@ def main(args):
             text_enc_2.to(accelerator.device, dtype=weight_dtype)
 
     # Create EMA for the unet.
-    if args.use_ema:
+    if accelerator.is_main_process and args.use_ema:
         ema_model = deepcopy(model)
         ema_model = EMAModel(ema_model.parameters(), decay=args.ema_decay, update_after_step=args.ema_start_step,
                              model_cls=Diffusion_models_class[args.model], model_config=ema_model.config, 
                              foreach=args.foreach_ema)
-
     # `accelerate` 0.16.0 will have better support for customized saving
     if version.parse(accelerate.__version__) >= version.parse("0.16.0"):
         # create custom saving & loading hooks so that `accelerator.save_state(...)` serializes in a nice format
@@ -394,7 +398,7 @@ def main(args):
                         weights.pop()
 
         def load_model_hook(models, input_dir):
-            if args.use_ema:
+            if accelerator.is_main_process and args.use_ema:
                 if os.path.exists(os.path.join(input_dir, "model_ema")):
                     load_model = EMAModel.from_pretrained(
                         os.path.join(input_dir, "model_ema"), 
@@ -405,7 +409,7 @@ def main(args):
                     if args.offload_ema:
                         ema_model.pin_memory()
                     else:
-                        ema_model.to(accelerator.device, dtype=torch.float32 if args.ema_fp32 else weight_dtype)
+                        ema_model.to(accelerator.device)
                     del load_model
 
             for i in range(len(models)):
@@ -554,19 +558,23 @@ def main(args):
     # model.patch_embed.requires_grad_(True)
 
     logger.info(f'before accelerator.prepare')
+    model_config = model.config
     model, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
         model, optimizer, train_dataloader, lr_scheduler
     )
     logger.info(f'after accelerator.prepare')
     
-    if args.use_ema:
+    if accelerator.is_main_process and args.use_ema:
         if args.offload_ema:
             ema_model.pin_memory()
+            logger.info(f'after ema_model to memory (pin_memory)')
         else:
             ema_model.to(accelerator.device)
-        if args.ema_bf16:
-            ema_model.to(dtype=torch.bfloat16)
-
+            logger.info(f'after ema_model to device, device: {accelerator.device}')
+    # FIXME: EMAModel from diffusers have bug, which can not resume ema_decay
+    if accelerator.is_main_process and args.use_ema:
+        ema_model.decay = args.ema_decay
+    
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
     if overrode_max_train_steps:
@@ -577,6 +585,7 @@ def main(args):
     # Train!
     logger.info("***** Running training *****")
     logger.info(f"  Model = {model}")
+    logger.info(f'  Model config = {model_config}')
     logger.info(f"  Args = {args}")
     logger.info(f"  Noise_scheduler = {noise_scheduler}")
     logger.info(f"  Num examples = {len(train_dataset)}")
@@ -646,12 +655,15 @@ def main(args):
 
     def sync_gradients_info(loss):
         # Checks if the accelerator has performed an optimization step behind the scenes
-        if args.use_ema:
+        if accelerator.is_main_process and args.use_ema and progress_info.global_step % args.ema_update_freq == 0:
+            torch.cuda.empty_cache()
             if args.offload_ema:
                 ema_model.to(device="cuda", non_blocking=True)
+                torch.cuda.empty_cache()
             ema_model.step(model.parameters())
             if args.offload_ema:
                 ema_model.to(device="cpu", non_blocking=True)
+                torch.cuda.empty_cache()
         progress_bar.update(1)
         progress_info.global_step += 1
         end_time = time.time()
@@ -672,6 +684,7 @@ def main(args):
                     "min_timesteps": progress_info.min_timesteps, 
                     "max_timesteps": progress_info.max_timesteps, 
                     "max_grad_norm_var": progress_info.max_grad_norm_var, 
+                    "max_train_loss": progress_info.max_train_loss, 
                     "lr": lr_scheduler.get_last_lr()[0]
                 }, step=progress_info.global_step
             )
@@ -690,6 +703,7 @@ def main(args):
         progress_info.max_norm = 1.0
         progress_info.max_grad_norm_var = 0.0
         progress_info.detect_nan = 0.0
+        progress_info.max_train_loss = 0.0
         progress_info.min_timesteps = 1.0
         progress_info.max_timesteps = 1000.0
 
@@ -850,8 +864,7 @@ def main(args):
                 loss = loss_mse.mean()
         # Gather the losses across all processes for logging (if we use distributed training).
         # avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
-        # progress_info.train_loss += avg_loss.detach().item() / args.gradient_accumulation_steps
-        progress_info.train_loss += loss.detach().item() / args.gradient_accumulation_steps
+        # progress_info.train_loss += loss.detach().item() / args.gradient_accumulation_steps
         timesteps_list = accelerator.gather(timesteps)
         if torch.isnan(loss).any() or torch.isinf(loss).any():
             raise ValueError(f'Detect loss error, timestep {timesteps_list}')
@@ -860,13 +873,14 @@ def main(args):
         # Backpropagate
         if args.skip_abnorml_step and accelerator.distributed_type == DistributedType.DEEPSPEED:
             results = accelerator.deepspeed_engine_wrapped.engine.backward(
-                loss, process_index=accelerator.process_index, step_=step_, 
+                loss, 
                 moving_avg_max_grad_norm=progress_info.moving_avg_max_grad_norm, 
                 ema_decay_grad_clipping=args.ema_decay_grad_clipping, 
                 moving_avg_max_grad_norm_var=progress_info.moving_avg_max_grad_norm_var, accelerator=accelerator,
+                force_zero_grad_step=args.force_zero_grad_step, step_=step_ 
                 )
             _, max_grad_norm, weight_norm, moving_avg_max_grad_norm, max_grad_norm_clip, max_norm, \
-                moving_avg_max_grad_norm_var, max_grad_norm_var, num_zero_grad, detect_nan, clip_coef = results
+                moving_avg_max_grad_norm_var, max_grad_norm_var, num_zero_grad, detect_nan, clip_coef, zero_grad_list = results
                 
             # print('rank {} | step {} | max_grad_norm {}'.format(accelerator.process_index, step_, max_grad_norm))
             progress_info.max_grad_norm += max_grad_norm / args.gradient_accumulation_steps
@@ -883,13 +897,20 @@ def main(args):
             progress_info.max_grad_norm_var += max_grad_norm_var / args.gradient_accumulation_steps
             
             accelerator.deepspeed_engine_wrapped.engine.step()
+
+            avg_loss_list = accelerator.gather(loss)
+            progress_info.max_train_loss = avg_loss_list.max().detach().item()
+            avg_loss_list = (1.0 - zero_grad_list.float()) * avg_loss_list
+            avg_loss_list = avg_loss_list / clip_coef
         else:
             accelerator.backward(loss)
             if accelerator.sync_gradients:
                 params_to_clip = model.parameters()
                 accelerator.clip_grad_norm_(params_to_clip, args.max_grad_norm)
             optimizer.step()
+            avg_loss_list = accelerator.gather(loss)
 
+        progress_info.train_loss += avg_loss_list.mean().detach().item() / args.gradient_accumulation_steps
         optimizer.zero_grad()
         lr_scheduler.step()
         if accelerator.sync_gradients:
@@ -1137,10 +1158,10 @@ if __name__ == "__main__":
     parser.add_argument("--trained_data_global_step", type=int, default=None)
     parser.add_argument("--use_decord", action="store_true")
     parser.add_argument('--random_data', action='store_true')
+    parser.add_argument('--force_zero_grad_step', type=int, default=-1)
 
     # text encoder & vae & diffusion model
     parser.add_argument('--vae_fp32', action='store_true')
-    parser.add_argument('--ema_bf16', action='store_true')
     parser.add_argument('--extra_save_mem', action='store_true')
     parser.add_argument("--model", type=str, choices=list(Diffusion_models.keys()), default="Latte-XL/122")
     parser.add_argument('--enable_tiling', action='store_true')
@@ -1169,7 +1190,8 @@ if __name__ == "__main__":
     # diffusion setting
     parser.add_argument("--snr_gamma", type=float, default=None, help="SNR weighting gamma to be used if rebalancing the loss. Recommended value is 5.0. More details here: https://arxiv.org/abs/2303.09556.")
     parser.add_argument("--use_ema", action="store_true", help="Whether to use EMA model.")
-    parser.add_argument("--ema_decay", type=float, default=0.9999)
+    parser.add_argument("--ema_decay", type=float, default=0.99)
+    parser.add_argument("--ema_update_freq", type=int, default=100)
     parser.add_argument("--ema_start_step", type=int, default=0)
     parser.add_argument("--offload_ema", action="store_true", help="Offload EMA model to CPU during training step.")
     parser.add_argument("--foreach_ema", action="store_true", help="Use faster foreach implementation of EMAModel.")

@@ -200,6 +200,8 @@ class T2V_dataset(Dataset):
 
         s = time.time()
         cap_list, self.sample_size, self.shape_idx_dict = self.define_frame_index(self.data)
+        logger.info(f'data example: {cap_list[0]}')
+        print(f'data example: {cap_list[0]}')
         e = time.time()
         logger.info(f'Build data time: {e-s}')
         self.lengths = self.sample_size

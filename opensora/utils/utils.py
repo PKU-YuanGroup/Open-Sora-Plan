@@ -37,7 +37,12 @@ if is_ftfy_available():
 
 _tensor_or_tensors = Union[torch.Tensor, Iterable[torch.Tensor]]
 
-
+def get_common_weights(pretrained_checkpoint, model_state_dict):
+    pretrained_keys = set(list(pretrained_checkpoint.keys()))
+    model_keys = set(list(model_state_dict.keys()))
+    common_keys = list(pretrained_keys & model_keys)
+    checkpoint = {k: pretrained_checkpoint[k] for k in common_keys if model_state_dict[k].numel() == pretrained_checkpoint[k].numel()}
+    return checkpoint
 
 def print_grad_norm(model):
     grad_norm = 0
