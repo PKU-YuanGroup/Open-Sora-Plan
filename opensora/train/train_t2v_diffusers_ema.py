@@ -403,10 +403,11 @@ def main(args):
     # =======================================================================================================
     # STEP 4: Create EMAModel
     if args.use_ema:
-        ema_model_path = os.path.join(checkpoint_path, "model_ema")
-        if checkpoint_path and os.path.exists(ema_model_path):
-            ema_model = EMAModel.from_pretrained(ema_model_path, model_cls=Diffusion_models_class[args.model])
-            logger.info(f'Successully resume EMAModel from {ema_model_path}', main_process_only=True)
+        if checkpoint_path:
+            ema_model_path = os.path.join(checkpoint_path, "model_ema")
+            if os.path.exists(ema_model_path):
+                ema_model = EMAModel.from_pretrained(ema_model_path, model_cls=Diffusion_models_class[args.model])
+                logger.info(f'Successully resume EMAModel from {ema_model_path}', main_process_only=True)
         else:
             ema_model = EMAModel(deepcopy(model), decay=args.ema_decay, update_after_step=args.ema_start_step,
                                 model_cls=Diffusion_models_class[args.model], model_config=model.config)
@@ -725,11 +726,13 @@ def main(args):
                 accelerator.save_state(save_path)
                 accelerator._models = acc_models
                 
-                model_path = os.path.join(save_path, "model")
-                os.makedirs(model_path, exist_ok=True)
-                with open(os.path.join(model_path, 'config.json'), "w", encoding="utf-8") as writer:
-                    writer.write(model_config_to_save)
-                convert_zero_checkpoint_to_fp32_state_dict(save_path, os.path.join(model_path, 'diffusion_pytorch_model.safetensors'))
+                accelerator.unwrap_model(model).save_pretrained(os.path.join(save_path, "model"))
+                # if args.save_hf_style:
+                    # model_path = os.path.join(save_path, "model")
+                    # os.makedirs(model_path, exist_ok=True)
+                    # with open(os.path.join(model_path, 'config.json'), "w", encoding="utf-8") as writer:
+                    #     writer.write(model_config_to_save)
+                    # convert_zero_checkpoint_to_fp32_state_dict(save_path, os.path.join(model_path, 'diffusion_pytorch_model.safetensors'))
 
                 if args.use_ema:
                     ema_model.save_pretrained(os.path.join(save_path, "model_ema"))
@@ -1116,11 +1119,13 @@ def main(args):
         accelerator.save_state(save_path)
         accelerator._models = acc_models
 
-        model_path = os.path.join(save_path, "model")
-        os.makedirs(model_path, exist_ok=True)
-        with open(os.path.join(model_path, 'config.json'), "w", encoding="utf-8") as writer:
-            writer.write(model_config_to_save)
-        convert_zero_checkpoint_to_fp32_state_dict(save_path, os.path.join(model_path, 'diffusion_pytorch_model.safetensors'))
+        accelerator.unwrap_model(model).save_pretrained(os.path.join(save_path, "model"))
+        # if args.save_hf_style:
+        #     model_path = os.path.join(save_path, "model")
+        #     os.makedirs(model_path, exist_ok=True)
+        #     with open(os.path.join(model_path, 'config.json'), "w", encoding="utf-8") as writer:
+        #         writer.write(model_config_to_save)
+        #     convert_zero_checkpoint_to_fp32_state_dict(save_path, os.path.join(model_path, 'diffusion_pytorch_model.safetensors'))
 
         if args.use_ema:
             ema_model.save_pretrained(os.path.join(save_path, "model_ema"))
@@ -1211,6 +1216,7 @@ if __name__ == "__main__":
     # validation & logs
     parser.add_argument("--log_interval", type=int, default=10)
     parser.add_argument("--enable_profiling", action="store_true")
+    parser.add_argument("--save_hf_style", action="store_true")
     parser.add_argument("--num_sampling_steps", type=int, default=20)
     parser.add_argument('--guidance_scale', type=float, default=4.5)
     parser.add_argument("--enable_tracker", action="store_true")

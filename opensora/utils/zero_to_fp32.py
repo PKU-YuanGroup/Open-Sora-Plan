@@ -581,7 +581,7 @@ def load_state_dict_from_zero_checkpoint(model, checkpoint_dir, tag=None):
 if __name__ == "__main__":
     '''
     python opensora/utils/zero_to_fp32.py debug/checkpoint-10 test_ckpt/diffusion_pytorch_model.safetensors
-    python opensora/utils/zero_to_fp32.py mmdit13b_dense_rf_bs2048_lr1e-4_max1x256x256_min1x256x192_emaclip99_recap_coyo_merge_1025/checkpoint-32000 test_ckpt/diffusion_pytorch_model.safetensors
+    python opensora/utils/zero_to_fp32.py mmdit13b_dense_rf_bs2048_lr1e-4_max1x256x256_min1x256x192_emaclip99_recap_coyo_merge_1025/checkpoint-54100 test_ckpt/diffusion_pytorch_model.safetensors
     '''
     parser = argparse.ArgumentParser()
     parser.add_argument("checkpoint_dir",

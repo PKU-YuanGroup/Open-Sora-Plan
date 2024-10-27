@@ -81,6 +81,5 @@ accelerate launch \
     --vae_fp32 \
     --rf_scheduler \
     --proj_name "debug_ema" \
-    --post_to_device \
     --log_name debug_ema_acce1.0.1 \
     --skip_abnorml_step --ema_decay_grad_clipping 0.99
