@@ -345,7 +345,7 @@ def zero_grad_abnormal_(parameters, max_norm, norm_type=2, mpu=None, clip=True, 
             p.grad.data.zero_()
     elif clip_coef != 1.0:
         for p in parameters:
-            p.grad.data.mul_(clip_coef)
+            p.grad.data.div_(clip_coef)
     return total_norm, zero_grad_list, clip_coef
 
 
@@ -461,7 +461,7 @@ def backward(
         grad_norm_clip = zero_grad_abnormal_(parameters=self.module.parameters(), max_norm=None, mpu=self.mpu, clip=False, accelerator=accelerator)
         grad_norm_clip_list = accelerator.gather(grad_norm_clip)
         # print(f"process_index {process_index}, step_ {step_}, grad_norm_clip_list {grad_norm_clip_list}")
-        max_grad_norm_clip = grad_norm_clip_list.max().item() / clip_coef
+        max_grad_norm_clip = grad_norm_clip_list.max().item() * clip_coef
         if torch.isnan(grad_norm_clip_list).any() or torch.isinf(grad_norm_clip_list).any():
             print(grad_norm_clip_list)
             raise ValueError("Detected NaN or Inf in gathered clipping gradient norms.")

@@ -351,8 +351,8 @@ class LengthGroupedSampler(Sampler):
         self.lengths = lengths
         self.group_data = group_data
         self.generator = generator
-        # print('self.lengths, self.initial_global_step, self.batch_size, self.world_size, self.gradient_accumulation_size', 
-        #       len(self.lengths), self.initial_global_step, self.batch_size, self.world_size, self.gradient_accumulation_size)
+        print('self.lengths, self.initial_global_step, self.batch_size, self.world_size, self.gradient_accumulation_size', 
+              len(self.lengths), self.initial_global_step, self.batch_size, self.world_size, self.gradient_accumulation_size)
 
     def __len__(self):
         return len(self.lengths) - self.initial_global_step * self.batch_size * self.world_size * self.gradient_accumulation_size

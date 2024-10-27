@@ -65,6 +65,7 @@ accelerate launch \
     --checkpointing_steps=1000 \
     --allow_tf32 \
     --model_max_length 512 \
+    --use_ema \
     --ema_start_step 0 \
     --cfg 0.1 \
     --resume_from_checkpoint="latest" \
@@ -76,9 +77,10 @@ accelerate launch \
     --seed 1234 \
     --group_data \
     --use_decord \
-    --output_dir="debug_noema_acce1.0.1" \
+    --output_dir="debug_ema_acce1.0.1" \
     --vae_fp32 \
     --rf_scheduler \
     --proj_name "debug_ema" \
-    --log_name debug_noema_acce1.0.1 \
+    --post_to_device \
+    --log_name debug_ema_acce1.0.1 \
     --skip_abnorml_step --ema_decay_grad_clipping 0.99

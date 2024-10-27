@@ -12,7 +12,7 @@ except:
 from opensora.dataset.t2v_datasets import T2V_dataset
 from opensora.dataset.inpaint_dataset import Inpaint_dataset
 from opensora.models.causalvideovae import ae_norm, ae_denorm
-from opensora.dataset.transform import ToTensorVideo, TemporalRandomCrop, MaxHWResizeVideo, CenterCropResizeVideo, LongSideResizeVideo, SpatialStrideCropVideo, NormalizeVideo, ToTensorAfterResize
+from opensora.dataset.transform import ToTensorVideo, TemporalRandomCrop, MaxHWStrideResizeVideo, CenterCropResizeVideo, LongSideResizeVideo, SpatialStrideCropVideo, NormalizeVideo, ToTensorAfterResize
 
 
 from accelerate.logging import get_logger
@@ -25,7 +25,7 @@ def getdataset(args):
         resize = [CenterCropResizeVideo((args.max_height, args.max_width)), ]
     else:
         resize = [
-            MaxHWResizeVideo(args.max_hxw, interpolation_mode="bicubic"), 
+            MaxHWStrideResizeVideo(args.max_hxw, force_5_ratio=args.force_5_ratio, hw_stride=args.hw_stride, interpolation_mode="bicubic"), 
             SpatialStrideCropVideo(stride=args.hw_stride, force_5_ratio=args.force_5_ratio), 
         ]
 

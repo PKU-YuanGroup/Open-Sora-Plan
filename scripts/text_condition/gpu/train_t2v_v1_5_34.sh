@@ -38,9 +38,7 @@ export TOKENIZERS_PARALLELISM=false
 
 accelerate launch \
     --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
-    opensora/train/train_t2v_diffusers_ema.py \
-    --train_deepspeed_config_file scripts/accelerate_configs/zero2.json \
-    --eval_deepspeed_config_file scripts/accelerate_configs/zero3.json \
+    opensora/train/train_t2v_diffusers.py \
     --model OpenSoraT2V_v1_5-3B/122 \
     --text_encoder_name_1 google/t5-v1_1-xl \
     --cache_dir "../../cache_dir/" \
@@ -76,9 +74,9 @@ accelerate launch \
     --seed 1234 \
     --group_data \
     --use_decord \
-    --output_dir="debug_noema_acce1.0.1" \
+    --output_dir="debug_noema_acce34" \
     --vae_fp32 \
     --rf_scheduler \
     --proj_name "debug_ema" \
-    --log_name debug_noema_acce1.0.1 \
+    --log_name debug_noema_acce34 \
     --skip_abnorml_step --ema_decay_grad_clipping 0.99

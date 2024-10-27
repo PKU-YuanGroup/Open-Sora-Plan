@@ -642,6 +642,7 @@ if __name__ == '__main__':
     from opensora.models.causalvideovae import ae_stride_config, ae_channel_config
     from opensora.models.causalvideovae import ae_norm, ae_denorm
     from opensora.models import CausalVAEModelWrapper
+    from opensora.utils.ema_utils import EMAModel
     args = type('args', (), 
     {
         'ae': 'WFVAEModel_D32_8x8x8', 
@@ -668,7 +669,7 @@ if __name__ == '__main__':
 
     # device = torch.device('cpu')
     device = torch.device('cuda:0')
-    model = OpenSoraT2V_v1_5_8B_122(
+    model = OpenSoraT2V_v1_5_3B_122(
         in_channels=c, 
         out_channels=c, 
         sample_size_h=latent_size, 
@@ -686,9 +687,15 @@ if __name__ == '__main__':
     print(f'{sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e9} B')
     # import sys;sys.exit()
     try:
-        # path = "/storage/ongoing/new/7.19anyres/Open-Sora-Plan/bs32x8x1_anyx93x640x640_fps16_lr1e-5_snr5_ema9999_sparse1d4_dit_l_mt5xxl_vpred_zerosnr/checkpoint-43000/model_ema/diffusion_pytorch_model.safetensors"
-        # ckpt = torch.load(path, map_location="cpu")
-        # msg = model.load_state_dict(ckpt, strict=True)
+        path = "/storage/ongoing/9.29/mmdit/1.5/Open-Sora-Plan/debug/checkpoint-10/pytorch_model.bin"
+        import ipdb;ipdb.set_trace()
+        ckpt = torch.load(path, map_location="cpu")
+        # msg = model.load_state_dict(ckpt, strict=True) # OpenSoraT2V_v1_5.from_pretrained('/storage/ongoing/9.29/mmdit/1.5/Open-Sora-Plan/test_ckpt')
+        
+        # ema_model = EMAModel.from_pretrained('./test_v1_5', OpenSoraT2V_v1_5)
+        # ema_model.save_pretrained('./test_v1_5_ema')
+        # with open('config.json', "w", encoding="utf-8") as writer:
+        #     writer.write(model.to_json_string())
         print(msg)
     except Exception as e:
         print(e)
