@@ -175,7 +175,8 @@ We greatly appreciate your contributions to the Open-Sora Plan open-source commu
 
 For more details, please refer to the [Contribution Guidelines](docs/Contribution_Guidelines.md)
 
-# 👍 Acknowledgement
+# 👍 Acknowledgement and Related Work
+* [Allegro](https://github.com/rhymes-ai/Allegro): Allegro is a powerful text-to-video model that generates high-quality videos up to 6 seconds at 15 FPS and 720p resolution from simple text input based on our Open-Sora Plan. The significance of open-source is becoming increasingly tangible.
 * [Latte](https://github.com/Vchitect/Latte): It is an wonderful 2+1D video generated model.
 * [PixArt-alpha](https://github.com/PixArt-alpha/PixArt-alpha): Fast Training of Diffusion Transformer for Photorealistic Text-to-Image Synthesis.
 * [ShareGPT4Video](https://github.com/InternLM/InternLM-XComposer/tree/main/projects/ShareGPT4Video): Improving Video Understanding and Generation with Better Captions.
