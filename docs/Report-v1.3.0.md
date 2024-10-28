@@ -433,7 +433,7 @@ Under various strategies, we did not observe significant performance improvement
 
 #### Noise Injection Strategy for Conditional Images
 
-Researchs like [CogVideoX](https://arxiv.org/abs/2408.06072) and [Stable Video Diffusion](https://stability.ai/stable-video) have indicated that adding a certain amount of noise to Conditional Images can enhance the generalization capability of I2V models and achieve a greater range of motion. Therefore, we will implement this strategy in Open-Sora Plan v1.3, and a model utilizing this approach will be released shortly.
+Researchs like [CogVideoX](https://arxiv.org/abs/2408.06072) and [Stable Video Diffusion](https://stability.ai/stable-video) have indicated that adding a certain amount of noise to Conditional Images can enhance the generalization capability of I2V models and achieve a greater range of motion. Therefore, we will implement this strategy in Open-Sora Plan v1.3, just the same as in [CogVideoX](https://arxiv.org/abs/2408.06072).
 
 ### The implementation of Skiparse Attention
 

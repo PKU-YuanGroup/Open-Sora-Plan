@@ -272,6 +272,7 @@ def run_model_and_save_samples(args, pipeline, caption_refiner_model=None, enhan
                 mask_type=mask_type,
                 crop_for_hw=args.crop_for_hw,
                 max_hxw=args.max_hxw,
+                noise_strength=args.noise_strength,
                 prompt=input_prompt, 
                 negative_prompt=negative_prompt, 
                 num_frames=args.num_frames,
@@ -479,6 +480,7 @@ def get_args():
     parser.add_argument('--mask_type', type=str, default=None)
     parser.add_argument('--crop_for_hw', action='store_true')
     parser.add_argument('--max_hxw', type=int, default=236544) # 480*480
+    parser.add_argument('--noise_strength', type=float, default=0.0)
     args = parser.parse_args()
     assert not (args.sp and args.num_frames == 1)
     return args

@@ -21,7 +21,7 @@ accelerate launch \
     --text_encoder_name_1 google/mt5-xxl \
     --cache_dir "../../cache_dir/" \
     --dataset inpaint \
-    --data "scripts/train_data/current_hq_on_npu.txt" \
+    --data "scripts/train_data/video_data_debug_on_npu.txt" \
     --ae WFVAEModel_D8_4x8x8 \
     --ae_path "/home/save_dir/lzj/formal_8dim/latent8" \
     --vae_fp32 \
@@ -62,6 +62,7 @@ accelerate launch \
     --prediction_type "v_prediction" \
     --output_dir="/home/save_dir/runs/$PROJECT" \
     --mask_config scripts/train_configs/mask_config.yaml \
+    --add_noise_to_condition \
     --default_text_ratio 0.5 \
     --resume_from_checkpoint="latest" \
     # --pretrained_transformer_model_path /home/save_dir/pretrained/i2v_ckpt14777_ema \
