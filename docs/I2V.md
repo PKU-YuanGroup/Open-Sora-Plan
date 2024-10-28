@@ -25,6 +25,7 @@ There are additional parameters you need to understand beyond those introduced i
 | `--pretrained_transformer_model_path` | The function is identical to the `--pretrained` parameter in the T2V section. |
 | `--default_text_ratio` 0.5            | During I2V training, a portion of the text is replaced with a default text to account for cases where the user provides an image without accompanying text. |
 | `--mask_config`                       | The path of the `mask_config` file.                          |
+| `--add_noise_to_condition`                       | Adding a small amount of noise to conditional frames during training to improve generalization.          |
 
 In Open-Sora Plan V1.3, all mask ratio settings are specified in the `mask_config` file, located at `scripts/train_configs/mask_config.yaml`. The parameters include:
 
@@ -68,6 +69,7 @@ The following are key parameters required for inference:
 | `--text_prompt`                                | The path to the `prompt` file, where each line represents a prompt. Each line must correspond precisely to each line in `--conditional_pixel_values_path`. |
 | `--conditional_pixel_values_path`              | The input path for control information can contain one or multiple images or videos, with each line controlling the generation of one video. It must correspond precisely to each prompt in `--text_prompt`. |
 | `--mask_type`                                  | Specify the mask type used for the current inference; available types are listed in the `MaskType` class in `opensora/utils/mask_utils.py`, which are six mask types: `t2iv`, `i2v`, `transition`, `continuation`, `clear`, and `random_temporal`. This parameter can be omitted when performing I2V and Transition tasks. |
+| `--noise_strength` | The noise strength added to conditional frames, which defaults to 0 (no noise added). |
 
 Before inference, you need to create two text files: one named `prompt.txt` and another named `conditional_pixel_values_path`. Each line of text in `prompt.txt` should correspond to the paths on each line in `conditional_pixel_values_path`.
 
