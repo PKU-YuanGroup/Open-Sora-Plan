@@ -158,7 +158,7 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
         if not isinstance(max_hxw, int) or not (max_hxw >= 102400 and max_hxw <= 236544):
             raise  ValueError("max_hxw should be an integer between 102400 and 236544")
         
-        if not isinstance(noise_strength, float) or noise_strength < 0:
+        if not isinstance(noise_strength, float) or not (noise_strength >= 0 noise_strength <= 1):
             raise ValueError("noise_strength should be a non-negative float")
         
         super().check_inputs(
@@ -422,7 +422,7 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
 
         # ==================prepare inpaint data=====================================
         if noise_strength != 0:
-            self.noise_adder = GaussianNoiseAdder(mean=noise_strength, std=0.01, clear_ratio=0)
+            self.noise_adder = GaussianNoiseAdder(mean=np.log(noise_strength), std=0.01, clear_ratio=0)
 
         mask_type, conditional_pixel_values_indices = self.get_mask_type_cond_indices(mask_type, conditional_pixel_values_path, conditional_pixel_values_indices, num_frames)
 
