@@ -345,7 +345,7 @@ Overall, we retained the architecture from version 1.2 but incorporated Skiparse
 
 <center>
 <figure>
-	<img src="https://github.com/user-attachments/assets/4525468f-78be-4b03-9609-9511bded95b1" height=350 />
+	<img src="https://github.com/user-attachments/assets/af21a577-e5a8-46ac-8be4-0cd08cddb6c6" height=350 />
 </figure>
 </center>
 
