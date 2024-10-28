@@ -26,5 +26,6 @@ torchrun --nnodes=1 --nproc_per_node 8 --master_port 29522 \
     --num_samples_per_prompt 1 \
     --prediction_type "v_prediction" \
     --rescale_betas_zero_snr \
+    --noise_strength 0.0 \
     # --mask_type i2v \
     # --enable_tiling 

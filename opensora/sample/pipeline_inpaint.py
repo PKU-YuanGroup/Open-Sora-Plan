@@ -28,7 +28,7 @@ from diffusers.pipelines.pipeline_utils import DiffusionPipeline
 from opensora.models.diffusion.opensora_v1_3.modeling_inpaint import OpenSoraInpaint_v1_3
 from opensora.sample.pipeline_opensora import OpenSoraPipeline, OpenSoraPipelineOutput, rescale_noise_cfg
 from opensora.dataset.transform import CenterCropResizeVideo, SpatialStrideCropVideo,ToTensorAfterResize, maxhwresize
-from opensora.utils.mask_utils import MaskProcessor, MaskCompressor, MaskType, STR_TO_TYPE, TYPE_TO_STR
+from opensora.utils.mask_utils import MaskProcessor, MaskCompressor, GaussianNoiseAdder, MaskType, STR_TO_TYPE, TYPE_TO_STR
 
 try:
     import torch_npu
@@ -111,11 +111,15 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
 
         self.mask_compressor = MaskCompressor(ae_stride_t=self.vae.vae_scale_factor[0], ae_stride_h=self.vae.vae_scale_factor[1], ae_stride_w=self.vae.vae_scale_factor[2])
         
+        self.noise_adder = None
+
     def check_inputs(
         self,
         conditional_pixel_values_path,
         conditional_pixel_values_indices,
         mask_type,
+        max_hxw,
+        noise_strength,
         prompt,
         num_frames,
         height,
@@ -150,6 +154,12 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
         
         if mask_type is not None and not mask_type in STR_TO_TYPE.keys() and not mask_type in STR_TO_TYPE.values():
             raise ValueError(f"Invalid mask type: {mask_type}")
+        
+        if not isinstance(max_hxw, int) or not (max_hxw >= 102400 and max_hxw <= 236544):
+            raise  ValueError("max_hxw should be an integer between 102400 and 236544")
+        
+        if not isinstance(noise_strength, float) or noise_strength < 0:
+            raise ValueError("noise_strength should be a non-negative float")
         
         super().check_inputs(
             prompt,
@@ -261,6 +271,11 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
 
         masked_pixel_values = masked_pixel_values.unsqueeze(0).repeat(batch_size * num_samples_per_prompt, 1, 1, 1, 1).transpose(1, 2).contiguous() # b c t h w
         mask = mask.unsqueeze(0).repeat(batch_size * num_samples_per_prompt, 1, 1, 1, 1).transpose(1, 2).contiguous() # b c t h w
+        
+        if self.noise_adder is not None:
+            # add some noise to improve motion strength
+            masked_pixel_values = self.noise_adder(masked_pixel_values, mask)
+        
         masked_pixel_values = masked_pixel_values.to(self.vae.vae.dtype)
         masked_pixel_values = self.vae.encode(masked_pixel_values)
 
@@ -282,6 +297,7 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
         mask_type: Union[str, MaskType] = None,
         crop_for_hw: bool = False,
         max_hxw: int = 236544,
+        noise_strength: Optional[float] = 0.0,
         prompt: Union[str, List[str]] = None,
         num_frames: Optional[int] = None,
         height: Optional[int] = None,
@@ -325,6 +341,8 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
             conditional_pixel_values_path,
             conditional_pixel_values_indices,
             mask_type,
+            max_hxw,
+            noise_strength,
             prompt,
             num_frames, 
             height,
@@ -403,6 +421,9 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
             negative_prompt_attention_mask_2 = None
 
         # ==================prepare inpaint data=====================================
+        if noise_strength != 0:
+            self.noise_adder = GaussianNoiseAdder(mean=noise_strength, std=0.01, clear_ratio=0)
+
         mask_type, conditional_pixel_values_indices = self.get_mask_type_cond_indices(mask_type, conditional_pixel_values_path, conditional_pixel_values_indices, num_frames)
 
         conditional_pixel_values = get_pixel_values(conditional_pixel_values_path, num_frames)

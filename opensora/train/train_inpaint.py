@@ -70,7 +70,7 @@ from opensora.utils.dataset_utils import Collate, LengthGroupedSampler
 from opensora.utils.utils import explicit_uniform_sampling
 from opensora.sample.pipeline_opensora import OpenSoraPipeline
 from opensora.models.causalvideovae import ae_stride_config, ae_wrapper
-from opensora.utils.mask_utils import MaskCompressor
+from opensora.utils.mask_utils import MaskCompressor, GaussianNoiseAdder
 
 # from opensora.utils.utils import monitor_npu_power
 
@@ -220,6 +220,9 @@ def main(args):
     args.latent_size_t = latent_size_t = (args.num_frames - 1) // ae_stride_t + 1
 
     mask_compressor = MaskCompressor(ae_stride_h=ae_stride_h, ae_stride_w=ae_stride_w, ae_stride_t=ae_stride_t)
+    noise_adder = None
+    if args.add_noise_to_condition:
+        noise_adder = GaussianNoiseAdder(mean=-3.0, std=0.5, clear_ratio=0.05)
 
     model_kwargs = {'vae_scale_factor_t': ae_stride_t}
 
@@ -728,6 +731,9 @@ def main(args):
 
             # Map input images to latent space + normalize latents
             x, masked_x, mask = x[:, :3], x[:, 3:6], x[:, 6:7]
+            # Adding noise to control frames enhances generalization ability.
+            if noise_adder is not None:
+                masked_x = noise_adder(masked_x, mask)
             x, masked_x = ae.encode(x), ae.encode(masked_x)
             mask = mask_compressor(mask)
             x = torch.cat([x, masked_x, mask], dim=1) 
@@ -863,7 +869,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_frames", type=int, default=65)
     parser.add_argument("--max_height", type=int, default=320)
     parser.add_argument("--max_width", type=int, default=240)
-    parser.add_argument("--max_hxw", type=int, default=240)
+    parser.add_argument("--max_hxw", type=int, default=None)
     parser.add_argument("--min_hxw", type=int, default=None)
     parser.add_argument("--ood_img_ratio", type=float, default=0.0)
     parser.add_argument("--use_img_from_vid", action="store_true")
@@ -942,11 +948,11 @@ if __name__ == "__main__":
     
     # optimizer & scheduler
     parser.add_argument("--num_train_epochs", type=int, default=100)
-    parser.add_argument("--max_train_steps", type=int, default=None, help="Total number of training steps to perform.  If provided, overrides num_train_epochs.")
+    parser.add_argument("--max_train_steps", type=int, default=1000000, help="Total number of training steps to perform.  If provided, overrides num_train_epochs.")
     parser.add_argument("--gradient_accumulation_steps", type=int, default=1, help="Number of updates steps to accumulate before performing a backward/update pass.")
     parser.add_argument("--optimizer", type=str, default="adamW", help='The optimizer type to use. Choose between ["AdamW", "prodigy"]')
     parser.add_argument("--learning_rate", type=float, default=1e-4, help="Initial learning rate (after the potential warmup period) to use.")
-    parser.add_argument("--lr_warmup_steps", type=int, default=500, help="Number of steps for the warmup in the lr scheduler.")
+    parser.add_argument("--lr_warmup_steps", type=int, default=0, help="Number of steps for the warmup in the lr scheduler.")
     parser.add_argument("--use_8bit_adam", action="store_true", help="Whether or not to use 8-bit Adam from bitsandbytes. Ignored if optimizer is not set to AdamW")
     parser.add_argument("--adam_beta1", type=float, default=0.9, help="The beta1 parameter for the Adam and Prodigy optimizers.")
     parser.add_argument("--adam_beta2", type=float, default=0.999, help="The beta2 parameter for the Adam and Prodigy optimizers.")
@@ -987,6 +993,7 @@ if __name__ == "__main__":
 
     # inpaint
     parser.add_argument("--mask_config", type=str, default=None)
+    parser.add_argument("--add_noise_to_condition", action='store_true')
     parser.add_argument("--default_text_ratio", type=float, default=0.5) # for inpainting mode
     parser.add_argument("--pretrained_transformer_model_path", type=str, default=None)
 
