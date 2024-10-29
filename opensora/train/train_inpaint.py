@@ -43,6 +43,7 @@ from torch.utils.data import DataLoader
 from copy import deepcopy
 import accelerate
 import torch
+import json
 from torch.nn import functional as F
 import transformers
 from transformers.utils import ContextManagers
@@ -184,22 +185,6 @@ def main(args):
         if args.text_encoder_name_2 is not None:
             text_enc_2 = get_text_warpper(args.text_encoder_name_2)(args, **kwargs).eval()
     
-    # kwargs = {}
-    # # ae = ae_wrapper[args.ae](args.ae_path, cache_dir=args.cache_dir, **kwargs).eval()
-    
-    # # if args.enable_tiling:
-    # #     ae.vae.enable_tiling()
-
-    # kwargs = {
-    #     'torch_dtype': weight_dtype, 
-    #     'low_cpu_mem_usage': False
-    #     }
-    # text_enc_1 = get_text_warpper(args.text_encoder_name_1)(args, **kwargs).eval()
-
-    # text_enc_2 = None
-    # if args.text_encoder_name_2 is not None:
-    #     text_enc_2 = get_text_warpper(args.text_encoder_name_2)(args, **kwargs).eval()
-
     ae_stride_t, ae_stride_h, ae_stride_w = ae_stride_config[args.ae]
     ae.vae_scale_factor = (ae_stride_t, ae_stride_h, ae_stride_w)
     assert ae_stride_h == ae_stride_w, f"Support only ae_stride_h == ae_stride_w now, but found ae_stride_h ({ae_stride_h}), ae_stride_w ({ae_stride_w})"
@@ -239,13 +224,57 @@ def main(args):
         sparse_n=args.sparse_n,
         **model_kwargs,
     )
+
+    # # use pretrained model?
+    if args.pretrained:
+        model_state_dict = model.state_dict()
+        print(f'Load from {args.pretrained}')
+        if args.pretrained.endswith('.safetensors'):  
+            from safetensors.torch import load_file as safe_load
+            pretrained_checkpoint = safe_load(args.pretrained, device="cpu")
+            pretrained_keys = set(list(pretrained_checkpoint.keys()))
+            model_keys = set(list(model_state_dict.keys()))
+            common_keys = list(pretrained_keys & model_keys)
+            checkpoint = {k: pretrained_checkpoint[k] for k in common_keys if model_state_dict[k].numel() == pretrained_checkpoint[k].numel()}
+            if not 'pos_embed_masked_hidden_states.0.weight' in checkpoint:
+                checkpoint['pos_embed_masked_hidden_states.0.proj.weight'] = checkpoint['pos_embed.proj.weight']
+                checkpoint['pos_embed_masked_hidden_states.0.proj.bias'] = checkpoint['pos_embed.proj.bias']
+            missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=False)
+        elif os.path.isdir(args.pretrained):
+            if os.path.exists(os.path.join(args.pretrained, 'config.json')):
+                with open(os.path.join(args.pretrained, 'config.json')) as f:
+                    config = json.load(f)
+                class_name = config['_class_name']
+                print(f'Load from {args.pretrained} with class_name {class_name}')
+                load_model = Diffusion_models_class[class_name].from_pretrained(args.pretrained)
+                missing_keys, unexpected_keys = model.load_state_dict(load_model.state_dict(), strict=False)
+                if 'pos_embed_masked_hidden_states.0.proj.weight' in missing_keys:
+                    model.pos_embed_masked_hidden_states[0].proj.weight.data = deepcopy(load_model.pos_embed.proj.weight.data)
+                    model.pos_embed_masked_hidden_states[0].proj.bias.data = deepcopy(load_model.pos_embed.proj.bias.data)
+                    assert torch.equal(model.pos_embed_masked_hidden_states[0].proj.weight.data, load_model.pos_embed.proj.weight.data)
+                    assert torch.equal(model.pos_embed_masked_hidden_states[0].proj.bias.data, load_model.pos_embed.proj.bias.data)
+                    missing_keys.remove('pos_embed_masked_hidden_states.0.proj.weight')
+                    missing_keys.remove('pos_embed_masked_hidden_states.0.proj.bias')
+                del load_model
+            else:
+                raise ValueError(f'Invalid pretrained model path: {args.pretrained}, you should provide a valid pretrained model path within a valid config.json file!')
+        else:
+            pretrained_checkpoint = torch.load(args.pretrained, map_location='cpu')
+            if 'model' in checkpoint:
+                pretrained_checkpoint = pretrained_checkpoint['model']
+                pretrained_keys = set(list(pretrained_checkpoint.keys()))
+            model_keys = set(list(model_state_dict.keys()))
+            common_keys = list(pretrained_keys & model_keys)
+            checkpoint = {k: pretrained_checkpoint[k] for k in common_keys if model_state_dict[k].numel() == pretrained_checkpoint[k].numel()}
+            if not 'pos_embed_masked_hidden_states.0.weight' in checkpoint:
+                checkpoint['pos_embed_masked_hidden_states.0.proj.weight'] = checkpoint['pos_embed.proj.weight']
+                checkpoint['pos_embed_masked_hidden_states.0.proj.bias'] = checkpoint['pos_embed.proj.bias']
+            missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=False)
+
+        print(f'missing_keys {len(missing_keys)} {missing_keys}, unexpected_keys {len(unexpected_keys)}')
+        print(f'Successfully load {len(model_state_dict) - len(missing_keys)}/{len(model_state_dict)} keys from {args.pretrained}!')
+
     model.gradient_checkpointing = args.gradient_checkpointing
-
-    pretrained_transformer_model_path = args.pretrained_transformer_model_path
-    pretrained_model_path = dict(transformer_model=pretrained_transformer_model_path)
-    if pretrained_transformer_model_path is not None:
-        model.custom_load_state_dict(pretrained_model_path)
-
     # Freeze vae and text encoders.
     ae.vae.requires_grad_(False)
     text_enc_1.requires_grad_(False)
@@ -254,7 +283,6 @@ def main(args):
     # Set model as trainable.
     model.train()
 
-    assert not (args.cogvideox_scheduler and args.cogvideox_scheduler)
     kwargs = dict(
         prediction_type=args.prediction_type, 
         rescale_betas_zero_snr=args.rescale_betas_zero_snr
@@ -995,7 +1023,6 @@ if __name__ == "__main__":
     parser.add_argument("--mask_config", type=str, default=None)
     parser.add_argument("--add_noise_to_condition", action='store_true')
     parser.add_argument("--default_text_ratio", type=float, default=0.5) # for inpainting mode
-    parser.add_argument("--pretrained_transformer_model_path", type=str, default=None)
 
     args = parser.parse_args()
 
