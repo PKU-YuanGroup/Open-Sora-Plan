@@ -26,7 +26,7 @@ This project aims to create a simple and scalable repo, to reproduce [Sora](http
 
 
 # 📣 News
-* `COMING SOON` ⚡️⚡️⚡️ For large model parallelisation training, TP & SP and more strategies are coming...
+* `COMING SOON` ⚡️⚡️⚡️ For large model parallelization training, TP & SP and more strategies are coming...
   
   > 近期将新增华为昇腾多模态MindSpeed-MM分支，借助华为MindSpeed-MM套件的能力支撑Open-Sora Plan参数的扩增，为更大参数规模的模型训练提供TP、SP等分布式训练能力。
 
