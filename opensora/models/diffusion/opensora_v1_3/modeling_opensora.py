@@ -301,6 +301,7 @@ OpenSora_v1_3_models = {
 
 OpenSora_v1_3_models_class = {
     "OpenSoraT2V_v1_3-2B/122": OpenSoraT2V_v1_3,
+    "OpenSoraT2V_v1_3": OpenSoraT2V_v1_3,
 }
 
 if __name__ == '__main__':

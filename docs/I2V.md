@@ -22,7 +22,6 @@ There are additional parameters you need to understand beyond those introduced i
 
 | Argparse                              | Usage                                                        |
 | ------------------------------------- | ------------------------------------------------------------ |
-| `--pretrained_transformer_model_path` | The function is identical to the `--pretrained` parameter in the T2V section. |
 | `--default_text_ratio` 0.5            | During I2V training, a portion of the text is replaced with a default text to account for cases where the user provides an image without accompanying text. |
 | `--mask_config`                       | The path of the `mask_config` file.                          |
 | `--add_noise_to_condition`                       | Adding a small amount of noise to conditional frames during training to improve generalization.          |

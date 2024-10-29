@@ -18,13 +18,6 @@ def zero_module(module):
         nn.init.zeros_(p)
     return module
 
-def reconstitute_checkpoint(pretrained_checkpoint, model_state_dict):
-    pretrained_keys = set(list(pretrained_checkpoint.keys()))
-    model_keys = set(list(model_state_dict.keys()))
-    common_keys = list(pretrained_keys & model_keys)
-    checkpoint = {k: pretrained_checkpoint[k] for k in common_keys if model_state_dict[k].numel() == pretrained_checkpoint[k].numel()}
-    return checkpoint
-
 
 class OpenSoraInpaint_v1_3(OpenSoraT2V):
     _supports_gradient_checkpointing = True
@@ -146,40 +139,6 @@ class OpenSoraInpaint_v1_3(OpenSoraT2V):
 
         return hidden_states, encoder_hidden_states, timestep, embedded_timestep
 
-    def transformer_model_custom_load_state_dict(self, pretrained_model_path):
-        pretrained_model_path = os.path.join(pretrained_model_path, 'diffusion_pytorch_model.*')
-        pretrained_model_path = glob.glob(pretrained_model_path)
-        assert len(pretrained_model_path) > 0, f"Cannot find pretrained model in {pretrained_model_path}"
-        pretrained_model_path = pretrained_model_path[0]
-
-        print(f'Loading {self.__class__.__name__} pretrained weights...')
-        print(f'Loading pretrained model from {pretrained_model_path}...')
-        model_state_dict = self.state_dict()
-        if 'safetensors' in pretrained_model_path:  # pixart series
-            from safetensors.torch import load_file as safe_load
-            # import ipdb;ipdb.set_trace()
-            pretrained_checkpoint = safe_load(pretrained_model_path, device="cpu")
-        else:  # latest stage training weight
-            pretrained_checkpoint = torch.load(pretrained_model_path, map_location='cpu')
-            if 'model' in pretrained_checkpoint:
-                pretrained_checkpoint = pretrained_checkpoint['model']
-        checkpoint = reconstitute_checkpoint(pretrained_checkpoint, model_state_dict)
-
-        if not 'pos_embed_masked_hidden_states.0.weight' in checkpoint:
-            checkpoint['pos_embed_masked_hidden_states.0.proj.weight'] = checkpoint['pos_embed.proj.weight']
-            checkpoint['pos_embed_masked_hidden_states.0.proj.bias'] = checkpoint['pos_embed.proj.bias']
-
-        missing_keys, unexpected_keys = self.load_state_dict(checkpoint, strict=False)
-        print(f'missing_keys {len(missing_keys)} {missing_keys}, unexpected_keys {len(unexpected_keys)}')
-        print(f'Successfully load {len(self.state_dict()) - len(missing_keys)}/{len(model_state_dict)} keys from {pretrained_model_path}!')
-
-    def custom_load_state_dict(self, pretrained_model_path):
-        assert isinstance(pretrained_model_path, dict), "pretrained_model_path must be a dict"
-
-        pretrained_transformer_model_path = pretrained_model_path.get('transformer_model', None)
-
-        self.transformer_model_custom_load_state_dict(pretrained_transformer_model_path)
-
 def OpenSoraInpaint_v1_3_2B_122(**kwargs):
    return OpenSoraInpaint_v1_3(
         num_layers=32, attention_head_dim=96, num_attention_heads=24, patch_size_t=1, patch_size=2,
@@ -192,4 +151,5 @@ OpenSoraInpaint_v1_3_models = {
 
 OpenSoraInpaint_v1_3_models_class = {
     "OpenSoraInpaint_v1_3-2B/122": OpenSoraInpaint_v1_3,
+    "OpenSoraInpaint_v1_3": OpenSoraInpaint_v1_3,
 }
