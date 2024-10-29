@@ -158,7 +158,7 @@ class OpenSoraInpaintPipeline(OpenSoraPipeline):
         if not isinstance(max_hxw, int) or not (max_hxw >= 102400 and max_hxw <= 236544):
             raise  ValueError("max_hxw should be an integer between 102400 and 236544")
         
-        if not isinstance(noise_strength, float) or not (noise_strength >= 0 noise_strength <= 1):
+        if not isinstance(noise_strength, float) or not (noise_strength >= 0 and noise_strength <= 1):
             raise ValueError("noise_strength should be a non-negative float")
         
         super().check_inputs(
