@@ -67,4 +67,4 @@ accelerate launch \
     --mask_config scripts/train_configs/mask_config.yaml \
     --add_noise_to_condition \
     --default_text_ratio 0.5 \
-    # --pretrained_transformer_model_path "" \
+    # --pretrained "" \
