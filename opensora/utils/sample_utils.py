@@ -374,12 +374,23 @@ def run_model_and_save_samples(args, pipeline, caption_refiner_model=None, enhan
         if not args.sp:
             if args.local_rank != -1:
                 dist.barrier()
-                video_grids = torch.cat(video_grids, dim=0).cuda()
-                shape = list(video_grids.shape)
-                shape[0] *= args.world_size
+                video_grids = torch.cat(video_grids, dim=0).cuda()  # t h w c
+                
+                shape = list(video_grids.shape)  # t h w c, e.g, t = 7 or 8
+                max_sample = math.ceil(len(args.text_prompt) / args.world_size) * args.num_samples_per_prompt  # max = 8
+                video_grids_to_gather = [torch.zeros(*shape[1:], dtype=video_grids.dtype).cuda() for _ in range(max_sample)]
+                # true video are filled to video_grids_to_gather, maybe the last element is all zero.
+                for i, v in enumerate(video_grids):
+                    video_grids_to_gather[i] = v
+                video_grids_to_gather = torch.stack(video_grids_to_gather, dim=0)
+
+                shape[0] = max_sample * args.world_size
                 gathered_tensor = torch.zeros(shape, dtype=video_grids.dtype).cuda()
-                dist.all_gather_into_tensor(gathered_tensor, video_grids.contiguous())
+                dist.all_gather_into_tensor(gathered_tensor, video_grids_to_gather.contiguous())
                 video_grids = gathered_tensor.cpu()
+
+                which_to_save = torch.sum(video_grids, dim=(1, 2, 3)).bool()
+                video_grids = video_grids[which_to_save]
                 dist.barrier()
             else:
                 video_grids = torch.cat(video_grids, dim=0)

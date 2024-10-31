@@ -46,13 +46,16 @@ import torch
 from torch.nn import functional as F
 import transformers
 from transformers.utils import ContextManagers
+from transformers.integrations import HfDeepSpeedConfig
+from transformers import AutoModel, AutoConfig
 from accelerate import Accelerator
 from accelerate.logging import get_logger
-from accelerate.utils import DistributedType, ProjectConfiguration, set_seed, DeepSpeedPlugin
+from accelerate.utils import DistributedType, ProjectConfiguration, set_seed
 from accelerate.state import AcceleratorState
 from packaging import version
 from tqdm.auto import tqdm
 
+import json
 import copy
 import diffusers
 from diffusers import DDPMScheduler, PNDMScheduler, DPMSolverMultistepScheduler, CogVideoXDDIMScheduler, FlowMatchEulerDiscreteScheduler
@@ -182,6 +185,50 @@ class ProgressInfo:
 #                                  Training Loop                                #
 #################################################################################
 
+
+def create_ema_model(
+        args, 
+        checkpoint_path, 
+        model_cls,
+        model_config,
+        ema_model_state_dict,
+        ds_config=None
+        ):
+    # model_config = AutoConfig.from_pretrained(model_name_or_path)
+    ds_config["train_micro_batch_size_per_gpu"] = args.train_batch_size
+    ds_config["fp16"]["enabled"] = False
+    ds_config["bf16"]["enabled"] = False
+    ds_config["gradient_accumulation_steps"] = args.gradient_accumulation_steps
+    ds_config["train_batch_size"] = args.train_batch_size * args.gradient_accumulation_steps * args.world_size
+
+    # Note: dschf is defined in function scope to avoid global effects
+    # https://huggingface.co/docs/transformers/main_classes/deepspeed#nontrainer-deepspeed-integration
+    logging.info(f'EMA deepspeed config {ds_config}')
+    if ds_config is not None and ds_config["zero_optimization"]["stage"] == 3:
+        dschf = HfDeepSpeedConfig(ds_config)
+    else:
+        dschf = None
+
+    model = None
+    if checkpoint_path:
+        ema_model_path = os.path.join(checkpoint_path, "model_ema")
+        if os.path.exists(ema_model_path):
+            model = model_cls.from_pretrained(ema_model_path)
+            logger.info(f'Successully resume EMAModel from {ema_model_path}', main_process_only=True)
+    if model is None:
+        # we do NOT use deepcopy instead of loading weights from original model
+        model = model_cls.from_config(model_config)
+        model.load_state_dict(ema_model_state_dict, strict=True)
+        logger.info(f'Successully deepcopy EMAModel from model', main_process_only=True)
+    
+    model = model.eval()
+    model.requires_grad_(False)
+    model.config.hidden_size = model.config.attention_head_dim * model.config.num_attention_heads
+    ema_model = EMAModel(model, decay=args.ema_decay, update_after_step=args.ema_start_step,
+                        model_cls=model_cls, model_config=model_config)
+    ema_model.model, _, _, _ = deepspeed.initialize(model=ema_model.model, config_params=ds_config)
+    return ema_model
+
 def main(args):
 
     logging_dir = Path(args.output_dir, args.logging_dir)
@@ -190,26 +237,13 @@ def main(args):
         npu_config.print_msg(args)
         npu_config.seed_everything(args.seed)
     accelerator_project_config = ProjectConfiguration(project_dir=args.output_dir, logging_dir=logging_dir)
-
-    deepspeed_plugins = {}
-    # https://huggingface.co/docs/accelerate/v1.0.1/en/usage_guides/deepspeed_multiple_model
-    train_plugin = DeepSpeedPlugin(hf_ds_config=args.train_deepspeed_config_file)
-    deepspeed_plugins["train"] = train_plugin
     
-    if args.use_ema:
-        # Use FP32 for EMA model
-        # DeepSpeed will raise an error if train_micro_batch_size_per_gpu isn't specified, even if this particular model isn't being trained.
-        ema_plugin = DeepSpeedPlugin(hf_ds_config=args.eval_deepspeed_config_file)
-        ema_plugin.deepspeed_config["train_micro_batch_size_per_gpu"] = args.train_batch_size
-        ema_plugin.deepspeed_config["bf16"]["enabled"] = args.ema_bf16
-        deepspeed_plugins["ema"] = ema_plugin
 
     accelerator = Accelerator(
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         mixed_precision=args.mixed_precision,
         log_with=args.report_to,
         project_config=accelerator_project_config,
-        deepspeed_plugins=deepspeed_plugins, 
     )
 
     if args.skip_abnorml_step and accelerator.distributed_type == DistributedType.DEEPSPEED:
@@ -328,13 +362,12 @@ def main(args):
             text_enc_2.requires_grad_(False)
             if not args.post_to_device:
                 text_enc_2.to(accelerator.device, dtype=weight_dtype)
-                logger.info(f"Load text encoder model 2 finish, memory_allocated: {torch.cuda.memory_allocated()/GB:.2f} GB", main_process_only=True)
+                logger.info(f"Load text encoder model finish, memory_allocated: {torch.cuda.memory_allocated()/GB:.2f} GB", main_process_only=True)
         # =======================================================================================================
 
 
     # =======================================================================================================
-    # STEP 3: Prepare diffusion model (Trained model must be prepared first!)
-    accelerator.state.select_deepspeed_plugin("train")
+    # STEP 3: Prepare diffusion model 
 
     ae_stride_t, ae_stride_h, ae_stride_w = ae_stride_config[args.ae]
     ae.vae_scale_factor = (ae_stride_t, ae_stride_h, ae_stride_w)
@@ -409,14 +442,13 @@ def main(args):
         # create custom saving & loading hooks so that `accelerator.save_state(...)` serializes in a nice format
         def save_model_hook(models, weights, output_dir):
             if accelerator.is_main_process:
-                if args.use_ema:
-                    ema_model.save_pretrained(os.path.join(output_dir, "model_ema"))
                 for i, model in enumerate(models):
-                    print(f'save_model_hook i {i}, len(models) {len(models)}, type(model) {type(model)}')
                     model.save_pretrained(os.path.join(output_dir, "model"))
                     if weights:  # Don't pop if empty
                         # make sure to pop weight so that corresponding model is not saved again
                         weights.pop()
+            if args.use_ema:
+                ema_model.save_pretrained(os.path.join(output_dir, "model_ema"))
 
         accelerator.register_save_state_pre_hook(save_model_hook)
         
@@ -429,21 +461,17 @@ def main(args):
 
     # =======================================================================================================
     # STEP 4: Create EMAModel
+    args.world_size = accelerator.num_processes
     if args.use_ema:
-        if checkpoint_path:
-            ema_model_path = os.path.join(checkpoint_path, "model_ema")
-            if os.path.exists(ema_model_path):
-                ema_model = EMAModel.from_pretrained(ema_model_path, model_cls=Diffusion_models_class[args.model])
-                logger.info(f'Successully resume EMAModel from {ema_model_path}', main_process_only=True)
-        else:
-            ema_model = EMAModel(deepcopy(model), decay=args.ema_decay, update_after_step=args.ema_start_step,
-                                model_cls=Diffusion_models_class[args.model], model_config=model.config)
-            logger.info(f'Successully deepcopy EMAModel from model', main_process_only=True)
-        ema_model.model = ema_model.model.eval()
-        ema_model.model.requires_grad_(False)
-        ema_model.model.config.hidden_size = model.config.attention_head_dim * model.config.num_attention_heads
+        ema_model_state_dict = model.state_dict()
+        with open(args.ema_deepspeed_config_file, 'r') as f:
+            ds_config = json.load(f)
+        ema_model = create_ema_model(
+            args, checkpoint_path, model_cls=Diffusion_models_class[args.model], model_config=model.config, 
+            ema_model_state_dict=ema_model_state_dict, ds_config=ds_config
+            )
 
-        logger.info(f"Load ema model 2 finish, memory_allocated: {torch.cuda.memory_allocated()/GB:.2f} GB", main_process_only=True)
+        logger.info(f"Load ema model finish, memory_allocated: {torch.cuda.memory_allocated()/GB:.2f} GB", main_process_only=True)
     # =======================================================================================================
 
 
@@ -587,8 +615,7 @@ def main(args):
 
     # =======================================================================================================
     # STEP 8: Prepare everything with our `accelerator`.
-    
-    # STEP 8.1: Prepare everything for training
+
     logger.info(f"Before accelerator.prepare, memory_allocated: {torch.cuda.memory_allocated()/GB:.2f} GB", main_process_only=True)
     model_config = model.config
     model_config_to_save = model.to_json_string()
@@ -599,16 +626,6 @@ def main(args):
         accelerator.load_state(checkpoint_path)
     logger.info(f"After accelerator.prepare, memory_allocated: {torch.cuda.memory_allocated()/GB:.2f} GB", main_process_only=True)
 
-    if args.use_ema:
-        # STEP 8.2: Prepare EMA model
-        accelerator.state.select_deepspeed_plugin("ema")
-        logger.info(f"Brfore prepare ema_model, ema_model.model on {ema_model.model.device}, memory_allocated: {torch.cuda.memory_allocated()/GB:.2f} GB", main_process_only=True)
-        print(f"Brfore prepare ema_model, ema_model.model on {ema_model.model.device}, memory_allocated: {torch.cuda.memory_allocated()/GB:.2f} GB")
-        ema_model.model = accelerator.prepare(ema_model.model)
-        ema_model.model.eval()
-        logger.info(f"Prepare ema model finish, memory_allocated: {torch.cuda.memory_allocated()/GB:.2f} GB", main_process_only=True)
-        # STEP 8.3: All models have been prepared, start training
-        accelerator.state.select_deepspeed_plugin("train")
     model.train()
 
     # FIXME: EMAModel from diffusers have bug, which can NOT resume ema_decay
@@ -679,17 +696,15 @@ def main(args):
     def sync_gradients_info(loss):
         # Checks if the accelerator has performed an optimization step behind the scenes
         if args.use_ema and progress_info.global_step % args.ema_update_freq == 0:
-            logger.info(f'Update ema with decay {ema_model.decay}, ema_update_freq {args.ema_update_freq}', main_process_only=True)
             ema_model.step(model.parameters())
-            logger.info(f'Finish ema', main_process_only=True)
+            cur_decay_value = ema_model.cur_decay_value
         progress_bar.update(1)
         progress_info.global_step += 1
         end_time = time.time()
         one_step_duration = end_time - start_time
         
         train_loss = progress_info.train_loss
-        accelerator.log(
-                {
+        log_dict = {
                     "train_loss": train_loss, "max_grad_norm": progress_info.max_grad_norm, 
                     "weight_norm": progress_info.weight_norm, 
                     "max_grad_norm_clip": progress_info.max_grad_norm_clip, 
@@ -704,8 +719,10 @@ def main(args):
                     "max_grad_norm_var": progress_info.max_grad_norm_var, 
                     "max_train_loss": progress_info.max_train_loss, 
                     "lr": lr_scheduler.get_last_lr()[0]
-                }, step=progress_info.global_step
-            )
+                }
+        if args.use_ema and (progress_info.global_step - 1) % args.ema_update_freq == 0:
+            log_dict.update(dict(cur_decay_value=cur_decay_value))
+        accelerator.log(log_dict, step=progress_info.global_step)
 
         if torch_npu is not None and npu_config is not None:
             npu_config.print_msg(f"Step: [{progress_info.global_step}], local_loss={loss.detach().item()}, "
@@ -749,22 +766,7 @@ def main(args):
                             shutil.rmtree(removing_checkpoint)
 
                 save_path = os.path.join(args.output_dir, f"checkpoint-{progress_info.global_step}")
-                # FIXME: https://github.com/huggingface/accelerate/issues/3140
-                # acc_models = accelerator._models
-                # accelerator._models = [model for model in acc_models if model.checkpoint_engine is not None]
                 accelerator.save_state(save_path)
-                # accelerator._models = acc_models
-                
-                # accelerator.unwrap_model(model).save_pretrained(os.path.join(save_path, "model"))
-                # if args.save_hf_style:
-                    # model_path = os.path.join(save_path, "model")
-                    # os.makedirs(model_path, exist_ok=True)
-                    # with open(os.path.join(model_path, 'config.json'), "w", encoding="utf-8") as writer:
-                    #     writer.write(model_config_to_save)
-                    # convert_zero_checkpoint_to_fp32_state_dict(save_path, os.path.join(model_path, 'diffusion_pytorch_model.safetensors'))
-
-                # if args.use_ema:
-                #     ema_model.save_pretrained(os.path.join(save_path, "model_ema"))
                 logger.info(f"Saved state to {save_path}")
 
         logs = {"step_loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
@@ -895,9 +897,7 @@ def main(args):
                 loss = (loss_mse * mask).sum() / mask.sum()
             else:
                 loss = loss_mse.mean()
-        # Gather the losses across all processes for logging (if we use distributed training).
-        # avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
-        # progress_info.train_loss += loss.detach().item() / args.gradient_accumulation_steps
+                
         timesteps_list = accelerator.gather(timesteps)
         if torch.isnan(loss).any() or torch.isinf(loss).any():
             raise ValueError(f'Detect loss error, timestep {timesteps_list}')
@@ -1142,22 +1142,7 @@ def main(args):
     # DeepSpeed requires saving weights on every device; saving weights only on the main process would cause issues.
     if accelerator.distributed_type == DistributedType.DEEPSPEED or accelerator.is_main_process:
         save_path = os.path.join(args.output_dir, f"checkpoint-{progress_info.global_step}")
-        # FIXME: https://github.com/huggingface/accelerate/issues/3140
-        # acc_models = accelerator._models
-        # accelerator._models = [model for model in acc_models if model.checkpoint_engine is not None]
         accelerator.save_state(save_path)
-        # accelerator._models = acc_models
-
-        # accelerator.unwrap_model(model).save_pretrained(os.path.join(save_path, "model"))
-        # if args.save_hf_style:
-        #     model_path = os.path.join(save_path, "model")
-        #     os.makedirs(model_path, exist_ok=True)
-        #     with open(os.path.join(model_path, 'config.json'), "w", encoding="utf-8") as writer:
-        #         writer.write(model_config_to_save)
-        #     convert_zero_checkpoint_to_fp32_state_dict(save_path, os.path.join(model_path, 'diffusion_pytorch_model.safetensors'))
-
-        if args.use_ema:
-            ema_model.save_pretrained(os.path.join(save_path, "model_ema"))
         logger.info(f"Saved state to {save_path}")
 
     accelerator.wait_for_everyone()
@@ -1171,8 +1156,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     # deepspeed
-    parser.add_argument("--train_deepspeed_config_file", type=str, required=True, help="deepspeed config file for training, e.g diffusion model")
-    parser.add_argument("--eval_deepspeed_config_file", type=str, required=True, help="deepspeed config file for evaluation, e.g EMA model")
+    parser.add_argument(
+        "--ema_deepspeed_config_file", type=str, default='scripts/accelerate_configs/zero3.json', 
+        help="deepspeed config file for EMA model"
+        )
 
     # dataset & dataloader
     parser.add_argument("--dataset", type=str, required=True)

@@ -146,11 +146,19 @@ class EMAModel:
                 if rank == 0:
                     model_state_dict[k] = vv
 
-        if rank == 0:
-            self.model.register_to_config(**state_dict)
-            self.model.save_config(path)
+        # if rank == 0:
+        #     self.model.register_to_config(**state_dict)
+        #     self.model.save_config(path)
             # torch.save(model_state_dict, os.path.join(path, "diffusion_pytorch_model.bin"))
-            save_file(model_state_dict, os.path.join(path, "diffusion_pytorch_model.safetensors"))
+            # save_file(model_state_dict, os.path.join(path, "diffusion_pytorch_model.safetensors")
+
+        if rank == 0:
+            model = self.model_cls.from_config(self.model_config)
+            print(f'state_dict, {state_dict.keys()}')
+            model.register_to_config(**state_dict)
+            model.load_state_dict(model_state_dict, strict=True)
+            model.save_pretrained(path)
+        return model_state_dict
 
     def get_decay(self, optimization_step: int) -> float:
         """
@@ -191,15 +199,15 @@ class EMAModel:
         self.optimization_step += 1
 
         # Compute the decay factor for the exponential moving average.
-        # decay = self.get_decay(self.optimization_step)
-        # use navie decay to avoid resume problem
-        decay = self.decay
+        decay = self.get_decay(self.optimization_step)
         self.cur_decay_value = decay
         one_minus_decay = 1 - decay
+        # print(f'one_minus_decay {one_minus_decay}')
         # https://github.com/microsoft/DeepSpeed/blob/master/deepspeed/runtime/zero/partition_parameters.py#L1543
         for s_param, param in zip(self.model.parameters(), parameters):
             s_tensor, tensor = None, None
             if hasattr(s_param, "ds_tensor"): # EMA ZeRO-3
+                # print('EMA ZeRO-3')
                 s_tensor = s_param.ds_tensor
                 if hasattr(param, "ds_tensor"): # DiT ZeRO-3
                     tensor = param.ds_tensor
@@ -213,10 +221,12 @@ class EMAModel:
                     if start < param.numel() and end <= param.numel():
                         tensor = one_dim_param.narrow(0, start, partition_size)
                     elif start < param.numel():
+                        raise ValueError(f'start {start}, end {end}, param.numel() {param.numel()}, partition_size {partition_size}')
                         elems_to_copy = param.numel() - start
                         s_tensor = s_param.ds_tensor.narrow(0, 0, elems_to_copy)
                         tensor = one_dim_param.narrow(0, start, elems_to_copy)
                     else:
+                        raise ValueError(f'start {start}, end {end}, param.numel() {param.numel()}, partition_size {partition_size}')
                         continue
             else: # DiT/EMA ZeRO-2
                 s_tensor = s_param.data
@@ -225,7 +235,7 @@ class EMAModel:
             assert s_tensor.shape == tensor.shape, f"mismatch shape, s_tensor: {s_tensor.shape}, tensor: {tensor.shape}"
 
             if param.requires_grad:
-                s_tensor.sub_(one_minus_decay * (s_tensor - tensor))
+                s_tensor.sub_(one_minus_decay * (s_tensor - tensor.to(s_tensor.dtype)))  
             else:
                 s_tensor.copy_(tensor)
 

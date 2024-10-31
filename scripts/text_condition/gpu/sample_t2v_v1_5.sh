@@ -1,7 +1,7 @@
 
 CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun --nnodes=1 --nproc_per_node 8 --master_port 29512 \
     -m opensora.sample.sample \
-    --model_path /storage/ongoing/9.29/mmdit/1.5/Open-Sora-Plan/mmdit13b_dense_rf_bs2048_lr1e-4_max1x256x256_min1x256x192_emaclip99_recap_coyo_merge_1025/checkpoint-54100/model_ema \
+    --model_path mmdit13b_dense_rf_bs4096_lr1e-4_max1x256x256_min1x192x192_emaclip99_recap_coyo_merge_1025/checkpoint-35023/model \
     --version v1_5 \
     --num_frames 1 \
     --height 256 \
@@ -12,10 +12,10 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun --nnodes=1 --nproc_per_node 8 --ma
     --text_prompt examples/sora.txt \
     --ae WFVAEModel_D32_8x8x8 \
     --ae_path "/storage/lcm/WF-VAE/results/Middle888" \
-    --save_img_path "./rf_1x256x256_v1_5_13b_s28_ckpt85k_dense25k_54k_ema" \
+    --save_img_path "./rf_1x256x256_v1_5_13b_s100_dense35k_1" \
     --fps 18 \
     --guidance_scale 7.0 \
-    --num_sampling_steps 28 \
+    --num_sampling_steps 100 \
     --max_sequence_length 512 \
     --sample_method FlowMatchEulerDiscrete \
     --seed 1234 \

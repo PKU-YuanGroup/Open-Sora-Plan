@@ -62,14 +62,19 @@ def getdataset(args):
 if __name__ == "__main__":
     '''
     python opensora/dataset/__init__.py
+    accelerate launch --num_processes 1 opensora/dataset/__init__.py
     '''
     from accelerate import Accelerator
-    from opensora.dataset.t2v_datasets import dataset_prog
     from opensora.utils.dataset_utils import LengthGroupedSampler, Collate
     from torch.utils.data import DataLoader
     import random
     from torch import distributed as dist
     from tqdm import tqdm
+    import imageio
+    import numpy as np
+    from einops import rearrange
+    # from opensora.dataset.t2v_datasets_cp import T2V_dataset
+
     args = type('args', (), 
     {
         'ae': 'WFVAEModel_D32_8x8x8', 
@@ -84,7 +89,7 @@ if __name__ == "__main__":
         'interpolation_scale_h': 1,
         'interpolation_scale_w': 1,
         'cache_dir': '../cache_dir', 
-        'data': '/storage/anno_pkl/recap_coyo_merge_1025/part1.txt', 
+        'data': 'scripts/train_data/image_data_debug.txt', 
         'train_fps': 18, 
         'drop_short_ratio': 1.0, 
         'speed_factor': 1.0, 
@@ -104,7 +109,7 @@ if __name__ == "__main__":
         'total_batch_size': 256, 
         'sp_size': 1, 
         'max_hxw': 256*256, 
-        'min_hxw': 256*144, 
+        'min_hxw': 192*192, 
         'force_5_ratio': True, 
         'random_data': False, 
     }
@@ -131,15 +136,10 @@ if __name__ == "__main__":
         drop_last=False, 
         prefetch_factor=4
     )
-    import imageio
-    import numpy as np
-    from einops import rearrange
-    while True:
-        for idx, i in enumerate(tqdm(train_dataloader)):
-            pixel_values = i[0][0]
-            pixel_values_ = (pixel_values+1)/2
-            pixel_values_ = rearrange(pixel_values_, 'c t h w -> t h w c') * 255.0
-            pixel_values_ = pixel_values_.numpy().astype(np.uint8)
-            imageio.mimwrite(f'output{idx}.mp4', pixel_values_, fps=args.train_fps)
-            dist.barrier()
-            pass
+    for idx, i in enumerate(tqdm(train_dataloader)):
+        import ipdb;ipdb.set_trace()
+        pixel_values = i[0][0]
+        pixel_values_ = (pixel_values+1)/2
+        pixel_values_ = rearrange(pixel_values_, 'c t h w -> t h w c') * 255.0
+        pixel_values_ = pixel_values_.numpy().astype(np.uint8)
+        imageio.mimwrite(f'output{idx}.mp4', pixel_values_, fps=args.train_fps)

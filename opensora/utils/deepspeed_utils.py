@@ -28,6 +28,43 @@ from deepspeed.runtime.utils import bwc_tensor_model_parallel_rank, is_model_par
 
 
 
+def get_weight_norm_for_ema(parameters, norm_type=2):
+    """Get norm of an iterable of parameters.
+
+    This is adapted from torch.nn.utils.clip_grad.clip_grad_norm_ and
+    added functionality to handle model parallel parameters. Note that
+    the gradients are modified in place. Taken from Nvidia Megatron.
+
+    Arguments:
+        parameters (Iterable[Tensor] or Tensor): an iterable of Tensors or a
+            single Tensor that will have gradients normalized
+        norm_type (float or int): type of the used p-norm. Can be ``'inf'`` for
+            infinity norm.
+
+    Returns:
+        Total norm of the parameters (viewed as a single vector).
+        -1 if the norm value is NaN or Inf.
+    """
+    if isinstance(parameters, torch.Tensor):
+        parameters = [parameters]
+
+    norm_type = float(norm_type)
+    
+    total_norm = 0.
+    for p in parameters:
+
+        param_norm = p.data.float().norm(norm_type)
+        total_norm += param_norm**norm_type
+
+    # Sum across all model parallel GPUs.
+    total_norm_cuda = get_accelerator().FloatTensor([float(total_norm)])
+    total_norm = total_norm_cuda[0].item()**(1. / norm_type)
+
+    if total_norm == float('inf') or total_norm == -float('inf') or total_norm != total_norm:
+        total_norm = -1
+
+    return total_norm
+
 # def clip_grad_norm_(parameters, max_norm, norm_type=2, mpu=None, clip=True, accelerator=None):
 #     """Clips gradient norm of an iterable of parameters.
 

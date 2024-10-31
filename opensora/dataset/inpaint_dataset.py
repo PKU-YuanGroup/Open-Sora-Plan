@@ -35,9 +35,57 @@ from opensora.utils.utils import text_preprocessing
 from opensora.dataset.transform import get_params, maxhwresize, add_masking_notice, calculate_statistics, \
     add_aesthetic_notice_image, add_aesthetic_notice_video
 from opensora.utils.mask_utils import MaskProcessor, STR_TO_TYPE
-from opensora.dataset.t2v_datasets import T2V_dataset, DataSetProg
+from opensora.dataset.t2v_datasets import T2V_dataset
 
 logger = get_logger(__name__)
+
+class SingletonMeta(type):
+    """
+    这是一个元类，用于创建单例类。
+    """
+    _instances = {}
+
+    def __call__(cls, *args, **kwargs):
+        if cls not in cls._instances:
+            instance = super().__call__(*args, **kwargs)
+            cls._instances[cls] = instance
+        return cls._instances[cls]
+
+
+class DataSetProg(metaclass=SingletonMeta):
+    def __init__(self):
+        self.cap_list = []
+        self.elements = []
+        self.num_workers = 1
+        self.n_elements = 0
+        self.worker_elements = dict()
+        self.n_used_elements = dict()
+
+    def set_cap_list(self, num_workers, cap_list, n_elements):
+        self.num_workers = num_workers
+        self.cap_list = cap_list
+        self.n_elements = n_elements
+        self.elements = list(range(n_elements))
+        
+        print(f"n_elements: {len(self.elements)}", flush=True)
+        # if torch_npu is not None:
+        #     random.shuffle(self.elements)
+        #     for i in range(self.num_workers):
+        #         self.n_used_elements[i] = 0
+        #         per_worker = int(math.ceil(len(self.elements) / float(self.num_workers)))
+        #         start = i * per_worker
+        #         end = min(start + per_worker, len(self.elements))
+        #         self.worker_elements[i] = self.elements[start: end]
+
+    def get_item(self, work_info):
+        if work_info is None:
+            worker_id = 0
+        else:
+            worker_id = work_info.id
+
+        idx = self.worker_elements[worker_id][self.n_used_elements[worker_id] % len(self.worker_elements[worker_id])]
+        self.n_used_elements[worker_id] += 1
+        return idx
 
 dataset_prog = DataSetProg()
 

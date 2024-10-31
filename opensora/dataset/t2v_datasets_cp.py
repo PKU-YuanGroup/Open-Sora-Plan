@@ -71,6 +71,37 @@ class SingletonMeta(type):
             cls._instances[cls] = instance
         return cls._instances[cls]
 
+
+class DataSetProg(metaclass=SingletonMeta):
+    def __init__(self):
+        self.cap_list = []
+        self.elements = []
+        self.num_workers = 1
+        self.n_elements = 0
+        self.worker_elements = dict()
+        self.n_used_elements = dict()
+
+    def set_cap_list(self, num_workers, cap_list, n_elements):
+        self.num_workers = num_workers
+        self.cap_list = cap_list
+        self.n_elements = n_elements
+        self.elements = list(range(n_elements))
+        
+        logger.info(f"n_elements: {len(self.elements)}")
+
+    def get_item(self, work_info):
+        if work_info is None:
+            worker_id = 0
+        else:
+            worker_id = work_info.id
+
+        idx = self.worker_elements[worker_id][self.n_used_elements[worker_id] % len(self.worker_elements[worker_id])]
+        self.n_used_elements[worker_id] += 1
+        return idx
+
+
+dataset_prog = DataSetProg()
+
 def find_closest_y(x, vae_stride_t=4, model_ds_t=1):
     min_num_frames = 29
     if x < min_num_frames:
@@ -168,19 +199,25 @@ class T2V_dataset(Dataset):
             self.support_Chinese = True
 
         s = time.time()
-        self.cap_list, self.sample_size, self.shape_idx_dict = self.define_frame_index(self.data)
-        logger.info(f'Data length: {len(self.cap_list)}')
-        print(f'Data length: {len(self.cap_list)}')
-        gc.collect()
+        cap_list, self.sample_size, self.shape_idx_dict = self.define_frame_index(self.data)
+        logger.info(f'data example: {cap_list[0]}')
+        print(f'data example: {cap_list[0]}')
         e = time.time()
         logger.info(f'Build data time: {e-s}')
         self.lengths = self.sample_size
 
+        n_elements = len(cap_list)
+        dataset_prog.set_cap_list(args.dataloader_num_workers, cap_list, n_elements)
+        logger.info(f"Data length: {len(dataset_prog.cap_list)}")
         self.executor = ThreadPoolExecutor(max_workers=1)
         self.timeout = 60
 
+    def set_checkpoint(self, n_used_elements):
+        for i in range(len(dataset_prog.n_used_elements)):
+            dataset_prog.n_used_elements[i] = n_used_elements
+
     def __len__(self):
-        return len(self.cap_list)
+        return dataset_prog.n_elements
 
     def __getitem__(self, idx):
         try:
@@ -190,20 +227,20 @@ class T2V_dataset(Dataset):
             return data
         except Exception as e:
             if len(str(e)) < 2:
-                e = f"TimeoutError, {self.timeout}s timeout occur with {self.cap_list.iloc[idx]['path']}"
+                e = f"TimeoutError, {self.timeout}s timeout occur with {dataset_prog.cap_list[idx]['path']}"
             logger.info(f'Error with {e}')
             index_cand = self.shape_idx_dict[self.sample_size[idx]]  # pick same shape
             return self.__getitem__(random.choice(index_cand))
 
     def get_data(self, idx):
-        data = self.cap_list.iloc[idx]
-        path = data['path']
+        path = dataset_prog.cap_list[idx]['path']
         if path.endswith('.mp4'):
-            return self.get_video(data)
+            return self.get_video(idx)
         else:
-            return self.get_image(data)
+            return self.get_image(idx)
     
-    def get_video(self, video_data):
+    def get_video(self, idx):
+        video_data = dataset_prog.cap_list[idx]
         video_path = video_data['path']
         assert os.path.exists(video_path), f"file {video_path} do not exist!"
         sample_h = video_data['resolution']['sample_height']
@@ -265,7 +302,8 @@ class T2V_dataset(Dataset):
             input_ids_2=input_ids_2, cond_mask_2=cond_mask_2,
             )
 
-    def get_image(self, image_data):
+    def get_image(self, idx):
+        image_data = dataset_prog.cap_list[idx]  # [{'path': path, 'cap': cap}, ...]
         sample_h = image_data['resolution']['sample_height']
         sample_w = image_data['resolution']['sample_width']
 
@@ -527,7 +565,7 @@ class T2V_dataset(Dataset):
                 f"Mean: {stats_aesthetic['mean']}, Var: {stats_aesthetic['variance']}, Std: {stats_aesthetic['std_dev']}\n"
                 f"Min: {stats_aesthetic['min']}, Max: {stats_aesthetic['max']}")
 
-        return pd.DataFrame(new_cap_list), sample_size, shape_idx_dict
+        return new_cap_list, sample_size, shape_idx_dict
     
     def decord_read(self, video_data):
         path = video_data['path']
