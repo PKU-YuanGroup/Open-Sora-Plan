@@ -38,22 +38,22 @@ export TOKENIZERS_PARALLELISM=false
 
 accelerate launch \
     --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
-    opensora/train/train_t2v_diffusers_ema_debug_.py \
+    opensora/train/train_t2v_diffusers_ema_lb.py \
     --ema_deepspeed_config_file scripts/accelerate_configs/zero3.json \
-    --model OpenSoraT2V_v1_5-13B/122 \
+    --model OpenSoraT2V_v1_5-6B/122 \
     --text_encoder_name_1 google/t5-v1_1-xl \
     --cache_dir "../../cache_dir/" \
     --text_encoder_name_2 laion/CLIP-ViT-bigG-14-laion2B-39B-b160k \
     --cache_dir "../../cache_dir/" \
     --dataset t2v \
-    --data scripts/train_data/image_data_debug.txt \
+    --data scripts/train_data/video_data_debug.txt \
     --ae WFVAEModel_D32_8x8x8 \
     --ae_path "/storage/lcm/WF-VAE/results/Middle888" \
     --sample_rate 1 \
-    --num_frames 1 \
-    --max_hxw 65536 \
-    --min_hxw 36864 \
-    --force_5_ratio \
+    --num_frames 105 \
+    --max_height 768 \
+    --max_width 768 \
+    --force_resolution \
     --gradient_checkpointing \
     --train_batch_size=1 \
     --dataloader_num_workers 16 \
@@ -61,24 +61,21 @@ accelerate launch \
     --lr_scheduler="constant_with_warmup" \
     --mixed_precision="bf16" \
     --report_to="wandb" \
-    --checkpointing_steps=100 \
+    --checkpointing_steps=1000 \
     --allow_tf32 \
     --model_max_length 512 \
-    --use_ema \
     --ema_start_step 0 \
     --cfg 0.1 \
     --resume_from_checkpoint="latest" \
     --ema_update_freq 1 \
-    --ema_decay 0.5 \
-    --drop_short_ratio 0.0 \
-    --hw_stride 16 \
-    --train_fps 16 \
-    --seed 1234 \
-    --group_data \
+    --ema_decay 0.999 \
+    --drop_short_ratio 1.0 \
+    --hw_stride 16 --train_fps 16 \
+    --seed 1234 --group_data \
     --use_decord \
-    --output_dir="debug_ema_acce1.0.1_13b" \
-    --vae_fp32 \
-    --rf_scheduler \
-    --proj_name "debug_ema_13b" \
-    --log_name debug_ema_acce1.0.1 \
+    --output_dir="debug6b" \
+    --vae_fp32 --rf_scheduler \
+    --proj_name "debug6b" \
+    --log_name part${i}_ema \
+    --trained_data_global_step 0 \
     --skip_abnorml_step --ema_decay_grad_clipping 0.99

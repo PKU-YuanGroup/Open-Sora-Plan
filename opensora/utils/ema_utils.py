@@ -221,12 +221,12 @@ class EMAModel:
                     if start < param.numel() and end <= param.numel():
                         tensor = one_dim_param.narrow(0, start, partition_size)
                     elif start < param.numel():
-                        raise ValueError(f'start {start}, end {end}, param.numel() {param.numel()}, partition_size {partition_size}')
+                        # raise ValueError(f'start {start}, end {end}, param.numel() {param.numel()}, partition_size {partition_size}')
                         elems_to_copy = param.numel() - start
                         s_tensor = s_param.ds_tensor.narrow(0, 0, elems_to_copy)
                         tensor = one_dim_param.narrow(0, start, elems_to_copy)
                     else:
-                        raise ValueError(f'start {start}, end {end}, param.numel() {param.numel()}, partition_size {partition_size}')
+                        # raise ValueError(f'start {start}, end {end}, param.numel() {param.numel()}, partition_size {partition_size}')
                         continue
             else: # DiT/EMA ZeRO-2
                 s_tensor = s_param.data

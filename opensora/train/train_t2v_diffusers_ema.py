@@ -177,6 +177,29 @@ class ProgressInfo:
         self.min_timesteps = min_timesteps
         self.max_train_loss = max_train_loss
 
+def param_groups_weight_decay(
+        model,
+        weight_decay=1e-5,
+        no_weight_decay_list=()
+):
+    no_weight_decay_list = set(no_weight_decay_list)
+    decay = []
+    no_decay = []
+    cnt = 0
+    train = 0
+    for name, param in model.named_parameters():
+        cnt += 1
+        if not param.requires_grad:
+            continue
+        train += 1
+        if param.ndim <= 1 or name.endswith(".bias") or name in no_weight_decay_list:
+            no_decay.append(param)
+        else:
+            decay.append(param)
+    logger.info(f'Train param [{train}/{cnt}], decay {len(decay)} param, no_decay {len(no_decay)} param')
+    return [
+        {'params': no_decay, 'weight_decay': 0.},
+        {'params': decay, 'weight_decay': weight_decay}]
 
 #################################################################################
 #                                  Training Loop                                #
@@ -357,6 +380,8 @@ def main(args):
     if checkpoint_path:
         model = Diffusion_models_class[args.model].from_pretrained(os.path.join(checkpoint_path, "model"))
         logger.info(f'Successully resume model from {os.path.join(checkpoint_path, "model")}', main_process_only=True)
+    elif os.path.isdir(args.pretrained):
+        pass
     else:
         model = Diffusion_models[args.model](
             in_channels=ae_channel_config[args.ae],
@@ -371,33 +396,32 @@ def main(args):
             sparse_n=args.sparse_n, 
             skip_connection=args.skip_connection, 
         )
+        logger.info(f'No existed trained model, init a new model to train', main_process_only=True)
 
     # use pretrained model?
     if checkpoint_path is None and args.pretrained:
-        model_state_dict = model.state_dict()
         logger.info(f'Load from {args.pretrained}')
         if args.pretrained.endswith('.safetensors'):  
+            # --pretrained path/to/.safetensors
+            model_state_dict = model.state_dict()
             from safetensors.torch import load_file as safe_load
             pretrained_checkpoint = safe_load(args.pretrained, device="cpu")
             checkpoint = get_common_weights(pretrained_checkpoint, model_state_dict)
-            missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=False)
+            missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=True)
         elif os.path.isdir(args.pretrained):
-            model_pretrained = Diffusion_models_class[args.model].from_pretrained(args.pretrained)
-            pretrained_checkpoint = model_pretrained.state_dict()
-            # checkpoint = get_common_weights(pretrained_checkpoint, model_state_dict)
-            pretrained_keys = set(list(pretrained_checkpoint.keys()))
-            model_keys = set(list(model_state_dict.keys()))
-            common_keys = list(pretrained_keys & model_keys)
-            checkpoint = {k: pretrained_checkpoint[k] for k in common_keys if model_state_dict[k].numel() == pretrained_checkpoint[k].numel()}
-            missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=False)
-            model_pretrained = None
-            del model_pretrained
+            # --pretrained path/to/model  or  path/to/model_ema  # must have config.json and .safetensors
+            model = Diffusion_models_class[args.model].from_pretrained(args.pretrained)
+            missing_keys, unexpected_keys = [], []
+            model_state_dict = []
+            checkpoint = 1
         else:
+            # --pretrained path/to/.pth or .pt or some other format
+            model_state_dict = model.state_dict()
             pretrained_checkpoint = torch.load(args.pretrained, map_location='cpu')
             if 'model' in checkpoint:
                 pretrained_checkpoint = pretrained_checkpoint['model']
             checkpoint = get_common_weights(pretrained_checkpoint, model_state_dict)
-            missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=False)
+            missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=True)
         logger.info(f'missing_keys {len(missing_keys)} {missing_keys}, unexpected_keys {len(unexpected_keys)}')
         logger.info(f'Successfully load {len(model_state_dict) - len(missing_keys)}/{len(model_state_dict)} keys from {args.pretrained}!')
         del model_state_dict, checkpoint, missing_keys, unexpected_keys
@@ -475,7 +499,8 @@ def main(args):
     # =======================================================================================================
     # STEP 6: Create Optimizer
 
-    params_to_optimize = model.parameters()
+    # params_to_optimize = model.parameters()
+    params_to_optimize = param_groups_weight_decay(model, args.adam_weight_decay)
     # Optimizer creation
     if not (args.optimizer.lower() == "prodigy" or args.optimizer.lower() == "adamw"):
         logger.warning(
@@ -507,7 +532,7 @@ def main(args):
             params_to_optimize,
             lr=args.learning_rate,
             betas=(args.adam_beta1, args.adam_beta2),
-            weight_decay=args.adam_weight_decay,
+            # weight_decay=args.adam_weight_decay,
             eps=args.adam_epsilon,
         )
 
@@ -529,7 +554,7 @@ def main(args):
             lr=args.learning_rate,
             betas=(args.adam_beta1, args.adam_beta2),
             beta3=args.prodigy_beta3,
-            weight_decay=args.adam_weight_decay,
+            # weight_decay=args.adam_weight_decay,
             eps=args.adam_epsilon,
             decouple=args.prodigy_decouple,
             use_bias_correction=args.prodigy_use_bias_correction,

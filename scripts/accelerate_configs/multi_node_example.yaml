@@ -5,11 +5,11 @@ deepspeed_config:
  deepspeed_hostfile: scripts/accelerate_configs/hostfile
 fsdp_config: {}
 machine_rank: 0
-main_process_ip: 100.64.24.30
+main_process_ip: 100.64.24.22
 main_process_port: 29522
 main_training_function: main
-num_machines: 16
-num_processes: 128
+num_machines: 3
+num_processes: 24
 rdzv_backend: static
 same_network: true
 tpu_env: []

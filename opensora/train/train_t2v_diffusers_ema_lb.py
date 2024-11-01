@@ -181,6 +181,30 @@ class ProgressInfo:
         self.max_train_loss = max_train_loss
 
 
+def param_groups_weight_decay(
+        model,
+        weight_decay=1e-5,
+        no_weight_decay_list=()
+):
+    no_weight_decay_list = set(no_weight_decay_list)
+    decay = []
+    no_decay = []
+    cnt = 0
+    train = 0
+    for name, param in model.named_parameters():
+        cnt += 1
+        if not param.requires_grad:
+            continue
+        train += 1
+        if param.ndim <= 1 or name.endswith(".bias") or name in no_weight_decay_list:
+            no_decay.append(param)
+        else:
+            decay.append(param)
+    logger.info(f'Train param [{train}/{cnt}], decay {len(decay)} param, no_decay {len(no_decay)} param')
+    return [
+        {'params': no_decay, 'weight_decay': 0.},
+        {'params': decay, 'weight_decay': weight_decay}]
+
 #################################################################################
 #                                  Training Loop                                #
 #################################################################################
@@ -208,24 +232,25 @@ def create_ema_model(
         dschf = HfDeepSpeedConfig(ds_config)
     else:
         dschf = None
-
-    model = None
+            
     if checkpoint_path:
         ema_model_path = os.path.join(checkpoint_path, "model_ema")
         if os.path.exists(ema_model_path):
-            model = model_cls.from_pretrained(ema_model_path)
+            ema_model = EMAModel.from_pretrained(ema_model_path, model_cls=model_cls)
             logger.info(f'Successully resume EMAModel from {ema_model_path}', main_process_only=True)
-    if model is None:
-        # we do NOT use deepcopy instead of loading weights from original model
+    else:
+        # we load weights from original model instead of deepcopy
         model = model_cls.from_config(model_config)
         model.load_state_dict(ema_model_state_dict, strict=True)
+        model = model.eval()
+        model.requires_grad_(False)
+        model.config.hidden_size = model.config.attention_head_dim * model.config.num_attention_heads
+        ema_model = EMAModel(
+            model, decay=args.ema_decay, update_after_step=args.ema_start_step,
+            model_cls=model_cls, model_config=model_config
+            )
         logger.info(f'Successully deepcopy EMAModel from model', main_process_only=True)
     
-    model = model.eval()
-    model.requires_grad_(False)
-    model.config.hidden_size = model.config.attention_head_dim * model.config.num_attention_heads
-    ema_model = EMAModel(model, decay=args.ema_decay, update_after_step=args.ema_start_step,
-                        model_cls=model_cls, model_config=model_config)
     ema_model.model, _, _, _ = deepspeed.initialize(model=ema_model.model, config_params=ds_config)
     return ema_model
 
@@ -237,7 +262,6 @@ def main(args):
         npu_config.print_msg(args)
         npu_config.seed_everything(args.seed)
     accelerator_project_config = ProjectConfiguration(project_dir=args.output_dir, logging_dir=logging_dir)
-    
 
     accelerator = Accelerator(
         gradient_accumulation_steps=args.gradient_accumulation_steps,
@@ -283,10 +307,8 @@ def main(args):
         set_seed(args.seed, device_specific=True)
 
     # Handle the repository creation
-    # if accelerator.is_main_process:
     if args.output_dir is not None:
         os.makedirs(args.output_dir, exist_ok=True)
-    # torch.distributed.barrier()
 
     # For mixed precision training we cast all non-trainable weigths to half-precision
     # as these weights are only used for inference, keeping weights in full precision is not required.
@@ -334,9 +356,9 @@ def main(args):
 
         return [deepspeed_plugin.zero3_init_context_manager(enable=False)]
 
+    # =======================================================================================================
+    # STEP 1: Create VAE model
     with ContextManagers(deepspeed_zero_init_disabled_context_manager()):
-        # =======================================================================================================
-        # STEP 1: Create VAE model
         kwargs = {}
         ae = ae_wrapper[args.ae](args.ae_path, cache_dir=args.cache_dir, **kwargs).eval()
         if args.enable_tiling:
@@ -345,11 +367,12 @@ def main(args):
         if not args.post_to_device:
             ae.vae.to(accelerator.device, dtype=torch.float32 if args.vae_fp32 else weight_dtype)
             logger.info(f"Load VAE model finish, memory_allocated: {torch.cuda.memory_allocated()/GB:.2f} GB", main_process_only=True)
-        # =======================================================================================================
+    # =======================================================================================================
 
 
-        # =======================================================================================================
-        # STEP 2: Create text encoder model
+    # =======================================================================================================
+    # STEP 2: Create text encoder model
+    with ContextManagers(deepspeed_zero_init_disabled_context_manager()):
         text_enc_1 = get_text_warpper(args.text_encoder_name_1)(args).eval()
         text_enc_1.requires_grad_(False)
         if not args.post_to_device:
@@ -363,11 +386,11 @@ def main(args):
             if not args.post_to_device:
                 text_enc_2.to(accelerator.device, dtype=weight_dtype)
                 logger.info(f"Load text encoder model finish, memory_allocated: {torch.cuda.memory_allocated()/GB:.2f} GB", main_process_only=True)
-        # =======================================================================================================
+    # =======================================================================================================
 
 
     # =======================================================================================================
-    # STEP 3: Prepare diffusion model 
+    # STEP 3: Create diffusion model 
 
     ae_stride_t, ae_stride_h, ae_stride_w = ae_stride_config[args.ae]
     ae.vae_scale_factor = (ae_stride_t, ae_stride_h, ae_stride_w)
@@ -410,27 +433,26 @@ def main(args):
         model_state_dict = model.state_dict()
         logger.info(f'Load from {args.pretrained}')
         if args.pretrained.endswith('.safetensors'):  
+            # --pretrained path/to/.safetensors
+            model_state_dict = model.state_dict()
             from safetensors.torch import load_file as safe_load
             pretrained_checkpoint = safe_load(args.pretrained, device="cpu")
             checkpoint = get_common_weights(pretrained_checkpoint, model_state_dict)
-            missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=False)
+            missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=True)
         elif os.path.isdir(args.pretrained):
-            model_pretrained = Diffusion_models_class[args.model].from_pretrained(args.pretrained)
-            pretrained_checkpoint = model_pretrained.state_dict()
-            # checkpoint = get_common_weights(pretrained_checkpoint, model_state_dict)
-            pretrained_keys = set(list(pretrained_checkpoint.keys()))
-            model_keys = set(list(model_state_dict.keys()))
-            common_keys = list(pretrained_keys & model_keys)
-            checkpoint = {k: pretrained_checkpoint[k] for k in common_keys if model_state_dict[k].numel() == pretrained_checkpoint[k].numel()}
-            missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=False)
-            model_pretrained = None
-            del model_pretrained
+            # --pretrained path/to/model  or  path/to/model_ema  # must have config.json and .safetensors
+            model = Diffusion_models_class[args.model].from_pretrained(args.pretrained)
+            missing_keys, unexpected_keys = [], []
+            model_state_dict = []
+            checkpoint = 1
         else:
+            # --pretrained path/to/.pth or .pt or some other format
+            model_state_dict = model.state_dict()
             pretrained_checkpoint = torch.load(args.pretrained, map_location='cpu')
             if 'model' in checkpoint:
                 pretrained_checkpoint = pretrained_checkpoint['model']
             checkpoint = get_common_weights(pretrained_checkpoint, model_state_dict)
-            missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=False)
+            missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=True)
         logger.info(f'missing_keys {len(missing_keys)} {missing_keys}, unexpected_keys {len(unexpected_keys)}')
         logger.info(f'Successfully load {len(model_state_dict) - len(missing_keys)}/{len(model_state_dict)} keys from {args.pretrained}!')
         del model_state_dict, checkpoint, missing_keys, unexpected_keys
@@ -503,7 +525,8 @@ def main(args):
     # =======================================================================================================
     # STEP 6: Create Optimizer
 
-    params_to_optimize = model.parameters()
+    # params_to_optimize = model.parameters()
+    params_to_optimize = param_groups_weight_decay(model, args.adam_weight_decay)
     # Optimizer creation
     if not (args.optimizer.lower() == "prodigy" or args.optimizer.lower() == "adamw"):
         logger.warning(
@@ -535,7 +558,7 @@ def main(args):
             params_to_optimize,
             lr=args.learning_rate,
             betas=(args.adam_beta1, args.adam_beta2),
-            weight_decay=args.adam_weight_decay,
+            # weight_decay=args.adam_weight_decay,
             eps=args.adam_epsilon,
         )
 
@@ -557,7 +580,7 @@ def main(args):
             lr=args.learning_rate,
             betas=(args.adam_beta1, args.adam_beta2),
             beta3=args.prodigy_beta3,
-            weight_decay=args.adam_weight_decay,
+            # weight_decay=args.adam_weight_decay,
             eps=args.adam_epsilon,
             decouple=args.prodigy_decouple,
             use_bias_correction=args.prodigy_use_bias_correction,

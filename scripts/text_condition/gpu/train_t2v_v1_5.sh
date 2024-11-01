@@ -38,25 +38,24 @@ export TOKENIZERS_PARALLELISM=false
 
 accelerate launch \
     --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
-    opensora/train/train_t2v_diffusers_ema.py \
-    --train_deepspeed_config_file scripts/accelerate_configs/zero2.json \
-    --eval_deepspeed_config_file scripts/accelerate_configs/zero3.json \
-    --model OpenSoraT2V_v1_5-3B/122 \
+    opensora/train/train_t2v_diffusers_ema_lb.py \
+    --ema_deepspeed_config_file scripts/accelerate_configs/zero3.json \
+    --model OpenSoraT2V_v1_5-6B/122 \
     --text_encoder_name_1 google/t5-v1_1-xl \
     --cache_dir "../../cache_dir/" \
     --text_encoder_name_2 laion/CLIP-ViT-bigG-14-laion2B-39B-b160k \
     --cache_dir "../../cache_dir/" \
     --dataset t2v \
-    --data scripts/train_data/image_data_debug.txt \
+    --data scripts/train_data/video_data_debug.txt \
     --ae WFVAEModel_D32_8x8x8 \
     --ae_path "/storage/lcm/WF-VAE/results/Middle888" \
     --sample_rate 1 \
-    --num_frames 1 \
-    --max_hxw 65536 \
-    --min_hxw 36864 \
-    --force_5_ratio \
+    --num_frames 105 \
+    --max_height 768 \
+    --max_width 768 \
+    --force_resolution \
     --gradient_checkpointing \
-    --train_batch_size=8 \
+    --train_batch_size=1 \
     --dataloader_num_workers 16 \
     --learning_rate=1e-4 \
     --lr_scheduler="constant_with_warmup" \
@@ -69,16 +68,14 @@ accelerate launch \
     --cfg 0.1 \
     --resume_from_checkpoint="latest" \
     --ema_update_freq 1 \
-    --ema_decay 0.9999 \
+    --ema_decay 0.999 \
     --drop_short_ratio 0.0 \
-    --hw_stride 16 \
-    --train_fps 16 \
-    --seed 1234 \
-    --group_data \
+    --hw_stride 16 --train_fps 16 \
+    --seed 1234 --group_data \
     --use_decord \
-    --output_dir="debug_noema_acce1.0.1" \
-    --vae_fp32 \
-    --rf_scheduler \
-    --proj_name "debug_ema" \
-    --log_name debug_noema_acce1.0.1 \
+    --output_dir="debug6b" \
+    --vae_fp32 --rf_scheduler \
+    --proj_name "debug6b" \
+    --log_name part${i}_ema \
+    --trained_data_global_step 0 \
     --skip_abnorml_step --ema_decay_grad_clipping 0.99
