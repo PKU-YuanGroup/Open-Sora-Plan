@@ -3,12 +3,12 @@ from typing import Optional
 import torch
 from torch import nn
 import torch.nn.functional as F
-from diffusers.utils import deprecate, logging
-from diffusers.models.activations import GEGLU, ApproximateGELU, FP32SiLU, SwiGLU
-
+from diffusers.models.activations import GEGLU, ApproximateGELU
 from megatron.core import mpu, tensor_parallel
 from megatron.training import get_args
 from megatron.training.arguments import core_transformer_config_from_args
+
+
 class FeedForward(nn.Module):
     r"""
     A feed-forward layer.
@@ -47,8 +47,6 @@ class FeedForward(nn.Module):
             act_fn = GEGLU(dim, inner_dim, bias=bias)
         elif activation_fn == "geglu-approximate":
             act_fn = ApproximateGELU(dim, inner_dim, bias=bias)
-        elif activation_fn == "swiglu":
-            act_fn = SwiGLU(dim, inner_dim, bias=bias)
 
         self.net = nn.ModuleList([])
         # project in
@@ -73,15 +71,13 @@ class FeedForward(nn.Module):
         if final_dropout:
             self.net.append(nn.Dropout(dropout))
 
-    def forward(self, hidden_states: torch.Tensor, *args, **kwargs) -> torch.Tensor:
-        if len(args) > 0 or kwargs.get("scale", None) is not None:
-            deprecation_message = "The `scale` argument is deprecated and will be ignored. Please remove it, as passing it will raise an error in the future. `scale` should directly be passed while calling the underlying pipeline component i.e., via `cross_attention_kwargs`."
-            deprecate("scale", "1.0.0", deprecation_message)
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         for module in self.net:
             hidden_states = module(hidden_states)
             if isinstance(hidden_states, tuple):
                 hidden_states = hidden_states[0]
         return hidden_states
+
 
 class GELU(nn.Module):
     r"""
@@ -109,10 +105,7 @@ class GELU(nn.Module):
         self.approximate = approximate
 
     def gelu(self, gate: torch.Tensor) -> torch.Tensor:
-        if gate.device.type != "mps":
-            return F.gelu(gate, approximate=self.approximate)
-        # mps: gelu is not implemented for float16
-        return F.gelu(gate.to(dtype=torch.float32), approximate=self.approximate).to(dtype=gate.dtype)
+        return F.gelu(gate, approximate=self.approximate)
 
     def forward(self, hidden_states):
         hidden_states, _ = self.proj(hidden_states)

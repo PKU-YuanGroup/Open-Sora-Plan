@@ -13,6 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Mapping, Any
+from logging import getLogger
+
 import torch
 from torch import nn
 from megatron.training.arguments import core_transformer_config_from_args
@@ -23,7 +26,8 @@ from mindspeed_mm.models.diffusion import DiffusionModel
 from mindspeed_mm.models.ae import AEModel
 from mindspeed_mm.models.text_encoder import TextEncoder
 
-from mindspeed_mm.data.data_utils.mask_utils import MaskCompressor, GaussianNoiseAdder
+logger = getLogger(__name__)
+
 
 class SoRAModel(nn.Module):
     """
@@ -55,15 +59,6 @@ class SoRAModel(nn.Module):
             self.text_encoder.requires_grad_(False)
 
         self.predictor = PredictModel(config.predictor).get_model()
-
-        self.is_inpaint_model = True if "Inpaint" in config.predictor.model_id else False
-        if self.is_inpaint_model:
-            vae_scale_factor = config.ae.vae_scale_factor
-            self.mask_compressor = MaskCompressor(ae_stride_t=vae_scale_factor[0], ae_stride_h=vae_scale_factor[1], ae_stride_w=vae_scale_factor[2])
-            if config.predictor.add_noise_to_condition:
-                self.noise_adder = GaussianNoiseAdder(mean=-3.0, std=0.5, clear_ratio=0.05)
-        print(
-            f"  Total training parameters = {sum(p.numel() for p in self.predictor.parameters() if p.requires_grad) / 1e9} B")
         self.diffusion = DiffusionModel(config.diffusion).get_model()
 
     def set_input_tensor(self, input_tensor):
@@ -81,16 +76,7 @@ class SoRAModel(nn.Module):
             if self.load_video_features:
                 latents = video
             else:
-                if self.is_inpaint_model:
-                    video, masked_video, mask = video[:, :3], video[:, 3:6], video[:, 6:7]
-                    latents = self.ae.encode(video)
-                    if self.noise_adder is not None:
-                        masked_latents = self.noise_adder(masked_video, mask)
-                    masked_latents = self.ae.encode(masked_video)
-                    mask = self.mask_compressor(mask)
-                else:
-                    latents = self.ae.encode(video)
-                
+                latents = self.ae.encode(video)
             # Text Encode
             if self.load_text_features:
                 prompt = prompt_ids
@@ -100,18 +86,15 @@ class SoRAModel(nn.Module):
                 prompt_mask = prompt_mask.view(-1, L)
                 hidden_states = self.text_encoder.encode(prompt_ids, prompt_mask)
                 prompt = hidden_states["last_hidden_state"].view(B, N, L, -1)
-        
-        noised_latents, noise, timesteps = self.diffusion.q_sample(latents, model_kwargs=kwargs, mask=video_mask)
 
-        if self.is_inpaint_model:
-            noised_latents = torch.cat([noised_latents, masked_latents, mask], dim=1)
+        noised_latents, noise, timesteps = self.diffusion.q_sample(latents, model_kwargs=kwargs, mask=video_mask)
 
         model_output = self.predictor(
             noised_latents,
             timestep=timesteps,
-            encoder_hidden_states=prompt,
-            attention_mask=video_mask,
-            encoder_attention_mask=prompt_mask,
+            prompt=prompt,
+            video_mask=video_mask,
+            prompt_mask=prompt_mask,
             **kwargs,
         )
         return model_output, latents, noised_latents, timesteps, noise, video_mask
@@ -132,3 +115,19 @@ class SoRAModel(nn.Module):
     
     def train(self, mode=True):
         self.predictor.train()
+
+    def state_dict_for_save_checkpoint(self, prefix="", keep_vars=False):
+        """Customized state_dict"""
+        return self.predictor.state_dict(prefix=prefix, keep_vars=keep_vars)
+    
+    def load_state_dict(self, state_dict: Mapping[str, Any], strict: bool = True):
+        """Customized load."""
+        if not isinstance(state_dict, Mapping):
+            raise TypeError(f"Expected state_dict to be dict-like, got {type(state_dict)}.")
+        
+        missing_keys, unexpected_keys = self.predictor.load_state_dict(state_dict, strict)
+
+        if missing_keys is not None:
+            logger.info(f"Missing keys in state_dict: {missing_keys}.")
+        if unexpected_keys is not None:
+            logger.info(f"Unexpected key(s) in state_dict: {unexpected_keys}.")

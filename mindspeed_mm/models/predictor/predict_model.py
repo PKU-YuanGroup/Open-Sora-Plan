@@ -2,16 +2,14 @@ from torch import nn
 from megatron.training.utils import print_rank_0
 
 from mindspeed_mm.models.common.checkpoint import load_checkpoint
-from .dits import OpenSoraT2V_v1_3, OpenSoraInpaint_v1_3, VideoDiT, Latte, STDiT, STDiT3, CogVideoX
+from .dits import VideoDiT, Latte, STDiT, STDiT3, VideoDitSparse
 
 PREDICTOR_MODEL_MAPPINGS = {
-    "OpenSoraT2V_v1_3": OpenSoraT2V_v1_3,
-    "OpenSoraInpaint_v1_3": OpenSoraInpaint_v1_3,
     "videodit": VideoDiT,
+    "videoditsparse": VideoDitSparse,
     "latte": Latte,
     "stdit": STDiT,
     "stdit3": STDiT3,
-    "cogvideox": CogVideoX
 }
 
 
@@ -27,10 +25,8 @@ class PredictModel(nn.Module):
     def __init__(self, config):
         super().__init__()
         model_cls = PREDICTOR_MODEL_MAPPINGS[config.model_id]
-        print(f"predict model config: {config.to_dict()}")
         self.predictor = model_cls(**config.to_dict())
-        if config.from_pretrained is not None and config.model_id != "cogvideox":
-            print_rank_0(f"load predictor's checkpoint from {config.from_pretrained}")
+        if config.from_pretrained is not None:
             load_checkpoint(self.predictor, config.from_pretrained)
             print_rank_0("load predictor's checkpoint sucessfully")
 

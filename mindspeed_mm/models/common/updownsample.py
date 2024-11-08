@@ -1,33 +1,32 @@
 from typing import Union, Tuple
-from einops import rearrange
 from collections import deque
 
 import torch
 import torch_npu
 from torch import nn
 import torch.nn.functional as F
+from einops import rearrange
 
 from mindspeed_mm.utils.utils import cast_tuple, video_to_image
-from .conv import CausalConv3d
+from .conv import CausalConv3d, WfCausalConv3d
 
 
 class Upsample(nn.Module):
-    def __init__(self, in_channels, out_channels):
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        kernel_size=3,
+        stride=1,
+        padding=1
+    ):
         super().__init__()
-        self.with_conv = True
-        if self.with_conv:
-            self.conv = torch.nn.Conv2d(in_channels,
-                                        out_channels,
-                                        kernel_size=3,
-                                        stride=1,
-                                        padding=1)
+        self.conv = torch.nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding)
 
     @video_to_image
-    def forward(self, x):
-        x = torch.nn.functional.interpolate(x, scale_factor=2.0, mode="nearest")
-        if self.with_conv:
-            x = self.conv(x)
-        return x
+    def forward(self, x, scale_factor=2.0, mode="nearest"):
+        x = torch.nn.functional.interpolate(x, scale_factor=scale_factor, mode=mode)
+        return self.conv(x)
 
 
 class Downsample(nn.Module):
@@ -39,38 +38,33 @@ class Downsample(nn.Module):
         undown=False
     ):
         super().__init__()
-        self.with_conv = True
         self.undown = undown
-        if self.with_conv:
-            # no asymmetric padding in torch conv, must do it ourselves
-            if self.undown:
-                self.conv = torch.nn.Conv2d(
-                    in_channels,
-                    out_channels,
-                    kernel_size,
-                    stride=1,
-                    padding=1
-                )
-            else:
-                self.conv = torch.nn.Conv2d(
-                    in_channels,
-                    out_channels,
-                    kernel_size,
-                    stride=2,
-                    padding=0
-                )
+        # no asymmetric padding in torch conv, must do it ourselves
+        if self.undown:
+            self.conv = torch.nn.Conv2d(
+                in_channels,
+                out_channels,
+                kernel_size,
+                stride=1,
+                padding=1
+            )
+        else:
+            self.conv = torch.nn.Conv2d(
+                in_channels,
+                out_channels,
+                kernel_size,
+                stride=2,
+                padding=0
+            )
 
     @video_to_image
     def forward(self, x):
-        if self.with_conv:
-            if self.undown:
-                x = self.conv(x)
-            else:
-                pad = (0, 1, 0, 1)
-                x = torch.nn.functional.pad(x, pad, mode="constant", value=0)
-                x = self.conv(x)
+        if self.undown:
+            x = self.conv(x)
         else:
-            x = torch.nn.functional.avg_pool2d(x, kernel_size=2, stride=2)
+            pad = (0, 1, 0, 1)
+            x = torch.nn.functional.pad(x, pad, mode="constant", value=0)
+            x = self.conv(x)
         return x
 
 
@@ -93,7 +87,7 @@ class SpatialDownsample2x(nn.Module):
             self.in_channels,
             self.out_channels,
             (1,) + self.kernel_size,
-            stride=(1, ) + stride,
+            stride=(1,) + stride,
             padding=0
         )
 
@@ -118,8 +112,8 @@ class SpatialUpsample2x(nn.Module):
         self.conv = CausalConv3d(
             in_channels,
             out_channels,
-            (1, ) + kernel_size,
-            stride=(1, ) + stride,
+            (1,) + kernel_size,
+            stride=(1,) + stride,
             padding=1
         )
 
@@ -143,7 +137,7 @@ class TimeDownsample2x(nn.Module):
         # ori: self.conv = nn.AvgPool3d((kernel_size, 1, 1), stride=(2, 1, 1))
         # note: when kernel_size=(kernel_size, 1, 1), and stride=(stride, 1, 1), can be replaced by pool1d
         self.avg_pool = nn.AvgPool1d(kernel_size, stride)
-        
+
     def forward(self, x):
         first_frame_pad = x[:, :, :1, :, :].repeat((1, 1, self.kernel_size - 1, 1, 1))
         x = torch.concatenate((first_frame_pad, x), dim=2)
@@ -152,7 +146,7 @@ class TimeDownsample2x(nn.Module):
         conv_res = self.conv(x)
         b, s, m = conv_res.shape
         conv_res = torch_npu.npu_confusion_transpose(conv_res, (0, 1, 4, 2, 3),
-                                                    (n, c, h, w, (b * s * m) // (n * c * h * w)), False)
+                                                     (n, c, h, w, (b * s * m) // (n * c * h * w)), False)
         return conv_res
 
 
@@ -195,7 +189,7 @@ class TimeDownsampleRes2x(nn.Module):
         pool_res = self.avg_pool(x)
         b, s, m = pool_res.shape
         pool_res = torch_npu.npu_confusion_transpose(pool_res, (0, 1, 4, 2, 3),
-                                                    (n, c, h, w, (b * s * m) // (n * c * h * w)), False)
+                                                     (n, c, h, w, (b * s * m) // (n * c * h * w)), False)
         return alpha * pool_res + (1 - alpha) * self.conv(x)
 
 
@@ -223,18 +217,40 @@ class TimeUpsampleRes2x(nn.Module):
 
 
 class Spatial2xTime2x3DDownsample(nn.Module):
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels, out_channels, conv_type="CausalConv3d"):
         super().__init__()
-        self.conv = CausalConv3d(in_channels, out_channels, kernel_size=3, padding=0, stride=2)
+        if conv_type == "WfCausalConv3d":
+            ConvLayer = WfCausalConv3d
+        elif conv_type == "CausalConv3d":
+            ConvLayer = CausalConv3d
+        else:
+            raise ValueError(f"Unsupported convolution type: {conv_type}")
+        self.conv = ConvLayer(in_channels, out_channels, kernel_size=3, padding=0, stride=2)
 
     def forward(self, x):
         pad = (0, 1, 0, 1, 0, 0)
         x = torch.nn.functional.pad(x, pad, mode="constant", value=0)
         x = self.conv(x)
         return x
-    
+
 
 class Spatial2xTime2x3DUpsample(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.conv = CausalConv3d(in_channels, out_channels, kernel_size=3, padding=1)
+
+    def forward(self, x):
+        if x.size(2) > 1:
+            x, x_ = x[:, :, :1], x[:, :, 1:]
+            x_ = F.interpolate(x_, scale_factor=(2, 2, 2), mode="trilinear")
+            x = F.interpolate(x, scale_factor=(1, 2, 2), mode="trilinear")
+            x = torch.concat([x, x_], dim=2)
+        else:
+            x = F.interpolate(x, scale_factor=(1, 2, 2), mode="trilinear")
+        return self.conv(x)
+
+
+class CachedCausal3DUpsample(nn.Module):
     def __init__(
         self,
         in_channels,
@@ -244,7 +260,7 @@ class Spatial2xTime2x3DUpsample(nn.Module):
     ):
         super().__init__()
         self.t_interpolation = t_interpolation
-        self.conv = CausalConv3d(in_channels, out_channels, kernel_size=3, padding=1)
+        self.conv = WfCausalConv3d(in_channels, out_channels, kernel_size=3, padding=1)
         self.enable_cached = enable_cached
         self.causal_cached = deque()
 

@@ -3,28 +3,27 @@ import torchvision.transforms as transforms
 
 from mindspeed_mm.data.data_utils.data_transform import (
     AENorm,
-    CenterCropArr,
     CenterCropResizeVideo,
     LongSideResizeVideo,
     RandomHorizontalFlipVideo,
-    ResizeCrop,
-    ResizeCropToFill,
     SpatialStrideCropVideo,
     ToTensorVideo,
     ToTensorAfterResize,
-    UCFCenterCropVideo,
     Expand2Square,
-    JpegDegradationSimulator
+    JpegDegradationSimulator,
+    MaxHWResizeVideo,
+    MaxHWStrideResizeVideo,
+    SpatialStrideCropVideo,
 )
 
 VIDEO_TRANSFORM_MAPPING = {
     "ToTensorVideo": ToTensorVideo,
     "ToTensorAfterResize": ToTensorAfterResize,
     "RandomHorizontalFlipVideo": RandomHorizontalFlipVideo,
-    "UCFCenterCropVideo": UCFCenterCropVideo,
-    "ResizeCrop": ResizeCrop,
     "CenterCropResizeVideo": CenterCropResizeVideo,
     "LongSideResizeVideo": LongSideResizeVideo,
+    "MaxHWStrideResizeVideo": MaxHWStrideResizeVideo,
+    "MaxHWResizeVideo": MaxHWResizeVideo,
     "SpatialStrideCropVideo": SpatialStrideCropVideo,
     "norm_fun": transforms.Normalize,
     "ae_norm": AENorm,
@@ -36,9 +35,11 @@ IMAGE_TRANSFORM_MAPPING = {
     "ToTensorVideo": ToTensorVideo,
     "ToTensorAfterResize": ToTensorAfterResize,
     "CenterCropResizeVideo": CenterCropResizeVideo,
-    "CenterCropArr": CenterCropArr,
-    "ResizeCropToFill": ResizeCropToFill,
     "RandomHorizontalFlip": transforms.RandomHorizontalFlip,
+    "RandomHorizontalFlipVideo": RandomHorizontalFlipVideo,
+    "MaxHWStrideResizeVideo": MaxHWStrideResizeVideo,
+    "MaxHWResizeVideo": MaxHWResizeVideo,
+    "SpatialStrideCropVideo": SpatialStrideCropVideo,
     "ToTensor": transforms.ToTensor,
     "norm_fun": transforms.Normalize,
     "ae_norm": AENorm,
@@ -82,7 +83,6 @@ def get_transforms(is_video=True, train_pipeline=None, image_size=None):
     output_transforms = transforms.Compose(pipeline)
     return output_transforms
 
-
 class TransformMaping:
     """used for transforms mapping"""
 
@@ -95,6 +95,8 @@ class TransformMaping:
         if self.is_video:
             if self.trans_type in VIDEO_TRANSFORM_MAPPING:
                 transforms_cls = VIDEO_TRANSFORM_MAPPING[self.trans_type]
+                if self.trans_type == "Resize" and "interpolation" in self.param:
+                    self.param["interpolation"] = INTERPOLATIONMODE_MAPPING[self.param["interpolation"]]
                 return transforms_cls(**self.param)
             else:
                 raise NotImplementedError(

@@ -32,6 +32,8 @@ class TextEncoder(nn.Module):
         super().__init__()
         config = config.to_dict()
         self.backend = config.pop("hub_backend")
+        self.use_attention_mask = config.pop("use_attention_mask", True)
+        self.ucg_rate = config.pop("ucg_rate", None)
         model_id = config["model_id"]
         if model_id not in TEXT_ENCODER_MAPPING:
             raise ValueError(f"{model_id} text encoder is currently not supported")
@@ -49,8 +51,25 @@ class TextEncoder(nn.Module):
         return self.model
 
     def encode(self, input_ids, mask, **kwargs):
+        attention_mask = mask if self.use_attention_mask else None
         output = self.model(
             input_ids=input_ids,
-            attention_mask=mask,
+            attention_mask=attention_mask,
             **kwargs)
+
+        if self.ucg_rate is not None and self.ucg_rate > 0.0:
+            def expand_dims_like(x, y):
+                while x.dim() != y.dim():
+                    x = x.unsqueeze(-1)
+                return x
+            emb = output.last_hidden_state
+            emb = (
+                expand_dims_like(
+                    torch.bernoulli(
+                        (1.0 - self.ucg_rate) * torch.ones(emb.shape[0], device=emb.device, dtype=emb.dtype)),
+                    emb,
+                )
+                * emb
+            )
+            output.last_hidden_state = emb
         return output

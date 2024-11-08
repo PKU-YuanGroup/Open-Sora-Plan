@@ -5,12 +5,13 @@ from torch.nn import CrossEntropyLoss
 from megatron.core import InferenceParams
 from megatron.core.models.gpt import GPTModel
 
+from .common.module import MultiModalModule
 from .text_encoder.text_encoder import TextEncoder
 from .vision.vision_model import VisionModel
 from ..data.data_utils.constants import MODEL_CONSTANTS
 
 
-class VLModel(nn.Module):
+class VLModel(MultiModalModule):
     """
     Vision-Language multi-modal model.
     VLModel is an assembled model, which may include text_encoder, image_encoder, video_encoder, text_decoder model.

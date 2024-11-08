@@ -2,14 +2,14 @@
     "profile": {
         "enable": false,
         "profile_type": "static",
-        "ranks": [0, 4, 8, 12, 16, 20, 24, 28],
+        "ranks": [0, 1, 2, 3],
         "static_param": {
             "level": "level1",
             "with_stack": false,
             "with_memory": false,
             "record_shapes": false,
-            "with_cpu": false,
-            "save_path": "./npu_profiling/910b_125x320x320_wo_recompute_10_rank_8",
+            "with_cpu": true,
+            "save_path": "./npu_profiling",
             "start_step": 10,
             "end_step": 11,
             "data_simplification": false

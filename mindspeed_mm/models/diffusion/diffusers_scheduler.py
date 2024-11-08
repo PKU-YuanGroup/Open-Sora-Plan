@@ -1,6 +1,9 @@
+import math
+import os
 from typing import Union, Tuple, List, Callable
-from megatron.core import mpu
+
 import torch
+import torch.distributed as dist
 from torch import Tensor
 from tqdm.auto import tqdm
 import torch.nn.functional as F
@@ -13,12 +16,16 @@ from diffusers.schedulers import (
     HeunDiscreteScheduler,
     EulerAncestralDiscreteScheduler,
     DEISMultistepScheduler,
-    KDPM2AncestralDiscreteScheduler
+    KDPM2AncestralDiscreteScheduler,
+    CogVideoXDPMScheduler,
+    CogVideoXDDIMScheduler
 )
 from diffusers.training_utils import compute_snr
+from megatron.core import mpu
 
+from mindspeed_mm.models.diffusion.diffusion_utils import explicit_uniform_sampling
 from mindspeed_mm.utils.utils import get_device
-from mindspeed_mm.models.common.communications import _split, _gather
+
 DIFFUSERS_SCHEDULE_MAPPINGS = {
     "DDIM": DDIMScheduler,
     "EulerDiscrete": EulerDiscreteScheduler,
@@ -28,7 +35,9 @@ DIFFUSERS_SCHEDULE_MAPPINGS = {
     "HeunDiscrete": HeunDiscreteScheduler,
     "EulerAncestralDiscrete": EulerAncestralDiscreteScheduler,
     "DEISMultistep": DEISMultistepScheduler,
-    "KDPM2AncestralDiscrete": KDPM2AncestralDiscreteScheduler
+    "KDPM2AncestralDiscrete": KDPM2AncestralDiscreteScheduler,
+    "cogvideox_5b": CogVideoXDPMScheduler,
+    "cogvideox_2b": CogVideoXDDIMScheduler
 }
 
 
@@ -55,20 +64,16 @@ class DiffusersScheduler:
         self.do_classifier_free_guidance = self.guidance_scale > 1.0
         self.num_train_steps = config.pop("num_train_steps", 1000)
         self.num_inference_steps = config.pop("num_inference_steps", None)
-        self.prediction_type = config.pop("prediction_type", "epsilon")
-        self.rescale_betas_zero_snr = config.pop("rescale_betas_zero_snr", "False")
+        self.prediction_type = config.get("prediction_type", "epsilon")
         self.noise_offset = config.pop("noise_offset", 0)
-        self.snr_gamma = config.pop("snr_gamma", None)
+        self.snr_gamma = config.pop("snr_gamma", 5.0)
+        self.t_sample_method = config.pop("t_sample_method", "random")
         self.device = get_device(config.pop("device", "npu"))
         model_id = config.pop("model_id")
 
         if model_id in DIFFUSERS_SCHEDULE_MAPPINGS:
             model_cls = DIFFUSERS_SCHEDULE_MAPPINGS[model_id]
-            self.diffusion = model_cls(
-                prediction_type=self.prediction_type,
-                rescale_betas_zero_snr=self.rescale_betas_zero_snr,
-                timestep_spacing="trailing" if self.rescale_betas_zero_snr else 'leading',
-                )
+            self.diffusion = model_cls(**config)
 
         # Prepare timesteps for inference
         if self.num_inference_steps:
@@ -92,8 +97,6 @@ class DiffusersScheduler:
         t: Tensor = None,
         **kwargs
         ) -> Tensor:
-        model_output = model_output.to(torch.bfloat16)
-        x_start = x_start.to(torch.bfloat16)
         if self.prediction_type == "epsilon":
             target = noise
         elif self.prediction_type == "v_prediction":
@@ -107,8 +110,6 @@ class DiffusersScheduler:
             raise ValueError(f"Unknown prediction type {self.prediction_type}")
 
         b, c, _, _, _ = model_output.shape
-        # if torch.all(mask.bool()):
-        #     mask = None
         if mask is not None:
             mask = mask.unsqueeze(1).repeat(1, c, 1, 1, 1).float()  # b t h w -> b c t h w
             mask = mask.reshape(b, -1)
@@ -140,7 +141,7 @@ class DiffusersScheduler:
             else:
                 loss = (loss * mse_loss_weights).mean()
         return loss
-    
+
     def q_sample(
         self,
         x_start: Tensor,
@@ -162,7 +163,17 @@ class DiffusersScheduler:
         if noise.shape != x_start.shape:
             raise ValueError("The shape of noise and x_start must be equal.")
         if t is None:
-            t = torch.randint(0, self.num_train_steps, (b,), device=x_start.device)
+            if self.t_sample_method == "random":
+                t = torch.randint(0, self.num_train_steps, (b,), device=x_start.device)
+            elif self.t_sample_method == "explicit_uniform":
+                t = explicit_uniform_sampling(
+                    T=self.num_train_steps,
+                    n=dist.get_world_size(),
+                    rank=dist.get_rank(),
+                    bsz=b, device=x_start.device,
+                )
+        if mpu.get_context_parallel_world_size() > 1:
+            self.broadcast_timesteps(t)
         if self.noise_offset:
             # https://www.crosslabs.org//blog/diffusion-with-offset-noise
             noise += self.noise_offset * torch.randn((b, c, 1, 1, 1), device=x_start.device)
@@ -208,37 +219,38 @@ class DiffusersScheduler:
         self.diffusion.set_timesteps(self.num_inference_steps, device=self.device)
         self.timesteps = self.diffusion.timesteps
 
-        video_mask = torch.ones_like(latents)[:, 0]
-        if self.do_classifier_free_guidance:
-            model_kwargs["attention_mask"] = video_mask.repeat(2, 1, 1, 1)
-        if mpu.get_context_parallel_world_size() > 1:
-            latents = _split(latents, mpu.get_context_parallel_group(), dim=2)
-            model_kwargs["encoder_hidden_states"] = _split(model_kwargs["encoder_hidden_states"],
-                                          mpu.get_context_parallel_group(), dim=2)
-        
-        masked_pixel_values = None
-        mask = None
-        if model_kwargs.get('masked_pixel_values', None) is not None and model_kwargs.get('mask', None) is not None:
-            masked_pixel_values = model_kwargs['masked_pixel_values']
-            mask = model_kwargs['mask']
+        use_dynamic_cfg = hasattr(self, "use_dynamic_cfg") and self.use_dynamic_cfg
+        guidance_scale = self.guidance_scale
 
         # for loop denoising to get latents
         with tqdm(total=self.num_inference_steps) as progress_bar:
+            old_pred_original_sample = None
             for i, t in enumerate(self.timesteps):
                 # timestep = torch.tensor([i] * shape[0], device=self.device)
                 latent_model_input = torch.cat([latents] * 2) if self.do_classifier_free_guidance else latents
                 latent_model_input = self.diffusion.scale_model_input(latent_model_input, t)
-
-                # inpaint
-                if masked_pixel_values is not None and mask is not None:
-                    latent_model_input = torch.cat([latent_model_input, masked_pixel_values, mask], dim=1)
-
                 current_timestep = t
                 current_timestep = current_timestep.expand(latent_model_input.shape[0])
-                model_kwargs["hidden_states"] = latent_model_input
+                if use_dynamic_cfg:
+                    # b t c h w  -> b c t h w
+                    model_kwargs["latents"] = latent_model_input.permute(0, 2, 1, 3, 4)
+                else:
+                    model_kwargs["latents"] = latent_model_input
+                    video_mask = torch.ones_like(latent_model_input)[:, 0]
+                    world_size = model_kwargs.get("world_size", 1)
+                    video_mask = video_mask.repeat(1, world_size, 1, 1)
+                    model_kwargs["video_mask"] = video_mask
 
                 with torch.no_grad():
                     noise_pred = model(timestep=current_timestep, **model_kwargs)
+
+                # perform guidance
+                if use_dynamic_cfg:
+                    noise_pred = noise_pred.permute(0, 2, 1, 3, 4).float()
+                    self.guidance_scale = 1 + guidance_scale * (
+                            (1 - math.cos(
+                                math.pi * ((self.num_inference_steps - t.item()) / self.num_inference_steps) ** 5.0)) / 2
+                    )
 
                 # perform guidance
                 if self.do_classifier_free_guidance:
@@ -250,7 +262,19 @@ class DiffusersScheduler:
                     noise_pred = noise_pred.chunk(2, dim=1)[0]
 
                 # compute previous image: x_t -> x_t-1
-                latents = self.diffusion.step(noise_pred, t, latents, **extra_step_kwargs, return_dict=False)[0]
+                if use_dynamic_cfg:
+                    latents, old_pred_original_sample = self.diffusion.step(
+                        noise_pred,
+                        old_pred_original_sample,
+                        t,
+                        self.timesteps[i - 1] if i > 0 else None,
+                        latents,
+                        **extra_step_kwargs,
+                        return_dict=False,
+                    )
+                    latents = latents.to(latent_model_input.dtype)
+                else:
+                    latents = self.diffusion.step(noise_pred, t, latents, **extra_step_kwargs, return_dict=False)[0]
 
                 # call the callback, if provided
                 if i == len(self.timesteps) - 1 or (
@@ -259,8 +283,9 @@ class DiffusersScheduler:
                     if callback is not None and i % callback_steps == 0:
                         step_idx = i // getattr(self.diffusion, "order", 1)
                         callback(step_idx, t, latents)
-
-        if mpu.get_context_parallel_world_size() > 1:
-            latents = _gather(latents, mpu.get_context_parallel_group(), dim=2)
-
         return latents
+
+    def broadcast_timesteps(self, input_: torch.Tensor):
+        sp_size = mpu.get_context_parallel_world_size()
+        src = int(os.getenv("RANK", "0")) // sp_size * sp_size
+        dist.broadcast(input_, src=src, group=mpu.get_context_parallel_group())

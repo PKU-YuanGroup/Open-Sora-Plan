@@ -7,6 +7,7 @@
 # --------------------------------------------------------
 
 import enum
+import random
 from typing import List, Union, Set
 
 import numpy as np
@@ -229,3 +230,27 @@ def mean_flat(tensor: Tensor, mask: Tensor = None) -> Tensor:
         denom = mask.sum(dim=1) * tensor.shape[-1]
         loss = (tensor * mask.unsqueeze(2)).sum(dim=1).sum(dim=1) / denom
         return loss
+
+
+def explicit_uniform_sampling(T, n, rank, bsz, device):
+    """
+    Explicit Uniform Sampling with integer timesteps and PyTorch.
+
+    Args:
+        T (int): Maximum timestep value.
+        n (int): Number of ranks (data parallel processes).
+        rank (int): The rank of the current process (from 0 to n-1).
+        bsz (int): Batch size, number of timesteps to return.
+
+    Returns:
+        torch.Tensor: A tensor of shape (bsz,) containing uniformly sampled integer timesteps
+                      within the rank's interval.
+    """
+    interval_size = T / n  # Integer division to ensure boundaries are integers
+    lower_bound = interval_size * rank - 0.5
+    upper_bound = interval_size * (rank + 1) - 0.5
+
+    # Uniformly sample within the rank's interval, returning integers
+    sampled_timesteps = torch.tensor([round(random.uniform(lower_bound, upper_bound)) for _ in range(bsz)], device=device)
+    sampled_timesteps = sampled_timesteps.long()
+    return sampled_timesteps

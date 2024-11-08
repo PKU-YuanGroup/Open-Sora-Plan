@@ -3,11 +3,7 @@ from mindspeed_mm.data.dataloader.dataloader import (
     prepare_sampler_dataloader,
     prepare_variable_dataloader,
 )
-from mindspeed_mm.data.datasets.image_dataset import ImageDataset
-from mindspeed_mm.data.datasets.t2i_dataset import T2IDataset
 from mindspeed_mm.data.datasets.t2v_dataset import T2VDataset, DynamicVideoTextDataset
-from mindspeed_mm.data.datasets.video_dataset import VideoDataset
-from mindspeed_mm.data.datasets.audio_dataset import AudioDataset
 
 __all__ = [
     "build_mm_dataset", "build_mm_dataloader"
@@ -33,16 +29,6 @@ def build_mm_dataset(dataset_param):
     preprocess_param = dataset_param["preprocess_parameters"]
     if dataset_type == "t2v":
         return T2VDataset(basic_param, preprocess_param, **dataset_param)
-    elif dataset_type == "t2i":
-        return T2IDataset(basic_param, preprocess_param, **dataset_param)
-    elif dataset_type == "dt2v":  # 构建动态分辨率数据集
-        return DynamicVideoTextDataset(basic_param, preprocess_param, **dataset_param)
-    elif dataset_type == "video":
-        return VideoDataset(basic_param, preprocess_param, **dataset_param)
-    elif dataset_type == "image":
-        return ImageDataset(basic_param, preprocess_param, **dataset_param)
-    elif dataset_type == "audio":
-        return AudioDataset(basic_param, preprocess_param, **dataset_param)
     else:
         raise NotImplementedError(dataset_type)
 
@@ -79,3 +65,4 @@ def build_mm_dataloader(dataset, dataloader_param, process_group=None, consumed_
         return data_loader
     else:
         raise NotImplementedError(dataloader_param["dataloader_mode"])
+

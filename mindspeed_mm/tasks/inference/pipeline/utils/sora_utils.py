@@ -18,9 +18,6 @@ def save_videos(videos, save_path, fps, value_range=(-1, 1), normalize=True):
     else:
         raise ValueError("The video must be in either [b,c,t,h,w] or [c,t,h,w] format.")
 
-def save_one_video(video, save_path, fps, idx):
-    os.makedirs(save_path, exist_ok=True)
-    _save_video(video, os.path.join(save_path, f"{idx:06d}.mp4"), fps, value_range=(-1, 1), normalize=True)
 
 def _save_video(video, save_path, fps, value_range=(-1, 1), normalize=True):
     if video.ndim != 4:  # [c,t,h,w]
@@ -41,11 +38,3 @@ def load_prompts(prompt):
         return prompts
     else:
         return prompt
-
-def load_conditional_pixel_values_path(conditional_pixel_values_path):
-    if not isinstance(conditional_pixel_values_path, list):
-        conditional_pixel_values_path = [conditional_pixel_values_path]
-    if len(conditional_pixel_values_path) == 1 and conditional_pixel_values_path[0].endswith('txt'):
-        temp = open(conditional_pixel_values_path[0], 'r').readlines()
-        conditional_pixel_values_path = [i.strip().split(',') for i in temp]
-    return conditional_pixel_values_path

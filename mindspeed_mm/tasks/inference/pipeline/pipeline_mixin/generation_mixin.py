@@ -368,8 +368,7 @@ class GenerationMixin:
                 if not has_inputs_embeds_forwarding:
                     raise ValueError(
                         f"You passed `inputs_embeds` to `.generate()`, but the model class {self.__class__.__name__} "
-                        "doesn't have its forwarding implemented. See the GPT2 implementation for an example "
-                        "(https://github.com/huggingface/transformers/pull/21405),   and feel free to open a PR with it!"
+                        "doesn't have its forwarding implemented."
                     )
                 # In this case, `input_ids` is moved to the `model_kwargs`, so a few automations (like the creation of
                 # the attention mask) can rely on the actual model input.

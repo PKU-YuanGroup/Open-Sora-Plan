@@ -29,18 +29,14 @@ class OpenSoraPipeline(MMPipeline, InputsCheckMixin, MMEncoderMixin):
                  prompt_embeds: Optional[torch.Tensor] = None,
                  negative_prompt: Optional[str] = None,
                  negative_prompt_embeds: Optional[torch.Tensor] = None,
-                 eta: float = 0.0,
                  num_images_per_prompt: Optional[int] = 1,
-                 guidance_scale: float = 4.5,
-                 generator: Optional[Union[torch.Generator, List[torch.Generator]]] = None,
                  latents: Optional[torch.FloatTensor] = None,
                  clean_caption: bool = True,
                  fps: int = None,
-                 enable_temporal_attentions: bool = True,
-                 added_cond_kwargs: dict = None,
                  model_args: Optional[dict] = None,
                  device: torch.device = "npu",
                  dtype: torch.dtype = None,
+                 **kwargs
                  ):
 
         # 1 check prompts

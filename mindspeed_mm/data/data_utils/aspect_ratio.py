@@ -21,7 +21,6 @@ def get_ar(ratio):
     h, w = ratio.split(":")
     return int(h) / int(w)
 
-
 # H:W
 ASPECT_RATIO_MAP = {
     "3:8": "0.38",
@@ -45,6 +44,26 @@ ASPECT_RATIO_MAP = {
 
 
 AR = [get_ar(ratio) for ratio in ASPECT_RATIO_MAP.keys()]
+
+ASPECT_RATIO_SIMPLEST = {
+    "0.38": (3, 8),
+    "0.43": (9, 21),
+    "0.48": (12, 25),
+    "0.50": (1, 2),
+    "0.53": (9, 17),
+    "0.54": (27, 50),
+    "0.56": (9, 16), 
+    "0.62": (5, 8),
+    "0.67": (2, 3),
+    "0.75": (3, 4),
+    "1.00": (1, 1),
+    "1.33": (4, 3),
+    "1.50": (3, 2),
+    "1.78": (16, 9),
+    "1.89": (17, 9),
+    "2.00": (2, 1),
+    "2.08": (50, 27),   
+}
 
 # computed from above code
 # S = 8294400
