@@ -150,6 +150,7 @@ class T2V_dataset(Dataset):
         self.max_hxw = args.max_hxw
         self.min_hxw = args.min_hxw
         self.sp_size = args.sp_size
+        self.train_image_batch_size = args.train_image_batch_size
         assert self.speed_factor >= 1
         self.video_reader = 'decord' if args.use_decord else 'opencv'
         self.ae_stride_t = args.ae_stride_t
@@ -198,12 +199,13 @@ class T2V_dataset(Dataset):
     def get_data(self, idx):
         data = self.cap_list.iloc[idx]
         path = data['path']
-        if path.endswith('.mp4'):
+        if path[0].endswith('.mp4'):
             return self.get_video(data)
         else:
-            return self.get_image(data)
+            return self.get_batch_image(data)
     
     def get_video(self, video_data):
+        video_data = {k: v[0] for k, v in video_data.items()}
         video_path = video_data['path']
         assert os.path.exists(video_path), f"file {video_path} do not exist!"
         sample_h = video_data['resolution']['sample_height']
@@ -227,9 +229,9 @@ class T2V_dataset(Dataset):
         if not isinstance(text, list):
             text = [text]
         text = [random.choice(text)]
-        if video_data.get('aesthetic', None) is not None or video_data.get('aes', None) is not None:
-            aes = video_data.get('aesthetic', None) or video_data.get('aes', None)
-            text = [add_aesthetic_notice_video(text[0], aes)]
+        # if video_data.get('aesthetic', None) is not None or video_data.get('aes', None) is not None:
+        #     aes = video_data.get('aesthetic', None) or video_data.get('aes', None)
+        #     text = [add_aesthetic_notice_video(text[0], aes)]
         text = text_preprocessing(text, support_Chinese=self.support_Chinese)
 
         text = text if random.random() > self.cfg else ""
@@ -265,28 +267,43 @@ class T2V_dataset(Dataset):
             input_ids_2=input_ids_2, cond_mask_2=cond_mask_2,
             )
 
-    def get_image(self, image_data):
-        sample_h = image_data['resolution']['sample_height']
-        sample_w = image_data['resolution']['sample_width']
 
+    def get_batch_image(self, image_data):
+        sample_h = image_data['resolution'][0]['sample_height']
+        sample_w = image_data['resolution'][0]['sample_width']
+        batch_images = [self.get_image(path, cap) for path, cap in zip(image_data['path'], image_data['cap'])]
+        keys = list(batch_images[0].keys())
+        batch_images_dict = {k: torch.cat([batch_images[i][k] for i in range(self.train_image_batch_size)]) for k in keys}
+        '''
+        pixel_values bs_i*C, 1, H, W
+        input_ids_1 bs_i, l
+        cond_mask_1 bs_i, l
+        input_ids_2 bs_i, l
+        cond_mask_2 bs_i, l
+        '''
+        image = batch_images_dict['pixel_values']
+        assert image.shape[2] == sample_h and image.shape[3] == sample_w, f"image_data: {image_data}, but found image {image.shape}"
+
+        return batch_images_dict
+
+    def get_image(self, path, cap):
 
         if self.random_data:
             image = torch.rand(1, 3, sample_h, sample_w)
         else:
-            image = Image.open(image_data['path']).convert('RGB')  # [h, w, c]
+            image = Image.open(path).convert('RGB')  # [h, w, c]
             image = torch.from_numpy(np.array(image))  # [h, w, c]
             image = rearrange(image, 'h w c -> c h w').unsqueeze(0)  #  [1 c h w]
             image = self.transform(image) #  [1 C H W] -> num_img [1 C H W]
-            
-        assert image.shape[2] == sample_h and image.shape[3] == sample_w, f"image_data: {image_data}, but found image {image.shape}"
         
         image = image.transpose(0, 1)  # [1 C H W] -> [C 1 H W]
 
-        caps = image_data['cap'] if isinstance(image_data['cap'], list) else [image_data['cap']]
-        caps = [random.choice(caps)]
-        if image_data.get('aesthetic', None) is not None or image_data.get('aes', None) is not None:
-            aes = image_data.get('aesthetic', None) or image_data.get('aes', None)
-            caps = [add_aesthetic_notice_image(caps[0], aes)]
+        caps = cap if isinstance(cap, list) else [cap]
+        # caps = [random.choice(caps)]
+        caps = [caps[0]]
+        # if image_data.get('aesthetic', None) is not None or image_data.get('aes', None) is not None:
+        #     aes = image_data.get('aesthetic', None) or image_data.get('aes', None)
+        #     caps = [add_aesthetic_notice_image(caps[0], aes)]
         text = text_preprocessing(caps, support_Chinese=self.support_Chinese)
         text = text if random.random() > self.cfg else ""
 
@@ -527,6 +544,60 @@ class T2V_dataset(Dataset):
                 f"Mean: {stats_aesthetic['mean']}, Var: {stats_aesthetic['variance']}, Std: {stats_aesthetic['std_dev']}\n"
                 f"Min: {stats_aesthetic['min']}, Max: {stats_aesthetic['max']}")
 
+
+
+        img_shape_idx_dict = {}
+        vid_shape_idx_dict = {}
+        for shape, idx in shape_idx_dict.items():
+            if shape[0] == '1':
+                img_shape_idx_dict[shape] = idx
+            else:
+                vid_shape_idx_dict[shape] = idx
+        
+        new_cap_list_batch_image = []
+        sample_size_batch_image = []
+        for shape, idx in img_shape_idx_dict.items():
+            idx_per_batch = [idx[i:i + self.train_image_batch_size] for i in range(0, len(idx), self.train_image_batch_size)]
+            if len(idx_per_batch[-1]) != self.train_image_batch_size:
+                idx_per_batch = idx_per_batch[:-1]  # 丢掉最后一个local batch，因为不足train_image_batch_size，但丢掉后也不一定满足global batch
+            shape = f'{self.train_image_batch_size}{shape[1:]}'   # 1x288x384 -> 4x288x384
+
+            for batch in idx_per_batch:
+                batch_items = [new_cap_list[batch_i] for batch_i in batch]
+                batch_items = {k: [item.get(k, None) for item in batch_items] for k in batch_items[0].keys()}  # 'path': ['', '', '', '']
+                new_cap_list_batch_image.append(batch_items)
+                sample_size_batch_image.append(shape)
+
+        img_shape_idx_dict = {}
+        for idx, shape in enumerate(sample_size_batch_image):
+            if img_shape_idx_dict.get(shape, None) is None:
+                img_shape_idx_dict[shape] = [idx]
+            else:
+                img_shape_idx_dict[shape].append(idx)
+
+        
+        new_cap_list_video = []
+        sample_size_video = []
+        for shape, idx in vid_shape_idx_dict.items():
+            for i in idx:
+                new_cap_list_video.append(new_cap_list[i])
+                sample_size_video.append(sample_size[i])
+
+        vid_shape_idx_dict = {}
+        for idx, shape in enumerate(sample_size_video):
+            if vid_shape_idx_dict.get(shape, None) is None:
+                vid_shape_idx_dict[shape] = [idx]
+            else:
+                vid_shape_idx_dict[shape].append(idx)
+        
+        new_cap_list = new_cap_list_batch_image + new_cap_list_video
+        sample_size = sample_size_batch_image + sample_size_video
+        shape_idx_dict = {}
+        shape_idx_dict.update(img_shape_idx_dict)
+        shape_idx_dict.update(vid_shape_idx_dict)
+
+        counter = Counter(sample_size)
+        print(f'Counter(sample_size): {counter}\nafter filter: {len(new_cap_list)}')
         return pd.DataFrame(new_cap_list), sample_size, shape_idx_dict
     
     def decord_read(self, video_data):

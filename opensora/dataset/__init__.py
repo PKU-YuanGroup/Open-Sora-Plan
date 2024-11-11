@@ -73,7 +73,6 @@ if __name__ == "__main__":
     import imageio
     import numpy as np
     from einops import rearrange
-    # from opensora.dataset.t2v_datasets_cp import T2V_dataset
 
     args = type('args', (), 
     {
@@ -89,7 +88,7 @@ if __name__ == "__main__":
         'interpolation_scale_h': 1,
         'interpolation_scale_w': 1,
         'cache_dir': '../cache_dir', 
-        'data': 'scripts/train_data/image_data_debug.txt', 
+        'data': '/storage/anno_pkl/img_nocn_res160_json/filter_resolution_border_json/640_16part_16txt/part1.txt', 
         'train_fps': 18, 
         'drop_short_ratio': 1.0, 
         'speed_factor': 1.0, 
@@ -108,10 +107,11 @@ if __name__ == "__main__":
         'patch_size_t': 1, 
         'total_batch_size': 256, 
         'sp_size': 1, 
-        'max_hxw': 256*256, 
-        'min_hxw': 192*192, 
+        'max_hxw': 384*384, 
+        'min_hxw': 384*288, 
         'force_5_ratio': True, 
         'random_data': False, 
+        'train_image_batch_size': 4
     }
     )
     accelerator = Accelerator()

@@ -47,6 +47,27 @@ def rescale_noise_cfg(noise_cfg, noise_pred_text, guidance_rescale=0.0):
     return noise_cfg
 
 
+def opensora_linear_quadratic_schedule(num_inference_steps, approximate_steps=1000):
+    assert approximate_steps % 2 == 0, "approximate_steps must be even"
+    assert num_inference_steps % 2 == 0, "num_inference_steps must be even"
+    assert num_inference_steps <= approximate_steps, "num_inference_steps must be less than or equal to approximate_steps"
+
+    _num_inference_steps = num_inference_steps // 2
+    _approximate_steps = approximate_steps // 2
+
+    linear_sigmas = [i / (2 * _approximate_steps) for i in range(_num_inference_steps)]
+    # NOTE we define a quadratic schedule that is f(x) = ax^2 + bx + c
+    quadratic_a = (_approximate_steps - _num_inference_steps) / (_approximate_steps * _num_inference_steps ** 2)
+    quadratic_b = (5 * _num_inference_steps - 4 * _approximate_steps) / (2 * _approximate_steps * _num_inference_steps)
+    quadratic_c = (_approximate_steps - _num_inference_steps) / _approximate_steps
+    quadratic_sigmas = [
+        quadratic_a * i ** 2 + quadratic_b * i + quadratic_c for i in range(_num_inference_steps, 2 * _num_inference_steps)
+    ]
+    sigmas = linear_sigmas + quadratic_sigmas + [1.0]
+    sigmas = [1.0 - x for x in sigmas]
+    sigmas.pop(-1) # remove 0
+    return sigmas
+
 # Copied from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion.retrieve_timesteps
 def retrieve_timesteps(
     scheduler,
@@ -492,6 +513,7 @@ class OpenSoraPipeline(DiffusionPipeline):
         callback_on_step_end_tensor_inputs: List[str] = ["latents"],
         guidance_rescale: float = 0.0,
         max_sequence_length: int = 512,
+        use_linear_quadratic_schedule: bool = False, 
         device = None, 
     ):
         
@@ -589,7 +611,17 @@ class OpenSoraPipeline(DiffusionPipeline):
             num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
             self._num_timesteps = len(timesteps)
         else:
-            timesteps, num_inference_steps = retrieve_timesteps(self.scheduler, num_inference_steps, device, timesteps)
+            # timesteps, num_inference_steps = retrieve_timesteps(self.scheduler, num_inference_steps, device, timesteps)
+            sigmas = None
+            if use_linear_quadratic_schedule:
+                approximate_steps = min(max(num_inference_steps*10, 250), 1000)
+                sigmas = opensora_linear_quadratic_schedule(
+                    num_inference_steps=num_inference_steps, 
+                    approximate_steps=approximate_steps
+                    )
+                sigmas = np.array(sigmas)
+                print(f"Using linear quadratic schedule, sigmas: {sigmas}, num_inference_steps: {num_inference_steps}, approximate_steps: {approximate_steps}")
+            timesteps, num_inference_steps = retrieve_timesteps(self.scheduler, num_inference_steps, device, timesteps, sigmas)
             num_warmup_steps = max(len(timesteps) - num_inference_steps * self.scheduler.order, 0)
             self._num_timesteps = len(timesteps)
         # 5. Prepare latent variables

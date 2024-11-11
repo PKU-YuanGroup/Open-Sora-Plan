@@ -281,6 +281,7 @@ def run_model_and_save_samples(args, pipeline, caption_refiner_model=None, enhan
                 guidance_scale=args.guidance_scale,
                 num_samples_per_prompt=args.num_samples_per_prompt,
                 max_sequence_length=args.max_sequence_length,
+                use_linear_quadratic_schedule=args.use_linear_quadratic_schedule, 
             ).videos
         else:
             videos = pipeline(
@@ -293,6 +294,7 @@ def run_model_and_save_samples(args, pipeline, caption_refiner_model=None, enhan
                 guidance_scale=args.guidance_scale,
                 num_samples_per_prompt=args.num_samples_per_prompt,
                 max_sequence_length=args.max_sequence_length,
+                use_linear_quadratic_schedule=args.use_linear_quadratic_schedule, 
             ).videos
         if enhance_video_model is not None:
             # b t h w c
@@ -486,6 +488,7 @@ def get_args():
     parser.add_argument('--sp', action='store_true')
 
     parser.add_argument('--v1_5_scheduler', action='store_true')
+    parser.add_argument('--use_linear_quadratic_schedule', action='store_true')
     parser.add_argument('--conditional_pixel_values_path', type=str, default=None)
     parser.add_argument('--mask_type', type=str, default=None)
     parser.add_argument('--crop_for_hw', action='store_true')

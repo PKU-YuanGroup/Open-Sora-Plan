@@ -40,22 +40,22 @@ accelerate launch \
     --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
     opensora/train/train_t2v_diffusers_ema_lb.py \
     --ema_deepspeed_config_file scripts/accelerate_configs/zero3.json \
-    --model OpenSoraT2V_v1_5-6B/122 \
+    --model OpenSoraT2V_v1_5-2B/122 \
     --text_encoder_name_1 google/t5-v1_1-xl \
     --cache_dir "../../cache_dir/" \
     --text_encoder_name_2 laion/CLIP-ViT-bigG-14-laion2B-39B-b160k \
     --cache_dir "../../cache_dir/" \
     --dataset t2v \
-    --data scripts/train_data/video_data_debug.txt \
+    --data scripts/train_data/image_data_debug.txt \
     --ae WFVAEModel_D32_8x8x8 \
     --ae_path "/storage/lcm/WF-VAE/results/Middle888" \
     --sample_rate 1 \
-    --num_frames 105 \
-    --max_height 768 \
-    --max_width 768 \
-    --force_resolution \
+    --num_frames 1 \
+    --max_hxw 65536 \
+    --min_hxw 36864 \
+    --force_5_ratio \
     --gradient_checkpointing \
-    --train_batch_size=1 \
+    --train_batch_size=32 \
     --dataloader_num_workers 16 \
     --learning_rate=1e-4 \
     --lr_scheduler="constant_with_warmup" \
@@ -73,9 +73,10 @@ accelerate launch \
     --hw_stride 16 --train_fps 16 \
     --seed 1234 --group_data \
     --use_decord \
-    --output_dir="debug6b" \
+    --output_dir="debug2b_mem" \
     --vae_fp32 --rf_scheduler \
-    --proj_name "debug6b" \
-    --log_name part${i}_ema \
+    --proj_name "debug2b_mem" \
+    --sparse1d \
+    --log_name part${i}_sparse1d_img \
     --trained_data_global_step 0 \
     --skip_abnorml_step --ema_decay_grad_clipping 0.99

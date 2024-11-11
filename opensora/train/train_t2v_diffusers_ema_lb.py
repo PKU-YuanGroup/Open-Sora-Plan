@@ -216,7 +216,8 @@ def create_ema_model(
         model_cls,
         model_config,
         ema_model_state_dict,
-        ds_config=None
+        ds_config=None, 
+        rank=-1, 
         ):
     # model_config = AutoConfig.from_pretrained(model_name_or_path)
     ds_config["train_micro_batch_size_per_gpu"] = args.train_batch_size
@@ -250,8 +251,12 @@ def create_ema_model(
             model_cls=model_cls, model_config=model_config
             )
         logger.info(f'Successully deepcopy EMAModel from model', main_process_only=True)
-    
-    ema_model.model, _, _, _ = deepspeed.initialize(model=ema_model.model, config_params=ds_config)
+    try:
+        ema_model.model, _, _, _ = deepspeed.initialize(model=ema_model.model, config_params=ds_config)
+    except Exception as e:
+        print(f'rank {rank}, error: {e}')
+        import sys
+        sys.exit(-1)
     return ema_model
 
 def main(args):
@@ -263,6 +268,16 @@ def main(args):
         npu_config.seed_everything(args.seed)
     accelerator_project_config = ProjectConfiguration(project_dir=args.output_dir, logging_dir=logging_dir)
 
+    # ddp_world_size = int(os.environ['WORLD_SIZE'])
+    # ddp_rank = int(os.environ['RANK'])
+    # print(ddp_world_size, ddp_rank, os.environ['MASTER_ADDR'], os.environ['MASTER_PORT'])
+    # torch.distributed.init_process_group(
+    #     backend='nccl', 
+    #     init_method='file:///storage/ongoing/9.29/mmdit/1.5/Open-Sora-Plan/nccl_init_file', 
+    #     rank=ddp_rank, 
+    #     world_size=ddp_world_size
+    # )
+    
     accelerator = Accelerator(
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         mixed_precision=args.mixed_precision,
@@ -490,7 +505,7 @@ def main(args):
             ds_config = json.load(f)
         ema_model = create_ema_model(
             args, checkpoint_path, model_cls=Diffusion_models_class[args.model], model_config=model.config, 
-            ema_model_state_dict=ema_model_state_dict, ds_config=ds_config
+            ema_model_state_dict=ema_model_state_dict, ds_config=ds_config, rank=accelerator.process_index
             )
 
         logger.info(f"Load ema model finish, memory_allocated: {torch.cuda.memory_allocated()/GB:.2f} GB", main_process_only=True)
@@ -642,9 +657,14 @@ def main(args):
     logger.info(f"Before accelerator.prepare, memory_allocated: {torch.cuda.memory_allocated()/GB:.2f} GB", main_process_only=True)
     model_config = model.config
     model_config_to_save = model.to_json_string()
-    model, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
-        model, optimizer, train_dataloader, lr_scheduler
-    )
+    try:
+        model, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
+            model, optimizer, train_dataloader, lr_scheduler
+        )
+    except Exception as e:
+        print(f'rank {accelerator.process_index}, error: {e}')
+        import sys
+        sys.exit(-1)
     if checkpoint_path:
         accelerator.load_state(checkpoint_path)
     logger.info(f"After accelerator.prepare, memory_allocated: {torch.cuda.memory_allocated()/GB:.2f} GB", main_process_only=True)
@@ -999,20 +1019,25 @@ def main(args):
     def train_one_step(step_, data_item_, prof_=None):
         train_loss = 0.0
         x, attn_mask, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2 = data_item_
-        # print(f'step: {step_}, rank: {accelerator.process_index}, x: {x.shape}, dtype: {x.dtype}')
+        # print(
+        #     f'step: {step_}, rank: {accelerator.process_index}, x: {x.shape}, dtype: {x.dtype}, '
+        #     f'attn_mask: {attn_mask.shape}, input_ids_1: {input_ids_1.shape}, cond_mask_1: {cond_mask_1.shape}, '
+        #     f'input_ids_2: {input_ids_2.shape}, cond_mask_2: {cond_mask_2.shape}' if input_ids_2 is not None else ''
+        #     )
 
         x = x.to(accelerator.device, dtype=ae.vae.dtype, non_blocking=True)  # B C T H W
         attn_mask = attn_mask.to(accelerator.device, non_blocking=True)  # B T H W
-        input_ids_1 = input_ids_1.to(accelerator.device, non_blocking=True)  # B 1 L
-        cond_mask_1 = cond_mask_1.to(accelerator.device, non_blocking=True)  # B 1 L
-        input_ids_2 = input_ids_2.to(accelerator.device, non_blocking=True) if input_ids_2 is not None else input_ids_2 # B 1 L
-        cond_mask_2 = cond_mask_2.to(accelerator.device, non_blocking=True) if cond_mask_2 is not None else cond_mask_2 # B 1 L
+        input_ids_1 = input_ids_1.to(accelerator.device, non_blocking=True)  # B L
+        cond_mask_1 = cond_mask_1.to(accelerator.device, non_blocking=True)  # B L
+        input_ids_2 = input_ids_2.to(accelerator.device, non_blocking=True) if input_ids_2 is not None else input_ids_2 # B L
+        cond_mask_2 = cond_mask_2.to(accelerator.device, non_blocking=True) if cond_mask_2 is not None else cond_mask_2 # B L
         
         with torch.no_grad():
-            B, N, L = input_ids_1.shape  # B 1 L
+            B, L = input_ids_1.shape  # B L
+            N = 1
             # use batch inference
-            input_ids_1 = input_ids_1.reshape(-1, L)
-            cond_mask_1 = cond_mask_1.reshape(-1, L)
+            # input_ids_1 = input_ids_1.reshape(-1, L)
+            # cond_mask_1 = cond_mask_1.reshape(-1, L)
             if args.random_data:
                 cond_1 = torch.rand(B, L, 2048, device=x.device, dtype=weight_dtype)
             else:
@@ -1020,13 +1045,14 @@ def main(args):
             cond_1 = cond_1.reshape(B, N, L, -1)
             cond_mask_1 = cond_mask_1.reshape(B, N, L)
             if text_enc_2 is not None:
-                B_, N_, L_ = input_ids_2.shape  # B 1 L
-                input_ids_2 = input_ids_2.reshape(-1, L_)
+                B_, L_ = input_ids_2.shape  # B L
+                N_ = 1
+                # input_ids_2 = input_ids_2.reshape(-1, L_)
                 if args.random_data:
                     cond_2 = torch.rand(B, 1280, device=x.device, dtype=weight_dtype)
                 else:
                     cond_2 = text_enc_2(input_ids_2, cond_mask_2)  # B D
-                cond_2 = cond_2.reshape(B_, 1, -1)  # B 1 D
+                cond_2 = cond_2.reshape(B_, N_, -1)  # B 1 D
             else:
                 cond_2 = None
 
@@ -1050,9 +1076,10 @@ def main(args):
             #     x = (255*x).astype(np.uint8)
             #     array_to_video(x, fps=fps, output_file=output_file)
             #     return
-            # videos = ae.decode(x)[0]
-            # videos = videos.transpose(0, 1)
-            # custom_to_video(videos.to(torch.float32), fps=24, output_file='tmp.mp4')
+            # videos = ae.decode(x)
+            # for video in videos:
+            #     video = video.transpose(0, 1)
+            #     custom_to_video(video.to(torch.float32), fps=24, output_file='tmp.mp4')
             # import sys;sys.exit()
             
         # print("rank {} | step {} | after encode".format(accelerator.process_index, step_))
@@ -1147,11 +1174,11 @@ def main(args):
         if args.enable_profiling:
             with torch.profiler.profile(
                 activities=[
-                    torch.profiler.ProfilerActivity.CPU, 
+                    # torch.profiler.ProfilerActivity.CPU, 
                     torch.profiler.ProfilerActivity.CUDA, 
                     ], 
                 schedule=torch.profiler.schedule(wait=5, warmup=1, active=1, repeat=1, skip_first=0),
-                on_trace_ready=torch.profiler.tensorboard_trace_handler('./gpu_profiling_active_1_delmask_delbkmask_andvaemask_curope_gpu'),
+                on_trace_ready=torch.profiler.tensorboard_trace_handler('./gpu_profiling_active_1_gpu'),
                 record_shapes=True,
                 profile_memory=True,
                 with_stack=True
@@ -1202,6 +1229,7 @@ if __name__ == "__main__":
     parser.add_argument('--cfg', type=float, default=0.1)
     parser.add_argument("--dataloader_num_workers", type=int, default=10, help="Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process.")
     parser.add_argument("--train_batch_size", type=int, default=16, help="Batch size (per device) for the training dataloader.")
+    parser.add_argument("--train_image_batch_size", type=int, default=1, help="Image batch size (per device) for the training dataloader.")
     parser.add_argument("--group_data", action="store_true")
     parser.add_argument("--hw_stride", type=int, default=32)
     parser.add_argument("--force_resolution", action="store_true")
