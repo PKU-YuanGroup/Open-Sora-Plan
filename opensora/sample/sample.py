@@ -15,7 +15,7 @@ from opensora.sample.caption_refiner import OpenSoraCaptionRefiner
 
 if __name__ == "__main__":
     args = get_args()
-    dtype = torch.float16
+    dtype = torch.float32 if args.fp32 else torch.bfloat16
 
     if torch_npu is not None:
         npu_config.print_msg(args)

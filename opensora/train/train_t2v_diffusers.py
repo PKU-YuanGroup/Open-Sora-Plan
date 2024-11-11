@@ -14,7 +14,6 @@ import math
 import os
 import shutil
 from pathlib import Path
-from typing import Optional
 import gc
 import numpy as np
 from einops import rearrange
@@ -23,7 +22,6 @@ import torch.utils.data
 from tqdm import tqdm
 import time
 
-from opensora.adaptor.modules import replace_with_fp32_forwards
 try:
     import torch_npu
     from opensora.npu_config import npu_config
@@ -38,7 +36,6 @@ except:
     from opensora.utils.communications import prepare_parallel_data, broadcast
     pass
 
-from dataclasses import field, dataclass
 from torch.utils.data import DataLoader
 from copy import deepcopy
 import accelerate
@@ -46,6 +43,7 @@ import torch
 from torch.nn import functional as F
 import transformers
 from transformers.utils import ContextManagers
+from transformers.integrations import HfDeepSpeedConfig
 from accelerate import Accelerator
 from accelerate.logging import get_logger
 from accelerate.utils import DistributedType, ProjectConfiguration, set_seed
@@ -53,23 +51,22 @@ from accelerate.state import AcceleratorState
 from packaging import version
 from tqdm.auto import tqdm
 
+import json
 import copy
 import diffusers
 from diffusers import DDPMScheduler, PNDMScheduler, DPMSolverMultistepScheduler, CogVideoXDDIMScheduler, FlowMatchEulerDiscreteScheduler
 from diffusers.optimization import get_scheduler
-from diffusers.training_utils import EMAModel, compute_snr
+from diffusers.training_utils import compute_snr
 from diffusers.utils import check_min_version, is_wandb_available
-from diffusers.training_utils import compute_density_for_timestep_sampling, compute_loss_weighting_for_sd3
+from diffusers.training_utils import compute_loss_weighting_for_sd3
 
 from opensora.models.causalvideovae import ae_stride_config, ae_channel_config
-from opensora.models.causalvideovae import ae_norm, ae_denorm
-from opensora.models import CausalVAEModelWrapper
 from opensora.models.text_encoder import get_text_warpper
 from opensora.dataset import getdataset
-from opensora.models import CausalVAEModelWrapper
 from opensora.models.diffusion import Diffusion_models, Diffusion_models_class
 from opensora.utils.dataset_utils import Collate, LengthGroupedSampler
-from opensora.utils.utils import explicit_uniform_sampling, get_common_weights
+from opensora.utils.ema_utils import EMAModel
+from opensora.utils.utils import explicit_uniform_sampling, get_common_weights, compute_density_for_timestep_sampling
 from opensora.sample.pipeline_opensora import OpenSoraPipeline
 from opensora.models.causalvideovae import ae_stride_config, ae_wrapper
 
@@ -78,6 +75,7 @@ from opensora.models.causalvideovae import ae_stride_config, ae_wrapper
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 check_min_version("0.24.0")
 logger = get_logger(__name__)
+GB = 1024 * 1024 * 1024
 
 @torch.inference_mode()
 def log_validation(args, model, vae, text_encoder, tokenizer, accelerator, weight_dtype, global_step, ema=False):
@@ -175,9 +173,83 @@ class ProgressInfo:
         self.max_train_loss = max_train_loss
 
 
+def param_groups_weight_decay(
+        model,
+        weight_decay=1e-5,
+        no_weight_decay_list=()
+):
+    no_weight_decay_list = set(no_weight_decay_list)
+    decay = []
+    no_decay = []
+    cnt = 0
+    train = 0
+    for name, param in model.named_parameters():
+        cnt += 1
+        if not param.requires_grad:
+            continue
+        train += 1
+        if param.ndim <= 1 or name.endswith(".bias") or name in no_weight_decay_list:
+            no_decay.append(param)
+        else:
+            decay.append(param)
+    logger.info(f'Train param [{train}/{cnt}], decay {len(decay)} param, no_decay {len(no_decay)} param')
+    return [
+        {'params': no_decay, 'weight_decay': 0.},
+        {'params': decay, 'weight_decay': weight_decay}]
+
 #################################################################################
 #                                  Training Loop                                #
 #################################################################################
+
+
+def create_ema_model(
+        args, 
+        checkpoint_path, 
+        model_cls,
+        model_config,
+        ema_model_state_dict,
+        ds_config=None, 
+        rank=-1, 
+        ):
+    # model_config = AutoConfig.from_pretrained(model_name_or_path)
+    ds_config["train_micro_batch_size_per_gpu"] = args.train_batch_size
+    ds_config["fp16"]["enabled"] = False
+    ds_config["bf16"]["enabled"] = False
+    ds_config["gradient_accumulation_steps"] = args.gradient_accumulation_steps
+    ds_config["train_batch_size"] = args.train_batch_size * args.gradient_accumulation_steps * args.world_size
+
+    # Note: dschf is defined in function scope to avoid global effects
+    # https://huggingface.co/docs/transformers/main_classes/deepspeed#nontrainer-deepspeed-integration
+    logging.info(f'EMA deepspeed config {ds_config}')
+    if ds_config is not None and ds_config["zero_optimization"]["stage"] == 3:
+        dschf = HfDeepSpeedConfig(ds_config)
+    else:
+        dschf = None
+            
+    if checkpoint_path:
+        ema_model_path = os.path.join(checkpoint_path, "model_ema")
+        if os.path.exists(ema_model_path):
+            ema_model = EMAModel.from_pretrained(ema_model_path, model_cls=model_cls)
+            logger.info(f'Successully resume EMAModel from {ema_model_path}', main_process_only=True)
+    else:
+        # we load weights from original model instead of deepcopy
+        model = model_cls.from_config(model_config)
+        model.load_state_dict(ema_model_state_dict, strict=True)
+        model = model.eval()
+        model.requires_grad_(False)
+        model.config.hidden_size = model.config.attention_head_dim * model.config.num_attention_heads
+        ema_model = EMAModel(
+            model, decay=args.ema_decay, update_after_step=args.ema_start_step,
+            model_cls=model_cls, model_config=model_config
+            )
+        logger.info(f'Successully deepcopy EMAModel from model', main_process_only=True)
+    try:
+        ema_model.model, _, _, _ = deepspeed.initialize(model=ema_model.model, config_params=ds_config)
+    except Exception as e:
+        print(f'rank {rank}, error: {e}')
+        import sys
+        sys.exit(-1)
+    return ema_model
 
 def main(args):
 
@@ -231,10 +303,11 @@ def main(args):
     if args.seed is not None:
         set_seed(args.seed, device_specific=True)
 
+    generator = torch.Generator().manual_seed(args.seed)
+
     # Handle the repository creation
-    if accelerator.is_main_process:
-        if args.output_dir is not None:
-            os.makedirs(args.output_dir, exist_ok=True)
+    if args.output_dir is not None:
+        os.makedirs(args.output_dir, exist_ok=True)
 
     # For mixed precision training we cast all non-trainable weigths to half-precision
     # as these weights are only used for inference, keeping weights in full precision is not required.
@@ -244,17 +317,34 @@ def main(args):
     elif accelerator.mixed_precision == "bf16":
         weight_dtype = torch.bfloat16
 
-    # Create model:
-    
-    # Currently Accelerate doesn't know how to handle multiple models under Deepspeed ZeRO stage 3.
-    # For this to work properly all models must be run through `accelerate.prepare`. But accelerate
-    # will try to assign the same optimizer with the same weights to all models during
-    # `deepspeed.initialize`, which of course doesn't work.
-    #
-    # For now the following workaround will partially support Deepspeed ZeRO-3, by excluding the 2
-    # frozen models from being partitioned during `zero.Init` which gets called during
-    # `from_pretrained` So CLIPTextModel and AutoencoderKL will not enjoy the parameter sharding
-    # across multiple gpus and only UNet2DConditionModel will get ZeRO sharded.
+    checkpoint_path, global_step = None, 0
+    initial_global_step_for_sampler = args.trained_data_global_step
+    # Potentially load in the weights and states from a previous save
+    if args.resume_from_checkpoint:
+        if args.resume_from_checkpoint != "latest":
+            checkpoint_path = args.resume_from_checkpoint
+            if initial_global_step_for_sampler is None:
+                initial_global_step_for_sampler = 0
+        else:
+            # Get the most recent checkpoint
+            dirs = os.listdir(args.output_dir)
+            dirs = [d for d in dirs if d.startswith("checkpoint")]
+            dirs = sorted(dirs, key=lambda x: int(x.split("-")[1]))
+            checkpoint_path = os.path.join(args.output_dir, dirs[-1]) if len(dirs) > 0 else None
+            if initial_global_step_for_sampler is None:
+                initial_global_step_for_sampler = int(dirs[-1].split("-")[1]) if len(dirs) > 0 else 0
+
+        if checkpoint_path is None:
+            accelerator.print(
+                f"Checkpoint '{args.resume_from_checkpoint}' does not exist. Starting a new training run."
+            )
+        else:
+            accelerator.print(f"Resuming from checkpoint {checkpoint_path}")
+            global_step = int(checkpoint_path.split("-")[-1])
+
+    if initial_global_step_for_sampler is None:
+        initial_global_step_for_sampler = 0
+
     def deepspeed_zero_init_disabled_context_manager():
         """
         returns either a context list that includes one that will disable zero.Init or an empty context list
@@ -265,22 +355,41 @@ def main(args):
 
         return [deepspeed_plugin.zero3_init_context_manager(enable=False)]
 
+    # =======================================================================================================
+    # STEP 1: Create VAE model
     with ContextManagers(deepspeed_zero_init_disabled_context_manager()):
         kwargs = {}
         ae = ae_wrapper[args.ae](args.ae_path, cache_dir=args.cache_dir, **kwargs).eval()
-        
         if args.enable_tiling:
             ae.vae.enable_tiling()
+        ae.vae.requires_grad_(False)
+        if not args.post_to_device:
+            ae.vae.to(accelerator.device, dtype=torch.float32 if args.vae_fp32 else weight_dtype)
+            logger.info(f"Load VAE model finish, memory_allocated: {torch.cuda.memory_allocated()/GB:.2f} GB", main_process_only=True)
+    # =======================================================================================================
 
-        kwargs = {
-            'torch_dtype': weight_dtype, 
-            'low_cpu_mem_usage': False
-            }
-        text_enc_1 = get_text_warpper(args.text_encoder_name_1)(args, **kwargs).eval()
+
+    # =======================================================================================================
+    # STEP 2: Create text encoder model
+    with ContextManagers(deepspeed_zero_init_disabled_context_manager()):
+        text_enc_1 = get_text_warpper(args.text_encoder_name_1)(args).eval()
+        text_enc_1.requires_grad_(False)
+        if not args.post_to_device:
+            text_enc_1.to(accelerator.device, dtype=weight_dtype)
+            logger.info(f"Load text encoder model 1 finish, memory_allocated: {torch.cuda.memory_allocated()/GB:.2f} GB", main_process_only=True)
 
         text_enc_2 = None
         if args.text_encoder_name_2 is not None:
-            text_enc_2 = get_text_warpper(args.text_encoder_name_2)(args, **kwargs).eval()
+            text_enc_2 = get_text_warpper(args.text_encoder_name_2)(args).eval()
+            text_enc_2.requires_grad_(False)
+            if not args.post_to_device:
+                text_enc_2.to(accelerator.device, dtype=weight_dtype)
+                logger.info(f"Load text encoder model finish, memory_allocated: {torch.cuda.memory_allocated()/GB:.2f} GB", main_process_only=True)
+    # =======================================================================================================
+
+
+    # =======================================================================================================
+    # STEP 3: Create diffusion model 
 
     ae_stride_t, ae_stride_h, ae_stride_w = ae_stride_config[args.ae]
     ae.vae_scale_factor = (ae_stride_t, ae_stride_h, ae_stride_w)
@@ -300,59 +409,95 @@ def main(args):
     args.stride = ae_stride_h * patch_size_h
     ae.latent_size = latent_size = (args.max_height // ae_stride_h, args.max_width // ae_stride_w)
     args.latent_size_t = latent_size_t = (args.num_frames - 1) // ae_stride_t + 1
-    model = Diffusion_models[args.model](
-        in_channels=ae_channel_config[args.ae],
-        out_channels=ae_channel_config[args.ae],
-        sample_size_h=latent_size,
-        sample_size_w=latent_size,
-        sample_size_t=latent_size_t,
-        interpolation_scale_h=args.interpolation_scale_h,
-        interpolation_scale_w=args.interpolation_scale_w,
-        interpolation_scale_t=args.interpolation_scale_t,
-        sparse1d=args.sparse1d, 
-        sparse_n=args.sparse_n, 
-        skip_connection=args.skip_connection, 
-    )
+    if checkpoint_path:
+        model = Diffusion_models_class[args.model].from_pretrained(os.path.join(checkpoint_path, "model"))
+        logger.info(f'Successully resume model from {os.path.join(checkpoint_path, "model")}', main_process_only=True)
+    else:
+        model = Diffusion_models[args.model](
+            in_channels=ae_channel_config[args.ae],
+            out_channels=ae_channel_config[args.ae],
+            sample_size_h=latent_size,
+            sample_size_w=latent_size,
+            sample_size_t=latent_size_t,
+            interpolation_scale_h=args.interpolation_scale_h,
+            interpolation_scale_w=args.interpolation_scale_w,
+            interpolation_scale_t=args.interpolation_scale_t,
+            sparse1d=args.sparse1d, 
+            sparse_n=args.sparse_n, 
+            skip_connection=args.skip_connection, 
+        )
 
-    # # use pretrained model?
-    if args.pretrained:
+    # use pretrained model?
+    if checkpoint_path is None and args.pretrained:
         model_state_dict = model.state_dict()
         logger.info(f'Load from {args.pretrained}')
         if args.pretrained.endswith('.safetensors'):  
+            # --pretrained path/to/.safetensors
+            model_state_dict = model.state_dict()
             from safetensors.torch import load_file as safe_load
             pretrained_checkpoint = safe_load(args.pretrained, device="cpu")
             checkpoint = get_common_weights(pretrained_checkpoint, model_state_dict)
-            missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=False)
+            missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=True)
         elif os.path.isdir(args.pretrained):
-            model_pretrained = Diffusion_models_class[args.model].from_pretrained(args.pretrained)
-            pretrained_checkpoint = model_pretrained.state_dict()
-            # checkpoint = get_common_weights(pretrained_checkpoint, model_state_dict)
-            pretrained_keys = set(list(pretrained_checkpoint.keys()))
-            model_keys = set(list(model_state_dict.keys()))
-            common_keys = list(pretrained_keys & model_keys)
-            checkpoint = {k: pretrained_checkpoint[k] for k in common_keys if model_state_dict[k].numel() == pretrained_checkpoint[k].numel()}
-            missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=False)
-            model_pretrained = None
-            del model_pretrained
+            # --pretrained path/to/model  or  path/to/model_ema  # must have config.json and .safetensors
+            model = Diffusion_models_class[args.model].from_pretrained(args.pretrained)
+            missing_keys, unexpected_keys = [], []
+            model_state_dict = []
+            checkpoint = 1
         else:
+            # --pretrained path/to/.pth or .pt or some other format
+            model_state_dict = model.state_dict()
             pretrained_checkpoint = torch.load(args.pretrained, map_location='cpu')
             if 'model' in checkpoint:
                 pretrained_checkpoint = pretrained_checkpoint['model']
             checkpoint = get_common_weights(pretrained_checkpoint, model_state_dict)
-            missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=False)
+            missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=True)
         logger.info(f'missing_keys {len(missing_keys)} {missing_keys}, unexpected_keys {len(unexpected_keys)}')
         logger.info(f'Successfully load {len(model_state_dict) - len(missing_keys)}/{len(model_state_dict)} keys from {args.pretrained}!')
         del model_state_dict, checkpoint, missing_keys, unexpected_keys
         gc.collect()
-    
-    # Freeze vae and text encoders.
-    ae.vae.requires_grad_(False)
-    text_enc_1.requires_grad_(False)
-    if text_enc_2 is not None:
-        text_enc_2.requires_grad_(False)
-    # Set model as trainable.
-    model.train()
 
+
+    # `accelerate` 0.16.0 will have better support for customized saving
+    if version.parse(accelerate.__version__) >= version.parse("0.16.0"):
+        # create custom saving & loading hooks so that `accelerator.save_state(...)` serializes in a nice format
+        def save_model_hook(models, weights, output_dir):
+            if accelerator.is_main_process:
+                for i, model in enumerate(models):
+                    model.save_pretrained(os.path.join(output_dir, "model"))
+                    if weights:  # Don't pop if empty
+                        # make sure to pop weight so that corresponding model is not saved again
+                        weights.pop()
+            if args.use_ema:
+                ema_model.save_pretrained(os.path.join(output_dir, "model_ema"))
+
+        accelerator.register_save_state_pre_hook(save_model_hook)
+        
+    if args.gradient_checkpointing:
+        model.enable_gradient_checkpointing()
+
+    logger.info(f"Load diffusion model finish, memory_allocated: {torch.cuda.memory_allocated()/GB:.2f} GB", main_process_only=True)
+    # =======================================================================================================
+
+
+    # =======================================================================================================
+    # STEP 4: Create EMAModel
+    args.world_size = accelerator.num_processes
+    if args.use_ema:
+        ema_model_state_dict = model.state_dict()
+        with open(args.ema_deepspeed_config_file, 'r') as f:
+            ds_config = json.load(f)
+        ema_model = create_ema_model(
+            args, checkpoint_path, model_cls=Diffusion_models_class[args.model], model_config=model.config, 
+            ema_model_state_dict=ema_model_state_dict, ds_config=ds_config, rank=accelerator.process_index
+            )
+
+        logger.info(f"Load ema model finish, memory_allocated: {torch.cuda.memory_allocated()/GB:.2f} GB", main_process_only=True)
+    # =======================================================================================================
+
+
+    # =======================================================================================================
+    # STEP 5: Create Scheduler
     kwargs = dict(
         prediction_type=args.prediction_type, 
         rescale_betas_zero_snr=args.rescale_betas_zero_snr
@@ -369,72 +514,18 @@ def main(args):
         noise_scheduler_copy = copy.deepcopy(noise_scheduler)
     else:
         noise_scheduler = DDPMScheduler(**kwargs)
-    # Move unet, vae and text_encoder to device and cast to weight_dtype
-    # The VAE is in float32 to avoid NaN losses.
-    if not args.extra_save_mem:
-        ae.vae.to(accelerator.device, dtype=torch.float32 if args.vae_fp32 else weight_dtype)
-        text_enc_1.to(accelerator.device, dtype=weight_dtype)
-        if text_enc_2 is not None:
-            text_enc_2.to(accelerator.device, dtype=weight_dtype)
+    # =======================================================================================================
 
-    # Create EMA for the unet.
-    if accelerator.is_main_process and args.use_ema:
-        ema_model = deepcopy(model)
-        ema_model = EMAModel(ema_model.parameters(), decay=args.ema_decay, update_after_step=args.ema_start_step,
-                             model_cls=Diffusion_models_class[args.model], model_config=ema_model.config, 
-                             foreach=args.foreach_ema)
-    # `accelerate` 0.16.0 will have better support for customized saving
-    if version.parse(accelerate.__version__) >= version.parse("0.16.0"):
-        # create custom saving & loading hooks so that `accelerator.save_state(...)` serializes in a nice format
-        def save_model_hook(models, weights, output_dir):
-            if accelerator.is_main_process:
-                if args.use_ema:
-                    ema_model.save_pretrained(os.path.join(output_dir, "model_ema"))
-
-                for i, model in enumerate(models):
-                    model.save_pretrained(os.path.join(output_dir, "model"))
-                    if weights:  # Don't pop if empty
-                        # make sure to pop weight so that corresponding model is not saved again
-                        weights.pop()
-
-        def load_model_hook(models, input_dir):
-            if accelerator.is_main_process and args.use_ema:
-                if os.path.exists(os.path.join(input_dir, "model_ema")):
-                    load_model = EMAModel.from_pretrained(
-                        os.path.join(input_dir, "model_ema"), 
-                        Diffusion_models_class[args.model], 
-                        foreach=args.foreach_ema, 
-                        )
-                    ema_model.load_state_dict(load_model.state_dict())
-                    if args.offload_ema:
-                        ema_model.pin_memory()
-                    else:
-                        ema_model.to(accelerator.device)
-                    del load_model
-
-            for i in range(len(models)):
-                # pop models so that they are not loaded again
-                model = models.pop()
-
-                # load diffusers style into model
-                load_model = Diffusion_models_class[args.model].from_pretrained(input_dir, subfolder="model")
-                model.register_to_config(**load_model.config)
-
-                model.load_state_dict(load_model.state_dict())
-                del load_model
-
-        accelerator.register_save_state_pre_hook(save_model_hook)
-        accelerator.register_load_state_pre_hook(load_model_hook)
-
-    if args.gradient_checkpointing:
-        model.enable_gradient_checkpointing()
-
-    # Enable TF32 for faster training on Ampere GPUs,
-    # cf https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices
+    # Enable TF32 for faster training on Ampere GPUs
+    # https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices
     if args.allow_tf32:
         torch.backends.cuda.matmul.allow_tf32 = True
 
-    params_to_optimize = model.parameters()
+    # =======================================================================================================
+    # STEP 6: Create Optimizer
+
+    # params_to_optimize = model.parameters()
+    params_to_optimize = param_groups_weight_decay(model, args.adam_weight_decay)
     # Optimizer creation
     if not (args.optimizer.lower() == "prodigy" or args.optimizer.lower() == "adamw"):
         logger.warning(
@@ -466,7 +557,7 @@ def main(args):
             params_to_optimize,
             lr=args.learning_rate,
             betas=(args.adam_beta1, args.adam_beta2),
-            weight_decay=args.adam_weight_decay,
+            # weight_decay=args.adam_weight_decay,
             eps=args.adam_epsilon,
         )
 
@@ -488,28 +579,18 @@ def main(args):
             lr=args.learning_rate,
             betas=(args.adam_beta1, args.adam_beta2),
             beta3=args.prodigy_beta3,
-            weight_decay=args.adam_weight_decay,
+            # weight_decay=args.adam_weight_decay,
             eps=args.adam_epsilon,
             decouple=args.prodigy_decouple,
             use_bias_correction=args.prodigy_use_bias_correction,
             safeguard_warmup=args.prodigy_safeguard_warmup,
         )
     logger.info(f"optimizer: {optimizer}")
-
-    # Setup data:
-    if args.trained_data_global_step is not None:
-        initial_global_step_for_sampler = args.trained_data_global_step
-    else:
-        if args.resume_from_checkpoint:
-            if args.resume_from_checkpoint == "latest":
-                # Get the most recent checkpoint
-                dirs = os.listdir(args.output_dir)
-                dirs = [d for d in dirs if d.startswith("checkpoint")]
-                dirs = sorted(dirs, key=lambda x: int(x.split("-")[1]))
-                initial_global_step_for_sampler = int(dirs[-1].split("-")[1]) if len(dirs) > 0 else 0
-            else:
-                initial_global_step_for_sampler = 0
+    # =======================================================================================================
     
+
+    # =======================================================================================================
+    # # STEP 7: Create Dataset & Dataloader & LR_Scheduler
 
     total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
     total_batch_size = total_batch_size // args.sp_size * args.train_sp_batch_size
@@ -525,10 +606,11 @@ def main(args):
                 lengths=train_dataset.lengths, 
                 group_data=args.group_data, 
             )
+    
     train_dataloader = DataLoader(
         train_dataset,
         shuffle=False,
-        pin_memory=True,
+        pin_memory=False,
         collate_fn=Collate(args),
         batch_size=args.train_batch_size,
         num_workers=args.dataloader_num_workers,
@@ -536,7 +618,6 @@ def main(args):
         drop_last=True, 
         # prefetch_factor=4
     )
-    logger.info(f'after train_dataloader')
 
     # Scheduler and math around the number of training steps.
     overrode_max_train_steps = False
@@ -551,30 +632,43 @@ def main(args):
         num_warmup_steps=args.lr_warmup_steps * args.gradient_accumulation_steps,
         num_training_steps=args.max_train_steps * args.gradient_accumulation_steps,
     )
+    # =======================================================================================================
 
-    # Prepare everything with our `accelerator`.
-    # model.requires_grad_(False)
-    # model.pos_embed.requires_grad_(True)
-    # model.patch_embed.requires_grad_(True)
 
-    logger.info(f'before accelerator.prepare')
+    # =======================================================================================================
+    # STEP 8: Prepare everything with our `accelerator`.
+
+    logger.info(f"Before accelerator.prepare, memory_allocated: {torch.cuda.memory_allocated()/GB:.2f} GB", main_process_only=True)
     model_config = model.config
-    model, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
-        model, optimizer, train_dataloader, lr_scheduler
-    )
-    logger.info(f'after accelerator.prepare')
-    
-    if accelerator.is_main_process and args.use_ema:
-        if args.offload_ema:
-            ema_model.pin_memory()
-            logger.info(f'after ema_model to memory (pin_memory)')
-        else:
-            ema_model.to(accelerator.device)
-            logger.info(f'after ema_model to device, device: {accelerator.device}')
-    # FIXME: EMAModel from diffusers have bug, which can not resume ema_decay
-    if accelerator.is_main_process and args.use_ema:
+    model_config_to_save = model.to_json_string()
+    try:
+        model, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
+            model, optimizer, train_dataloader, lr_scheduler
+        )
+    except Exception as e:
+        print(f'rank {accelerator.process_index}, error: {e}')
+        import sys
+        sys.exit(-1)
+    if checkpoint_path:
+        accelerator.load_state(checkpoint_path)
+    logger.info(f"After accelerator.prepare, memory_allocated: {torch.cuda.memory_allocated()/GB:.2f} GB", main_process_only=True)
+
+    model.train()
+
+    # FIXME: EMAModel from diffusers have bug, which can NOT resume ema_decay
+    if args.use_ema:
         ema_model.decay = args.ema_decay
+    # =======================================================================================================
     
+    if args.post_to_device:
+        ae.vae.to(accelerator.device, dtype=torch.float32 if args.vae_fp32 else weight_dtype)
+        logger.info(f"Load VAE model finish, memory_allocated: {torch.cuda.memory_allocated()/GB:.2f} GB", main_process_only=True)
+        text_enc_1.to(accelerator.device, dtype=weight_dtype)
+        logger.info(f"Load text encoder model 1 finish, memory_allocated: {torch.cuda.memory_allocated()/GB:.2f} GB", main_process_only=True)
+        if args.text_encoder_name_2 is not None:
+            text_enc_2.to(accelerator.device, dtype=weight_dtype)
+            logger.info(f"Load text encoder model 2 finish, memory_allocated: {torch.cuda.memory_allocated()/GB:.2f} GB", main_process_only=True)
+
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
     if overrode_max_train_steps:
@@ -582,7 +676,8 @@ def main(args):
     # Afterwards we recalculate our number of training epochs
     args.num_train_epochs = math.ceil(args.max_train_steps / num_update_steps_per_epoch)
 
-    # Train!
+    # =======================================================================================================
+    # Step 9: Train!
     logger.info("***** Running training *****")
     logger.info(f"  Model = {model}")
     logger.info(f'  Model config = {model_config}')
@@ -601,40 +696,12 @@ def main(args):
     logger.info(f"  Text_enc_1 = {args.text_encoder_name_1}; Dtype = {weight_dtype}; Parameters = {sum(p.numel() for p in text_enc_1.parameters()) / 1e9} B")
     if args.text_encoder_name_2 is not None:
         logger.info(f"  Text_enc_2 = {args.text_encoder_name_2}; Dtype = {weight_dtype}; Parameters = {sum(p.numel() for p in text_enc_2.parameters()) / 1e9} B")
-
-    global_step = 0
-    first_epoch = 0
-    # Potentially load in the weights and states from a previous save
-    if args.resume_from_checkpoint:
-        if args.resume_from_checkpoint != "latest":
-            path = os.path.basename(args.resume_from_checkpoint)
-        else:
-            # Get the most recent checkpoint
-            dirs = os.listdir(args.output_dir)
-            dirs = [d for d in dirs if d.startswith("checkpoint")]
-            dirs = sorted(dirs, key=lambda x: int(x.split("-")[1]))
-            path = dirs[-1] if len(dirs) > 0 else None
-
-        if path is None:
-            accelerator.print(
-                f"Checkpoint '{args.resume_from_checkpoint}' does not exist. Starting a new training run."
-            )
-            args.resume_from_checkpoint = None
-            initial_global_step = 0
-        else:
-            accelerator.print(f"Resuming from checkpoint {path}")
-            accelerator.load_state(os.path.join(args.output_dir, path))
-            global_step = int(path.split("-")[1])
-
-            initial_global_step = global_step
-            first_epoch = global_step // num_update_steps_per_epoch
-
-    else:
-        initial_global_step = 0
+    if args.use_ema:
+        logger.info(f"  EMA model = {type(ema_model.model)}; Dtype = {ema_model.model.dtype}; Parameters = {sum(p.numel() for p in ema_model.model.parameters()) / 1e9} B")
 
     progress_bar = tqdm(
         range(0, args.max_train_steps),
-        initial=initial_global_step,
+        initial=global_step,
         desc="Steps",
         # Only show the progress bar once on each machine.
         disable=not accelerator.is_local_main_process,
@@ -655,23 +722,16 @@ def main(args):
 
     def sync_gradients_info(loss):
         # Checks if the accelerator has performed an optimization step behind the scenes
-        if accelerator.is_main_process and args.use_ema and progress_info.global_step % args.ema_update_freq == 0:
-            torch.cuda.empty_cache()
-            if args.offload_ema:
-                ema_model.to(device="cuda", non_blocking=True)
-                torch.cuda.empty_cache()
+        if args.use_ema and progress_info.global_step % args.ema_update_freq == 0:
             ema_model.step(model.parameters())
-            if args.offload_ema:
-                ema_model.to(device="cpu", non_blocking=True)
-                torch.cuda.empty_cache()
+            cur_decay_value = ema_model.cur_decay_value
         progress_bar.update(1)
         progress_info.global_step += 1
         end_time = time.time()
         one_step_duration = end_time - start_time
         
         train_loss = progress_info.train_loss
-        accelerator.log(
-                {
+        log_dict = {
                     "train_loss": train_loss, "max_grad_norm": progress_info.max_grad_norm, 
                     "weight_norm": progress_info.weight_norm, 
                     "max_grad_norm_clip": progress_info.max_grad_norm_clip, 
@@ -686,8 +746,10 @@ def main(args):
                     "max_grad_norm_var": progress_info.max_grad_norm_var, 
                     "max_train_loss": progress_info.max_train_loss, 
                     "lr": lr_scheduler.get_last_lr()[0]
-                }, step=progress_info.global_step
-            )
+                }
+        if args.use_ema and (progress_info.global_step - 1) % args.ema_update_freq == 0:
+            log_dict.update(dict(cur_decay_value=cur_decay_value))
+        accelerator.log(log_dict, step=progress_info.global_step)
 
         if torch_npu is not None and npu_config is not None:
             npu_config.print_msg(f"Step: [{progress_info.global_step}], local_loss={loss.detach().item()}, "
@@ -862,9 +924,7 @@ def main(args):
                 loss = (loss_mse * mask).sum() / mask.sum()
             else:
                 loss = loss_mse.mean()
-        # Gather the losses across all processes for logging (if we use distributed training).
-        # avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
-        # progress_info.train_loss += loss.detach().item() / args.gradient_accumulation_steps
+                
         timesteps_list = accelerator.gather(timesteps)
         if torch.isnan(loss).any() or torch.isinf(loss).any():
             raise ValueError(f'Detect loss error, timestep {timesteps_list}')
@@ -943,26 +1003,25 @@ def main(args):
     def train_one_step(step_, data_item_, prof_=None):
         train_loss = 0.0
         x, attn_mask, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2 = data_item_
-        # print(f'step: {step_}, rank: {accelerator.process_index}, x: {x.shape}, dtype: {x.dtype}')
-        if args.extra_save_mem:
-            torch.cuda.empty_cache()
-            ae.vae.to(accelerator.device, dtype=torch.float32 if args.vae_fp32 else weight_dtype)
-            text_enc_1.to(accelerator.device, dtype=weight_dtype)
-            if text_enc_2 is not None:
-                text_enc_2.to(accelerator.device, dtype=weight_dtype)
+        # print(
+        #     f'step: {step_}, rank: {accelerator.process_index}, x: {x.shape}, dtype: {x.dtype}, '
+        #     f'attn_mask: {attn_mask.shape}, input_ids_1: {input_ids_1.shape}, cond_mask_1: {cond_mask_1.shape}, '
+        #     f'input_ids_2: {input_ids_2.shape}, cond_mask_2: {cond_mask_2.shape}' if input_ids_2 is not None else ''
+        #     )
 
         x = x.to(accelerator.device, dtype=ae.vae.dtype, non_blocking=True)  # B C T H W
         attn_mask = attn_mask.to(accelerator.device, non_blocking=True)  # B T H W
-        input_ids_1 = input_ids_1.to(accelerator.device, non_blocking=True)  # B 1 L
-        cond_mask_1 = cond_mask_1.to(accelerator.device, non_blocking=True)  # B 1 L
-        input_ids_2 = input_ids_2.to(accelerator.device, non_blocking=True) if input_ids_2 is not None else input_ids_2 # B 1 L
-        cond_mask_2 = cond_mask_2.to(accelerator.device, non_blocking=True) if cond_mask_2 is not None else cond_mask_2 # B 1 L
+        input_ids_1 = input_ids_1.to(accelerator.device, non_blocking=True)  # B L
+        cond_mask_1 = cond_mask_1.to(accelerator.device, non_blocking=True)  # B L
+        input_ids_2 = input_ids_2.to(accelerator.device, non_blocking=True) if input_ids_2 is not None else input_ids_2 # B L
+        cond_mask_2 = cond_mask_2.to(accelerator.device, non_blocking=True) if cond_mask_2 is not None else cond_mask_2 # B L
         
         with torch.no_grad():
-            B, N, L = input_ids_1.shape  # B 1 L
+            B, L = input_ids_1.shape  # B L
+            N = 1
             # use batch inference
-            input_ids_1 = input_ids_1.reshape(-1, L)
-            cond_mask_1 = cond_mask_1.reshape(-1, L)
+            # input_ids_1 = input_ids_1.reshape(-1, L)
+            # cond_mask_1 = cond_mask_1.reshape(-1, L)
             if args.random_data:
                 cond_1 = torch.rand(B, L, 2048, device=x.device, dtype=weight_dtype)
             else:
@@ -970,13 +1029,14 @@ def main(args):
             cond_1 = cond_1.reshape(B, N, L, -1)
             cond_mask_1 = cond_mask_1.reshape(B, N, L)
             if text_enc_2 is not None:
-                B_, N_, L_ = input_ids_2.shape  # B 1 L
-                input_ids_2 = input_ids_2.reshape(-1, L_)
+                B_, L_ = input_ids_2.shape  # B L
+                N_ = 1
+                # input_ids_2 = input_ids_2.reshape(-1, L_)
                 if args.random_data:
                     cond_2 = torch.rand(B, 1280, device=x.device, dtype=weight_dtype)
                 else:
                     cond_2 = text_enc_2(input_ids_2, cond_mask_2)  # B D
-                cond_2 = cond_2.reshape(B_, 1, -1)  # B 1 D
+                cond_2 = cond_2.reshape(B_, N_, -1)  # B 1 D
             else:
                 cond_2 = None
 
@@ -1000,18 +1060,13 @@ def main(args):
             #     x = (255*x).astype(np.uint8)
             #     array_to_video(x, fps=fps, output_file=output_file)
             #     return
-            # videos = ae.decode(x)[0]
-            # videos = videos.transpose(0, 1)
-            # custom_to_video(videos.to(torch.float32), fps=24, output_file='tmp.mp4')
+            # videos = ae.decode(x)
+            # for video in videos:
+            #     video = video.transpose(0, 1)
+            #     custom_to_video(video.to(torch.float32), fps=24, output_file='tmp.mp4')
             # import sys;sys.exit()
             
         # print("rank {} | step {} | after encode".format(accelerator.process_index, step_))
-        if args.extra_save_mem:
-            ae.vae.to('cpu')
-            text_enc_1.to('cpu')
-            if text_enc_2 is not None:
-                text_enc_2.to('cpu')
-            torch.cuda.empty_cache()
 
         current_step_frame = x.shape[2]
         current_step_sp_state = get_sequence_parallel_state()
@@ -1103,11 +1158,11 @@ def main(args):
         if args.enable_profiling:
             with torch.profiler.profile(
                 activities=[
-                    torch.profiler.ProfilerActivity.CPU, 
+                    # torch.profiler.ProfilerActivity.CPU, 
                     torch.profiler.ProfilerActivity.CUDA, 
                     ], 
                 schedule=torch.profiler.schedule(wait=5, warmup=1, active=1, repeat=1, skip_first=0),
-                on_trace_ready=torch.profiler.tensorboard_trace_handler('./gpu_profiling_active_1_delmask_delbkmask_andvaemask_curope_gpu'),
+                on_trace_ready=torch.profiler.tensorboard_trace_handler('./gpu_profiling_active_1_gpu'),
                 record_shapes=True,
                 profile_memory=True,
                 with_stack=True
@@ -1128,11 +1183,18 @@ def main(args):
     accelerator.end_training()
     if get_sequence_parallel_state():
         destroy_sequence_parallel_group()
+    # =======================================================================================================
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    
+
+    # deepspeed
+    parser.add_argument(
+        "--ema_deepspeed_config_file", type=str, default='scripts/accelerate_configs/zero3.json', 
+        help="deepspeed config file for EMA model"
+        )
+
     # dataset & dataloader
     parser.add_argument("--dataset", type=str, required=True)
     parser.add_argument("--data", type=str, required='')
@@ -1151,6 +1213,7 @@ if __name__ == "__main__":
     parser.add_argument('--cfg', type=float, default=0.1)
     parser.add_argument("--dataloader_num_workers", type=int, default=10, help="Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process.")
     parser.add_argument("--train_batch_size", type=int, default=16, help="Batch size (per device) for the training dataloader.")
+    parser.add_argument("--train_image_batch_size", type=int, default=1, help="Image batch size (per device) for the training dataloader.")
     parser.add_argument("--group_data", action="store_true")
     parser.add_argument("--hw_stride", type=int, default=32)
     parser.add_argument("--force_resolution", action="store_true")
@@ -1162,7 +1225,6 @@ if __name__ == "__main__":
 
     # text encoder & vae & diffusion model
     parser.add_argument('--vae_fp32', action='store_true')
-    parser.add_argument('--extra_save_mem', action='store_true')
     parser.add_argument("--model", type=str, choices=list(Diffusion_models.keys()), default="Latte-XL/122")
     parser.add_argument('--enable_tiling', action='store_true')
     parser.add_argument('--interpolation_scale_h', type=float, default=1.0)
@@ -1181,6 +1243,8 @@ if __name__ == "__main__":
     parser.add_argument('--v1_5_scheduler', action='store_true')
     parser.add_argument('--rf_scheduler', action='store_true')
     parser.add_argument('--skip_abnorml_step', action='store_true')
+    parser.add_argument("--post_to_device", action="store_true")
+    parser.add_argument("--ema_bf16", action="store_true")
     parser.add_argument("--weighting_scheme", type=str, default="logit_normal", choices=["sigma_sqrt", "logit_normal", "mode", "cosmap"])
     parser.add_argument("--logit_mean", type=float, default=0.0, help="mean to use when using the `'logit_normal'` weighting scheme.")
     parser.add_argument("--logit_std", type=float, default=1.0, help="std to use when using the `'logit_normal'` weighting scheme.")
@@ -1203,6 +1267,7 @@ if __name__ == "__main__":
     # validation & logs
     parser.add_argument("--log_interval", type=int, default=10)
     parser.add_argument("--enable_profiling", action="store_true")
+    parser.add_argument("--save_hf_style", action="store_true")
     parser.add_argument("--num_sampling_steps", type=int, default=20)
     parser.add_argument('--guidance_scale', type=float, default=4.5)
     parser.add_argument("--enable_tracker", action="store_true")

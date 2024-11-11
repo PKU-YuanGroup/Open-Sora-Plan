@@ -220,6 +220,8 @@ def save_video_grid(video, nrow=None):
 
 
 def run_model_and_save_samples(args, pipeline, caption_refiner_model=None, enhance_video_model=None):
+    dtype = torch.float32 if args.fp32 else torch.bfloat16
+
     if args.seed is not None:
         set_seed(args.seed, rank=args.local_rank, device_specific=True)
     if args.local_rank >= 0:
@@ -331,7 +333,7 @@ def run_model_and_save_samples(args, pipeline, caption_refiner_model=None, enhan
                             args.save_img_path,
                             f'{args.sample_method}_{index}_gs{args.guidance_scale}_s{args.num_sampling_steps}.mp4'
                         ), 
-                        videos[0],
+                        videos[0],  # 1 t h w c
                         fps=args.fps, 
                         quality=6
                         )  # highest quality is 10, lowest is 0
@@ -341,7 +343,7 @@ def run_model_and_save_samples(args, pipeline, caption_refiner_model=None, enhan
                             os.path.join(
                                 args.save_img_path,
                                 f'{args.sample_method}_{index}_gs{args.guidance_scale}_s{args.num_sampling_steps}_i{i}.mp4'
-                            ), videos[i],
+                            ), videos[i],  # t h w c
                             fps=args.fps, 
                             quality=6
                             )  # highest quality is 10, lowest is 0
@@ -376,22 +378,25 @@ def run_model_and_save_samples(args, pipeline, caption_refiner_model=None, enhan
         if not args.sp:
             if args.local_rank != -1:
                 dist.barrier()
-                video_grids = torch.cat(video_grids, dim=0).cuda()  # t h w c
+                assert len(args.text_prompt) >= args.world_size
+                video_grids = torch.cat(video_grids, dim=0).cuda()  # num c h w or 1 t h w c
                 
-                shape = list(video_grids.shape)  # t h w c, e.g, t = 7 or 8
-                max_sample = math.ceil(len(args.text_prompt) / args.world_size) * args.num_samples_per_prompt  # max = 8
-                video_grids_to_gather = [torch.zeros(*shape[1:], dtype=video_grids.dtype).cuda() for _ in range(max_sample)]
+                shape = list(video_grids.shape)  # num c h w or 1 t h w c
+                if args.num_frames == 1:
+                    max_sample = math.ceil(len(args.text_prompt) / args.world_size) * args.num_samples_per_prompt  # max = 8
+                else:
+                    max_sample = math.ceil(len(args.text_prompt) / args.world_size)
+                video_grids_to_gather = [torch.zeros(*shape[1:], dtype=torch.uint8).cuda() for _ in range(max_sample)]
                 # true video are filled to video_grids_to_gather, maybe the last element is all zero.
                 for i, v in enumerate(video_grids):
                     video_grids_to_gather[i] = v
                 video_grids_to_gather = torch.stack(video_grids_to_gather, dim=0)
 
                 shape[0] = max_sample * args.world_size
-                gathered_tensor = torch.zeros(shape, dtype=video_grids.dtype).cuda()
+                gathered_tensor = torch.zeros(shape, dtype=torch.uint8).cuda()
                 dist.all_gather_into_tensor(gathered_tensor, video_grids_to_gather.contiguous())
                 video_grids = gathered_tensor.cpu()
-
-                which_to_save = torch.sum(video_grids, dim=(1, 2, 3)).bool()
+                which_to_save = torch.sum(video_grids, dim=list(range(video_grids.ndim))[1:]).bool()
                 video_grids = video_grids[which_to_save]
                 dist.barrier()
             else:
@@ -486,6 +491,7 @@ def get_args():
     parser.add_argument('--local_rank', type=int, default=-1)    
     parser.add_argument('--world_size', type=int, default=1)    
     parser.add_argument('--sp', action='store_true')
+    parser.add_argument('--fp32', action='store_true')
 
     parser.add_argument('--v1_5_scheduler', action='store_true')
     parser.add_argument('--use_linear_quadratic_schedule', action='store_true')
