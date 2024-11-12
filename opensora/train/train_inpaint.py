@@ -236,7 +236,7 @@ def main(args):
             model_keys = set(list(model_state_dict.keys()))
             common_keys = list(pretrained_keys & model_keys)
             checkpoint = {k: pretrained_checkpoint[k] for k in common_keys if model_state_dict[k].numel() == pretrained_checkpoint[k].numel()}
-            if not 'pos_embed_masked_hidden_states.0.weight' in checkpoint:
+            if not 'pos_embed_masked_hidden_states.0.proj.weight' in checkpoint:
                 checkpoint['pos_embed_masked_hidden_states.0.proj.weight'] = checkpoint['pos_embed.proj.weight']
                 checkpoint['pos_embed_masked_hidden_states.0.proj.bias'] = checkpoint['pos_embed.proj.bias']
             missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=False)
@@ -266,7 +266,7 @@ def main(args):
             model_keys = set(list(model_state_dict.keys()))
             common_keys = list(pretrained_keys & model_keys)
             checkpoint = {k: pretrained_checkpoint[k] for k in common_keys if model_state_dict[k].numel() == pretrained_checkpoint[k].numel()}
-            if not 'pos_embed_masked_hidden_states.0.weight' in checkpoint:
+            if not 'pos_embed_masked_hidden_states.0.proj.weight' in checkpoint:
                 checkpoint['pos_embed_masked_hidden_states.0.proj.weight'] = checkpoint['pos_embed.proj.weight']
                 checkpoint['pos_embed_masked_hidden_states.0.proj.bias'] = checkpoint['pos_embed.proj.bias']
             missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=False)
