@@ -586,9 +586,9 @@ class T2V_dataset(Dataset):
         vid_shape_idx_dict = {}
         for idx, shape in enumerate(sample_size_video):
             if vid_shape_idx_dict.get(shape, None) is None:
-                vid_shape_idx_dict[shape] = [idx]
+                vid_shape_idx_dict[shape] = [idx + len(new_cap_list_batch_image)]
             else:
-                vid_shape_idx_dict[shape].append(idx)
+                vid_shape_idx_dict[shape].append(idx + len(new_cap_list_batch_image))
         
         new_cap_list = new_cap_list_batch_image + new_cap_list_video
         sample_size = sample_size_batch_image + sample_size_video

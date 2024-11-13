@@ -37,7 +37,7 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun --nnodes=1 --nproc_per_node 8 --ma
     --max_sequence_length 512 \
     --sample_method FlowMatchEulerDiscrete \
     --seed 1234 \
-    --num_samples_per_prompt 1 \
+    --num_samples_per_prompt 4 \
     --prediction_type "v_prediction" \
     --v1_5_scheduler \
     --use_linear_quadratic_schedule

@@ -88,7 +88,7 @@ if __name__ == "__main__":
         'interpolation_scale_h': 1,
         'interpolation_scale_w': 1,
         'cache_dir': '../cache_dir', 
-        'data': '/storage/anno_pkl/img_nocn_res160_json/filter_resolution_border_json/640_withcap_16part_16txt/part1.txt', 
+        'data': '/storage/anno_pkl/img_nocn_res160_json/filter_resolution_border_json/512_withcap_32part_32txt/part1.txt', 
         'train_fps': 18, 
         'drop_short_ratio': 1.0, 
         'speed_factor': 1.0, 
