@@ -13,7 +13,7 @@ from .ops import cast_tuple
 from .ops import video_to_image
 from torch.utils.checkpoint import checkpoint
 import torch.nn.functional as F
-
+from collections import deque
 
 class Conv2d(nn.Conv2d):
     def __init__(
@@ -58,7 +58,7 @@ class CausalConv3d(Block):
         kernel_size: Union[int, Tuple[int, int, int]],
         enable_cached=False,
         bias=True,
-        **kwargs,
+        **kwargs
     ):
         super().__init__()
         self.kernel_size = cast_tuple(kernel_size, 3)
@@ -79,33 +79,35 @@ class CausalConv3d(Block):
             bias=bias
         )
         self.enable_cached = enable_cached
-        self.causal_cached = None
+        
+        self.is_first_chunk = True
+        
+        self.causal_cached = deque()
         self.cache_offset = 0
 
     def forward(self, x):
-        x_dtype = x.dtype
-        if self.causal_cached is None:
+        if self.is_first_chunk:
             first_frame_pad = x[:, :, :1, :, :].repeat(
                 (1, 1, self.time_kernel_size - 1, 1, 1)
             )
         else:
-            first_frame_pad = self.causal_cached
+            first_frame_pad = self.causal_cached.popleft()
+            
         x = torch.concatenate((first_frame_pad, x), dim=2)
 
         if self.enable_cached and self.time_kernel_size != 1:
             if (self.time_kernel_size - 1) // self.stride[0] != 0:
                 if self.cache_offset == 0:
-                    self.causal_cached = x[:, :, -(self.time_kernel_size - 1) // self.stride[0]:]
+                    self.causal_cached.append(x[:, :, -(self.time_kernel_size - 1) // self.stride[0]:].clone())
                 else:
-                    self.causal_cached = x[:, :, :-self.cache_offset][:, :, -(self.time_kernel_size - 1) // self.stride[0]:]
+                    self.causal_cached.append(x[:, :, :-self.cache_offset][:, :, -(self.time_kernel_size - 1) // self.stride[0]:].clone())
             else:
-                self.causal_cached = x[:, :, 0:0, :, :]
-
-        if npu_config is not None and npu_config.on_npu:
-            return npu_config.run_conv3d(self.conv, x, x_dtype)
-        else:
-            x = self.conv(x)
-            return x
+                self.causal_cached.append(x[:, :, 0:0, :, :].clone())
+        elif self.enable_cached:
+            self.causal_cached.append(x[:, :, 0:0, :, :].clone())
+            
+        x = self.conv(x)
+        return x
 
 
 class CausalConv3d_GC(CausalConv3d):
