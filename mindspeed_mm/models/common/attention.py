@@ -1,20 +1,22 @@
-from typing import Tuple, Optional
-from einops import rearrange, repeat
-import torch.nn.functional as F
+from typing import Tuple, Optional, List
 import math
 
 import torch
+import torch.nn.functional as F
 import torch.nn as nn
 import torch_npu
-
+from einops import rearrange, repeat
 from megatron import core
 from megatron.core import mpu, tensor_parallel
 from megatron.training import get_args
 from megatron.training.arguments import core_transformer_config_from_args
+
+from diffusers.models.normalization import RMSNorm
+
 from mindspeed_mm.utils.utils import video_to_image
-from ..common.normalize import Normalize
-from .embeddings.rope import RoPE3D, PositionGetter3D
-from .conv import CausalConv3d
+from mindspeed_mm.models.common.normalize import normalize
+from mindspeed_mm.models.common.embeddings.rope import RoPE3D, PositionGetter3D, apply_rotary_emb
+from mindspeed_mm.models.common.conv import CausalConv3d, WfCausalConv3d
 
 # TODO: 使用megatron通信接口替换
 from .communications import (
@@ -23,21 +25,19 @@ from .communications import (
     split_forward_gather_backward,
 )
 
-class MultiHeadSparseAttentionSBH(nn.Module):
+class MultiHeadSparseMMAttentionSBH(nn.Module):
     """
     A multi-head attention layer for both self-atten and cross-atten, layout "SBH".
 
     Args:
         query_dim: The number of channels in the query.
-        cross_attention_dim: The number of channels in the key, defaults to `query_dim`.
+        key_dim: The number of channels in the key, defaults to `query_dim`.
         num_heads: The number of heads to use for multi-head attention.
         head_dim: The number of channels in each head.
         dropout: The dropout probability to use.
         proj_qkv_bias: Whether to use bias in qkv projection.
         proj_out_bias: Whether to use bias in out projection.
-        use_rope: Whether to use rope
         interpolation_scale: The scale of interpolation.
-
     """
 
     def __init__(
@@ -46,14 +46,18 @@ class MultiHeadSparseAttentionSBH(nn.Module):
         key_dim: int,
         num_heads: int,
         head_dim: int,
+        added_kv_proj_dim: int = None,
         dropout: float = 0.0,
         proj_qkv_bias: bool = False,
         proj_out_bias: bool = True,
-        interpolation_scale: Tuple[int] = (1, 1, 1),
-        sparse1d=False,
-        sparse_n=None,
-        sparse_group=None,
-        is_cross_attn=False,
+        sparse1d: bool = False,
+        sparse_n: int = None,
+        sparse_group: bool = None,
+        is_cross_attn: bool = False,
+        context_pre_only:bool = False,
+        qk_norm: Optional[str] = None,
+        eps: float = 1e-5,
+        elementwise_affine: bool = True,
     ):
         super().__init__()
         self.num_heads = num_heads
@@ -63,9 +67,10 @@ class MultiHeadSparseAttentionSBH(nn.Module):
         self.sparse_n = sparse_n
         self.sparse_group = sparse_group
         self.is_cross_attn = is_cross_attn
-        if not self.is_cross_attn:
-            self.rope = RoPE3D(interpolation_scale=interpolation_scale)
-            self.position_getter = PositionGetter3D()
+
+        self.context_pre_only = context_pre_only
+        self.added_kv_proj_dim = added_kv_proj_dim
+        
 
         args = get_args()
         config = core_transformer_config_from_args(args)
@@ -75,6 +80,18 @@ class MultiHeadSparseAttentionSBH(nn.Module):
         self.num_attention_heads_per_partition = core.utils.divide(num_heads, self.tp_size)
         self.num_attention_heads_per_partition_per_cp = core.utils.divide(self.num_attention_heads_per_partition,
                                                                           self.sp_size)
+        
+        if qk_norm is None:
+            self.norm_proj_q = None
+            self.norm_proj_k = None
+        elif qk_norm == "layer_norm":
+            self.norm_proj_q = nn.LayerNorm(head_dim, eps=eps, elementwise_affine=elementwise_affine)
+            self.norm_proj_k = nn.LayerNorm(head_dim, eps=eps, elementwise_affine=elementwise_affine)
+        elif qk_norm == "rms_norm":
+            self.norm_proj_q = RMSNorm(head_dim, eps=eps)
+            self.norm_proj_k = RMSNorm(head_dim, eps=eps)
+        else:
+            raise ValueError(f"Unsupported qk_norm: {qk_norm}")
 
         key_dim = key_dim if key_dim is not None else query_dim
 
@@ -94,6 +111,7 @@ class MultiHeadSparseAttentionSBH(nn.Module):
             bias=proj_qkv_bias,
             gather_output=False
         )
+
         self.proj_v = tensor_parallel.ColumnParallelLinear(
             self.inner_dim,
             key_dim,
@@ -102,6 +120,33 @@ class MultiHeadSparseAttentionSBH(nn.Module):
             bias=proj_qkv_bias,
             gather_output=False
         )
+
+        if self.added_kv_proj_dim is not None:
+            self.added_proj_k = tensor_parallel.ColumnParallelLinear(
+                self.inner_dim,
+                self.added_kv_proj_dim,
+                config=config,
+                init_method=config.init_method,
+                bias=proj_qkv_bias,
+                gather_output=False
+            )
+            self.added_proj_v = tensor_parallel.ColumnParallelLinear(
+                self.inner_dim,
+                self.added_kv_proj_dim,
+                config=config,
+                init_method=config.init_method,
+                bias=proj_qkv_bias,
+                gather_output=False
+            )
+            if self.context_pre_only is not None:
+                self.added_proj_q = tensor_parallel.ColumnParallelLinear(
+                    self.inner_dim,
+                    self.added_kv_proj_dim,
+                    config=config,
+                    init_method=config.init_method,
+                    bias=proj_qkv_bias,
+                    gather_output=False
+                )
 
         self.proj_out = tensor_parallel.RowParallelLinear(
             query_dim,
@@ -113,17 +158,40 @@ class MultiHeadSparseAttentionSBH(nn.Module):
             skip_bias_add=False
         )
 
+        if self.context_pre_only is not None and not self.context_pre_only:
+            self.added_proj_out = tensor_parallel.RowParallelLinear(
+                added_kv_proj_dim,
+                self.inner_dim,
+                config=config,
+                init_method=config.init_method,
+                bias=proj_out_bias,
+                input_is_parallel=True,
+                skip_bias_add=False
+            )
+        
         self.dropout = nn.Dropout(dropout)
+
+        if qk_norm is not None and added_kv_proj_dim is not None:
+            if qk_norm == "layer_norm":
+                self.norm_added_proj_q = nn.LayerNorm(added_kv_proj_dim, eps=eps, elementwise_affine=elementwise_affine)
+                self.norm_added_proj_k = nn.LayerNorm(added_kv_proj_dim, eps=eps, elementwise_affine=elementwise_affine)
+            elif qk_norm == "rms_norm":
+                self.norm_added_proj_q = RMSNorm(added_kv_proj_dim, eps=eps)
+                self.norm_added_proj_k = RMSNorm(added_kv_proj_dim, eps=eps)
+            else:
+                raise ValueError(f"Unsupported qk_norm: {qk_norm}")
+        
 
     def _sparse_1d(self, x, frame, height, width):
         """
         require the shape of (ntokens x batch_size x dim)
         """
-        l = x.shape[0]
-        assert l == frame * height * width
+        _len = x.shape[0]
+        if _len != frame * height * width:
+            raise ValueError("shape mismatched.")
         pad_len = 0
-        if l % (self.sparse_n * self.sparse_n) != 0:
-            pad_len = self.sparse_n * self.sparse_n - l % (self.sparse_n * self.sparse_n)
+        if _len % (self.sparse_n * self.sparse_n) != 0:
+            pad_len = self.sparse_n * self.sparse_n - _len % (self.sparse_n * self.sparse_n)
         if pad_len != 0:
             x = F.pad(x, (0, 0, 0, 0, 0, pad_len))
         if not self.sparse_group:
@@ -136,7 +204,8 @@ class MultiHeadSparseAttentionSBH(nn.Module):
         """
         require the shape of (ntokens x batch_size x dim)
         """
-        assert x.shape[0] == (frame * height * width + pad_len) // self.sparse_n
+        if x.shape[0] != (frame * height * width + pad_len) // self.sparse_n:
+            raise ValueError("shape mismatched.")
         if not self.sparse_group:
             x = rearrange(x, 'g (k b) d -> (g k) b d', k=self.sparse_n)
         else:
@@ -144,108 +213,149 @@ class MultiHeadSparseAttentionSBH(nn.Module):
         x = x[:frame * height * width, :, :]
         return x
 
-    def _sparse_1d_kv(self, x):
+    def _sparse_1d_enc(self, x):
         """
         require the shape of (ntokens x batch_size x dim)
         """
         x = repeat(x, 's b d -> s (k b) d', k=self.sparse_n)
         return x
 
+    def _reverse_sparse_1d_enc(self, x):
+        """
+        require the shape of (ntokens x batch_size x dim)
+        """
+        x = rearrange(x, 's (k b) d -> s k b d', k=self.sparse_n).mean(1)
+        return x
+    
     def forward(
         self,
         hidden_states: torch.Tensor,
-        encoder_hidden_states: Optional[torch.Tensor] = None,
+        encoder_hidden_states: torch.Tensor,
+        frames: int, 
+        height: int, 
+        width: int, 
         attention_mask: Optional[torch.Tensor] = None,
-        frames: int = 8,
-        height: int = 16,
-        width: int = 16,
+        video_rotary_emb: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
         Args:
-            query: The hidden states of the query.
-            key: The hidden states of the key.
-            mask: The attention mask to use.
-            **kwargs: Additional keyword arguments to pass along
+            hidden_states: The hidden states of the visual stream.
+            encoder_hidden_states: The hidden states of the textual stream.
+            frames: The frame number of video
+            height: The height of the video
+            width: The width of the video
+            attention_mask: The attention mask to use.
+            video_rotary_emb: The rotary embeddings for the video
         """
+        visual_sequence_length, batch_size, _ = hidden_states.shape
+        text_sequence_length_length, batch_size, _  = encoder_hidden_states.shape
 
-        residual = hidden_states
-
-        sequence_length, batch_size, _ = hidden_states.shape
-
-        query, _ = self.proj_q(hidden_states)
-
-        if encoder_hidden_states is None:
-            encoder_hidden_states = hidden_states
-
-        key, _ = self.proj_k(encoder_hidden_states)
-        value, _ = self.proj_v(encoder_hidden_states)
+        # Step 1: Project the hidden states and encoder hidden states
+        q, _ = self.proj_q(hidden_states)
+        k, _ = self.proj_k(hidden_states)
+        v, _ = self.proj_v(hidden_states)
+        added_q, _ = self.added_proj_q(encoder_hidden_states)
+        added_k, _ = self.added_proj_k(encoder_hidden_states)
+        added_v, _ = self.added_proj_v(encoder_hidden_states)
 
         total_frames = frames
 
         if self.sp_size > 1:
-            query = query.view(-1, self.num_attention_heads_per_partition, self.head_dim)
-            key = key.view(-1, self.num_attention_heads_per_partition, self.head_dim)
-            value = value.view(-1, self.num_attention_heads_per_partition, self.head_dim)
+            q = q.view(-1, self.num_attention_heads_per_partition, self.head_dim)
+            k = k.view(-1, self.num_attention_heads_per_partition, self.head_dim)
+            v = v.view(-1, self.num_attention_heads_per_partition, self.head_dim)
             total_frames = frames * self.sp_size
             sp_group = mpu.get_context_parallel_group()
 
             # apply all_to_all to gather sequence and split attention heads [s // sp * b, h, d] -> [s * b, h // sp, d]
-            query = all_to_all_SBH(query, sp_group, scatter_dim=1, gather_dim=0)
-            key = all_to_all_SBH(key, sp_group, scatter_dim=1, gather_dim=0)
-            value = all_to_all_SBH(value, sp_group, scatter_dim=1, gather_dim=0)
-        query = query.view(-1, batch_size, self.num_attention_heads_per_partition_per_cp, self.head_dim)
-        key = key.view(-1, batch_size, self.num_attention_heads_per_partition_per_cp, self.head_dim)
+            q = all_to_all_SBH(q, sp_group, scatter_dim=1, gather_dim=0)
+            k = all_to_all_SBH(k, sp_group, scatter_dim=1, gather_dim=0)
+            v = all_to_all_SBH(v, sp_group, scatter_dim=1, gather_dim=0)
 
-        if not self.is_cross_attn:
-            # require the shape of (ntokens x batch_size x nheads x dim)
-            pos_thw = self.position_getter(batch_size, t=total_frames, h=height, w=width, device=query.device)
-            query = self.rope(query, pos_thw)
-            key = self.rope(key, pos_thw)
+            added_q = added_q.view(-1, self.num_attention_heads_per_partition, self.head_dim)
+            added_k = added_k.view(-1, self.num_attention_heads_per_partition, self.head_dim)
+            added_v = added_v.view(-1, self.num_attention_heads_per_partition, self.head_dim)
 
-        query = query.view(-1, batch_size, self.num_attention_heads_per_partition_per_cp * self.head_dim)
-        key = key.view(-1, batch_size, self.num_attention_heads_per_partition_per_cp * self.head_dim)
-        value = value.view(-1, batch_size, self.num_attention_heads_per_partition_per_cp * self.head_dim)
+            added_q = all_to_all_SBH(added_q, sp_group, scatter_dim=1, gather_dim=0)
+            added_k = all_to_all_SBH(added_k, sp_group, scatter_dim=1, gather_dim=0)
+            added_v = all_to_all_SBH(added_v, sp_group, scatter_dim=1, gather_dim=0)
+
+        # Step 2: QK Norm
+        q = q.view(-1, batch_size, self.num_attention_heads_per_partition_per_cp, self.head_dim)
+        k = k.view(-1, batch_size, self.num_attention_heads_per_partition_per_cp, self.head_dim)
+        q = self.norm_proj_q(q)
+        k = self.norm_proj_k(k)
+
+        added_q = added_q.view(-1, batch_size, self.num_attention_heads_per_partition_per_cp, self.head_dim)
+        added_k = added_k.view(-1, batch_size, self.num_attention_heads_per_partition_per_cp, self.head_dim)
+        added_q = self.norm_added_proj_q(added_q)
+        added_k = self.norm_added_proj_k(added_k)
+
+        # Step 3: Apply rope
+        q = apply_rotary_emb(q, video_rotary_emb)
+        k = apply_rotary_emb(k, video_rotary_emb)
+
+        q = q.view(-1, batch_size, self.num_attention_heads_per_partition_per_cp * self.head_dim)
+        k = k.view(-1, batch_size, self.num_attention_heads_per_partition_per_cp * self.head_dim)
+        v = v.view(-1, batch_size, self.num_attention_heads_per_partition_per_cp * self.head_dim)
+
+        added_q = added_q.view(-1, batch_size, self.num_attention_heads_per_partition_per_cp * self.head_dim)
+        added_k = added_k.view(-1, batch_size, self.num_attention_heads_per_partition_per_cp * self.head_dim)
+        added_v = added_v.view(-1, batch_size, self.num_attention_heads_per_partition_per_cp * self.head_dim)
+
+        # Step 4: Sparse 1D
         if self.sparse1d:
-            query, pad_len = self._sparse_1d(query, total_frames, height, width)
-            if self.is_cross_attn:
-                key = self._sparse_1d_kv(key)
-                value = self._sparse_1d_kv(value)
-            else:
-                key, pad_len = self._sparse_1d(key, total_frames, height, width)
-                value, pad_len = self._sparse_1d(value, total_frames, height, width)
+            q, pad_len = self._sparse_1d(q, total_frames, height, width)
+            k, _ = self._sparse_1d(k, total_frames, height, width)
+            v, _ = self._sparse_1d(v, total_frames, height, width)
+            added_q = self._sparse_1d_enc(added_q)
+            added_k = self._sparse_1d_enc(added_k)
+            added_v = self._sparse_1d_enc(added_v)
 
-        hidden_states = torch_npu.npu_fusion_attention(
-            query,
-            key,
-            value,
+        # Step 5: Concat hidden_states and encoder_hidden_states to do mm attention
+        q = torch.cat([q, added_q], dim=0)
+        k = torch.cat([k, added_k], dim=0)
+        v = torch.cat([v, added_v], dim=0)
+
+        out = torch_npu.npu_fusion_attention(
+            q,
+            k,
+            v,
             head_num=self.num_attention_heads_per_partition_per_cp,
             atten_mask=attention_mask,
             input_layout="SBH",
             scale=1 / math.sqrt(self.head_dim)
         )[0]
 
+        hidden_states, encoder_hidden_states = out.split([visual_sequence_length, text_sequence_length_length], dim=0)
+
+        # Step 6: Reverse sparse 1D
         if self.sparse1d:
             hidden_states = self._reverse_sparse_1d(hidden_states, total_frames, height, width, pad_len)
+            encoder_hidden_states = self._reverse_sparse_1d_enc(encoder_hidden_states)
 
         # [s, b, h // sp * d] -> [s // sp * b, h, d] -> [s // sp, b, h * d]
         if self.sp_size > 1:
             sp_group = mpu.get_context_parallel_group()
-            hidden_states = all_to_all_SBH(hidden_states.reshape(-1, self.num_attention_heads_per_partition_per_cp, self.head_dim),
-                                           sp_group, scatter_dim=0, gather_dim=1)
-            hidden_states = hidden_states.view(sequence_length, batch_size, -1)
+            hidden_states = all_to_all_SBH(
+                hidden_states.reshape(-1, self.num_attention_heads_per_partition_per_cp, self.head_dim),
+                sp_group, scatter_dim=0, gather_dim=1)
+            hidden_states = hidden_states.view(visual_sequence_length, batch_size, -1)
 
-        hidden_states = hidden_states.to(query.dtype)
-
-        # linear proj
-        hidden_states, _ = self.proj_out(hidden_states)
-        # dropout
+            encoder_hidden_states = all_to_all_SBH(
+                encoder_hidden_states.reshape(-1, self.num_attention_heads_per_partition_per_cp, self.head_dim),
+                sp_group, scatter_dim=0, gather_dim=1)
+            encoder_hidden_states = encoder_hidden_states.view(text_sequence_length_length, batch_size, -1)
+        
+        # Step 7: Project out
+        hidden_states = self.proj_out(hidden_states)
         hidden_states = self.dropout(hidden_states)
 
-        # if attn.residual_connection:
-        #     print('attn.residual_connection')
-        # hidden_states = hidden_states + residual
+        if not self.context_pre_only:
+            encoder_hidden_states = self.added_proj_out(encoder_hidden_states)
 
-        return hidden_states
+        return hidden_states, encoder_hidden_states
+
 
 class MultiHeadAttentionBSH(nn.Module):
     """
@@ -283,7 +393,7 @@ class MultiHeadAttentionBSH(nn.Module):
         self.use_rope = use_rope
         if self.use_rope:
             self.rope = RoPE3D(interpolation_scale=interpolation_scale)
-            self.position_getter = PositionGetter3D()
+            self.position_getter = PositionGetter3D(atten_layout="BSH")
 
         key_dim = key_dim if key_dim is not None else query_dim
 
@@ -394,7 +504,7 @@ class ParallelMultiHeadAttentionSBH(nn.Module):
         self.use_rope = use_rope
         if self.use_rope:
             self.rope = RoPE3D(interpolation_scale=interpolation_scale)
-            self.position_getter = PositionGetter3D()
+            self.position_getter = PositionGetter3D(atten_layout="SBH")
 
         key_dim = key_dim if key_dim is not None else query_dim
 
@@ -539,7 +649,7 @@ class Attention(nn.Module):
             scale=self.scale,
             pre_tockens=65536,
             next_tockens=65536,
-            keep_prob=1. - self.attn_drop.p if self.training else 1., 
+            keep_prob=1. - self.attn_drop.p if self.training else 1.,
             sync=False,
             inner_precise=0
         )[0]
@@ -608,7 +718,7 @@ class Attention(nn.Module):
             if self.rope:
                 q = self.rotary_emb(q)
                 k = self.rotary_emb(k)
-    
+
         dtype = q.dtype
         q = q * self.scale
         attn = q @ k.transpose(-2, -1)  # translate attn to float32
@@ -617,7 +727,7 @@ class Attention(nn.Module):
         attn = attn.to(dtype)  # cast back attn to original dtype
         attn = self.attn_drop(attn)
         x = attn @ v
-    
+
         x_output_shape = (B, N, C)
         if not enable_flashattn:
             x = x.transpose(1, 2)
@@ -927,10 +1037,11 @@ class CausalConv3dAttnBlock(nn.Module):
         num_groups=32,
         eps=1e-6,
         affine=True,
-        norm_type="groupnorm",
     ):
         super().__init__()
-        self.norm = Normalize(in_channels, num_groups, eps, affine, norm_type=norm_type)
+        self.norm = nn.GroupNorm(
+            num_groups=num_groups, num_channels=in_channels, eps=eps, affine=affine
+        )
         self.q = CausalConv3d(
             in_channels, out_channels, kernel_size=kernel_size, stride=stride
         )
@@ -941,6 +1052,73 @@ class CausalConv3dAttnBlock(nn.Module):
             in_channels, out_channels, kernel_size=kernel_size, stride=stride
         )
         self.proj_out = CausalConv3d(
+            in_channels, out_channels, kernel_size=kernel_size, stride=stride
+        )
+
+    def forward(self, x):
+        y = x
+        y = self.norm(y)
+        q = self.q(y)
+        k = self.k(y)
+        v = self.v(y)
+
+        # compute attention
+        # q: (b c t h w) -> (b t c h w) -> (b*t c h*w) -> (b*t h*w c)
+        b, c, t, h, w = q.shape
+        q = torch_npu.npu_confusion_transpose(
+            q, (0, 2, 1, 3, 4), (b * t, c, h * w), True
+        )
+        q = q.permute(0, 2, 1)
+
+        # k: (b c t h w) -> (b t c h w) -> (b*t c h*w)
+        k = torch_npu.npu_confusion_transpose(
+            k, (0, 2, 1, 3, 4), (b * t, c, h * w), True
+        )
+
+        # w: (b*t hw hw)
+        z = torch.bmm(q, k)
+        z = z * (int(c) ** (-0.5))
+        z = torch.nn.functional.softmax(z, dim=2)
+
+        # attend to values
+        # v: (b c t h w) -> (b t c h w) -> (bt c hw)
+        # z: (bt hw hw) -> (bt hw hw)
+        v = torch_npu.npu_confusion_transpose(v, (0, 2, 1, 3, 4), (b * t, c, h * w), True)
+        z = z.permute(0, 2, 1)  # [b, hw, hw] (first hw of k, second of q)
+        y = torch.bmm(v, z)  # [b, c, hw] (hw of q)
+
+        # y: (b*t c hw) -> (b t c h w) -> (b c t h w)
+        y = torch_npu.npu_confusion_transpose(y, (0, 2, 1, 3, 4), (b, t, c, h, w), False)
+
+        y = self.proj_out(y)
+
+        return x + y
+
+
+class WfCausalConv3dAttnBlock(nn.Module):
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        kernel_size=1,
+        stride=1,
+        num_groups=32,
+        eps=1e-6,
+        affine=True,
+        norm_type="groupnorm",
+    ):
+        super().__init__()
+        self.norm = normalize(in_channels, num_groups, eps, affine, norm_type=norm_type)
+        self.q = WfCausalConv3d(
+            in_channels, out_channels, kernel_size=kernel_size, stride=stride
+        )
+        self.k = WfCausalConv3d(
+            in_channels, out_channels, kernel_size=kernel_size, stride=stride
+        )
+        self.v = WfCausalConv3d(
+            in_channels, out_channels, kernel_size=kernel_size, stride=stride
+        )
+        self.proj_out = WfCausalConv3d(
             in_channels, out_channels, kernel_size=kernel_size, stride=stride
         )
 
@@ -956,13 +1134,6 @@ class CausalConv3dAttnBlock(nn.Module):
         k = k.permute(0, 2, 3, 4, 1).reshape(b * t, h * w, c).contiguous()
         v = v.permute(0, 2, 3, 4, 1).reshape(b * t, h * w, c).contiguous()
 
-        if q.dtype == torch.float32:
-            dtype = torch.float32
-            q = q.to(torch.bfloat16)
-            k = k.to(torch.bfloat16)
-            v = v.to(torch.bfloat16)
-        else:
-            dtype = q.dtype
         attn_output = torch_npu.npu_fusion_attention(
             q,
             k,
@@ -972,12 +1143,12 @@ class CausalConv3dAttnBlock(nn.Module):
             input_layout="BSH",
             scale=1 / math.sqrt(c)
         )[0]
-        attn_output = attn_output.to(dtype)
 
         attn_output = attn_output.reshape(b, t, h, w, c).permute(0, 4, 1, 2, 3)
         h_ = self.proj_out(attn_output)
 
         return x + h_
+
 
 class WhisperAttention(nn.Module):
     """
@@ -1011,7 +1182,6 @@ class WhisperAttention(nn.Module):
         self.num_heads = num_heads
         self.head_dim = head_dim
         self.inner_dim = self.num_heads * self.head_dim
-
 
         key_dim = key_dim if key_dim is not None else query_dim
 

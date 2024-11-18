@@ -4,6 +4,7 @@
 import os
 import random
 from typing import Union
+from concurrent.futures import ThreadPoolExecutor
 
 import torch
 import numpy as np
@@ -13,13 +14,14 @@ from mindspeed_mm.data.data_utils.constants import (
     FILE_INFO,
     PROMPT_IDS,
     PROMPT_MASK,
+    PROMPT_MASK_2,
+    PROMPT_IDS_2,
     TEXT,
     VIDEO,
     IMG_FPS
 )
 from mindspeed_mm.data.data_utils.utils import (
     VID_EXTENSIONS,
-    DataSetProg,
     ImageProcesser,
     TextProcesser,
     VideoProcesser,
@@ -27,7 +29,11 @@ from mindspeed_mm.data.data_utils.utils import (
 )
 from mindspeed_mm.data.datasets.mm_base_dataset import MMBaseDataset
 from mindspeed_mm.models import Tokenizer
-from mindspeed_mm.data.data_utils.data_transform import MaskGenerator
+from mindspeed_mm.data.data_utils.data_transform import (
+    MaskGenerator,
+    add_aesthetic_notice_image,
+    add_aesthetic_notice_video
+)
 
 
 T2VOutputData = {
@@ -35,6 +41,8 @@ T2VOutputData = {
     TEXT: [],
     PROMPT_IDS: [],
     PROMPT_MASK: [],
+    PROMPT_IDS_2: [],
+    PROMPT_MASK_2: [],
 }
 
 
@@ -58,21 +66,20 @@ class T2VDataset(MMBaseDataset):
         basic_param: dict,
         vid_img_process: dict,
         use_text_processer: bool = False,
+        enable_text_preprocessing: bool = True,
         use_clean_caption: bool = True,
         support_chinese: bool = False,
         model_max_length: int = 120,
         tokenizer_config: Union[dict, None] = None,
+        tokenizer_config_2: Union[dict, None] = None,
         use_feature_data: bool = False,
-        vid_img_fusion_by_splicing: bool = False,
-        use_img_num: int = 0,
         use_img_from_vid: bool = True,
         **kwargs,
     ):
         super().__init__(**basic_param)
         self.use_text_processer = use_text_processer
+        self.enable_text_preprocessing = enable_text_preprocessing
         self.use_feature_data = use_feature_data
-        self.vid_img_fusion_by_splicing = vid_img_fusion_by_splicing
-        self.use_img_num = use_img_num
         self.use_img_from_vid = use_img_from_vid
 
         self.num_frames = vid_img_process.get("num_frames", 16)
@@ -81,14 +88,39 @@ class T2VDataset(MMBaseDataset):
 
         self.max_height = vid_img_process.get("max_height", 480)
         self.max_width = vid_img_process.get("max_width", 640)
+        self.max_hxw = vid_img_process.get("max_hxw", None)
+        self.min_hxw = vid_img_process.get("min_hxw", None)
         self.train_fps = vid_img_process.get("train_fps", 24)
         self.speed_factor = vid_img_process.get("speed_factor", 1.0)
+        self.too_long_factor = vid_img_process.get("too_long_factor", 1.0)
         self.drop_short_ratio = vid_img_process.get("drop_short_ratio", 1.0)
         self.cfg = vid_img_process.get("cfg", 0.1)
         self.image_processer_type = vid_img_process.get(
-            "image_processer_type", "image2video"
+            "image_processer_type", "image2image"
         )
+        self.data_process_type = vid_img_process.get("data_process_type", "")
+        self.skip_frame_num = vid_img_process.get("skip_frame_num", 0)
+        self.fps = vid_img_process.get("fps", None)
 
+        self.hw_stride = vid_img_process.get("hw_stride", 32)
+        self.ae_stride_t = vid_img_process.get("ae_stride_t", 32)
+        self.force_resolution = vid_img_process.get("force_resolution", True)
+        self.force_5_ratio = vid_img_process.get("force_5_ratio", True)
+        self.sp_size = vid_img_process.get("sp_size", 1)
+        self.train_sp_batch_size = vid_img_process.get("train_sp_batch_size", 1)
+        self.gradient_accumulation_size = vid_img_process.get("gradient_accumulation_size", 1)
+        self.batch_size = vid_img_process.get("batch_size", 1)
+        self.seed = vid_img_process.get("seed", 42)
+        self.hw_aspect_thr = vid_img_process.get("hw_aspect_thr", 1.5)
+        self.min_num_frames = vid_img_process.get("min_num_frames", 29)
+        self.use_aesthetic = vid_img_process.get("use_aesthetic", False) 
+
+        max_workers = vid_img_process.get("max_workers", 1)
+        self.executor = ThreadPoolExecutor(max_workers=max_workers)
+        self.timeout = vid_img_process.get("timeout", 60) 
+        
+        if self.max_hxw is not None and self.min_hxw is None:
+            self.min_hxw = self.max_hxw // 4
         self.train_pipeline = vid_img_process.get("train_pipeline", None)
         self.video_reader_type = vid_img_process.get("video_reader_type", "torchvision")
         self.image_reader_type = vid_img_process.get("image_reader_type", "torchvision")
@@ -98,11 +130,27 @@ class T2VDataset(MMBaseDataset):
             frame_interval=self.frame_interval,
             train_pipeline=self.train_pipeline,
             data_storage_mode=self.data_storage_mode,
+            data_process_type=self.data_process_type,
+            skip_frame_num=self.skip_frame_num,
+            fps=self.fps,
             train_fps=self.train_fps,
             speed_factor=self.speed_factor,
+            too_long_factor=self.too_long_factor,
             drop_short_ratio=self.drop_short_ratio,
             max_height=self.max_height,
             max_width=self.max_width,
+            max_hxw=self.max_hxw,
+            min_hxw=self.min_hxw,
+            force_resolution=self.force_resolution,
+            force_5_ratio=self.force_5_ratio,
+            seed=self.seed,
+            hw_stride=self.hw_stride,
+            hw_aspect_thr=self.hw_aspect_thr,
+            sp_size=self.sp_size,
+            train_sp_batch_size=self.train_sp_batch_size,
+            gradient_accumulation_size=self.gradient_accumulation_size,
+            batch_size=self.batch_size,
+            min_num_frames=self.min_num_frames
         )
         self.image_processer = ImageProcesser(
             num_frames=self.num_frames,
@@ -112,36 +160,35 @@ class T2VDataset(MMBaseDataset):
         )
         if self.use_text_processer and tokenizer_config is not None:
             self.tokenizer = Tokenizer(tokenizer_config).get_tokenizer()
+            self.tokenizer_2 = None
+            if tokenizer_config_2 is not None:
+                self.tokenizer_2 = Tokenizer(tokenizer_config_2).get_tokenizer()
             self.text_processer = TextProcesser(
                 model_max_length=model_max_length,
                 tokenizer=self.tokenizer,
+                enable_text_preprocessing=self.enable_text_preprocessing,
+                tokenizer_2=self.tokenizer_2,
                 use_clean_caption=use_clean_caption,
                 support_chinese=support_chinese,
                 cfg=self.cfg,
             )
 
         if self.data_storage_mode == "combine":
-            self.dataset_prog = DataSetProg()
-            dataloader_num_workers = vid_img_process.get("dataloader_num_workers", 1)
-            self.data_samples, self.sample_num_frames = (
+            self.data_samples, self.sample_size, self.shape_idx_dict = (
                 self.video_processer.define_frame_index(self.data_samples)
-            )
-            self.lengths = self.sample_num_frames
-            n_elements = len(self.data_samples)
-            self.dataset_prog.set_cap_list(
-                dataloader_num_workers, self.data_samples, n_elements
             )
 
     def __getitem__(self, index):
         try:
-            return self.getitem(index)
+            future = self.executor.submit(self.getitem, index)
+            data = future.result(timeout=self.timeout) 
+            return data
         except Exception as e:
-            if self.data_storage_mode == "standard":
-                path = self.data_samples[index][FILE_INFO]
-                print(f"Data {path}: the error is {e}")
-            else:
-                print(f"the error is {e}")
-            return self.__getitem__(np.random.randint(0, self.__len__() - 1))
+            if len(str(e)) < 2:
+                e = f"TimeoutError, {self.timeout}s timeout occur with {self.cap_list.iloc[index]['path']}"
+            print(f"Error: {e}")
+            index_cand = self.shape_idx_dict[self.sample_size[index]]  # pick same shape
+            return self.__getitem__(random.choice(index_cand))
 
     def __len__(self):
         return len(self.data_samples)
@@ -149,28 +196,7 @@ class T2VDataset(MMBaseDataset):
     def getitem(self, index):
         # init output data
         examples = T2VOutputData
-        if self.data_storage_mode == "standard":
-            sample = self.data_samples[index]
-            if self.use_feature_data:
-                raise NotImplementedError("Not support now.")
-            else:
-                path, texts = sample[FILE_INFO], sample[CAPTIONS]
-                if self.data_folder:
-                    path = os.path.join(self.data_folder, path)
-                examples[TEXT] = texts
-                video_value = (
-                    self.get_vid_img_fusion(path)
-                    if self.vid_img_fusion_by_splicing
-                    else self.get_value_from_vid_or_img(path)
-                )
-                examples[VIDEO] = video_value
-                if self.use_text_processer:
-                    prompt_ids, prompt_mask = self.get_text_processer(texts)
-                    examples[PROMPT_IDS], examples[PROMPT_MASK] = (
-                        prompt_ids,
-                        prompt_mask,
-                    )
-        elif self.data_storage_mode == "combine":
+        if self.data_storage_mode == "combine":
             examples = self.get_merge_data(examples, index)
         else:
             raise NotImplementedError(
@@ -182,7 +208,7 @@ class T2VDataset(MMBaseDataset):
         raise NotImplementedError("Not implemented.")
 
     def get_merge_data(self, examples, index):
-        sample = self.dataset_prog.cap_list[index]
+        sample = self.data_samples.iloc[index]
         file_path = sample["path"]
         if not os.path.exists(file_path):
             raise AssertionError(f"file {file_path} do not exist!")
@@ -194,6 +220,7 @@ class T2VDataset(MMBaseDataset):
                 vframes,
                 is_decord_read=is_decord_read,
                 predefine_num_frames=len(frame_indice),
+                crop=sample.get("crop", [None, None, None, None]),
             )
             examples[VIDEO] = video
         elif file_type == "image":
@@ -204,52 +231,20 @@ class T2VDataset(MMBaseDataset):
         if not isinstance(text, list):
             text = [text]
         text = [random.choice(text)]
-        prompt_ids, prompt_mask = self.get_text_processer(text)
-        examples[PROMPT_IDS], examples[PROMPT_MASK] = prompt_ids, prompt_mask
+        if self.use_aesthetic:
+            if sample.get('aesthetic', None) is not None or sample.get('aes', None) is not None:
+                aes = sample.get('aesthetic', None) or sample.get('aes', None)
+                if file_type == "video":
+                    text = [add_aesthetic_notice_video(text[0], aes)]
+                elif file_type == "image":
+                    text = [add_aesthetic_notice_image(text[0], aes)]
+        prompt_ids, prompt_mask, prompt_ids_2, prompt_mask_2 = self.get_text_processer(text)# tokenizer, tokenizer_2
+        examples[PROMPT_IDS], examples[PROMPT_MASK], examples[PROMPT_IDS_2], examples[PROMPT_MASK_2] = prompt_ids, prompt_mask, prompt_ids_2, prompt_mask_2
         return examples
 
-    def get_value_from_vid_or_img(self, path):
-        file_type = self.get_type(path)
-        if file_type == "video":
-            vframes, _, is_decord_read = self.video_reader(path)
-            video_value = self.video_processer(vframes, is_decord_read)
-        elif file_type == "image":
-            video_value = self.image_processer(path)
-        return video_value
-
-    def get_vid_img_fusion(self, path):
-        vframes, _, is_decord_read = self.video_reader(path)
-        video_value = self.video_processer(vframes, is_decord_read)
-        if self.use_img_num != 0 and self.use_img_from_vid:
-            select_image_idx = np.linspace(
-                0, self.num_frames - 1, self.use_img_num, dtype=int
-            )
-            if self.num_frames < self.use_img_num:
-                raise AssertionError(
-                    "The num_frames must be larger than the use_img_num."
-                )
-            images = video_value[:, select_image_idx]  # c, num_img, h, w
-            video_value = torch.cat(
-                [video_value, images], dim=1
-            )  # c, num_frame+num_img, h, w
-            return video_value
-        elif self.use_img_num != 0 and not self.use_img_from_vid:
-            raise NotImplementedError("Not support now.")
-        else:
-            raise NotImplementedError
-
     def get_text_processer(self, texts):
-        prompt_ids, prompt_mask = self.text_processer(texts)
-        if self.vid_img_fusion_by_splicing and self.use_img_from_vid:
-            prompt_ids = torch.stack(
-                [prompt_ids] * (1 + self.use_img_num)
-            )  # 1+self.use_img_num, l
-            prompt_mask = torch.stack(
-                [prompt_mask] * (1 + self.use_img_num)
-            )  # 1+self.use_img_num, l
-        if self.vid_img_fusion_by_splicing and not self.use_img_from_vid:
-            raise NotImplementedError("Not support now.")
-        return prompt_ids, prompt_mask
+        prompt_ids, prompt_mask, prompt_ids_2, prompt_mask_2 = self.text_processer(texts)# tokenizer, tokenizer_2
+        return (prompt_ids, prompt_mask, prompt_ids_2, prompt_mask_2)
 
 
 class DynamicVideoTextDataset(MMBaseDataset):
@@ -383,7 +378,7 @@ class DynamicVideoTextDataset(MMBaseDataset):
             ret["video_mask"] = self.video_mask_generator.get_mask(video)
 
         if self.get_text:
-            prompt_ids, prompt_mask = self.get_text_processer(sample["text"])
+            prompt_ids, prompt_mask, prompt_ids_2, prompt_mask_2 = self.get_text_processer(sample["text"])# tokenizer, tokenizer_2
             ret["prompt_ids"] = prompt_ids
             ret["prompt_mask"] = prompt_mask
 
@@ -395,6 +390,5 @@ class DynamicVideoTextDataset(MMBaseDataset):
         return ret
 
     def get_text_processer(self, texts):
-        prompt_ids, prompt_mask = self.text_processer(texts)
-        return prompt_ids, prompt_mask
-
+        prompt_ids, prompt_mask, prompt_ids_2, prompt_mask_2 = self.text_processer(texts)
+        return prompt_ids, prompt_mask, prompt_ids_2, prompt_mask_2

@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from diffusers.models import AutoencoderKL, AutoencoderKLCogVideoX
+from diffusers.models import AutoencoderKL
 from einops import rearrange
 from megatron.core import mpu
 
@@ -214,13 +214,3 @@ class VideoAutoencoder3D(nn.Module):
     def dtype(self):
         return next(self.parameters()).dtype
 
-
-class VideoAutoencoderKLCogVideoX(nn.Module):
-    def __init__(
-        self,
-        from_pretrained,
-        dtype,
-        **kwargs,
-    ):
-        super().__init__()
-        self.module = AutoencoderKLCogVideoX.from_pretrained(from_pretrained, torch_dtype=dtype)

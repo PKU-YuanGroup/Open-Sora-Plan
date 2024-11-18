@@ -8,6 +8,7 @@
 import os
 import re
 import gc
+import cv2
 import sys
 import html
 import math
@@ -29,11 +30,14 @@ import torch
 import torchvision
 import numpy as np
 import pandas as pd
+import torchvision.transforms as TT
 from PIL import Image
 from bs4 import BeautifulSoup
 from einops import rearrange
 from torchvision import get_video_backend
 from torchvision.datasets.folder import IMG_EXTENSIONS, pil_loader
+from torchvision.transforms.functional import center_crop, resize
+from torchvision.transforms import InterpolationMode
 from torchvision.io.video import (
     _align_audio_frames,
     _check_av_available,
@@ -47,15 +51,17 @@ from transformers.trainer_pt_utils import LabelSmoother
 from packaging import version
 import tokenizers
 
-from mindspeed_mm.data.data_utils.data_transform import TemporalRandomCrop, Expand2Square
+from mindspeed_mm.data.data_utils.data_transform import (
+    TemporalRandomCrop, 
+    Expand2Square,
+    get_params,
+    calculate_statistics,
+    maxhwresize
+)
 from mindspeed_mm.data.data_utils.transform_pipeline import get_transforms
-from mindspeed_mm.data.data_utils.conversation import get_conv_template
 from mindspeed_mm.data.data_utils.constants import MODEL_CONSTANTS
-from mindspeed_mm.data.data_utils.mask_utils import MaskProcessor, STR_TO_TYPE
 
 VID_EXTENSIONS = (".mp4", ".avi", ".mov", ".mkv")
-IS_TOKENIZER_GREATER_THAN_0_14 = version.parse(tokenizers.__version__) >= version.parse("0.14")
-IGNORE_TOKEN_ID = LabelSmoother.ignore_index
 
 
 class DataFileReader:
@@ -82,6 +88,9 @@ class DataFileReader:
         elif data_path.endswith(".json"):
             data_out = pd.read_json(data_path)
             return data_out.to_dict("records")
+        elif data_path.endswith(".pkl"):
+            data_out = pd.read_pickle(data_path)
+            return data_out.to_dict("records")
         elif data_path.endswith(".jsonl"):
             data_out = pd.read_json(data_path, lines=True)
             return data_out.to_dict("records")
@@ -106,181 +115,62 @@ class DataFileReader:
         return cap_lists
 
 
-class DecordInit:
-    """Using Decord (https://github.com/dmlc/decord) to initialize the video_reader."""
+class DecordDecoder(object):
+    def __init__(self, url, num_threads=1):
 
-    def __init__(self, num_threads=1):
         self.num_threads = num_threads
         self.ctx = decord.cpu(0)
+        self.reader = decord.VideoReader(url,
+                                    ctx=self.ctx,
+                                    num_threads=self.num_threads)
 
-    def __call__(self, filename):
-        """Perform the Decord initialization.
-        Args:
-            results (dict): The resulting dict to be modified and passed
-                to the next transform in pipeline.
-        """
-        reader = decord.VideoReader(
-            filename, ctx=self.ctx, num_threads=self.num_threads
-        )
-        return reader
+    def get_avg_fps(self):
+        return self.reader.get_avg_fps() if self.reader.get_avg_fps() > 0 else 30.0
 
-    def __repr__(self):
-        repr_str = (
-            f"{self.__class__.__name__}("
-            f"sr={self.sr},"
-            f"num_threads={self.num_threads})"
-        )
-        return repr_str
+    def get_num_frames(self):
+        return len(self.reader)
+
+    def get_height(self):
+        return self.reader[0].shape[0] if self.get_num_frames() > 0 else 0
+
+    def get_width(self):
+        return self.reader[0].shape[1] if self.get_num_frames() > 0 else 0
+
+    # output shape [T, H, W, C]
+    def get_batch(self, frame_indices):
+        try:
+            #frame_indices[0] = 1000
+            video_data = self.reader.get_batch(frame_indices).asnumpy()
+            video_data = torch.from_numpy(video_data)
+            return video_data
+        except Exception as e:
+            print(f"Get_batch execption: {e}")
+            return None
 
 
 class VideoReader:
     """support some methods to read video"""
 
-    def __init__(self, video_reader_type=None, num_threads=1):
+    def __init__(self, video_reader_type=None):
         self.video_reader_type = video_reader_type
-        if self.video_reader_type == "decoder":
-            self.v_decoder = DecordInit(num_threads)
-
+    
     def __call__(self, video_path):
         is_decord_read = False
         info = None
 
         if self.video_reader_type == "decoder":
-            vframes = self.v_decoder(video_path)
+            vframes = DecordDecoder(video_path)
             is_decord_read = True
         elif self.video_reader_type == "torchvision":
             vframes, aframes, info = torchvision.io.read_video(
                 filename=video_path, pts_unit="sec", output_format="TCHW"
             )  # [T: temporal, C: channel, H: height, W: width]
-        elif self.video_reader_type == "av":
-            vframes, aframes, info = read_video_av(filename=video_path, pts_unit="sec", output_format="TCHW")
         else:
             raise NotImplementedError(
                 f"Unsupported video reader type: {self.video_reader_type}"
             )
         return vframes, info, is_decord_read
 
-
-def read_video_av(
-        filename: str,
-        start_pts: Union[float, Fraction] = 0,
-        end_pts: Optional[Union[float, Fraction]] = None,
-        pts_unit: str = "pts",
-        output_format: str = "THWC",
-) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, Any]]:
-    """
-    Reads a video from a file, returning both the video frames and the audio frames
-
-    Args:
-        filename (str): path to the video file
-        start_pts (int if pts_unit = "pts", float / Fraction if pts_unit = "sec", optional):
-            The start presentation time of the video
-        end_pts (int if pts_unit = "pts", float / Fraction if pts_unit = "sec", optional):
-            The end presentation time
-        pts_unit (str, optional): unit in which start_pts and end_pts values will be interpreted,
-            either "pts" or "sec". Defaults to "pts".
-        output_format (str, optional): The format of the output video tensors. Can be either "THWC" (default) or "TCHW".
-
-    Returns:
-        vframes (Tensor[T, H, W, C] or Tensor[T, C, H, W]): the `T` video frames
-        aframes (Tensor[K, L]): the audio frames, where `K` is the number of channels and `L` is the number of points
-        info (Dict): metadata for the video and audio. Can contain the fields video_fps (float) and audio_fps (int)
-    """
-    output_format = output_format.upper()
-    if output_format not in ("THWC", "TCHW"):
-        raise ValueError(f"output_format should be either 'THWC' or 'TCHW', got {output_format}.")
-
-    if not os.path.exists(filename):
-        raise RuntimeError(f"File not found: {filename}")
-
-    if get_video_backend() != "pyav":
-        vframes, aframes, info = _video_opt._read_video(filename, start_pts, end_pts, pts_unit)
-    else:
-        _check_av_available()
-
-        if end_pts is None:
-            end_pts = float("inf")
-
-        if end_pts < start_pts:
-            raise ValueError(
-                f"end_pts should be larger than start_pts, got start_pts={start_pts} and end_pts={end_pts}"
-            )
-
-        info = {}
-        video_frames = []
-        audio_frames = []
-        audio_timebase = _video_opt.default_timebase
-
-        container = av.open(filename, metadata_errors="ignore")
-        try:
-            if container.streams.audio:
-                audio_timebase = container.streams.audio[0].time_base
-            if container.streams.video:
-                video_frames = _read_from_stream(
-                    container,
-                    start_pts,
-                    end_pts,
-                    pts_unit,
-                    container.streams.video[0],
-                    {"video": 0},
-                )
-                video_fps = container.streams.video[0].average_rate
-                # guard against potentially corrupted files
-                if video_fps is not None:
-                    info["video_fps"] = float(video_fps)
-
-            if container.streams.audio:
-                audio_frames = _read_from_stream(
-                    container,
-                    start_pts,
-                    end_pts,
-                    pts_unit,
-                    container.streams.audio[0],
-                    {"audio": 0},
-                )
-                info["audio_fps"] = container.streams.audio[0].rate
-        except av.AVError as ex:
-            raise ex
-        finally:
-            container.close()
-            del container
-            # NOTE: manually garbage collect to close pyav threads
-            gc.collect()
-
-        vframes_list = [frame.to_rgb().to_ndarray() for frame in video_frames]
-        aframes_list = [frame.to_ndarray() for frame in audio_frames]
-
-        if vframes_list:
-            vframes = torch.as_tensor(np.stack(vframes_list))
-        else:
-            vframes = torch.empty((0, 1, 1, 3), dtype=torch.uint8)
-
-        if aframes_list:
-            aframes = np.concatenate(aframes_list, 1)
-            aframes = torch.as_tensor(aframes)
-            if pts_unit == "sec":
-                start_pts = int(math.floor(start_pts * (1 / audio_timebase)))
-                if end_pts != float("inf"):
-                    end_pts = int(math.ceil(end_pts * (1 / audio_timebase)))
-            aframes = _align_audio_frames(aframes, audio_frames, start_pts, end_pts)
-        else:
-            aframes = torch.empty((1, 0), dtype=torch.float32)
-
-    if output_format == "TCHW":
-        # [T,H,W,C] --> [T,C,H,W]
-        vframes = vframes.permute(0, 3, 1, 2)
-
-    return vframes, aframes, info
-
-
-def type_ratio_normalize(mask_type_ratio_dict):
-    for k, v in mask_type_ratio_dict.items():
-        assert v >= 0, f"mask_type_ratio_dict[{k}] should be non-negative, but got {v}"
-    total = sum(mask_type_ratio_dict.values())
-    length = len(mask_type_ratio_dict)
-    if total == 0:
-        return {k: 1.0 / length for k in mask_type_ratio_dict.keys()}
-    return {k: v / total for k, v in mask_type_ratio_dict.items()}
 
 class VideoProcesser:
     """Used for video data preprocessing"""
@@ -291,11 +181,28 @@ class VideoProcesser:
             frame_interval=1,
             train_pipeline=None,
             data_storage_mode="standard",
+            data_process_type=None,
+            skip_frame_num=0,
+            fps=None,
             train_fps=24,
             speed_factor=1.0,
+            too_long_factor=5.0,
             drop_short_ratio=1.0,
             max_height=480,
             max_width=640,
+            max_hxw=None,
+            min_hxw=None,
+            force_resolution=True,
+            force_5_ratio=False,
+            seed=42,
+            hw_stride=32,
+            hw_aspect_thr=1.5,
+            ae_stride_t=4,
+            sp_size=1,
+            train_sp_batch_size=1,
+            gradient_accumulation_size=1,
+            batch_size=1,
+            min_num_frames=29,
             **kwargs,
     ):
         self.num_frames = num_frames
@@ -303,52 +210,67 @@ class VideoProcesser:
         self.video_transforms = None
         self.temporal_sample = TemporalRandomCrop(num_frames * frame_interval)
         self.data_storage_mode = data_storage_mode
+        self.data_process_type = data_process_type
+        self.skip_frame_num = skip_frame_num
+        self.fps = fps
+
+        self.max_height = max_height
+        self.max_width = max_width
+
         if self.data_storage_mode == "combine":
             self.train_fps = train_fps
             self.speed_factor = speed_factor
+            self.too_long_factor = too_long_factor
             self.drop_short_ratio = drop_short_ratio
-            self.max_height = max_height
-            self.max_width = max_width
+            self.max_hxw = max_hxw
+            self.min_hxw = min_hxw
+            self.force_resolution = force_resolution
+            self.force_5_ratio = force_5_ratio
+            self.seed = seed
+            self.generator = torch.Generator().manual_seed(self.seed) 
+            self.hw_stride = hw_stride
+            self.hw_aspect_thr = hw_aspect_thr
+            self.ae_stride_t = ae_stride_t
+            self.sp_size = sp_size
+            self.train_sp_batch_size = train_sp_batch_size
+            self.gradient_accumulation_size = gradient_accumulation_size
+            self.batch_size = batch_size
+            self.min_num_frames = min_num_frames
 
-    def __call__(self, vframes, num_frames=None, frame_interval=None, image_size=None, is_decord_read=False,
-                 predefine_num_frames=13):
+
+    def __call__(self, vframes, image_size=None, is_decord_read=False,
+                 predefine_num_frames=13, crop=[None, None, None, None]):
         if image_size:
             self.video_transforms = get_transforms(is_video=True, train_pipeline=self.train_pipeline,
                                                    image_size=image_size)
         else:
             self.video_transforms = get_transforms(is_video=True, train_pipeline=self.train_pipeline)
-        if self.data_storage_mode == "standard":
-            total_frames = len(vframes)
-            if num_frames:
-                self.num_frames = num_frames
-                self.temporal_sample = TemporalRandomCrop(num_frames * frame_interval)
-            start_frame_ind, end_frame_ind = self.temporal_sample(total_frames)
-            if end_frame_ind - start_frame_ind < self.num_frames:
-                raise AssertionError("the video does not have enough frames.")
-            frame_indice = np.linspace(
-                start_frame_ind, end_frame_ind - 1, self.num_frames, dtype=int
-            )
-            if is_decord_read:
-                video = vframes.get_batch(frame_indice).asnumpy()
-                video = torch.from_numpy(video)
-                # THWC -> TCHW,  [T: temporal, C: channel, H: height, W: width]
-                video = video.permute(0, 3, 1, 2)
-            else:
-                video = vframes[frame_indice]  # TCHW
-
-            video = self.video_transforms(video)
-            # TCHW -> CTHW
-            video = video.permute(1, 0, 2, 3)
-        else:
+        
+        if self.data_storage_mode == "combine":
             video = self.combine_data_video_process(
                 vframes,
                 is_decord_read=is_decord_read,
                 predefine_num_frames=predefine_num_frames,
+                crop=crop,
             )
         return video
 
+    def get_batched_data(self, vframes, frame_indices, crop=[None, None, None, None]):
+        video_data = vframes.get_batch(frame_indices)
+        try:
+            s_y, e_y, s_x, e_x = crop
+        except:
+            s_y, e_y, s_x, e_x = None, None, None, None
+        if video_data is not None:
+            video_data = video_data.permute(0, 3, 1, 2)  # (T, H, W, C) -> (T C H W)
+            if s_y is not None:
+                video_data = video_data[:, :, s_y: e_y, s_x: e_x]
+        else:
+            raise ValueError(f'Get video_data {video_data}')
+        return video_data
+
     def combine_data_video_process(
-            self, vframes, is_decord_read=True, predefine_num_frames=13
+            self, vframes, is_decord_read=True, predefine_num_frames=13, crop=[None, None, None, None]
     ):
         total_frames = len(vframes)
         fps = vframes.get_avg_fps() if vframes.get_avg_fps() > 0 else 30.0
@@ -379,7 +301,7 @@ class VideoProcesser:
 
         # to find a suitable end_frame_idx, to ensure we do not need pad video
         end_frame_idx = self.find_closest_y(
-            len(frame_indices), vae_stride_t=4, model_ds_t=4
+            len(frame_indices), vae_stride_t=self.ae_stride_t, model_ds_t=self.sp_size
         )
         if end_frame_idx == -1:  # too short that can not be encoded exactly by videovae
             raise IndexError(
@@ -394,16 +316,8 @@ class VideoProcesser:
             raise IndexError(
                 f"video has {total_frames} frames, but need to sample {len(frame_indices)} frames ({frame_indices})"
             )
-        video = vframes.get_batch(frame_indices).asnumpy()
-        video = torch.from_numpy(video)
-        # (T, H, W, C) -> (T C H W)
-        video = video.permute(0, 3, 1, 2)
-
-        h, w = video.shape[-2:]
-        if h / w > 17 / 16 or h / w < 8 / 16:
-            raise AssertionError(
-                f"Only videos with a ratio (h/w) less than 17/16 and more than 8/16 are supported. But the video found ratio is {round(h / w, 2)} with the shape of {video.shape}"
-            )
+        
+        video = self.get_batched_data(vframes, frame_indices, crop)
         # TCHW -> TCHW
         video = self.video_transforms(video)
         # TCHW -> CTHW
@@ -411,70 +325,140 @@ class VideoProcesser:
         return video
 
     def define_frame_index(self, cap_list):
+        shape_idx_dict = {}
         new_cap_list = []
-        sample_num_frames = []
+        sample_size = []
+        aesthetic_score = []
+        cnt_vid = 0
+        cnt_img = 0
         cnt_too_long = 0
         cnt_too_short = 0
         cnt_no_cap = 0
         cnt_no_resolution = 0
-        cnt_resolution_mismatch = 0
-        cnt_movie = 0
-        cnt_img = 0
+        cnt_no_aesthetic = 0
+        cnt_img_res_mismatch_stride = 0
+        cnt_vid_res_mismatch_stride = 0
+        cnt_img_aspect_mismatch = 0
+        cnt_vid_aspect_mismatch = 0
+        cnt_img_res_too_small = 0
+        cnt_vid_res_too_small = 0
+        cnt_vid_after_filter = 0
+        cnt_img_after_filter = 0
+        cnt = 0
+
+
         for i in cap_list:
             path = i["path"]
+
+            if path.endswith('.mp4'):
+                cnt_vid += 1
+            elif path.endswith('.jpg'):
+                cnt_img += 1
+
+            # ======no aesthetic=====
+            if i.get("aesthetic", None) is None or i.get("aes", None) is None:
+                cnt_no_aesthetic += 1
+            else:
+                aesthetic_score.append(i.get("aesthetic", None) or i.get("aes", None))
+
             cap = i.get("cap", None)
             # ======no caption=====
             if cap is None:
                 cnt_no_cap += 1
                 continue
-            if path.endswith(".mp4"):
-                # ======no fps and duration=====
-                duration = i.get("duration", None)
-                fps = i.get("fps", None)
-                if fps is None or duration is None:
-                    continue
 
-                # ======resolution mismatch=====
-                resolution = i.get("resolution", None)
-                if resolution is None:
+            # ======resolution mismatch=====
+            if i.get("resolution", None) is None:
+                cnt_no_resolution += 1
+                continue
+            else:
+                if i["resolution"].get("height", None) is None or i["resolution"].get("width", None) is None:
                     cnt_no_resolution += 1
                     continue
                 else:
-                    if (
-                            resolution.get("height", None) is None
-                            or resolution.get("width", None) is None
-                    ):
-                        cnt_no_resolution += 1
-                        continue
                     height, width = i["resolution"]["height"], i["resolution"]["width"]
-                    aspect = self.max_height / self.max_width
-                    hw_aspect_thr = 1.5
-                    max_h_div_w_ratio = hw_aspect_thr * aspect
-                    min_h_div_w_ratio = 1 / hw_aspect_thr * aspect
-                    is_pick = (
-                            height / width <= max_h_div_w_ratio
-                            and height / width >= min_h_div_w_ratio
-                    )
-                    if not is_pick:
-                        cnt_resolution_mismatch += 1
-                        continue
+                    if not self.force_resolution:
+                        if height <= 0 or width <= 0:
+                            cnt_no_resolution += 1
+                            continue
+                        
+                        tr_h, tr_w = maxhwresize(height, width, self.max_hxw, force_5_ratio=self.force_5_ratio)
+                        _, _, sample_h, sample_w = get_params(tr_h, tr_w, self.hw_stride, force_5_ratio=self.force_5_ratio)
 
-                i["num_frames"] = int(fps * duration)
+                        if sample_h <= 0 or sample_w <= 0:
+                            if path.endswith('.mp4'):
+                                cnt_vid_res_mismatch_stride += 1
+                            elif path.endswith('.jpg'):
+                                cnt_img_res_mismatch_stride += 1
+                            continue
+                        
+                        # filter min_hxw
+                        if sample_h * sample_w < self.min_hxw:
+                            if path.endswith('.mp4'):
+                                cnt_vid_res_too_small += 1
+                            elif path.endswith('.jpg'):
+                                cnt_img_res_too_small += 1
+                            continue
+
+                        # filter aspect
+                        is_pick = filter_resolution(
+                            sample_h, 
+                            sample_w, 
+                            max_h_div_w_ratio=self.hw_aspect_thr, 
+                            min_h_div_w_ratio=1 / self.hw_aspect_thr
+                        )
+
+                        if not is_pick:
+                            if path.endswith('.mp4'):
+                                cnt_vid_aspect_mismatch += 1
+                            elif path.endswith('.jpg'):
+                                cnt_img_aspect_mismatch += 1
+                            continue
+
+                        i["resolution"].update(dict(sample_height=sample_h, sample_width=sample_w))
+
+                    else:
+                        aspect = self.max_height / self.max_width
+                        is_pick = filter_resolution(
+                            height, 
+                            width, 
+                            max_h_div_w_ratio=self.hw_aspect_thr * aspect, 
+                            min_h_div_w_ratio=1 / self.hw_aspect_thr * aspect
+                        )
+
+                        if not is_pick:
+                            if path.endswith('.mp4'):
+                                cnt_vid_aspect_mismatch += 1
+                            elif path.endswith('.jpg'):
+                                cnt_img_aspect_mismatch += 1
+                            continue
+                            
+                        sample_h, sample_w = self.max_height, self.max_width
+
+                        i["resolution"].update(dict(sample_height=sample_h, sample_width=sample_w))
+
+
+
+            if path.endswith(".mp4"):
+                fps = i.get('fps', 24)
+                # max 5.0 and min 1.0 are just thresholds to filter some videos which have suitable duration. 
+                if i['num_frames'] > self.too_long_factor * (self.num_frames * fps / self.train_fps * self.speed_factor):  # too long video is not suitable for this training stage (self.num_frames)
+                    cnt_too_long += 1
+                    continue
 
                 # resample in case high fps, such as 50/60/90/144 -> train_fps(e.g, 24)
-                frame_interval = fps / self.train_fps
-                start_frame_idx = (
-                    8 if "/storage/dataset/movie" in i["path"] else 0
-                )  # special video
+                frame_interval = 1.0 if abs(fps - self.train_fps) < 0.1 else fps / self.train_fps
+                start_frame_idx = i.get("cut", [0])[0]
+                i["start_frame_idx"] = start_frame_idx
                 frame_indices = np.arange(
-                    start_frame_idx, i["num_frames"], frame_interval
+                    start_frame_idx, start_frame_idx + i["num_frames"], frame_interval
                 ).astype(int)
-                frame_indices = frame_indices[frame_indices < i["num_frames"]]
+                frame_indices = frame_indices[frame_indices < start_frame_idx + i["num_frames"]]
 
                 # comment out it to enable dynamic frames training
                 if (
                         len(frame_indices) < self.num_frames
-                        and random.random() < self.drop_short_ratio
+                        and torch.rand(1, generator=self.generator).item() < self.drop_short_ratio
                 ):
                     cnt_too_short += 1
                     continue
@@ -485,7 +469,7 @@ class VideoProcesser:
                     frame_indices = frame_indices[begin_index:end_index]
                 # to find a suitable end_frame_idx, to ensure we do not need pad video
                 end_frame_idx = self.find_closest_y(
-                    len(frame_indices), vae_stride_t=4, model_ds_t=4
+                    len(frame_indices), vae_stride_t=self.ae_stride_t, model_ds_t=self.sp_size
                 )
                 if (
                         end_frame_idx == -1
@@ -494,211 +478,257 @@ class VideoProcesser:
                     continue
                 frame_indices = frame_indices[:end_frame_idx]
 
-                if "/storage/dataset/movie" in i["path"]:
-                    cnt_movie += 1
                 i["sample_frame_index"] = frame_indices.tolist()
+                i["sample_num_frames"] = len(i["sample_frame_index"])
+
                 new_cap_list.append(i)
-                i["sample_num_frames"] = len(
-                    i["sample_frame_index"]
-                )  # will use in dataloader(group sampler)
-                sample_num_frames.append(i["sample_num_frames"])
+                cnt_vid_after_filter += 1
+
             elif path.endswith(".jpg"):  # image
-                cnt_img += 1
-                new_cap_list.append(i)
+                cnt_img_after_filter += 1
+
+                i["sample_frame_index"] = [0]
                 i["sample_num_frames"] = 1
-                sample_num_frames.append(i["sample_num_frames"])
+                new_cap_list.append(i)
             else:
                 raise NameError(
                     f"Unknown file extention {path.split('.')[-1]}, only support .mp4 for video and .jpg for image"
                 )
+            
+            sample_size.append(f"{len(i['sample_frame_index'])}x{sample_h}x{sample_w}")
 
-        print(
-            f"no_cap: {cnt_no_cap}, too_long: {cnt_too_long}, too_short: {cnt_too_short}, "
-            f"no_resolution: {cnt_no_resolution}, resolution_mismatch: {cnt_resolution_mismatch}, "
-            f"Counter(sample_num_frames): {Counter(sample_num_frames)}, cnt_movie: {cnt_movie}, cnt_img: {cnt_img}, "
-            f"before filter: {len(cap_list)}, after filter: {len(new_cap_list)}"
-        )
-        return new_cap_list, sample_num_frames
+        counter = Counter(sample_size)
+        counter_cp = counter
+        if not self.force_resolution and self.max_hxw is not None and self.min_hxw is not None:
+            assert all([np.prod(np.array(k.split('x')[1:]).astype(np.int32)) <= self.max_hxw for k in counter_cp.keys()])
+            assert all([np.prod(np.array(k.split('x')[1:]).astype(np.int32)) >= self.min_hxw for k in counter_cp.keys()])
 
-    def find_closest_y(self, x, vae_stride_t=4, model_ds_t=4):
-        for y in range(x, 12, -1):
-            if (y - 1) % vae_stride_t == 0 and (
-                    (y - 1) // vae_stride_t + 1
-            ) % model_ds_t == 0:
+        total_batch_size = self.batch_size * torch.distributed.get_world_size() * self.gradient_accumulation_size
+        total_batch_size = total_batch_size // self.sp_size * self.train_sp_batch_size
+        filter_major_num = 4 * total_batch_size
+        len_before_filter_major = len(new_cap_list)
+        new_cap_list, sample_size = zip(*[[i, j] for i, j in zip(new_cap_list, sample_size) if counter[j] >= filter_major_num])
+        for idx, shape in enumerate(sample_size):
+            if shape_idx_dict.get(shape, None) is None:
+                shape_idx_dict[shape] = [idx]
+            else:
+                shape_idx_dict[shape].append(idx)
+        cnt_filter_minority = len_before_filter_major - len(new_cap_list)
+        counter = Counter(sample_size)
+        print(f'no_cap: {cnt_no_cap}, no_resolution: {cnt_no_resolution}\n'
+            f'too_long: {cnt_too_long}, too_short: {cnt_too_short}\n'
+            f'cnt_img_res_mismatch_stride: {cnt_img_res_mismatch_stride}, cnt_vid_res_mismatch_stride: {cnt_vid_res_mismatch_stride}\n'
+            f'cnt_img_res_too_small: {cnt_img_res_too_small}, cnt_vid_res_too_small: {cnt_vid_res_too_small}\n'
+            f'cnt_img_aspect_mismatch: {cnt_img_aspect_mismatch}, cnt_vid_aspect_mismatch: {cnt_vid_aspect_mismatch}\n'
+            f'cnt_filter_minority: {cnt_filter_minority}\n'
+            f'Counter(sample_size): {counter}\n'
+            f'cnt_vid: {cnt_vid}, cnt_vid_after_filter: {cnt_vid_after_filter}, use_ratio: {round(cnt_vid_after_filter/(cnt_vid+1e-6), 5)*100}%\n'
+            f'cnt_img: {cnt_img}, cnt_img_after_filter: {cnt_img_after_filter}, use_ratio: {round(cnt_img_after_filter/(cnt_img+1e-6), 5)*100}%\n'
+            f'before filter: {cnt}, after filter: {len(new_cap_list)}, use_ratio: {round(len(new_cap_list)/cnt, 5)*100}%')
+
+        if len(aesthetic_score) > 0:
+            stats_aesthetic = calculate_statistics(aesthetic_score)
+            print(f"before filter: {cnt}, after filter: {len(new_cap_list)}\n"
+                f"aesthetic_score: {len(aesthetic_score)}, cnt_no_aesthetic: {cnt_no_aesthetic}\n"
+                f"{len([i for i in aesthetic_score if i>=5.75])} > 5.75, 4.5 > {len([i for i in aesthetic_score if i<=4.5])}\n"
+                f"Mean: {stats_aesthetic['mean']}, Var: {stats_aesthetic['variance']}, Std: {stats_aesthetic['std_dev']}\n"
+                f"Min: {stats_aesthetic['min']}, Max: {stats_aesthetic['max']}")
+            
+        return pd.DataFrame(new_cap_list), sample_size, shape_idx_dict
+
+    def find_closest_y(self, x, vae_stride_t=4, model_ds_t=1):
+        if x < self.min_num_frames:
+            return -1  
+        for y in range(x, self.min_num_frames - 1, -1):
+            if (y - 1) % vae_stride_t == 0 and ((y - 1) // vae_stride_t + 1) % model_ds_t == 0:
                 # 4, 8: y in [29, 61, 93, 125, 157, 189, 221, 253, 285, 317, 349, 381, 413, 445, 477, 509, ...]
                 # 4, 4: y in [29, 45, 61, 77, 93, 109, 125, 141, 157, 173, 189, 205, 221, 237, 253, 269, 285, 301, 317, 333, 349, 365, 381, 397, 413, 429, 445, 461, 477, 493, 509, ...]
+                # 8, 1: y in [33, 41, 49, 57, 65, 73, 81, 89, 97, 105]
+                # 8, 2: y in [41, 57, 73, 89, 105]
+                # 8, 4: y in [57, 89]
+                # 8, 8: y in [57]
                 return y
         return -1
 
+# # TODO: not suported now
+# def type_ratio_normalize(mask_type_ratio_dict):
+#     for k, v in mask_type_ratio_dict.items():
+#         assert v >= 0, f"mask_type_ratio_dict[{k}] should be non-negative, but got {v}"
+#     total = sum(mask_type_ratio_dict.values())
+#     length = len(mask_type_ratio_dict)
+#     if total == 0:
+#         return {k: 1.0 / length for k in mask_type_ratio_dict.keys()}
+#     return {k: v / total for k, v in mask_type_ratio_dict.items()}
 
-class InpaintVideoProcesser(VideoProcesser):
-    """Used for video inpaint data preprocessing"""
+# # TODO: not suported now
+# class InpaintVideoProcesser(VideoProcesser):
+#     """Used for video inpaint data preprocessing"""
 
-    def __init__(
-            self,
-            num_frames=16,
-            frame_interval=1,
-            train_pipeline=None,
-            train_resize_pipeline=None,
-            data_storage_mode="standard",
-            train_fps=24,
-            speed_factor=1.0,
-            drop_short_ratio=1.0,
-            max_height=480,
-            max_width=640,
-            min_clear_ratio=0.0,
-            max_clear_ratio=1.0,
-            mask_type_ratio_dict_video=None,
-            **kwargs,
-    ):
-        super().__init__(
-            num_frames=num_frames,
-            frame_interval=frame_interval,
-            train_pipeline=train_pipeline,
-            data_storage_mode=data_storage_mode,
-            train_fps=train_fps,
-            speed_factor=speed_factor,
-            drop_short_ratio=drop_short_ratio,
-            max_height=max_height,
-            max_width=max_width,
-        )
+#     def __init__(
+#             self,
+#             num_frames=16,
+#             frame_interval=1,
+#             train_pipeline=None,
+#             train_resize_pipeline=None,
+#             data_storage_mode="standard",
+#             train_fps=24,
+#             speed_factor=1.0,
+#             drop_short_ratio=1.0,
+#             max_height=480,
+#             max_width=640,
+#             min_clear_ratio=0.0,
+#             max_clear_ratio=1.0,
+#             mask_type_ratio_dict_video=None,
+#             **kwargs,
+#     ):
+#         super().__init__(
+#             num_frames=num_frames,
+#             frame_interval=frame_interval,
+#             train_pipeline=train_pipeline,
+#             data_storage_mode=data_storage_mode,
+#             train_fps=train_fps,
+#             speed_factor=speed_factor,
+#             drop_short_ratio=drop_short_ratio,
+#             max_height=max_height,
+#             max_width=max_width,
+#         )
 
-        self.train_resize_pipeline = train_resize_pipeline
+#         self.train_resize_pipeline = train_resize_pipeline
 
-        self.mask_type_ratio_dict_video = mask_type_ratio_dict_video if mask_type_ratio_dict_video is not None else {'random_temporal': 1.0}
-        self.mask_type_ratio_dict_video = {STR_TO_TYPE[k]: v for k, v in self.mask_type_ratio_dict_video.items()}
-        self.mask_type_ratio_dict_video = type_ratio_normalize(self.mask_type_ratio_dict_video)
+#         self.mask_type_ratio_dict_video = mask_type_ratio_dict_video if mask_type_ratio_dict_video is not None else {'random_temporal': 1.0}
+#         self.mask_type_ratio_dict_video = {STR_TO_TYPE[k]: v for k, v in self.mask_type_ratio_dict_video.items()}
+#         self.mask_type_ratio_dict_video = type_ratio_normalize(self.mask_type_ratio_dict_video)
 
-        print(f"mask_type_ratio_dict_video: {self.mask_type_ratio_dict_video}")
+#         print(f"mask_type_ratio_dict_video: {self.mask_type_ratio_dict_video}")
 
-        self.mask_processor = MaskProcessor(
-            max_height=max_height,
-            max_width=max_width,
-            min_clear_ratio=min_clear_ratio,
-            max_clear_ratio=max_clear_ratio,
-        )
-
-
-    def __call__(self, vframes, num_frames=None, frame_interval=None, image_size=None, is_decord_read=False,
-                 predefine_num_frames=13):
-        if image_size:
-            self.resize_transforms = get_transforms(is_video=True, train_pipeline=self.train_resize_pipeline,
-                                                   image_size=image_size)
-            self.video_transforms = get_transforms(is_video=True, train_pipeline=self.train_pipeline,
-                                                   image_size=image_size)
-        else:
-            self.resize_transforms = get_transforms(is_video=True, train_pipeline=self.train_resize_pipeline)
-            self.video_transforms = get_transforms(is_video=True, train_pipeline=self.train_pipeline)
-        if self.data_storage_mode == "standard":
-            total_frames = len(vframes)
-            if num_frames:
-                self.num_frames = num_frames
-                self.temporal_sample = TemporalRandomCrop(num_frames * frame_interval)
-            start_frame_ind, end_frame_ind = self.temporal_sample(total_frames)
-            if end_frame_ind - start_frame_ind < self.num_frames:
-                raise AssertionError("the video does not have enough frames.")
-            frame_indice = np.linspace(
-                start_frame_ind, end_frame_ind - 1, self.num_frames, dtype=int
-            )
-            if is_decord_read:
-                video = vframes.get_batch(frame_indice).asnumpy()
-                video = torch.from_numpy(video)
-                # THWC -> TCHW,  [T: temporal, C: channel, H: height, W: width]
-                video = video.permute(0, 3, 1, 2)
-            else:
-                video = vframes[frame_indice]  # TCHW
-
-            video = self.resize_transforms(video)
-            inpaint_cond_data = self.mask_processor(video, mask_type_ratio_dict=self.mask_type_ratio_dict_video)
-            mask, masked_video = inpaint_cond_data['mask'], inpaint_cond_data['masked_pixel_values']
-
-            video = self.video_transforms(video)  # T C H W -> T C H W
-            masked_video = self.video_transforms(masked_video)  # T C H W -> T C H W
-
-            video = torch.cat([video, masked_video, mask], dim=1)  # T 2C+1 H W
-
-            # video = self.video_transforms(video)
-            # TCHW -> CTHW
-            video = video.permute(1, 0, 2, 3)
-        else:
-            video = self.combine_data_video_process(
-                vframes,
-                is_decord_read=is_decord_read,
-                predefine_num_frames=predefine_num_frames,
-            )
-        return video
+#         self.mask_processor = MaskProcessor(
+#             max_height=max_height,
+#             max_width=max_width,
+#             min_clear_ratio=min_clear_ratio,
+#             max_clear_ratio=max_clear_ratio,
+#         )
 
 
-    def combine_data_video_process(
-            self, vframes, is_decord_read=True, predefine_num_frames=13
-    ):
-        total_frames = len(vframes)
-        fps = vframes.get_avg_fps() if vframes.get_avg_fps() > 0 else 30.0
-        # resample in case high fps, such as 50/60/90/144 -> train_fps(e.g, 24)
-        frame_interval = (
-            1.0 if abs(fps - self.train_fps) < 0.1 else fps / self.train_fps
-        )
-        # some special video should be set to a different number
-        start_frame_idx = 0
-        frame_indices = np.arange(start_frame_idx, total_frames, frame_interval).astype(
-            int
-        )
-        frame_indices = frame_indices[frame_indices < total_frames]
-        # speed up
-        max_speed_factor = len(frame_indices) / self.num_frames
-        if self.speed_factor > 1 and max_speed_factor > 1:
-            speed_factor = min(self.speed_factor, max_speed_factor)
-            target_frame_count = int(len(frame_indices) / speed_factor)
-            speed_frame_idx = np.linspace(
-                0, len(frame_indices) - 1, target_frame_count, dtype=int
-            )
-            frame_indices = frame_indices[speed_frame_idx]
+#     def __call__(self, vframes, num_frames=None, frame_interval=None, image_size=None, is_decord_read=False,
+#                  predefine_num_frames=13):
+#         if image_size:
+#             self.resize_transforms = get_transforms(is_video=True, train_pipeline=self.train_resize_pipeline,
+#                                                    image_size=image_size)
+#             self.video_transforms = get_transforms(is_video=True, train_pipeline=self.train_pipeline,
+#                                                    image_size=image_size)
+#         else:
+#             self.resize_transforms = get_transforms(is_video=True, train_pipeline=self.train_resize_pipeline)
+#             self.video_transforms = get_transforms(is_video=True, train_pipeline=self.train_pipeline)
+#         if self.data_storage_mode == "standard":
+#             total_frames = len(vframes)
+#             if num_frames:
+#                 self.num_frames = num_frames
+#                 self.temporal_sample = TemporalRandomCrop(num_frames * frame_interval)
+#             start_frame_ind, end_frame_ind = self.temporal_sample(total_frames)
+#             if end_frame_ind - start_frame_ind < self.num_frames:
+#                 raise AssertionError("the video does not have enough frames.")
+#             frame_indice = np.linspace(
+#                 start_frame_ind, end_frame_ind - 1, self.num_frames, dtype=int
+#             )
+#             if is_decord_read:
+#                 video = vframes.get_batch(frame_indice).asnumpy()
+#                 video = torch.from_numpy(video)
+#                 # THWC -> TCHW,  [T: temporal, C: channel, H: height, W: width]
+#                 video = video.permute(0, 3, 1, 2)
+#             else:
+#                 video = vframes[frame_indice]  # TCHW
 
-        #  too long video will be temporal-crop randomly
-        if len(frame_indices) > self.num_frames:
-            begin_index, end_index = self.temporal_sample(len(frame_indices))
-            frame_indices = frame_indices[begin_index:end_index]
+#             video = self.resize_transforms(video)
+#             inpaint_cond_data = self.mask_processor(video, mask_type_ratio_dict=self.mask_type_ratio_dict_video)
+#             mask, masked_video = inpaint_cond_data['mask'], inpaint_cond_data['masked_pixel_values']
 
-        # to find a suitable end_frame_idx, to ensure we do not need pad video
-        end_frame_idx = self.find_closest_y(
-            len(frame_indices), vae_stride_t=4, model_ds_t=4
-        )
-        if end_frame_idx == -1:  # too short that can not be encoded exactly by videovae
-            raise IndexError(
-                f"video has {total_frames} frames, but need to sample {len(frame_indices)} frames ({frame_indices})"
-            )
-        frame_indices = frame_indices[:end_frame_idx]
-        if predefine_num_frames != len(frame_indices):
-            raise ValueError(
-                f"predefine_num_frames ({predefine_num_frames}) is not equal with frame_indices ({len(frame_indices)})"
-            )
-        if len(frame_indices) < self.num_frames and self.drop_short_ratio >= 1:
-            raise IndexError(
-                f"video has {total_frames} frames, but need to sample {len(frame_indices)} frames ({frame_indices})"
-            )
-        video = vframes.get_batch(frame_indices).asnumpy()
-        video = torch.from_numpy(video)
-        # (T, H, W, C) -> (T C H W)
-        video = video.permute(0, 3, 1, 2)
+#             video = self.video_transforms(video)  # T C H W -> T C H W
+#             masked_video = self.video_transforms(masked_video)  # T C H W -> T C H W
 
-        h, w = video.shape[-2:]
-        if h / w > 17 / 16 or h / w < 8 / 16:
-            raise AssertionError(
-                f"Only videos with a ratio (h/w) less than 17/16 and more than 8/16 are supported. But the video found ratio is {round(h / w, 2)} with the shape of {video.shape}"
-            )
+#             video = torch.cat([video, masked_video, mask], dim=1)  # T 2C+1 H W
 
-        video = self.resize_transforms(video)
-        inpaint_cond_data = self.mask_processor(video, mask_type_ratio_dict=self.mask_type_ratio_dict_video)
-        mask, masked_video = inpaint_cond_data['mask'], inpaint_cond_data['masked_pixel_values']
+#             # video = self.video_transforms(video)
+#             # TCHW -> CTHW
+#             video = video.permute(1, 0, 2, 3)
+#         else:
+#             video = self.combine_data_video_process(
+#                 vframes,
+#                 is_decord_read=is_decord_read,
+#                 predefine_num_frames=predefine_num_frames,
+#             )
+#         return video
 
-        video = self.video_transforms(video)  # T C H W -> T C H W
-        masked_video = self.video_transforms(masked_video)  # T C H W -> T C H W
 
-        # TCHW -> TCHW
-        # video = self.video_transforms(video)
-        # TCHW -> CTHW
-        video = video.permute(1, 0, 2, 3)
-        return video
+#     def combine_data_video_process(
+#             self, vframes, is_decord_read=True, predefine_num_frames=13
+#     ):
+#         total_frames = len(vframes)
+#         fps = vframes.get_avg_fps() if vframes.get_avg_fps() > 0 else 30.0
+#         # resample in case high fps, such as 50/60/90/144 -> train_fps(e.g, 24)
+#         frame_interval = (
+#             1.0 if abs(fps - self.train_fps) < 0.1 else fps / self.train_fps
+#         )
+#         # some special video should be set to a different number
+#         start_frame_idx = 0
+#         frame_indices = np.arange(start_frame_idx, total_frames, frame_interval).astype(
+#             int
+#         )
+#         frame_indices = frame_indices[frame_indices < total_frames]
+#         # speed up
+#         max_speed_factor = len(frame_indices) / self.num_frames
+#         if self.speed_factor > 1 and max_speed_factor > 1:
+#             speed_factor = min(self.speed_factor, max_speed_factor)
+#             target_frame_count = int(len(frame_indices) / speed_factor)
+#             speed_frame_idx = np.linspace(
+#                 0, len(frame_indices) - 1, target_frame_count, dtype=int
+#             )
+#             frame_indices = frame_indices[speed_frame_idx]
+
+#         #  too long video will be temporal-crop randomly
+#         if len(frame_indices) > self.num_frames:
+#             begin_index, end_index = self.temporal_sample(len(frame_indices))
+#             frame_indices = frame_indices[begin_index:end_index]
+
+#         # to find a suitable end_frame_idx, to ensure we do not need pad video
+#         end_frame_idx = self.find_closest_y(
+#             len(frame_indices), vae_stride_t=4, model_ds_t=4
+#         )
+#         if end_frame_idx == -1:  # too short that can not be encoded exactly by videovae
+#             raise IndexError(
+#                 f"video has {total_frames} frames, but need to sample {len(frame_indices)} frames ({frame_indices})"
+#             )
+#         frame_indices = frame_indices[:end_frame_idx]
+#         if predefine_num_frames != len(frame_indices):
+#             raise ValueError(
+#                 f"predefine_num_frames ({predefine_num_frames}) is not equal with frame_indices ({len(frame_indices)})"
+#             )
+#         if len(frame_indices) < self.num_frames and self.drop_short_ratio >= 1:
+#             raise IndexError(
+#                 f"video has {total_frames} frames, but need to sample {len(frame_indices)} frames ({frame_indices})"
+#             )
+#         video = vframes.get_batch(frame_indices).asnumpy()
+#         video = torch.from_numpy(video)
+#         # (T, H, W, C) -> (T C H W)
+#         video = video.permute(0, 3, 1, 2)
+
+#         h, w = video.shape[-2:]
+#         if h / w > 17 / 16 or h / w < 8 / 16:
+#             raise AssertionError(
+#                 f"Only videos with a ratio (h/w) less than 17/16 and more than 8/16 are supported. But the video found ratio is {round(h / w, 2)} with the shape of {video.shape}"
+#             )
+
+#         video = self.resize_transforms(video)
+#         inpaint_cond_data = self.mask_processor(video, mask_type_ratio_dict=self.mask_type_ratio_dict_video)
+#         mask, masked_video = inpaint_cond_data['mask'], inpaint_cond_data['masked_pixel_values']
+
+#         video = self.video_transforms(video)  # T C H W -> T C H W
+#         masked_video = self.video_transforms(masked_video)  # T C H W -> T C H W
+
+#         # TCHW -> TCHW
+#         # video = self.video_transforms(video)
+#         # TCHW -> CTHW
+#         video = video.permute(1, 0, 2, 3)
+#         return video
 
 
 
@@ -759,34 +789,10 @@ class ImageProcesser:
         image = torch.from_numpy(np.array(image))  # [h, w, c]
         image = rearrange(image, "h w c -> c h w").unsqueeze(0)  # [1 c h w]
         # [1 C H W] -> num_img [1 C H W]
-        if "human_images" in image_path:
-            image = self.image_transforms(image)
-        else:
-            image = self.video_transforms(image)
+        image = self.video_transforms(image)
         # [1 C H W] -> [C 1 H W]
         image = image.permute(1, 0, 2, 3)
         return image
-
-    def image_to_pixel_values(self, image_path, train_pipeline, mode="", num_image=1):
-        image = self.image_reader(image_path)
-        max_num = self.max_dynamic_patch // num_image if mode == "multi_image" else self.max_dynamic_patch
-        if self.image_reader_type == "torchvision":
-            if self.dynamic_image_size:  # If dynamic image size is enabled, preprocess the image dynamically
-                images = dynamic_preprocess(image, min_num=self.min_dynamic_patch, max_num=max_num,
-                                            image_size=self.image_size, use_thumbnail=self.use_thumbnail)
-            else:  # Otherwise, use the original image as a single patch
-                images = [image]
-
-            # Apply the transformation to each image and stack the results into a tensor
-            pixel_values = [self.image_transforms(image) for image in images]
-            pixel_values = pixel_values if mode == "multi_image" else torch.stack(pixel_values)
-        else:
-            if train_pipeline["pad2square"]:
-                expand2square = Expand2Square(mean=train_pipeline["image_mean"])
-                image = expand2square(image)
-            processer = CLIPImageProcessor(**train_pipeline)
-            pixel_values = processer.preprocess(image, return_tensors="pt", **train_pipeline)["pixel_values"][0]
-        return pixel_values
 
     def image_reader(self, image_path):
         if self.image_reader_type in ["torchvision", "CLIPImageProcessor"]:
@@ -798,7 +804,6 @@ class ImageProcesser:
                 f"Unsupported image reader type: {self.image_reader_type}"
             )
         return image
-
 
 class TextProcesser:
     """Used for text data preprocessing"""
@@ -823,6 +828,7 @@ class TextProcesser:
             self,
             model_max_length=120,
             tokenizer=None,
+            tokenizer_2=None,
             use_clean_caption=True,
             enable_text_preprocessing=True,
             padding_type="max_length",
@@ -832,6 +838,7 @@ class TextProcesser:
         self.model_max_length = model_max_length
         self.padding = padding_type
         self.tokenizer = tokenizer
+        self.tokenizer_2 = tokenizer_2
         self.use_clean_caption = use_clean_caption
         self.support_chinese = support_chinese
         self.cfg = cfg
@@ -858,7 +865,20 @@ class TextProcesser:
         )
         prompt_ids = text_tokens_and_mask["input_ids"]
         prompt_mask = text_tokens_and_mask["attention_mask"]
-        return prompt_ids, prompt_mask
+        prompt_ids_2, prompt_mask_2 = None, None
+        if self.tokenizer_2 is not None:
+            text_tokens_and_mask_2 = self.tokenizer_2(
+                texts_info,
+                max_length=self.tokenizer_2.model_max_length,
+                padding='max_length',
+                truncation=True,
+                return_attention_mask=True,
+                add_special_tokens=True,
+                return_tensors='pt'
+            )
+            prompt_ids_2 = text_tokens_and_mask_2['input_ids']  # 1, l
+            prompt_mask_2 = text_tokens_and_mask_2['attention_mask']  # 1, l
+        return (prompt_ids, prompt_mask, prompt_ids_2, prompt_mask_2)
 
     @staticmethod
     def text_preprocessing(text, use_clean_caption=True, support_chinese=False):
@@ -1001,132 +1021,71 @@ class TextProcesser:
 
         return caption.strip()
 
-class InpaintTextProcesser(TextProcesser):
+# # NOTE: not supported now
+# class InpaintTextProcesser(TextProcesser):
 
-    def __init__(
-        self,
-        model_max_length=120,
-        tokenizer=None,
-        use_clean_caption=True,
-        enable_text_preprocessing=True,
-        padding_type="max_length",
-        support_chinese=False,
-        cfg=0.1,
-        default_text_ratio=0.5,
-    ):
-        super().__init__(
-            model_max_length=model_max_length,
-            tokenizer=tokenizer,
-            use_clean_caption=use_clean_caption,
-            enable_text_preprocessing=enable_text_preprocessing,
-            padding_type=padding_type,
-            support_chinese=support_chinese,
-            cfg=cfg,
-        )
+#     def __init__(
+#         self,
+#         model_max_length=120,
+#         tokenizer=None,
+#         use_clean_caption=True,
+#         enable_text_preprocessing=True,
+#         padding_type="max_length",
+#         support_chinese=False,
+#         cfg=0.1,
+#         default_text_ratio=0.5,
+#     ):
+#         super().__init__(
+#             model_max_length=model_max_length,
+#             tokenizer=tokenizer,
+#             use_clean_caption=use_clean_caption,
+#             enable_text_preprocessing=enable_text_preprocessing,
+#             padding_type=padding_type,
+#             support_chinese=support_chinese,
+#             cfg=cfg,
+#         )
 
-        self.default_text_ratio = default_text_ratio
+#         self.default_text_ratio = default_text_ratio
 
-    def drop(self, text):
-        rand_num = random.random()
-        rand_num_text = random.random()
+#     def drop(self, text):
+#         rand_num = random.random()
+#         rand_num_text = random.random()
 
-        if rand_num < self.cfg:
-            if rand_num_text < self.default_text_ratio:
-                text = ["A scene with coherent and clear visuals." ]
-            else:
-                text = [""]
+#         if rand_num < self.cfg:
+#             if rand_num_text < self.default_text_ratio:
+#                 text = ["A scene with coherent and clear visuals." ]
+#             else:
+#                 text = [""]
 
-        return text
+#         return text
     
-    def __call__(self, texts):
-        if self.enable_text_preprocessing:
-            texts_info = [
-                TextProcesser.text_preprocessing(text, self.use_clean_caption)
-                for text in texts
-            ]
-            texts_info = self.drop(texts_info)
-        else:
-            texts_info = texts
+#     def __call__(self, texts):
+#         if self.enable_text_preprocessing:
+#             texts_info = [
+#                 TextProcesser.text_preprocessing(text, self.use_clean_caption)
+#                 for text in texts
+#             ]
+#             texts_info = self.drop(texts_info)
+#         else:
+#             texts_info = texts
 
-        text_tokens_and_mask = self.tokenizer(
-            texts_info,
-            max_length=self.model_max_length,
-            padding=self.padding,
-            truncation=True,
-            return_attention_mask=True,
-            add_special_tokens=True,
-            return_tensors="pt",
-        )
-        prompt_ids = text_tokens_and_mask["input_ids"]
-        prompt_mask = text_tokens_and_mask["attention_mask"]
-        return prompt_ids, prompt_mask
+#         text_tokens_and_mask = self.tokenizer(
+#             texts_info,
+#             max_length=self.model_max_length,
+#             padding=self.padding,
+#             truncation=True,
+#             return_attention_mask=True,
+#             add_special_tokens=True,
+#             return_tensors="pt",
+#         )
+#         prompt_ids = text_tokens_and_mask["input_ids"]
+#         prompt_mask = text_tokens_and_mask["attention_mask"]
+#         return prompt_ids, prompt_mask
 
-
-def get_seed_worker(seed):
-    """Deterministic dataloader"""
-
-    def seed_worker(worker_id):
-        worker_seed = seed
-        np.random.seed(worker_seed)
-        torch.manual_seed(worker_seed)
-        random.seed(worker_seed)
-
-    return seed_worker
-
-
-class SingletonMeta(type):
-    """
-    This is a metaclass for creating singletons.
-    """
-
-    _instances = {}
-
-    def __call__(cls, *args, **kwargs):
-        if cls not in cls._instances:
-            instance = super().__call__(*args, **kwargs)
-            cls._instances[cls] = instance
-        return cls._instances[cls]
-
-
-class DataSetProg(metaclass=SingletonMeta):
-    """
-    This is a data program for data multithreaded processing.
-    """
-
-    def __init__(self):
-        self.cap_list = []
-        self.elements = []
-        self.num_workers = 1
-        self.n_elements = 0
-        self.worker_elements = dict()
-        self.n_used_elements = dict()
-
-    def set_cap_list(self, num_workers, cap_list, n_elements):
-        self.num_workers = num_workers
-        self.cap_list = cap_list
-        self.n_elements = n_elements
-        self.elements = list(range(n_elements))
-        random.shuffle(self.elements)
-        print(f"n_elements: {len(self.elements)}", flush=True)
-
-        for i in range(self.num_workers):
-            self.n_used_elements[i] = 0
-            per_worker = int(math.ceil(len(self.elements) / float(self.num_workers)))
-            start = i * per_worker
-            end = min(start + per_worker, len(self.elements))
-            self.worker_elements[i] = self.elements[start:end]
-
-    def get_item(self, work_info):
-        if work_info is None:
-            worker_id = 0
-        else:
-            worker_id = work_info.id
-
-        idx = self.worker_elements[worker_id][
-            self.n_used_elements[worker_id] % len(self.worker_elements[worker_id])
-            ]
-        self.n_used_elements[worker_id] += 1
-        return idx
+def filter_resolution(h, w, max_h_div_w_ratio=17 / 16, min_h_div_w_ratio=8 / 16):
+    if h / w <= max_h_div_w_ratio and h / w >= min_h_div_w_ratio:
+        return True
+    return False
 
 
 def format_numel_str(numel: int) -> str:
@@ -1141,6 +1100,17 @@ def format_numel_str(numel: int) -> str:
         return f"{numel / K:.2f} K"
     else:
         return f"{numel}"
+
+def get_seed_worker(seed):
+    """Deterministic dataloader"""
+
+    def seed_worker(worker_id):
+        worker_seed = seed
+        np.random.seed(worker_seed)
+        torch.manual_seed(worker_seed)
+        random.seed(worker_seed)
+
+    return seed_worker
 
 
 def collate_fn_default(batch):
@@ -1163,388 +1133,6 @@ def collate_fn_default(batch):
         ret["mask"] = masks
         ret["input_ids"] = input_ids
 
-    return ret
-
-
-def find_closest_aspect_ratio(aspect_ratio, target_ratios, width, height, image_size):
-    """
-    This function finds the closest aspect ratio from a set of target aspect ratios based on the input
-    image's aspect ratio. It calculates the difference between the input image's aspect ratio and each
-    target aspect ratio, and returns the ratio that has the smallest difference. If two ratios have the same
-    difference, it chooses the one whose area is closer to a specific size threshold.
-    :param aspect_ratio: The aspect ratio of the input image, calculated as width / height.
-    :param target_ratios: A list of target aspect ratios in the form of tuples, where each tuple represents a width-height ratio.
-    :param width: The width of the input image.
-    :param height: The height of the input image.
-    :param image_size: A reference size used for comparing the areas of the input image and the target ratios.
-    :return:best_ratio (tuple): The target aspect ratio that is closest to the input image's aspect ratio.
-    """
-    best_ratio_diff = float("inf")
-    best_ratio = (1, 1)
-    area = width * height
-    for ratio in target_ratios:
-        target_aspect_ratio = ratio[0] / ratio[1]
-        ratio_diff = abs(aspect_ratio - target_aspect_ratio)
-        if ratio_diff < best_ratio_diff:
-            best_ratio_diff = ratio_diff
-            best_ratio = ratio
-        elif ratio_diff == best_ratio_diff:
-            if area > 0.5 * image_size * image_size * ratio[0] * ratio[1]:
-                best_ratio = ratio
-    return best_ratio
-
-
-def dynamic_preprocess(image, min_num=1, max_num=6, image_size=448, use_thumbnail=False):
-    """
-    This function dynamically preprocesses an input image by resizing it to match a closest target
-    aspect ratio and then splitting the resized image into smaller blocks. It optionally generates
-    a thumbnail version of the image. The preprocessing is useful for adjusting the input data for tasks like
-    data augmentation or image classification in machine learning.
-    :param image:The input image to be processed.
-    :param min_num: The minimum number of blocks used to create target aspect ratios.
-    :param max_num:The maximum number of blocks used to create target aspect ratios.
-    :param image_size:The size to which the image should be resized before splitting into blocks.
-    :param use_thumbnail: If True, a thumbnail version of the image will be generated and added to the list of
-                          processed images when the number of blocks is greater than 1.
-    :return:processed_images (list of PIL.Image): A list of processed images, including blocks of the resized image,
-                    and optionally a thumbnail image. The number of blocks is determined by the target aspect ratio.
-    """
-    orig_width, orig_height = image.size
-    aspect_ratio = orig_width / orig_height
-
-    # calculate the existing image aspect ratio
-    target_ratios = set()
-    for n in range(min_num, max_num + 1):
-        for i in range(1, n + 1):
-            for j in range(1, n + 1):
-                if min_num <= i * j <= max_num:
-                    target_ratios.add((i, j))
-    target_ratios = sorted(target_ratios, key=lambda x: x[0] * x[1])
-
-    # find the closest aspect ratio to the target
-    target_aspect_ratio = find_closest_aspect_ratio(
-        aspect_ratio, target_ratios, orig_width, orig_height, image_size)
-
-    # calculate the target width and height
-    target_width = image_size * target_aspect_ratio[0]
-    target_height = image_size * target_aspect_ratio[1]
-    blocks = target_aspect_ratio[0] * target_aspect_ratio[1]
-
-    # resize the image
-    resized_img = image.resize((target_width, target_height))
-    processed_images = []
-    for i in range(blocks):
-        box = (
-            (i % (target_width // image_size)) * image_size,
-            (i // (target_width // image_size)) * image_size,
-            ((i % (target_width // image_size)) + 1) * image_size,
-            ((i // (target_width // image_size)) + 1) * image_size
-        )
-        # split the image
-        split_img = resized_img.crop(box)
-        processed_images.append(split_img)
-    if use_thumbnail and len(processed_images) != 1:
-        thumbnail_img = image.resize((image_size, image_size))
-        processed_images.append(thumbnail_img)
-    return processed_images
-
-
-def preprocess_multimodal(
-        sources: Sequence[str],
-        is_multimodal,
-        mm_use_im_start_end,
-) -> Dict:
-    """
-    Process multimodal sources by handling image tokens.
-    """
-    image_token = MODEL_CONSTANTS['llava']["IMAGE_TOKEN"]
-    img_start_token = MODEL_CONSTANTS['llava']["IMG_START_TOKEN"]
-    img_end_token = MODEL_CONSTANTS['llava']["IMG_END_TOKEN"]
-
-    if not is_multimodal:
-        return sources
-
-    for source in sources:
-        for sentence in source:
-            if image_token in sentence["value"]:
-                sentence["value"] = sentence["value"].replace(image_token, "").strip()
-                sentence["value"] = image_token + "\n" + sentence["value"]
-                sentence["value"] = sentence["value"].strip()
-            replace_token = image_token
-            if mm_use_im_start_end:
-                replace_token = img_start_token + replace_token + img_end_token
-            sentence["value"] = sentence["value"].replace(image_token, replace_token)
-
-    return sources
-
-
-def preprocess_v1(
-        sources,
-        is_multimodal,
-        mm_use_im_start_end,
-        tokenizer: transformers.PreTrainedTokenizer,
-        has_image: bool = True
-) -> Dict:
-    """
-    Process sources for llava-v1 of the preprocessing pipeline.
-    """
-    sources = preprocess_multimodal(sources, is_multimodal, mm_use_im_start_end)
-
-    ignore_index = MODEL_CONSTANTS['llava']["IGNORE_INDEX"]
-    image_token_index = MODEL_CONSTANTS['llava']["IMAGE_TOKEN_INDEX"]
-    conv = get_conv_template("llava-v1")
-    roles = {"human": conv.roles[0], "gpt": conv.roles[1]}
-    conversations = get_formatted_conversations(sources, roles, conv)
-
-    if has_image:
-        input_ids = torch.stack(
-            [tokenizer_image_token(prompt, tokenizer, image_token_index=image_token_index, return_tensors="pt")
-             for prompt in conversations], dim=0)
-    else:
-        input_ids = tokenizer(
-            conversations,
-            return_tensors="pt",
-            padding="longest",
-            max_length=tokenizer.model_max_length,
-            truncation=True,
-        ).input_ids
-
-    targets = input_ids.clone()
-
-    # Mask targets
-    sep = conv.sep + conv.roles[1] + ": "
-    for conversation, target in zip(conversations, targets):
-        total_len = int(target.ne(tokenizer.pad_token_id).sum())
-
-        rounds = conversation.split(conv.sep2)
-        cur_len = 1
-        target[:cur_len] = ignore_index
-        for i, rou in enumerate(rounds):
-            if rou == "":
-                break
-
-            parts = rou.split(sep)
-            if len(parts) != 2:
-                break
-            parts[0] += sep
-
-            if has_image:
-                round_len = len(tokenizer_image_token(rou, tokenizer, image_token_index))
-                instruction_len = len(tokenizer_image_token(parts[0], tokenizer, image_token_index)) - 2
-            else:
-                round_len = len(tokenizer(rou).input_ids)
-                instruction_len = len(tokenizer(parts[0]).input_ids) - 2
-
-            if i != 0 and not tokenizer.legacy and IS_TOKENIZER_GREATER_THAN_0_14:
-                round_len -= 1
-                instruction_len -= 1
-
-            target[cur_len: cur_len + instruction_len] = ignore_index
-
-            cur_len += round_len
-        target[cur_len:] = ignore_index
-
-        if cur_len < tokenizer.model_max_length:
-            if cur_len != total_len:
-                target[:] = ignore_index
-                print(
-                    f"WARNING: tokenization mismatch: {cur_len} vs. {total_len}."
-                    f" (ignored)"
-                )
-
-    return dict(
-        input_ids=input_ids[0],
-        labels=targets[0],
-    )
-
-
-def preprocess_plain(
-        sources: Sequence[str],
-        is_multimodal,
-        mm_use_im_start_end,
-        tokenizer: transformers.PreTrainedTokenizer
-) -> Dict:
-    """
-    Process plain text sources for preprocessing.
-    """
-    sources = preprocess_multimodal(sources, is_multimodal, mm_use_im_start_end)
-
-    image_token_index = MODEL_CONSTANTS['llava']["IMAGE_TOKEN_INDEX"]
-    image_token = MODEL_CONSTANTS['llava']["IMAGE_TOKEN"]
-    ignore_index = MODEL_CONSTANTS['llava']["IGNORE_INDEX"]
-    conv = get_conv_template("llava-plain")
-    # add end signal and concatenate together
-    conversations = []
-    for source in sources:
-        source[0]["value"] = image_token
-        conversation = source[0]["value"] + source[1]["value"] + conv.sep
-        conversations.append(conversation)
-    # tokenize conversations
-    input_ids = [tokenizer_image_token(prompt, tokenizer, image_token_index=image_token_index, return_tensors="pt")
-                 for prompt in conversations]
-    targets = copy.deepcopy(input_ids)
-    for target, source in zip(targets, sources):
-        tokenized_len = len(tokenizer_image_token(source[0]["value"], tokenizer, image_token_index=image_token_index))
-        target[:tokenized_len] = ignore_index
-
-    return dict(input_ids=input_ids[0], labels=targets[0])
-
-
-def preprocess_internlm(
-        template_name,
-        sources,
-        tokenizer: transformers.PreTrainedTokenizer,
-        num_image_token_list: list,
-        text_only: bool = False,
-        group_by_length: bool = False,
-        use_packed_ds: bool = False,
-        num_image: int = 1
-) -> Dict:
-    """
-    Process sources for internvl model preprocessing.
-    """
-    conv = get_conv_template(template_name)
-    roles = {"human": conv.roles[0], "gpt": conv.roles[1]}
-    conversations = get_formatted_conversations(sources, roles, conv)
-
-    im_start_token = MODEL_CONSTANTS['internvl']["IMG_START_TOKEN"]
-    im_context_token = MODEL_CONSTANTS['internvl']["IMG_CONTEXT_TOKEN"]
-    im_end_token = MODEL_CONSTANTS['internvl']["IMG_END_TOKEN"]
-
-    if not text_only:
-        new_conversations = []
-        for conversation in conversations:
-            for i in range(num_image):
-                image_tokens = f"{im_start_token}{im_context_token * num_image_token_list[i]}{im_end_token}"
-                conversation = conversation.replace("<image>", image_tokens, 1)
-            new_conversations.append(conversation)
-        conversations = new_conversations
-
-    # Tokenize conversations
-    input_ids = tokenizer(
-        conversations,
-        return_tensors="pt",
-        padding=False if group_by_length or use_packed_ds else "max_length",
-        max_length=tokenizer.model_max_length,
-        truncation=True,
-    ).input_ids
-    targets = input_ids.clone()
-
-    for conversation, target in zip(conversations, targets):
-        total_len = int(target.ne(tokenizer.pad_token_id).sum())  # 浦语里面 pad_token_id = eos_token_id
-        cur_len = 1
-        target[:cur_len] = IGNORE_TOKEN_ID  # <s>
-        parts = conversation.split(conv.roles[1])  # [UNUSED_TOKEN_146]assistant\n
-        info = parts[0] + conv.roles[1]
-        temp_len = len(tokenizer(info).input_ids) - 1  # 去除tokenizer的<s>
-        target[cur_len: cur_len + temp_len] = IGNORE_TOKEN_ID
-        cur_len = cur_len + temp_len
-
-        for index in range(1, len(parts) - 1):
-            info = parts[index]
-            part1, part2 = info.split(conv.roles[0])
-            temp_len = len(tokenizer(part1).input_ids) - 1
-            cur_len = cur_len + temp_len
-            part = conv.roles[0] + part2 + conv.roles[1]
-            temp_len = len(tokenizer(part).input_ids) - 1
-            target[cur_len: cur_len + temp_len] = IGNORE_TOKEN_ID
-            cur_len = cur_len + temp_len
-        last_info = parts[-1]
-        temp_len = len(tokenizer(last_info).input_ids) - 1
-        cur_len = cur_len + temp_len
-
-        target[cur_len:] = IGNORE_TOKEN_ID
-        if cur_len < tokenizer.model_max_length:
-            if cur_len != total_len:
-                target[:] = IGNORE_TOKEN_ID
-                print(f"WARNING: tokenization mismatch: {cur_len} vs. {total_len}.", flush=True)
-
-    return dict(
-        input_ids=input_ids[0],
-        labels=targets[0],
-        attention_mask=input_ids.ne(tokenizer.pad_token_id)[0],
-    )
-
-
-def tokenizer_image_token(prompt, tokenizer, image_token_index, return_tensors=None):
-    """
-    Tokenize prompts with image tokens.
-    """
-    prompt_chunks = [tokenizer(chunk).input_ids for chunk in prompt.split("<image>")]
-
-    def insert_separator(X, sep):
-        return [ele for sublist in zip(X, [sep] * len(X)) for ele in sublist][:-1]
-
-    input_ids = []
-    offset = 0
-    if len(prompt_chunks) > 0 and len(prompt_chunks[0]) > 0 and prompt_chunks[0][0] == tokenizer.bos_token_id:
-        offset = 1
-        input_ids.append(prompt_chunks[0][0])
-
-    for x in insert_separator(prompt_chunks, [image_token_index] * (offset + 1)):
-        input_ids.extend(x[offset:])
-
-    if return_tensors is not None:
-        if return_tensors == "pt":
-            return torch.tensor(input_ids, dtype=torch.long)
-        raise ValueError(f"Unsupported tensor type: {return_tensors}")
-    return input_ids
-
-
-def get_formatted_conversations(sources, roles, conv):
-    """
-    Format conversations based on provided roles and conversation template.
-    """
-    # Apply prompt templates
-    conversations = []
-    for i, source in enumerate(sources):
-        if roles[source[0]["from"]] != conv.roles[0]:
-            # Skip the first one if it is not from human
-            source = source[1:]
-
-        conv.messages = []
-        for j, sentence in enumerate(source):
-            role = roles[sentence["from"]]
-            if role != conv.roles[j % 2]:
-                raise ValueError(
-                    f"Role mismatch at {sentence}, expected {conv.roles[j % 2]}, got {role}")
-            sentence["value"] = sentence["value"].strip()
-            conv.append_message(role, sentence["value"])
-        conversations.append(conv.get_prompt())
-    return conversations
-
-
-def preprocess(
-        template_name,
-        sources,
-        tokenizer,
-        num_image_token_list,
-        group_by_length,
-        is_multimodal,
-        mm_use_im_start_end
-):
-    """
-    Select and run the appropriate preprocessing function based on template name.
-    """
-    if template_name == "internlm2-chat":
-        ret = preprocess_internlm(template_name, sources,
-                                  tokenizer, num_image_token_list,
-                                  group_by_length=group_by_length)
-    elif template_name == "llava-v1":
-        ret = preprocess_v1(
-            sources,
-            is_multimodal,
-            mm_use_im_start_end,
-            tokenizer,
-            has_image=True)
-    elif template_name == "llava-plain":
-        ret = preprocess_plain(
-            sources,
-            is_multimodal,
-            mm_use_im_start_end,
-            tokenizer)
-    else:
-        raise ValueError("%s preprocessor is not implemented" % type(template_name))
     return ret
 
 

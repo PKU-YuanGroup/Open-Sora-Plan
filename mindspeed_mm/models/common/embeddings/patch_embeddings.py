@@ -558,3 +558,27 @@ class PatchEmbed3D(nn.Module):
         if self.flatten:
             x = x.flatten(2).transpose(1, 2)  # BCTHW -> BNC
         return x
+
+
+class PatchEmbed2D(nn.Module):
+    """2D Image to Patch Embedding but with video"""
+
+    def __init__(
+        self,
+        patch_size=16,
+        in_channels=3,
+        embed_dim=768,
+        bias=True,
+    ):
+        super().__init__()
+        self.proj = nn.Conv2d(
+            in_channels, embed_dim,
+            kernel_size=(patch_size, patch_size), stride=(patch_size, patch_size), bias=bias
+        )
+
+    def forward(self, latent):
+        b, _, _, _, _ = latent.shape
+        latent = rearrange(latent, 'b c t h w -> (b t) c h w')
+        latent = self.proj(latent)
+        latent = rearrange(latent, '(b t) c h w -> b (t h w) c', b=b)
+        return latent

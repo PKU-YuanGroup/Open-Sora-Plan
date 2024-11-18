@@ -1,2 +1,0 @@
-class Latte:
-    pass

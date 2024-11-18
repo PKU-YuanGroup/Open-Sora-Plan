@@ -1,6 +1,8 @@
 # some constants used for dataset
 PROMPT_MASK = "prompt_mask"
 PROMPT_IDS = "prompt_ids"
+PROMPT_MASK_2 = "prompt_mask_2"
+PROMPT_IDS_2 = "prompt_ids_2"
 TEXT = "text"
 VIDEO = "video"
 VIDEO_MASK = "video_mask"
