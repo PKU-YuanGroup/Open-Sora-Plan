@@ -64,6 +64,6 @@ class OpenSoraNormZero(nn.Module):
         self, hidden_states: torch.Tensor, encoder_hidden_states: torch.Tensor, temb: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         shift, scale, gate, enc_shift, enc_scale, enc_gate = self.linear(self.silu(temb)).chunk(6, dim=1)
-        hidden_states = self.norm(hidden_states) * (1 + scale)[None, :, :] + shift[None, :, :]
+        hidden_states = self.norm(hidden_states) * (1 + scale)[None, :, :] + shift[None, :, :] # because hidden_states'shape is (S B H), so we need to add None at the first dimension
         encoder_hidden_states = self.norm_enc(encoder_hidden_states) * (1 + enc_scale)[None, :, :] + enc_shift[None, :, :]
         return hidden_states, encoder_hidden_states, gate[None, :, :], enc_gate[None, :, :]

@@ -1,9 +1,11 @@
-from typing import Optional, Tuple, List
+from selectors import EpollSelector
+from typing import Any, Dict, Optional, Tuple, List
 
 from einops import rearrange, repeat
 import torch
 from torch import nn
 import torch.nn.functional as F
+from diffusers.utils import is_torch_version
 from diffusers.models.embeddings import PixArtAlphaTextProjection
 from diffusers.models.normalization import AdaLayerNormSingle, RMSNorm
 from megatron.core import mpu, tensor_parallel
@@ -12,11 +14,20 @@ from megatron.training import get_args
 from mindspeed_mm.models.common import MultiModalModule
 from mindspeed_mm.models.common.embeddings import PatchEmbed2D, RoPE3D, PositionGetter3D
 from mindspeed_mm.models.common.ffn import FeedForward
-from mindspeed_mm.models.common.attention import MultiHeadSparseAttentionSBH
+from mindspeed_mm.models.common.attention import MultiHeadSparseMMAttentionSBH
 from mindspeed_mm.models.common.normalize import normalize
 from mindspeed_mm.models.common.communications import split_forward_gather_backward, gather_forward_split_backward
 
 from mindspeed_mm.models.predictor.dits.modules import CombinedTimestepTextProjEmbeddings, AdaNorm, OpenSoraNormZero
+
+
+def create_custom_forward(module, return_dict=None):
+    def custom_forward(*inputs):
+        if return_dict is not None:
+            return module(*inputs, return_dict=return_dict)
+        else:
+            return module(*inputs)
+    return custom_forward
 
 
 class SparseUMMDiT(MultiModalModule):
@@ -51,9 +62,6 @@ class SparseUMMDiT(MultiModalModule):
         sparse_n: List[int] = [1, 4, 16, 4, 1], 
         dropout: float = 0.0,
         attention_bias: bool = True,
-        sample_size_h: Optional[int] = None,
-        sample_size_w: Optional[int] = None,
-        sample_size_t: Optional[int] = None,
         patch_size: Optional[int] = None,
         patch_size_t: Optional[int] = None,
         activation_fn: str = "gelu-approximate",
@@ -89,6 +97,7 @@ class SparseUMMDiT(MultiModalModule):
         self.sparse_n = sparse_n
         self.patch_size_t = patch_size_t
         self.patch_size = patch_size
+        self.skip_connection = skip_connection
 
         if norm_cls == 'rms_norm':
             self.norm_cls = RMSNorm
@@ -105,6 +114,8 @@ class SparseUMMDiT(MultiModalModule):
 
         if not sparse1d:
             self.sparse_n = [1] * len(num_layers)
+
+        interpolation_scale_thw = (interpolation_scale_t, interpolation_scale_h, interpolation_scale_w)
 
         # 1. patch embedding
         self.patch_embed = PatchEmbed2D(
@@ -128,9 +139,9 @@ class SparseUMMDiT(MultiModalModule):
         self.skip_norm_linear = []
         self.skip_norm_linear_enc = []
 
-        for idx, (num_layers, sparse_n) in enumerate(zip(num_layers, sparse_n)):
+        for idx, (num_layer, sparse_n) in enumerate(zip(self.num_layers, self.sparse_n)):
             is_last_stage = idx == len(num_layers) - 1
-            if skip_connection and idx > len(num_layers) // 2:
+            if self.skip_connection and idx > len(num_layers) // 2:
                 self.skip_norm_linear.append(
                     nn.Sequential(
                         self.norm_cls(
@@ -152,185 +163,166 @@ class SparseUMMDiT(MultiModalModule):
                     )
                 )
             stage_blocks = nn.ModuleList(
-                SparseMMDiTBlock(
-
-                )
+                [
+                    SparseMMDiTBlock(
+                        dim=hidden_size,
+                        num_heads=num_heads,
+                        head_dim=head_dim,
+                        timestep_embed_dim=timestep_embed_dim,
+                        dropout=dropout,
+                        activation_fn=activation_fn,
+                        attention_bias=attention_bias,
+                        norm_elementwise_affine=norm_elementwise_affine,
+                        norm_eps=norm_eps,
+                        interpolation_scale_thw=interpolation_scale_thw,
+                        sparse1d=sparse1d if sparse_n > 1 else False,
+                        sparse_n=sparse_n,
+                        sparse_group=i % 2 == 1 if sparse_n > 1 else False,
+                        context_pre_only=is_last_stage and (i == num_layer - 1),
+                        norm_cls=norm_cls,
+                    )
+                    for i in range(num_layer)
+                ]
             )
-        self.videodit_sparse_blocks = nn.ModuleList(
-            [
-                SparseMMDiTBlock(
-                    hidden_size,
-                    num_attention_heads,
-                    self.config.attention_head_dim,
-                    self.config.timestep_embed_dim, 
-                    dropout=self.config.dropout,
-                    activation_fn=self.config.activation_fn,
-                    attention_bias=self.config.attention_bias,
-                    norm_elementwise_affine=self.config.norm_elementwise_affine,
-                    norm_eps=self.config.norm_eps,
-                    interpolation_scale_thw=interpolation_scale_thw, 
-                    sparse1d=self.config.sparse1d if sparse_n > 1 else False, 
-                    sparse_n=sparse_n, 
-                    sparse_group=i % 2 == 1 if sparse_n > 1 else False, 
-                    context_pre_only=is_last_stage and (i == num_layer - 1), 
-                    # context_pre_only=True, 
-                    norm_cls=self.config.norm_cls, 
-                )
-                for _ in range(num_layers)
-            ]
-        )
-        self.norm_out = nn.LayerNorm(inner_dim, elementwise_affine=False, eps=1e-6)
-        self.scale_shift_table = nn.Parameter(torch.randn(2, inner_dim) / inner_dim ** 0.5)
-        self.proj_out = nn.Linear(inner_dim, patch_size_t * patch_size * patch_size * out_channels)
-        self.adaln_single = AdaLayerNormSingle(inner_dim)
+            self.transformer_blocks.append(stage_blocks)
+        self.transformer_blocks = nn.ModuleList(self.transformer_blocks)
 
-    def prepare_sparse_mask(self, video_mask, prompt_mask, sparse_n):
-        video_mask = video_mask.unsqueeze(1)
-        prompt_mask = prompt_mask.unsqueeze(1)
-        _len = video_mask.shape[-1]
-        if _len % (sparse_n * sparse_n) == 0:
+        if self.skip_connection:
+            self.skip_norm_linear = nn.ModuleList(self.skip_norm_linear)
+            self.skip_norm_linear_enc = nn.ModuleList(self.skip_norm_linear_enc)
+
+        self.norm_final = self.norm_cls(
+            hidden_size, eps=norm_eps, elementwise_affine=norm_elementwise_affine
+        )
+
+        self.norm_out = AdaNorm(
+            embedding_dim=timestep_embed_dim,
+            output_dim=hidden_size * 2,
+            norm_elementwise_affine=norm_elementwise_affine,
+            norm_eps=norm_eps,
+            chunk_dim=1,
+            norm_cls=norm_cls,
+        )
+
+        self.proj_out = nn.Linear(
+            hidden_size, patch_size_t * patch_size * patch_size * out_channels
+        )
+
+    def prepare_sparse_mask(self, attention_mask, encoder_attention_mask, sparse_n):
+        attention_mask = attention_mask.unsqueeze(1)
+        encoder_attention_mask = encoder_attention_mask.unsqueeze(1)
+        l = attention_mask.shape[-1]
+        if l % (sparse_n * sparse_n) == 0:
             pad_len = 0
         else:
-            pad_len = sparse_n * sparse_n - _len % (sparse_n * sparse_n)
+            pad_len = sparse_n * sparse_n - l % (sparse_n * sparse_n)
 
-        video_mask_sparse = F.pad(video_mask, (0, pad_len, 0, 0), value=-9980.0)
-        video_mask_sparse_1d = rearrange(
-            video_mask_sparse,
-            'b 1 1 (g k) -> (k b) 1 1 g',
+        attention_mask_sparse = F.pad(attention_mask, (0, pad_len, 0, 0), value=-10000.0)
+        attention_mask_sparse_1d = rearrange(
+            attention_mask_sparse, 
+            'b 1 1 (g k) -> (k b) 1 1 g', 
             k=sparse_n
         )
-        video_mask_sparse_1d_group = rearrange(
-            video_mask_sparse,
+        attention_mask_sparse_1d_group = rearrange(
+            attention_mask_sparse, 
             'b 1 1 (n m k) -> (m b) 1 1 (n k)',
-            m=sparse_n,
+            m=sparse_n, 
             k=sparse_n
         )
-        prompt_mask_sparse = prompt_mask.repeat(sparse_n, 1, 1, 1)
+        encoder_attention_mask_sparse = encoder_attention_mask.repeat(sparse_n, 1, 1, 1)
+ 
+        # concat mask at sequence dim
+        attention_mask_sparse_1d = torch.cat([attention_mask_sparse_1d, encoder_attention_mask_sparse], dim=-1)
+        attention_mask_sparse_1d_group = torch.cat([attention_mask_sparse_1d_group, encoder_attention_mask_sparse], dim=-1)
 
         def get_attention_mask(mask, repeat_num):
             mask = mask.to(torch.bool)
             mask = mask.repeat(1, 1, repeat_num, 1)
             return mask
 
-        video_mask_sparse_1d = get_attention_mask(video_mask_sparse_1d, video_mask_sparse_1d.shape[-1])
-        video_mask_sparse_1d_group = get_attention_mask(
-            video_mask_sparse_1d_group, video_mask_sparse_1d_group.shape[-1]
+        attention_mask_sparse_1d = get_attention_mask(
+            attention_mask_sparse_1d, attention_mask_sparse_1d.shape[-1]
         )
-        prompt_mask_sparse_1d = get_attention_mask(
-            prompt_mask_sparse, video_mask_sparse_1d.shape[-1]
+        attention_mask_sparse_1d_group = get_attention_mask(
+            attention_mask_sparse_1d_group, attention_mask_sparse_1d_group.shape[-1]
         )
-        prompt_mask_sparse_1d_group = prompt_mask_sparse_1d
 
         return {
-            False: (video_mask_sparse_1d, prompt_mask_sparse_1d),
-            True: (video_mask_sparse_1d_group, prompt_mask_sparse_1d_group)
+            False: attention_mask_sparse_1d,
+            True: attention_mask_sparse_1d_group
         }
+
 
     def forward(
         self,
-        latents: torch.Tensor,
+        hidden_states: torch.Tensor,
         timestep: Optional[torch.Tensor] = None,
-        prompt: Optional[torch.Tensor] = None,
-        video_mask: Optional[torch.Tensor] = None,
-        prompt_mask: Optional[torch.Tensor] = None,
+        pooled_projections: Optional[torch.Tensor] = None,
+        encoder_hidden_states: Optional[torch.Tensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        encoder_attention_mask: Optional[torch.Tensor] = None,
         **kwargs
     ) -> torch.Tensor:
-        batch_size, c, frames, h, w = latents.shape
-        prompt_mask = prompt_mask.view(batch_size, -1, prompt_mask.shape[-1])
+        batch_size, c, frames, height, width = hidden_states.shape
+        encoder_attention_mask = encoder_attention_mask.view(batch_size, -1, encoder_attention_mask.shape[-1])
         if self.training and mpu.get_context_parallel_world_size() > 1:
             frames //= mpu.get_context_parallel_world_size()
-            latents = split_forward_gather_backward(latents, mpu.get_context_parallel_group(), dim=2,
+            hidden_states = split_forward_gather_backward(hidden_states, mpu.get_context_parallel_group(), dim=2,
                                                     grad_scale='down')
-            prompt = split_forward_gather_backward(prompt, mpu.get_context_parallel_group(),
+            encoder_hidden_states = split_forward_gather_backward(encoder_hidden_states, mpu.get_context_parallel_group(),
                                                    dim=2, grad_scale='down')
 
-        if video_mask is not None and video_mask.ndim == 4:
-            video_mask = video_mask.to(self.dtype)
+        if attention_mask is not None and attention_mask.ndim == 4:
+            attention_mask = attention_mask.to(self.dtype)
 
-            video_mask = video_mask.unsqueeze(1)  # b 1 t h w
-            video_mask = F.max_pool3d(
-                video_mask,
+            attention_mask = attention_mask.unsqueeze(1)  # b 1 t h w
+            attention_mask = F.max_pool3d(
+                attention_mask,
                 kernel_size=(self.patch_size_t, self.patch_size, self.patch_size),
                 stride=(self.patch_size_t, self.patch_size, self.patch_size)
             )
-            video_mask = rearrange(video_mask, 'b 1 t h w -> (b 1) 1 (t h w)')
-            video_mask = (1 - video_mask.bool().to(self.dtype)) * -10000.0
+            attention_mask = rearrange(attention_mask, 'b 1 t h w -> (b 1) 1 (t h w)')
+            attention_mask = (1 - attention_mask.bool().to(self.dtype)) * -10000.0
 
         # convert encoder_attention_mask to a bias the same way we do for attention_mask
-        if prompt_mask is not None and prompt_mask.ndim == 3:
+        if encoder_attention_mask is not None and encoder_attention_mask.ndim == 3:
             # b, 1, l
-            prompt_mask = (1 - prompt_mask.to(self.dtype)) * -10000.0
+            encoder_attention_mask = (1 - encoder_attention_mask.to(self.dtype)) * -10000.0
 
         # 1. Input
         frames = ((frames - 1) // self.patch_size_t + 1) if frames % 2 == 1 else frames // self.patch_size_t  # patchfy
-        height, width = latents.shape[-2] // self.patch_size, latents.shape[-1] // self.patch_size
+        height, width = height // self.patch_size, width // self.patch_size
 
-        latents, prompt, timestep, embedded_timestep = self._operate_on_patched_inputs(
-            latents, prompt, timestep, batch_size
+        hidden_states, encoder_hidden_states, embedded_timestep = self._operate_on_patched_inputs(
+            hidden_states, encoder_hidden_states, timestep, pooled_projections
         )
 
-        latents = rearrange(latents, 'b s h -> s b h', b=batch_size).contiguous()
-        prompt = rearrange(prompt, 'b s h -> s b h', b=batch_size).contiguous()
-        timestep = timestep.view(batch_size, 6, -1).transpose(0, 1).contiguous()
+        hidden_states = rearrange(hidden_states, 'b s h -> s b h', b=batch_size).contiguous()
+        encoder_hidden_states = rearrange(encoder_hidden_states, 'b s h -> s b h', b=batch_size).contiguous()
 
-        sparse_mask = {}
-        for sparse_n in [1, 4]:
-            sparse_mask[sparse_n] = self.prepare_sparse_mask(video_mask, prompt_mask, sparse_n)
+        self.sparse_mask = {}
 
-        # 2. Blocks
-        frames = torch.tensor(frames)
-        height = torch.tensor(height)
-        width = torch.tensor(width)
+        for sparse_n in list(set(self.sparse_n)):
+            self.sparse_mask[sparse_n] = self.prepare_sparse_mask(attention_mask, encoder_attention_mask, sparse_n)
 
-        for i, block in enumerate(self.videodit_sparse_blocks):
-            if i > 1 and i < 30:
-                video_mask, prompt_mask = sparse_mask[block.self_atten.sparse_n][block.self_atten.sparse_group]
-            else:
-                video_mask, prompt_mask = sparse_mask[1][block.self_atten.sparse_group]
+        hidden_states, encoder_hidden_states, skip_connections = self._operate_on_enc(
+            hidden_states, encoder_hidden_states, embedded_timestep, frames, height, width
+        )
 
-            if self.training and self.gradient_checkpointing:
-                def create_custom_forward(module, return_dict=None):
-                    def custom_forward(*inputs):
-                        if return_dict is not None:
-                            return module(*inputs, return_dict=return_dict)
-                        else:
-                            return module(*inputs)
-                    return custom_forward
+        hidden_states, encoder_hidden_states = self._operate_on_mid(
+            hidden_states, encoder_hidden_states, embedded_timestep, frames, height, width
+        )
 
-                latents = torch.utils.checkpoint.checkpoint(
-                    create_custom_forward(block),
-                    latents,
-                    video_mask,
-                    prompt,
-                    prompt_mask,
-                    timestep,
-                    frames,
-                    height,
-                    width
-                )
-            else:
-                latents = block(
-                            latents,
-                            video_mask=video_mask,
-                            prompt=prompt,
-                            prompt_mask=prompt_mask,
-                            timestep=timestep,
-                            frames=frames,
-                            height=height,
-                            width=width,
-                        )
+        hidden_states, encoder_hidden_states = self._operate_on_dec(
+            hidden_states, skip_connections, encoder_hidden_states, embedded_timestep, frames, height, width
+        )
 
         # To (b, t*h*w, h) or (b, t//sp*h*w, h)
-        latents = rearrange(latents, 's b h -> b s h', b=batch_size).contiguous()
+        hidden_states = rearrange(hidden_states, 's b h -> b s h', b=batch_size).contiguous()
 
         # 3. Output
         output = self._get_output_for_patched_inputs(
-            latents=latents,
-            timestep=timestep,
-            embedded_timestep=embedded_timestep,
-            num_frames=frames,
-            height=height,
-            width=width,
+            hidden_states, embedded_timestep, frames, height, width
         )  # b c t h w
 
         if self.training and mpu.get_context_parallel_world_size() > 1:
@@ -338,86 +330,6 @@ class SparseUMMDiT(MultiModalModule):
                                                         grad_scale='up')
 
         return output
-
-    def _get_block(self, layer_number):
-        return self.videodit_sparse_blocks[layer_number]
-
-    def _checkpointed_forward(
-            self,
-            sparse_mask,
-            latents,
-            video_mask,
-            prompt,
-            prompt_mask,
-            timestep,
-            frames,
-            height,
-            width):
-        """Forward method with activation checkpointing."""
-
-        def custom(start, end):
-            def custom_forward(*args, **kwargs):
-                x_, *args = args
-                for index in range(start, end):
-                    layer = self._get_block(index)
-                    x_ = layer(x_, *args, **kwargs)
-                return x_
-            return custom_forward
-
-        if self.recompute_method == "uniform":
-            # Uniformly divide the total number of Transformer layers and
-            # checkpoint the input activation of each divided chunk.
-            # A method to further reduce memory usage reducing checkpoints.
-            layer_num = 0
-            while layer_num < self.num_layers:
-                latents = tensor_parallel.checkpoint(
-                    custom(layer_num, layer_num + self.recompute_num_layers),
-                    self.distribute_saved_activations,
-                    latents,
-                    video_mask,
-                    prompt,
-                    prompt_mask,
-                    timestep,
-                    frames,
-                    height,
-                    width
-                )
-                layer_num += self.recompute_num_layers
-        elif self.recompute_method == "block":
-            for layer_num in range(self.videodit_sparse_blocks):
-                block = self._get_block(layer_num)
-                if layer_num > 1 and layer_num < 30:
-                    video_mask, prompt_mask = sparse_mask[block.self_atten.sparse_n][block.self_atten.sparse_group]
-                else:
-                    video_mask, prompt_mask = sparse_mask[1][block.self_atten.sparse_group]
-                if layer_num < self.recompute_num_layers:
-                    latents = tensor_parallel.checkpoint(
-                        custom(layer_num, layer_num + 1),
-                        self.distribute_saved_activations,
-                        latents,
-                        video_mask,
-                        prompt,
-                        prompt_mask,
-                        timestep,
-                        frames,
-                        height,
-                        width
-                    )
-                else:
-                    # block = self._get_block(layer_num)
-                    latents = block(
-                        latents,
-                        video_mask,
-                        prompt,
-                        prompt_mask,
-                        timestep,
-                        frames,
-                        height,
-                        width
-                    )
-        else:
-            raise ValueError("Invalid activation recompute method.")
-        return latents
 
     @property
     def dtype(self) -> torch.dtype:
@@ -429,47 +341,138 @@ class SparseUMMDiT(MultiModalModule):
             buffers = tuple(self.buffers())
             return buffers[0].dtype
 
-    def _operate_on_patched_inputs(self, latents, prompt, timestep, batch_size):
+    def _operate_on_enc(
+        self, hidden_states, encoder_hidden_states,
+        embedded_timestep, frames, height, width
+    ):
+        
+        skip_connections = []
+        for idx, stage_block in enumerate(self.transformer_blocks[:len(self.num_layers) // 2]):
+            for idx_, block in enumerate(stage_block):
+                attention_mask = self.sparse_mask[block.sparse_n][block.sparse_group]
+                hidden_states, encoder_hidden_states = self.block_forward(
+                    block=block,
+                    hidden_states=hidden_states,
+                    attention_mask=attention_mask,
+                    encoder_hidden_states=encoder_hidden_states,
+                    embedded_timestep=embedded_timestep,
+                    frames=frames,
+                    height=height,
+                    width=width,
+                )
+                if self.skip_connection:
+                    skip_connections.append([hidden_states, encoder_hidden_states])
+        return hidden_states, encoder_hidden_states, skip_connections
+    
+    def _operate_on_mid(
+        self, hidden_states, encoder_hidden_states,
+        embedded_timestep, frames, height, width
+    ):
+        for idx_, block in enumerate(self.transformer_blocks[len(self.num_layers) // 2]):
+            attention_mask = self.sparse_mask[block.sparse_n][block.sparse_group]
+            hidden_states, encoder_hidden_states = self.block_forward(
+                block=block,
+                hidden_states=hidden_states,
+                attention_mask=attention_mask,
+                encoder_hidden_states=encoder_hidden_states,
+                embedded_timestep=embedded_timestep,
+                frames=frames,
+                height=height,
+                width=width,
+            )
+            return hidden_states, encoder_hidden_states
+        
+    def _operate_on_dec(
+        self, hidden_states, skip_connections, encoder_hidden_states,
+        embedded_timestep, frames, height, width
+    ):
+        for idx, stage_block in enumerate(self.transformer_blocks[len(self.num_layers) // 2 + 1:]):
+            if self.skip_connection:
+                skip_hidden_states, skip_encoder_hidden_states = skip_connections.pop()
+                hidden_states = torch.cat([hidden_states, skip_hidden_states], dim=-1)
+                hidden_states = self.skip_norm_linear[idx](hidden_states)
+                encoder_hidden_states = torch.cat([encoder_hidden_states, skip_encoder_hidden_states], dim=-1)
+                encoder_hidden_states = self.skip_norm_linear_enc[idx](encoder_hidden_states)
+            
+            for idx_, block in enumerate(stage_block):
+                attention_mask = self.sparse_mask[block.sparse_n][block.sparse_group]
+                hidden_states, encoder_hidden_states = self.block_forward(
+                    block=block,
+                    hidden_states=hidden_states,
+                    attention_mask=attention_mask,
+                    encoder_hidden_states=encoder_hidden_states,
+                    embedded_timestep=embedded_timestep,
+                    frames=frames,
+                    height=height,
+                    width=width,
+                )
+                
+        return hidden_states, encoder_hidden_states
 
-        latents = self.pos_embed(latents.to(self.dtype))
+    def _operate_on_patched_inputs(self, hidden_states, encoder_hidden_states, timestep, pooled_projections):
 
-        added_cond_kwargs = {"resolution": None, "aspect_ratio": None}
-        timestep, embedded_timestep = self.adaln_single(
-            timestep, added_cond_kwargs, batch_size=batch_size, hidden_dtype=self.dtype
-        )  # b 6d, b d
+        hidden_states = self.patch_embed(hidden_states.to(self.dtype))
+        if pooled_projections.shape[1] != 1:
+            raise AssertionError("Pooled projection should have shape (b, 1, 1, d)")
+        pooled_projections = pooled_projections.squeeze(1)  # b 1 1 d -> b 1 d
+        timesteps_emb = self.time_text_embed(timestep, pooled_projections)  # (N, D)
+            
+        encoder_hidden_states = self.caption_projection(encoder_hidden_states)  # b, 1, l, d
+        if encoder_hidden_states.shape[1] != 1:
+            raise AssertionError("Encoder hidden states should have shape (b, 1, l, d)")
+        encoder_hidden_states = encoder_hidden_states.squeeze(1)
 
-        prompt = self.caption_projection(prompt)  # b, 1, l, d or b, 1, l, d
-        if prompt.shape[1] != 1:
-            raise ValueError("prompt's shape mismatched")
-        prompt = rearrange(prompt, 'b 1 l d -> (b 1) l d')
-
-        return latents, prompt, timestep, embedded_timestep
+        return hidden_states, encoder_hidden_states, timesteps_emb
 
     def _get_output_for_patched_inputs(
-            self, latents, timestep, embedded_timestep, num_frames, height, width
+        self, hidden_states, embedded_timestep, frames, height, width
     ):
-        shift, scale = (self.scale_shift_table[None] + embedded_timestep[:, None]).chunk(2, dim=1)
-        latents = self.norm_out(latents)
-        # Modulation
-        latents = latents * (1 + scale) + shift
-        latents = self.proj_out(latents)
-        latents = latents.squeeze(1)
+        hidden_states = self.norm_final(hidden_states)
 
-        # unpatchify
-        latents = latents.reshape(
-            shape=(
-            -1, num_frames, height, width, self.patch_size_t, self.patch_size, self.patch_size,
-            self.out_channels)
+        hidden_states = self.norm_out(hidden_states, temb=embedded_timestep)
+
+        hidden_states = self.proj_out(hidden_states)
+
+        hidden_states = hidden_states.reshape(
+            -1, frames, height, width,
+            self.patch_size_t, self.patch_size, self.patch_size, self.out_channels
         )
-        latents = torch.einsum("nthwopqc->nctohpwq", latents)
-        output = latents.reshape(
-            shape=(-1, self.out_channels,
-                   num_frames * self.patch_size_t, height * self.patch_size,
-                   width * self.patch_size)
+
+        hidden_states = torch.einsum("nthwopqc -> nctohpwq", hidden_states)
+        output = hidden_states.reshape(
+            -1,
+            self.out_channels,
+            frames * self.patch_size_t,
+            height * self.patch_size,
+            width * self.patch_size
         )
         return output
-
-
+    
+    def block_forward(self, block, hidden_states, attention_mask, encoder_hidden_states, embedded_timestep, frames, height, width):
+        if self.training and self.gradient_checkpointing:
+            ckpt_kwargs: Dict[str, Any] = {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
+            hidden_states, encoder_hidden_states = torch.utils.checkpoint.checkpoint(
+                create_custom_forward(block),
+                hidden_states,
+                attention_mask,
+                encoder_hidden_states,
+                embedded_timestep,
+                frames,
+                height,
+                width,
+                **ckpt_kwargs
+            )
+        else:
+            hidden_states, encoder_hidden_states = block(
+                hidden_states,
+                attention_mask=attention_mask,
+                encoder_hidden_states=encoder_hidden_states,
+                embedded_timestep=embedded_timestep,
+                frames=frames,
+                height=height,
+                width=width,
+            )
+        return hidden_states, encoder_hidden_states
 
 class SparseMMDiTBlock(nn.Module):
     def __init__(
@@ -507,44 +510,36 @@ class SparseMMDiTBlock(nn.Module):
             self.norm_cls = nn.LayerNorm
 
 
-        # Define 3 blocks. Each block has its own normalization layer.
-        # 1. Self-Attn
-        self.norm1 = nn.LayerNorm(dim, norm_eps, norm_elementwise_affine)
+        # adanorm-zero1: to introduce timestep and clip condition
+        self.norm1 = OpenSoraNormZero(
+            timestep_embed_dim, dim, norm_elementwise_affine, norm_eps, bias=True, norm_cls=norm_cls
+        )
 
-        self.self_atten = MultiHeadSparseAttentionSBH(
+        # 1. MM Attention
+        self.attn1 = MultiHeadSparseMMAttentionSBH(
             query_dim=dim,
-            key_dim=cross_attention_dim if only_cross_attention else None,
+            key_dim=None,
             num_heads=num_heads,
             head_dim=head_dim,
+            added_kv_proj_dim=dim,
             dropout=dropout,
             proj_qkv_bias=attention_bias,
             proj_out_bias=attention_out_bias,
-            interpolation_scale=interpolation_scale,
+            context_pre_only=context_pre_only,
+            qk_norm=norm_cls,
+            eps=norm_eps,
             sparse1d=sparse1d,
             sparse_n=sparse_n,
             sparse_group=sparse_group,
             is_cross_attn=False,
         )
 
-        # 2. Cross-Attn
-        self.norm2 = nn.LayerNorm(dim, norm_eps, norm_elementwise_affine)
+        # adanorm-zero2: to introduce timestep and clip condition
+        self.norm2 = OpenSoraNormZero(
+            timestep_embed_dim, dim, norm_elementwise_affine, norm_eps, bias=True, norm_cls=norm_cls
+        )
 
-        self.cross_atten = MultiHeadSparseAttentionSBH(
-            query_dim=dim,
-            key_dim=cross_attention_dim if not double_self_attention else None,
-            num_heads=num_heads,
-            head_dim=head_dim,
-            dropout=dropout,
-            proj_qkv_bias=attention_bias,
-            proj_out_bias=attention_out_bias,
-            interpolation_scale=interpolation_scale,
-            sparse1d=sparse1d,
-            sparse_n=sparse_n,
-            sparse_group=sparse_group,
-            is_cross_attn=True,
-        )  # is self-attn if encoder_hidden_states is none
-
-        # 3. Feed-forward
+        # 2. Feed-forward
         self.ff = FeedForward(
             dim,
             dropout=dropout,
@@ -554,59 +549,58 @@ class SparseMMDiTBlock(nn.Module):
             bias=ff_bias,
         )
 
-        # 4. Scale-shift.
-        self.scale_shift_table = nn.Parameter(torch.randn(6, dim) / dim ** 0.5)
-
-        self.rope = RoPE3D(interpolation_scale=interpolation_scale)
+        self.rope = RoPE3D(interpolation_scale_thw=interpolation_scale_thw)
         self.position_getter = PositionGetter3D(atten_layout="SBH")
 
     def forward(
-            self,
-            latents: torch.FloatTensor,
-            video_mask: Optional[torch.FloatTensor] = None,
-            prompt: Optional[torch.FloatTensor] = None,
-            prompt_mask: Optional[torch.FloatTensor] = None,
-            timestep: Optional[torch.LongTensor] = None,
-            frames: int = None,
-            height: int = None,
-            width: int = None,
+        self,
+        hidden_states: torch.FloatTensor,
+        attention_mask: Optional[torch.FloatTensor] = None,
+        encoder_hidden_states: Optional[torch.FloatTensor] = None,
+        embedded_timestep: Optional[torch.LongTensor] = None,
+        frames: int = None, 
+        height: int = None, 
+        width: int = None, 
     ) -> torch.FloatTensor:
-        # 1. Self-Attention
-        batch_size = latents.shape[1]
-        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
-                self.scale_shift_table[:, None] + timestep.reshape(6, batch_size, -1)
-        ).chunk(6, dim=0)
-        norm_latents = self.norm1(latents)
-        norm_latents = norm_latents * (1 + scale_msa) + shift_msa
-        attn_output = self.self_atten(
-            query=norm_latents,
-            key=None,
-            mask=video_mask,
+        
+        # 0. Prepare rope embedding
+        vis_seq_length, batch_size = hidden_states.shape[:2]
+        pos_thw = self.position_getter(batch_size, t=frames, h=height, w=width, device=hidden_states.device)
+        video_rotary_emb = self.rope(self.head_dim, pos_thw, hidden_states.device, hidden_states.dtype)
+
+        # 1. norm & scale & shift
+        norm_hidden_states, norm_encoder_hidden_states, gate_msa, enc_gate_msa = self.norm1(
+            hidden_states, encoder_hidden_states, embedded_timestep
+        )        
+    
+        # 2. MM Attention
+        attn_hidden_states, attn_encoder_hidden_states = self.attn1(
+            norm_hidden_states,
+            encoder_hidden_states=norm_encoder_hidden_states,
             frames=frames,
             height=height,
             width=width,
+            attention_mask=attention_mask,
+            video_rotary_emb=video_rotary_emb,
         )
-        attn_output = gate_msa * attn_output
-        latents = attn_output + latents
 
-        # 2. Cross-Attention
-        norm_latents = latents
-        attn_output = self.cross_atten(
-            query=norm_latents,
-            key=prompt,
-            mask=prompt_mask,
-            frames=frames,
-            height=height,
-            width=width,
+        # 3. residual & gate
+        hidden_states = hidden_states + gate_msa * attn_hidden_states
+        encoder_hidden_states = encoder_hidden_states + enc_gate_msa * attn_encoder_hidden_states
+
+        # 4. norm & scale & shift
+        norm_hidden_states, norm_encoder_hidden_states, gate_ff, enc_gate_ff = self.norm2(
+            hidden_states, encoder_hidden_states, embedded_timestep
         )
-        latents = attn_output + latents
 
-        # 3. Feed-forward
-        norm_latents = self.norm2(latents)
-        norm_latents = norm_latents * (1 + scale_mlp) + shift_mlp
-        ff_output = self.ff(norm_latents)
-        ff_output = gate_mlp * ff_output
-        latents = ff_output + latents
-        return latents
+        # 5. FFN
+        norm_hidden_states = torch.cat([norm_hidden_states, norm_encoder_hidden_states], dim=0)
+        ff_output = self.ff(norm_hidden_states)
+
+        # 6. residual & gate
+        hidden_states = hidden_states + gate_ff * ff_output[:vis_seq_length]
+        encoder_hidden_states = encoder_hidden_states + enc_gate_ff * ff_output[vis_seq_length:]
+        
+        return hidden_states, encoder_hidden_states
 
 

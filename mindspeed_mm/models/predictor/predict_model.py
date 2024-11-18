@@ -2,14 +2,12 @@ from torch import nn
 from megatron.training.utils import print_rank_0
 
 from mindspeed_mm.models.common.checkpoint import load_checkpoint
-from .dits import VideoDiT, Latte, STDiT, STDiT3, VideoDitSparse
+from .dits import VideoDiT, VideoDitSparse, SparseUMMDiT
 
 PREDICTOR_MODEL_MAPPINGS = {
     "videodit": VideoDiT,
     "videoditsparse": VideoDitSparse,
-    "latte": Latte,
-    "stdit": STDiT,
-    "stdit3": STDiT3,
+    "SparseUMMDiT": SparseUMMDiT,
 }
 
 

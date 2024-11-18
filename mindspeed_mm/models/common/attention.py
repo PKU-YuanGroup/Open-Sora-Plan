@@ -124,7 +124,7 @@ class MultiHeadSparseMMAttentionSBH(nn.Module):
         if self.added_kv_proj_dim is not None:
             self.added_proj_k = tensor_parallel.ColumnParallelLinear(
                 self.inner_dim,
-                added_kv_proj_dim,
+                self.added_kv_proj_dim,
                 config=config,
                 init_method=config.init_method,
                 bias=proj_qkv_bias,
@@ -132,7 +132,7 @@ class MultiHeadSparseMMAttentionSBH(nn.Module):
             )
             self.added_proj_v = tensor_parallel.ColumnParallelLinear(
                 self.inner_dim,
-                added_kv_proj_dim,
+                self.added_kv_proj_dim,
                 config=config,
                 init_method=config.init_method,
                 bias=proj_qkv_bias,
@@ -141,7 +141,7 @@ class MultiHeadSparseMMAttentionSBH(nn.Module):
             if self.context_pre_only is not None:
                 self.added_proj_q = tensor_parallel.ColumnParallelLinear(
                     self.inner_dim,
-                    added_kv_proj_dim,
+                    self.added_kv_proj_dim,
                     config=config,
                     init_method=config.init_method,
                     bias=proj_qkv_bias,
@@ -247,7 +247,7 @@ class MultiHeadSparseMMAttentionSBH(nn.Module):
             attention_mask: The attention mask to use.
             video_rotary_emb: The rotary embeddings for the video
         """
-        sequence_length, batch_size, _ = hidden_states.shape
+        visual_sequence_length, batch_size, _ = hidden_states.shape
         text_sequence_length_length, batch_size, _  = encoder_hidden_states.shape
 
         # Step 1: Project the hidden states and encoder hidden states
@@ -327,7 +327,7 @@ class MultiHeadSparseMMAttentionSBH(nn.Module):
             scale=1 / math.sqrt(self.head_dim)
         )[0]
 
-        hidden_states, encoder_hidden_states = out.split([sequence_length, text_sequence_length_length], dim=0)
+        hidden_states, encoder_hidden_states = out.split([visual_sequence_length, text_sequence_length_length], dim=0)
 
         # Step 6: Reverse sparse 1D
         if self.sparse1d:
@@ -340,7 +340,7 @@ class MultiHeadSparseMMAttentionSBH(nn.Module):
             hidden_states = all_to_all_SBH(
                 hidden_states.reshape(-1, self.num_attention_heads_per_partition_per_cp, self.head_dim),
                 sp_group, scatter_dim=0, gather_dim=1)
-            hidden_states = hidden_states.view(sequence_length, batch_size, -1)
+            hidden_states = hidden_states.view(visual_sequence_length, batch_size, -1)
 
             encoder_hidden_states = all_to_all_SBH(
                 encoder_hidden_states.reshape(-1, self.num_attention_heads_per_partition_per_cp, self.head_dim),
