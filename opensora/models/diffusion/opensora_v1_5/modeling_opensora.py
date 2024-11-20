@@ -158,7 +158,8 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
         # 4. rope
         self.rope = RoPE3D(interpolation_scale_thw=interpolation_scale_thw)
         self.position_getter = PositionGetter3D(
-            self.config.sample_size_t, self.config.sample_size_h, self.config.sample_size_w, self.config.explicit_uniform_rope
+            self.config.sample_size_t, self.config.sample_size_h, self.config.sample_size_w, 
+            self.config.explicit_uniform_rope
             )
 
         # forward transformer blocks
@@ -312,9 +313,12 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
 
         # 2. Blocks
         
-        pos_thw = self.position_getter(batch_size, t=frame, h=height, w=width, device=hidden_states.device)
+        pos_thw = self.position_getter(
+            batch_size, t=frame, h=height, w=width, 
+            device=hidden_states.device, training=self.training
+            )
         video_rotary_emb = self.rope(self.attention_head_dim, pos_thw, hidden_states.device, hidden_states.dtype)
-
+        
         hidden_states, encoder_hidden_states, skip_connections = self._operate_on_enc(
             hidden_states, encoder_hidden_states, 
             embedded_timestep, video_rotary_emb, frame, height, width
@@ -691,7 +695,8 @@ if __name__ == '__main__':
     cond_c1 = 1280
     num_timesteps = 1000
     ae_stride_t, ae_stride_h, ae_stride_w = ae_stride_config[args.ae]
-    latent_size = (args.max_height // ae_stride_h, args.max_width // ae_stride_w)
+    latent_size_h = args.max_height // ae_stride_h
+    latent_size_w = args.max_width // ae_stride_w
     num_frames = (args.num_frames - 1) // ae_stride_t + 1
 
     # device = torch.device('cpu')
@@ -699,8 +704,8 @@ if __name__ == '__main__':
     model = OpenSoraT2V_v1_5_3B_122(
         in_channels=c, 
         out_channels=c, 
-        sample_size_h=latent_size, 
-        sample_size_w=latent_size, 
+        sample_size_h=latent_size_h, 
+        sample_size_w=latent_size_w, 
         sample_size_t=num_frames, 
         norm_cls='rms_norm', 
         interpolation_scale_t=args.interpolation_scale_t, 
@@ -715,7 +720,6 @@ if __name__ == '__main__':
     # import sys;sys.exit()
     try:
         path = "/storage/ongoing/9.29/mmdit/1.5/Open-Sora-Plan/debug/checkpoint-10/pytorch_model.bin"
-        import ipdb;ipdb.set_trace()
         ckpt = torch.load(path, map_location="cpu")
         # msg = model.load_state_dict(ckpt, strict=True) # OpenSoraT2V_v1_5.from_pretrained('/storage/ongoing/9.29/mmdit/1.5/Open-Sora-Plan/test_ckpt')
         

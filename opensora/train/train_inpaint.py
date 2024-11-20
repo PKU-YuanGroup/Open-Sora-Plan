@@ -216,7 +216,8 @@ def main(args):
 
     args.stride_t = ae_stride_t * patch_size_t
     args.stride = ae_stride_h * patch_size_h
-    ae.latent_size = latent_size = (args.max_height // ae_stride_h, args.max_width // ae_stride_w)
+    args.latent_size_w = latent_size_w = args.max_width // ae_stride_w
+    args.latent_size_h = latent_size_h = args.max_height // ae_stride_h
     args.latent_size_t = latent_size_t = (args.num_frames - 1) // ae_stride_t + 1
 
     mask_compressor = MaskCompressor(ae_stride_h=ae_stride_h, ae_stride_w=ae_stride_w, ae_stride_t=ae_stride_t)
@@ -226,8 +227,8 @@ def main(args):
     model = Diffusion_models[args.model](
         in_channels=ae_channel_config[args.ae],
         out_channels=ae_channel_config[args.ae],
-        sample_size_h=latent_size,
-        sample_size_w=latent_size,
+        sample_size_h=latent_size_h,
+        sample_size_w=latent_size_w,
         sample_size_t=latent_size_t,
         interpolation_scale_h=args.interpolation_scale_h,
         interpolation_scale_w=args.interpolation_scale_w,
