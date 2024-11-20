@@ -290,6 +290,7 @@ class OpenSoraT2V_v1_3(ModelMixin, ConfigMixin):
 
 def OpenSoraT2V_v1_3_2B_122(**kwargs):
     kwargs.pop('skip_connection', None)
+    kwargs.pop('explicit_uniform_rope', None)
     return OpenSoraT2V_v1_3(
         num_layers=32, attention_head_dim=96, num_attention_heads=24, patch_size_t=1, patch_size=2,
         caption_channels=4096, cross_attention_dim=2304, activation_fn="gelu-approximate", **kwargs

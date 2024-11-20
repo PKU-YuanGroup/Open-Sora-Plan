@@ -424,6 +424,7 @@ def main(args):
             sparse1d=args.sparse1d, 
             sparse_n=args.sparse_n, 
             skip_connection=args.skip_connection, 
+            explicit_uniform_rope=args.explicit_uniform_rope, 
         )
 
     # use pretrained model?
@@ -636,8 +637,8 @@ def main(args):
 
     # =======================================================================================================
     # STEP 8: Prepare everything with our `accelerator`.
-    model.requires_grad_(False)
-    model.patch_embed.requires_grad_(True)
+    # model.requires_grad_(False)
+    # model.patch_embed.requires_grad_(True)
 
     logger.info(f"Before accelerator.prepare, memory_allocated: {torch.cuda.memory_allocated()/GB:.2f} GB", main_process_only=True)
     model_config = model.config
@@ -1239,6 +1240,7 @@ if __name__ == "__main__":
     parser.add_argument("--text_encoder_name_2", type=str, default=None)
     parser.add_argument("--cache_dir", type=str, default='./cache_dir')
     parser.add_argument("--pretrained", type=str, default=None)
+    parser.add_argument('--explicit_uniform_rope', action='store_true')
     parser.add_argument('--sparse1d', action='store_true')
     parser.add_argument('--sparse_n', type=int, default=2)
     parser.add_argument('--skip_connection', action='store_true')

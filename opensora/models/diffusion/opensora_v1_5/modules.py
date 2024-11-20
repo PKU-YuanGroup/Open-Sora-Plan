@@ -47,7 +47,6 @@ class PositionGetter3D(object):
         # random.randint is [a, b], but torch.randint is [a, b)
         s_t = random.randint(0, self.max_t-t) if self.explicit_uniform_rope and training else 0
         e_t = s_t + t
-
         if not (b,s_t,e_t,h,w) in self.cache_positions:
             x = torch.arange(w, device=device)
             y = torch.arange(h, device=device)

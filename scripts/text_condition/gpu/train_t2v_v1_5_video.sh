@@ -62,7 +62,8 @@ accelerate launch \
     --output_dir="debug" \
     --vae_fp32 \
     --rf_scheduler \
-    --proj_name "11.15_mmdit13b_dense_rf_bs8192_lr1e-4_max105x384x384_min29x384x288_emaclip99" \
+    --proj_name "debug" \
     --log_name part${i} \
     --trained_data_global_step 0 \
-    --skip_abnorml_step --ema_decay_grad_clipping 0.99
+    --skip_abnorml_step --ema_decay_grad_clipping 0.99 \
+    --explicit_uniform_rope
