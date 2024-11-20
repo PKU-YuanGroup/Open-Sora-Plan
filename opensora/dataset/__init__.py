@@ -88,9 +88,9 @@ if __name__ == "__main__":
         'interpolation_scale_h': 1,
         'interpolation_scale_w': 1,
         'cache_dir': '../cache_dir', 
-        'data': '/storage/anno_pkl/img_nocn_res160_json/filter_resolution_border_json/512_withcap_32part_32txt/part1.txt', 
+        'data': '/storage/ongoing/9.29/mmdit/1.5/Open-Sora-Plan/scripts/train_data/merge_data.txt', 
         'train_fps': 18, 
-        'drop_short_ratio': 1.0, 
+        'drop_short_ratio': 0.0, 
         'speed_factor': 1.0, 
         'cfg': 0.1, 
         'text_encoder_name_1': 'google/mt5-xxl', 
@@ -111,7 +111,7 @@ if __name__ == "__main__":
         'min_hxw': 384*288, 
         'force_5_ratio': True, 
         'random_data': False, 
-        'train_image_batch_size': 4
+        'train_image_batch_size': 1
     }
     )
     accelerator = Accelerator()

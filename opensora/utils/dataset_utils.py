@@ -117,7 +117,7 @@ class Collate:
                 pick_idx = candidate_batch + random_select_batch
 
                 batch_tubes = [batch_tubes[i] for i in pick_idx]
-                batch_input_size = [i.shape for i in batch_tubes]  # [(c t h w), (c t h w)] or [(c*bs_i t h w), (c*bs_i t h w)]
+                batch_input_size = [i.shape for i in batch_tubes]  # [(c t h w), (c t h w)] or [(c*bs_i 1 h w), (c*bs_i 1 h w)]
                 input_ids_1 = [input_ids_1[i] for i in pick_idx]  # b [1, l] or b [bs_i, l]
                 cond_mask_1 = [cond_mask_1[i] for i in pick_idx]  # b [1, l] or b [bs_i, l]
                 if input_ids_2 is not None:
@@ -172,8 +172,8 @@ class Collate:
             attention_mask = torch.repeat_interleave(attention_mask, self.image_batch_size, dim=1)  # b 1 t h w -> b bs_i t h w
         if self.batch_size == 1 or self.group_data:
             if not torch.all(attention_mask.bool()):
-                print(batch_input_size, (max_t, max_h, max_w), (pad_max_t, pad_max_h, pad_max_w), each_pad_t_h_w, max_latent_size, valid_latent_size)
-            assert torch.all(attention_mask.bool())
+                print('l176', batch_input_size, (max_t, max_h, max_w), (pad_max_t, pad_max_h, pad_max_w), each_pad_t_h_w, max_latent_size, valid_latent_size)
+            assert torch.all(attention_mask.bool()), 'l176'
 
         input_ids_1 = torch.stack(input_ids_1)  # b 1 l or b bs_i l
         cond_mask_1 = torch.stack(cond_mask_1)  # b 1 l or b bs_i l

@@ -161,6 +161,7 @@ class T2V_dataset(Dataset):
         self.too_long_factor = 5.0
         self.random_data = args.random_data
         self.force_5_ratio = args.force_5_ratio
+        self.train_video_only = args.train_video_only
 
         self.support_Chinese = False
         if 'mt5' in args.text_encoder_name_1:
@@ -178,7 +179,7 @@ class T2V_dataset(Dataset):
         self.lengths = self.sample_size
 
         self.executor = ThreadPoolExecutor(max_workers=1)
-        self.timeout = 60
+        self.timeout = 30
 
     def __len__(self):
         return len(self.cap_list)
@@ -198,14 +199,14 @@ class T2V_dataset(Dataset):
 
     def get_data(self, idx):
         data = self.cap_list.iloc[idx]
+        # print(data)
         path = data['path']
-        if path[0].endswith('.mp4'):
+        if not isinstance(path, list) and path.endswith('.mp4'):
             return self.get_video(data)
         else:
             return self.get_batch_image(data)
     
     def get_video(self, video_data):
-        video_data = {k: v[0] for k, v in video_data.items()}
         video_path = video_data['path']
         assert os.path.exists(video_path), f"file {video_path} do not exist!"
         sample_h = video_data['resolution']['sample_height']
@@ -245,8 +246,8 @@ class T2V_dataset(Dataset):
             add_special_tokens=True,
             return_tensors='pt'
         )
-        input_ids_1 = text_tokens_and_mask_1['input_ids']
-        cond_mask_1 = text_tokens_and_mask_1['attention_mask']
+        input_ids_1 = text_tokens_and_mask_1['input_ids']  # 1 512
+        cond_mask_1 = text_tokens_and_mask_1['attention_mask']  # 1 512
         
         input_ids_2, cond_mask_2 = None, None
         if self.tokenizer_2 is not None:
@@ -259,8 +260,8 @@ class T2V_dataset(Dataset):
                 add_special_tokens=True,
                 return_tensors='pt'
             )
-            input_ids_2 = text_tokens_and_mask_2['input_ids']
-            cond_mask_2 = text_tokens_and_mask_2['attention_mask']
+            input_ids_2 = text_tokens_and_mask_2['input_ids']  # 1 77
+            cond_mask_2 = text_tokens_and_mask_2['attention_mask']  # 1 77
 
         return dict(
             pixel_values=video, input_ids_1=input_ids_1, cond_mask_1=cond_mask_1, 
@@ -379,6 +380,8 @@ class T2V_dataset(Dataset):
                 if path.endswith('.mp4'):
                     cnt_vid += 1
                 elif path.endswith('.jpg'):
+                    if self.train_video_only:
+                        continue
                     cnt_img += 1
 
                 # ======no aesthetic=====
@@ -549,11 +552,11 @@ class T2V_dataset(Dataset):
         img_shape_idx_dict = {}
         vid_shape_idx_dict = {}
         for shape, idx in shape_idx_dict.items():
-            if shape[0] == '1':
+            if shape.split('x')[0] == '1':
                 img_shape_idx_dict[shape] = idx
             else:
                 vid_shape_idx_dict[shape] = idx
-        
+                
         new_cap_list_batch_image = []
         sample_size_batch_image = []
         for shape, idx in img_shape_idx_dict.items():
@@ -585,6 +588,9 @@ class T2V_dataset(Dataset):
 
         vid_shape_idx_dict = {}
         for idx, shape in enumerate(sample_size_video):
+            # item = new_cap_list_video[idx + len(new_cap_list_batch_image)]
+            # shape_ = f"{len(item['sample_frame_index'])}x{item['resolution']['sample_height']}x{item['resolution']['sample_width']}"
+            # assert shape == shape_
             if vid_shape_idx_dict.get(shape, None) is None:
                 vid_shape_idx_dict[shape] = [idx + len(new_cap_list_batch_image)]
             else:
@@ -603,7 +609,7 @@ class T2V_dataset(Dataset):
     def decord_read(self, video_data):
         path = video_data['path']
         predefine_frame_indice = video_data['sample_frame_index']
-        start_frame_idx = video_data['start_frame_idx']
+        start_frame_idx, end_frame_idx = video_data['cut'][0], video_data['cut'][1]
         clip_total_frames = video_data['num_frames']
         fps = video_data['fps']
         s_x, e_x, s_y, e_y = video_data.get('crop', [None, None, None, None])
@@ -615,7 +621,7 @@ class T2V_dataset(Dataset):
         frame_indices = self.get_actual_frame(
             fps, start_frame_idx, clip_total_frames, path, predefine_num_frames, predefine_frame_indice
             )
-        
+        assert min(frame_indices) >= start_frame_idx and max(frame_indices) <= end_frame_idx
         # video_data = decord_vr.get_batch(frame_indices).asnumpy()
         # video_data = torch.from_numpy(video_data)
         video_data = decord_vr.get_batch(frame_indices)

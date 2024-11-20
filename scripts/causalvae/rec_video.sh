@@ -1,12 +1,12 @@
-CUDA_VISIBLE_DEVICES=1 python examples/rec_video.py \
+CUDA_VISIBLE_DEVICES=1 python opensora/sample/rec_video.py \
     --ae WFVAEModel_D32_8x8x8 \
     --ae_path "/storage/lcm/WF-VAE/results/Middle888" \
-    --video_path /storage/lcm/WF-VAE/testvideo/gm1190263332-337350271.mp4 \
+    --video_path /storage/dataset/vae_eval/panda70m/123.mp4 \
     --rec_path rec_tile_.mp4 \
     --device cuda \
     --sample_rate 1 \
     --num_frames 57 \
-    --height 512 \
+    --height 288 \
     --width 512 \
     --fps 30 \
     --enable_tiling

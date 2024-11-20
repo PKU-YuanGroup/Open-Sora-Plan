@@ -246,9 +246,7 @@ def create_ema_model(
     try:
         ema_model.model, _, _, _ = deepspeed.initialize(model=ema_model.model, config_params=ds_config)
     except Exception as e:
-        print(f'rank {rank}, error: {e}')
-        import sys
-        sys.exit(-1)
+        raise ValueError(f'rank {rank}, error: {e}')
     return ema_model
 
 def main(args):
@@ -637,6 +635,8 @@ def main(args):
 
     # =======================================================================================================
     # STEP 8: Prepare everything with our `accelerator`.
+    model.requires_grad_(False)
+    model.patch_embed.requires_grad_(True)
 
     logger.info(f"Before accelerator.prepare, memory_allocated: {torch.cuda.memory_allocated()/GB:.2f} GB", main_process_only=True)
     model_config = model.config
@@ -646,9 +646,7 @@ def main(args):
             model, optimizer, train_dataloader, lr_scheduler
         )
     except Exception as e:
-        print(f'rank {accelerator.process_index}, error: {e}')
-        import sys
-        sys.exit(-1)
+        raise ValueError(f'rank {accelerator.process_index}, error: {e}')
     if checkpoint_path:
         accelerator.load_state(checkpoint_path)
     logger.info(f"After accelerator.prepare, memory_allocated: {torch.cuda.memory_allocated()/GB:.2f} GB", main_process_only=True)
@@ -925,11 +923,13 @@ def main(args):
             else:
                 loss = loss_mse.mean()
                 
-        timesteps_list = accelerator.gather(timesteps)
-        if torch.isnan(loss).any() or torch.isinf(loss).any():
-            raise ValueError(f'Detect loss error, timestep {timesteps_list}')
-        max_timesteps = timesteps_list.max().item()
-        min_timesteps = timesteps_list.min().item()
+        # timesteps_list = accelerator.gather(timesteps)
+        # if torch.isnan(loss).any() or torch.isinf(loss).any():
+        #     raise ValueError(f'Detect loss error, timestep {timesteps_list}')
+        # max_timesteps = timesteps_list.max().item()
+        # min_timesteps = timesteps_list.min().item()
+        max_timesteps, min_timesteps = 0, 0
+
         # Backpropagate
         if args.skip_abnorml_step and accelerator.distributed_type == DistributedType.DEEPSPEED:
             results = accelerator.deepspeed_engine_wrapped.engine.backward(
@@ -1003,11 +1003,11 @@ def main(args):
     def train_one_step(step_, data_item_, prof_=None):
         train_loss = 0.0
         x, attn_mask, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2 = data_item_
-        # print(
-        #     f'step: {step_}, rank: {accelerator.process_index}, x: {x.shape}, dtype: {x.dtype}, '
-        #     f'attn_mask: {attn_mask.shape}, input_ids_1: {input_ids_1.shape}, cond_mask_1: {cond_mask_1.shape}, '
-        #     f'input_ids_2: {input_ids_2.shape}, cond_mask_2: {cond_mask_2.shape}' if input_ids_2 is not None else ''
-        #     )
+        print(
+            f'step: {step_}, rank: {accelerator.process_index}, x: {x.shape}, dtype: {x.dtype}, '
+            # f'attn_mask: {attn_mask.shape}, input_ids_1: {input_ids_1.shape}, cond_mask_1: {cond_mask_1.shape}, '
+            # f'input_ids_2: {input_ids_2.shape}, cond_mask_2: {cond_mask_2.shape}' if input_ids_2 is not None else ''
+            )
 
         x = x.to(accelerator.device, dtype=ae.vae.dtype, non_blocking=True)  # B C T H W
         attn_mask = attn_mask.to(accelerator.device, non_blocking=True)  # B T H W
@@ -1052,7 +1052,7 @@ def main(args):
             # print(f'step: {step_}, rank: {accelerator.process_index}, after vae.encode, x: {x.shape}, dtype: {x.dtype}, mean: {x.mean()}, std: {x.std()}')
             
             # def custom_to_video(x: torch.Tensor, fps: float = 2.0, output_file: str = 'output_video.mp4') -> None:
-            #     from examples.rec_video import array_to_video
+            #     from opensora.sample.rec_video import array_to_video
             #     x = x.detach().cpu()
             #     x = torch.clamp(x, -1, 1)
             #     x = (x + 1) / 2
@@ -1061,9 +1061,10 @@ def main(args):
             #     array_to_video(x, fps=fps, output_file=output_file)
             #     return
             # videos = ae.decode(x)
-            # for video in videos:
+            # import ipdb;ipdb.set_trace()
+            # for idx, video in enumerate(videos):
             #     video = video.transpose(0, 1)
-            #     custom_to_video(video.to(torch.float32), fps=24, output_file='tmp.mp4')
+            #     custom_to_video(video.to(torch.float32), fps=24, output_file=f'tmp{idx}.mp4')
             # import sys;sys.exit()
             
         # print("rank {} | step {} | after encode".format(accelerator.process_index, step_))
@@ -1221,6 +1222,7 @@ if __name__ == "__main__":
     parser.add_argument("--trained_data_global_step", type=int, default=None)
     parser.add_argument("--use_decord", action="store_true")
     parser.add_argument('--random_data', action='store_true')
+    parser.add_argument('--train_video_only', action='store_true')
     parser.add_argument('--force_zero_grad_step', type=int, default=-1)
 
     # text encoder & vae & diffusion model
@@ -1348,4 +1350,15 @@ if __name__ == "__main__":
     parser.add_argument("--train_sp_batch_size", type=int, default=1, help="Batch size for sequence parallel training")
 
     args = parser.parse_args()
-    main(args)
+    try:
+        main(args)
+        import sys
+        code = 0
+        print('Exit with code: ', code)
+        sys.exit(code)
+    except Exception as e:
+        print(f'Error with {e}')
+        import sys
+        code = -1
+        print('Exit with code: ', code)
+        sys.exit(code)

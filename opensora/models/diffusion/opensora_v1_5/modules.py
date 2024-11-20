@@ -18,6 +18,7 @@ from einops import rearrange, repeat
 from typing import Any, Dict, Optional, Tuple
 import torch
 import torch.nn.functional as F
+import random
 from torch import nn
 try:
     import torch_npu
@@ -35,21 +36,34 @@ except:
 class PositionGetter3D(object):
     """ return positions of patches """
 
-    def __init__(self, ):
+    def __init__(self,  max_t, max_h, max_w, explicit_uniform_rope=False):
         self.cache_positions = {}
+        self.max_t = max_t
+        self.max_h = max_h
+        self.max_w = max_w
+        self.explicit_uniform_rope = explicit_uniform_rope
         
     def __call__(self, b, t, h, w, device):
-        if not (b,t,h,w) in self.cache_positions:
-            x = torch.arange(w, device=device)
-            y = torch.arange(h, device=device)
-            z = torch.arange(t, device=device)
+        # random.randint is [a, b], but torch.randint is [a, b)
+        s_t = random.randint(0, self.max_t-t-1) if self.explicit_uniform_rope else 0
+        e_t = s_t + t
+        s_h = random.randint(0, self.max_h-h-1) if self.explicit_uniform_rope else 0
+        e_h = s_h + h
+        s_w = random.randint(0, self.max_w-w-1) if self.explicit_uniform_rope else 0
+        e_w = s_w + w
+
+        if not (b,s_t,e_t,s_h,e_h,s_w,e_w) in self.cache_positions:
+            x = torch.arange(s_w, e_w, device=device)
+            y = torch.arange(s_h, e_h, device=device)
+            z = torch.arange(s_t, e_t, device=device)
             pos = torch.cartesian_prod(z, y, x)
             pos = pos.reshape(t * h * w, 3).transpose(0, 1).reshape(3, -1, 1).contiguous().expand(3, -1, b).clone()
             poses = (pos[0].contiguous(), pos[1].contiguous(), pos[2].contiguous())
             max_poses = (int(poses[0].max()), int(poses[1].max()), int(poses[2].max()))
+            min_poses = (s_t, s_h, s_w)
 
-            self.cache_positions[b, t, h, w] = (poses, max_poses)
-        pos = self.cache_positions[b, t, h, w]
+            self.cache_positions[b,s_t,e_t,s_h,e_h,s_w,e_w] = (poses, min_poses, max_poses)
+        pos = self.cache_positions[b,s_t,e_t,s_h,e_h,s_w,e_w]
 
         return pos
     
@@ -64,16 +78,16 @@ class RoPE3D(torch.nn.Module):
         self.interpolation_scale_w = interpolation_scale_thw[2]
         self.cache = {}
 
-    def get_cos_sin(self, D, seq_len, device, dtype, interpolation_scale=1):
-        if (D, seq_len, device, dtype) not in self.cache:
+    def get_cos_sin(self, D, seq_start, seq_end, device, dtype, interpolation_scale=1):
+        if (D, seq_start, seq_start, seq_end, device, dtype) not in self.cache:
             inv_freq = 1.0 / (self.base ** (torch.arange(0, D, 2).float().to(device) / D))
-            t = torch.arange(seq_len, device=device, dtype=inv_freq.dtype) / interpolation_scale
+            t = torch.arange(seq_start, seq_end, device=device, dtype=inv_freq.dtype) / interpolation_scale
             freqs = torch.einsum("i,j->ij", t, inv_freq).to(dtype)
             freqs = torch.cat((freqs, freqs), dim=-1)
             cos = freqs.cos()  # (Seq, Dim)
             sin = freqs.sin()
-            self.cache[D, seq_len, device, dtype] = (cos, sin)
-        return self.cache[D, seq_len, device, dtype]
+            self.cache[D, seq_start, seq_start, seq_end, device, dtype] = (cos, sin)
+        return self.cache[D, seq_start, seq_start, seq_end, device, dtype]
 
     def forward(self, dim, positions, device, dtype):
         """
@@ -86,11 +100,11 @@ class RoPE3D(torch.nn.Module):
         assert dim % 16 == 0, "number of dimensions should be a multiple of 16"
         D_t = dim // 16 * 4
         D = dim // 16 * 6
-        poses, max_poses = positions
+        poses, min_poses, max_poses = positions
         assert len(poses) == 3 and poses[0].ndim == 2 # Batch, Seq, 3
-        cos_t, sin_t = self.get_cos_sin(D_t, max_poses[0] + 1, device, dtype, self.interpolation_scale_t)
-        cos_y, sin_y = self.get_cos_sin(D, max_poses[1] + 1, device, dtype, self.interpolation_scale_h)
-        cos_x, sin_x = self.get_cos_sin(D, max_poses[2] + 1, device, dtype, self.interpolation_scale_w)
+        cos_t, sin_t = self.get_cos_sin(D_t, min_poses[0], max_poses[0] + 1, device, dtype, self.interpolation_scale_t)
+        cos_y, sin_y = self.get_cos_sin(D, min_poses[1], max_poses[1] + 1, device, dtype, self.interpolation_scale_h)
+        cos_x, sin_x = self.get_cos_sin(D, min_poses[2], max_poses[2] + 1, device, dtype, self.interpolation_scale_w)
         return poses, cos_t, sin_t, cos_y, sin_y, cos_x, sin_x
     
 def rotate_half(x):
@@ -473,8 +487,6 @@ class BasicTransformerBlock(nn.Module):
             bias=ff_bias,
         )
 
-        self.rope = RoPE3D(interpolation_scale_thw=interpolation_scale_thw)
-        self.position_getter = PositionGetter3D()
     
     def forward(
         self,
@@ -482,6 +494,7 @@ class BasicTransformerBlock(nn.Module):
         attention_mask: Optional[torch.FloatTensor] = None,
         encoder_hidden_states: Optional[torch.FloatTensor] = None,
         embedded_timestep: Optional[torch.LongTensor] = None,
+        video_rotary_emb: Optional[torch.FloatTensor] = None,
         frame: int = None, 
         height: int = None, 
         width: int = None, 
@@ -489,8 +502,6 @@ class BasicTransformerBlock(nn.Module):
         
         # 0. Prepare rope embedding
         vis_seq_length, batch_size = hidden_states.size(0), hidden_states.size(1)
-        pos_thw = self.position_getter(batch_size, t=frame, h=height, w=width, device=hidden_states.device)
-        video_rotary_emb = self.rope(self.attention_head_dim, pos_thw, hidden_states.device, hidden_states.dtype)
 
         # print(f'hidden_states input', 
         #         f'max {hidden_states.max()}, min {hidden_states.min()}, mean {hidden_states.mean()}, std {hidden_states.std()}')

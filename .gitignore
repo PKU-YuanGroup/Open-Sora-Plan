@@ -108,3 +108,4 @@ opensora/train/*debug.py
 *mmdit*
 vpred*
 merge_model*
+counter.txt

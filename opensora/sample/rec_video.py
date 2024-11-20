@@ -10,7 +10,6 @@ import torch
 from PIL import Image
 from decord import VideoReader, cpu
 from torch.nn import functional as F
-from pytorchvideo.transforms import ShortSideScale
 from torchvision.transforms import Lambda, Compose
 import sys
 from opensora.models.causalvideovae import ae_wrapper

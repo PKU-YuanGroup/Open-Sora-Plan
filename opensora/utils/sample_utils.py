@@ -245,14 +245,18 @@ def run_model_and_save_samples(args, pipeline, caption_refiner_model=None, enhan
         
         mask_type = args.mask_type if args.mask_type is not None else None
 
-    positive_prompt = """
-    high quality, high aesthetic, {}
-    """
+    if args.use_pos_neg_prompt:
+        positive_prompt = """
+        high quality, high aesthetic, {}
+        """
 
-    negative_prompt = """
-    nsfw, lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, 
-    low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry.
-    """
+        negative_prompt = """
+        nsfw, lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, 
+        low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry.
+        """
+    else:
+        positive_prompt = "{}"
+        negative_prompt = ""
     
     def generate(prompt, conditional_pixel_values_path=None, mask_type=None):
         
@@ -492,6 +496,7 @@ def get_args():
     parser.add_argument('--world_size', type=int, default=1)    
     parser.add_argument('--sp', action='store_true')
     parser.add_argument('--fp32', action='store_true')
+    parser.add_argument('--use_pos_neg_prompt', action='store_true')
 
     parser.add_argument('--v1_5_scheduler', action='store_true')
     parser.add_argument('--use_linear_quadratic_schedule', action='store_true')
