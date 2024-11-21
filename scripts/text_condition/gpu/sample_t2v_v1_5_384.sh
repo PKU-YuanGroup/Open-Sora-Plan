@@ -30,7 +30,7 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun --nnodes=1 --nproc_per_node 8 --ma
     --text_prompt examples/sora.txt \
     --ae WFVAEModel_D32_8x8x8 \
     --ae_path "/storage/lcm/WF-VAE/results/Middle888" \
-    --save_img_path "./rf_1x384x384_v1_5_13b_cfg7.0_s100lq1000_final_sora_rope" \
+    --save_img_path "./rf_1x384x384_v1_5_13b_cfg7.0_s100lq1000_final384_sora_rope" \
     --fps 18 \
     --guidance_scale 7.0 \
     --num_sampling_steps 100 \

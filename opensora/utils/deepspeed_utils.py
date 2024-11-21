@@ -7,7 +7,7 @@ import psutil
 import gc
 from math import sqrt
 from packaging import version as pkg_version
-
+import accelerate
 import torch
 from deepspeed import comm as dist
 
@@ -20,13 +20,23 @@ from deepspeed.utils import groups, logger
 from deepspeed.runtime.constants import PIPE_REPLICATED
 from numpy import prod
 from deepspeed.accelerator import get_accelerator
-
+from accelerate.state import AcceleratorState
 from deepspeed.module_inject.policy import transpose
 from torch.nn import functional as F
 
 from deepspeed.runtime.utils import bwc_tensor_model_parallel_rank, is_model_parallel_parameter
 
 
+
+def deepspeed_zero_init_disabled_context_manager():
+    """
+    returns either a context list that includes one that will disable zero.Init or an empty context list
+    """
+    deepspeed_plugin = AcceleratorState().deepspeed_plugin if accelerate.state.is_initialized() else None
+    if deepspeed_plugin is None:
+        return []
+
+    return [deepspeed_plugin.zero3_init_context_manager(enable=False)]
 
 def get_weight_norm_for_ema(parameters, norm_type=2):
     """Get norm of an iterable of parameters.

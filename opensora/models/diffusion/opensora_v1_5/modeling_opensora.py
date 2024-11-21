@@ -131,7 +131,6 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
     def _init_patched_inputs(self):
 
         # 0. some param
-        self.config.sample_size = (self.config.sample_size_h, self.config.sample_size_w)
         interpolation_scale_thw = (
             self.config.interpolation_scale_t, 
             self.config.interpolation_scale_h, 
@@ -318,7 +317,7 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
             device=hidden_states.device, training=self.training
             )
         video_rotary_emb = self.rope(self.attention_head_dim, pos_thw, hidden_states.device, hidden_states.dtype)
-        
+
         hidden_states, encoder_hidden_states, skip_connections = self._operate_on_enc(
             hidden_states, encoder_hidden_states, 
             embedded_timestep, video_rotary_emb, frame, height, width

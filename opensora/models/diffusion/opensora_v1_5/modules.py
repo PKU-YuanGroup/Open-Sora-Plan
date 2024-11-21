@@ -47,18 +47,22 @@ class PositionGetter3D(object):
         # random.randint is [a, b], but torch.randint is [a, b)
         s_t = random.randint(0, self.max_t-t) if self.explicit_uniform_rope and training else 0
         e_t = s_t + t
-        if not (b,s_t,e_t,h,w) in self.cache_positions:
+        s_h = random.randint(0, self.max_h-h) if self.explicit_uniform_rope and training else 0
+        e_h = s_h + h
+        s_w = random.randint(0, self.max_w-w) if self.explicit_uniform_rope and training else 0
+        e_w = s_w + w
+        if not (b,s_t,e_t,s_h,e_h,s_w,e_w) in self.cache_positions:
             x = torch.arange(w, device=device)
             y = torch.arange(h, device=device)
             z = torch.arange(t, device=device)
             pos = torch.cartesian_prod(z, y, x)
             pos = pos.reshape(t * h * w, 3).transpose(0, 1).reshape(3, -1, 1).contiguous().expand(3, -1, b).clone()
             poses = (pos[0].contiguous(), pos[1].contiguous(), pos[2].contiguous())
-            max_poses = (e_t, h, w)
-            min_poses = (s_t, 0, 0)
+            max_poses = (e_t, e_h, e_w)
+            min_poses = (s_t, s_h, s_w)
 
-            self.cache_positions[b,s_t,e_t,h,w] = (poses, min_poses, max_poses)
-        pos = self.cache_positions[b,s_t,e_t,h,w]
+            self.cache_positions[b,s_t,e_t,s_h,e_h,s_w,e_w] = (poses, min_poses, max_poses)
+        pos = self.cache_positions[b,s_t,e_t,s_h,e_h,s_w,e_w]
 
         return pos
     

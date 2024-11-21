@@ -170,7 +170,7 @@ class T2V_dataset(Dataset):
             self.support_Chinese = True
 
         s = time.time()
-        self.cap_list, self.sample_size, self.shape_idx_dict = self.define_frame_index(self.data)
+        self.cap_list, self.sample_size, self.shape_idx_dict, self.max_thw = self.define_frame_index(self.data)
         logger.info(f'Data length: {len(self.cap_list)}')
         print(f'Data length: {len(self.cap_list)}')
         gc.collect()
@@ -604,7 +604,12 @@ class T2V_dataset(Dataset):
 
         counter = Counter(sample_size)
         print(f'Counter(sample_size): {counter}\nafter filter: {len(new_cap_list)}')
-        return pd.DataFrame(new_cap_list), sample_size, shape_idx_dict
+
+        max_t = max([int(k.split('x')[0]) for k in counter.keys()])
+        max_h = max([int(k.split('x')[1]) for k in counter.keys()])
+        max_w = max([int(k.split('x')[2]) for k in counter.keys()])
+        
+        return pd.DataFrame(new_cap_list), sample_size, shape_idx_dict, (max_t, max_h, max_w)
     
     def decord_read(self, video_data):
         path = video_data['path']

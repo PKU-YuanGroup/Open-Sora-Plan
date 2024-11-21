@@ -45,7 +45,7 @@ accelerate launch \
     --lr_scheduler="constant_with_warmup" \
     --mixed_precision="bf16" \
     --report_to="wandb" \
-    --checkpointing_steps=500000 \
+    --checkpointing_steps=5 \
     --allow_tf32 \
     --model_max_length 512 \
     --ema_start_step 0 \

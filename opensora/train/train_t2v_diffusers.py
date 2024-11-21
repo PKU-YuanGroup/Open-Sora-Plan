@@ -37,7 +37,6 @@ except:
     pass
 
 from torch.utils.data import DataLoader
-from copy import deepcopy
 import accelerate
 import torch
 from torch.nn import functional as F
@@ -47,7 +46,7 @@ from transformers.integrations import HfDeepSpeedConfig
 from accelerate import Accelerator
 from accelerate.logging import get_logger
 from accelerate.utils import DistributedType, ProjectConfiguration, set_seed
-from accelerate.state import AcceleratorState
+
 from packaging import version
 from tqdm.auto import tqdm
 
@@ -69,6 +68,7 @@ from opensora.utils.ema_utils import EMAModel
 from opensora.utils.utils import explicit_uniform_sampling, get_common_weights, compute_density_for_timestep_sampling
 from opensora.sample.pipeline_opensora import OpenSoraPipeline
 from opensora.models.causalvideovae import ae_stride_config, ae_wrapper
+from opensora.utils.deepspeed_utils import backward, deepspeed_zero_init_disabled_context_manager
 
 # from opensora.utils.utils import monitor_npu_power
 
@@ -197,11 +197,6 @@ def param_groups_weight_decay(
         {'params': no_decay, 'weight_decay': 0.},
         {'params': decay, 'weight_decay': weight_decay}]
 
-#################################################################################
-#                                  Training Loop                                #
-#################################################################################
-
-
 def create_ema_model(
         args, 
         checkpoint_path, 
@@ -266,7 +261,6 @@ def main(args):
     )
 
     if args.skip_abnorml_step and accelerator.distributed_type == DistributedType.DEEPSPEED:
-        from opensora.utils.deepspeed_utils import backward
         deepspeed.runtime.engine.DeepSpeedEngine.backward = backward
 
     if args.num_frames != 1:
@@ -315,6 +309,8 @@ def main(args):
     elif accelerator.mixed_precision == "bf16":
         weight_dtype = torch.bfloat16
 
+    # =======================================================================================================
+    # STEP 0: Resume parameter
     checkpoint_path, global_step = None, 0
     initial_global_step_for_sampler = args.trained_data_global_step
     # Potentially load in the weights and states from a previous save
@@ -342,19 +338,64 @@ def main(args):
 
     if initial_global_step_for_sampler is None:
         initial_global_step_for_sampler = 0
-
-    def deepspeed_zero_init_disabled_context_manager():
-        """
-        returns either a context list that includes one that will disable zero.Init or an empty context list
-        """
-        deepspeed_plugin = AcceleratorState().deepspeed_plugin if accelerate.state.is_initialized() else None
-        if deepspeed_plugin is None:
-            return []
-
-        return [deepspeed_plugin.zero3_init_context_manager(enable=False)]
+    # =======================================================================================================
 
     # =======================================================================================================
-    # STEP 1: Create VAE model
+    # STEP 1: Check and Assert
+    ae_stride_t, ae_stride_h, ae_stride_w = ae_stride_config[args.ae]
+    assert ae_stride_h == ae_stride_w, f"Support only ae_stride_h == ae_stride_w now, but found ae_stride_h ({ae_stride_h}), ae_stride_w ({ae_stride_w})"
+    args.ae_stride_t, args.ae_stride_h, args.ae_stride_w = ae_stride_t, ae_stride_h, ae_stride_w
+    args.ae_stride = args.ae_stride_h
+
+    patch_size = args.model[-3:]
+    patch_size_t, patch_size_h, patch_size_w = int(patch_size[0]), int(patch_size[1]), int(patch_size[2])
+    args.patch_size = patch_size_h
+    args.patch_size_t, args.patch_size_h, args.patch_size_w = patch_size_t, patch_size_h, patch_size_w
+    assert patch_size_h == patch_size_w, f"Support only patch_size_h == patch_size_w now, but found patch_size_h ({patch_size_h}), patch_size_w ({patch_size_w})"
+    
+    assert (args.num_frames - 1) % ae_stride_t == 0, f"(Frames - 1) must be divisible by ae_stride_t, but found num_frames ({args.num_frames}), ae_stride_t ({ae_stride_t})."
+    if args.force_resolution:
+        assert args.max_height % ae_stride_h == 0, f"Height must be divisible by ae_stride_h, but found Height ({args.max_height}), ae_stride_h ({ae_stride_h})."
+        assert args.max_width % ae_stride_h == 0, f"Width size must be divisible by ae_stride_h, but found Width ({args.max_width}), ae_stride_h ({ae_stride_h})."
+
+    args.stride_t = stride_t = ae_stride_t * patch_size_t
+    args.stride = stride = ae_stride_h * patch_size_h
+    # =======================================================================================================
+
+    # =======================================================================================================
+    # STEP 2: Create Dataset & Dataloader
+
+    total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
+    total_batch_size = total_batch_size // args.sp_size * args.train_sp_batch_size
+    args.total_batch_size = total_batch_size
+    if args.max_hxw is not None and args.min_hxw is None:
+        args.min_hxw = args.max_hxw // 4
+    train_dataset = getdataset(args)
+    sampler = LengthGroupedSampler(
+                args.train_batch_size,
+                world_size=accelerator.num_processes, 
+                gradient_accumulation_size=args.gradient_accumulation_steps, 
+                initial_global_step=initial_global_step_for_sampler, 
+                lengths=train_dataset.lengths, 
+                group_data=args.group_data, 
+            )
+    
+    train_dataloader = DataLoader(
+        train_dataset,
+        shuffle=False,
+        pin_memory=False,
+        collate_fn=Collate(args),
+        batch_size=args.train_batch_size,
+        num_workers=args.dataloader_num_workers,
+        sampler=sampler, 
+        drop_last=True, 
+        # prefetch_factor=4
+    )
+    # =======================================================================================================
+
+
+    # =======================================================================================================
+    # STEP 3: Create VAE model
     with ContextManagers(deepspeed_zero_init_disabled_context_manager()):
         kwargs = {}
         ae = ae_wrapper[args.ae](args.ae_path, cache_dir=args.cache_dir, **kwargs).eval()
@@ -368,7 +409,7 @@ def main(args):
 
 
     # =======================================================================================================
-    # STEP 2: Create text encoder model
+    # STEP 4: Create text encoder model
     with ContextManagers(deepspeed_zero_init_disabled_context_manager()):
         text_enc_1 = get_text_warpper(args.text_encoder_name_1)(args).eval()
         text_enc_1.requires_grad_(False)
@@ -387,46 +428,33 @@ def main(args):
 
 
     # =======================================================================================================
-    # STEP 3: Create diffusion model 
-
-    ae_stride_t, ae_stride_h, ae_stride_w = ae_stride_config[args.ae]
-    ae.vae_scale_factor = (ae_stride_t, ae_stride_h, ae_stride_w)
-    assert ae_stride_h == ae_stride_w, f"Support only ae_stride_h == ae_stride_w now, but found ae_stride_h ({ae_stride_h}), ae_stride_w ({ae_stride_w})"
-    args.ae_stride_t, args.ae_stride_h, args.ae_stride_w = ae_stride_t, ae_stride_h, ae_stride_w
-    args.ae_stride = args.ae_stride_h
-    patch_size = args.model[-3:]
-    patch_size_t, patch_size_h, patch_size_w = int(patch_size[0]), int(patch_size[1]), int(patch_size[2])
-    args.patch_size = patch_size_h
-    args.patch_size_t, args.patch_size_h, args.patch_size_w = patch_size_t, patch_size_h, patch_size_w
-    assert patch_size_h == patch_size_w, f"Support only patch_size_h == patch_size_w now, but found patch_size_h ({patch_size_h}), patch_size_w ({patch_size_w})"
-    assert (args.num_frames - 1) % ae_stride_t == 0, f"(Frames - 1) must be divisible by ae_stride_t, but found num_frames ({args.num_frames}), ae_stride_t ({ae_stride_t})."
-    assert args.max_height % ae_stride_h == 0, f"Height must be divisible by ae_stride_h, but found Height ({args.max_height}), ae_stride_h ({ae_stride_h})."
-    assert args.max_width % ae_stride_h == 0, f"Width size must be divisible by ae_stride_h, but found Width ({args.max_width}), ae_stride_h ({ae_stride_h})."
-
-    args.stride_t = ae_stride_t * patch_size_t
-    args.stride = ae_stride_h * patch_size_h
-    args.latent_size_w = latent_size_w = args.max_width // ae_stride_w
-    args.latent_size_h = latent_size_h = args.max_height // ae_stride_h
-    args.latent_size_t = latent_size_t = (args.num_frames - 1) // ae_stride_t + 1
+    # STEP 5: Create diffusion model 
+    sample_size_t = (train_dataset.max_thw[0] + (ae_stride_t - 1)) // stride_t
+    sample_size_h = train_dataset.max_thw[1] // stride
+    sample_size_w = train_dataset.max_thw[2] // stride
+    
     if checkpoint_path:
         model = Diffusion_models_class[args.model].from_pretrained(os.path.join(checkpoint_path, "model"))
+        assert model.config.sample_size_t == sample_size_t, f'model.config.sample_size_t ({model.config.sample_size_t}) != sample_size_t ({sample_size_t})'
+        assert model.config.sample_size_h == sample_size_h, f'model.config.sample_size_h ({model.config.sample_size_h}) != sample_size_h ({sample_size_h})'
+        assert model.config.sample_size_w == sample_size_w, f'model.config.sample_size_w ({model.config.sample_size_w}) != sample_size_w ({sample_size_w})'
         logger.info(f'Successully resume model from {os.path.join(checkpoint_path, "model")}', main_process_only=True)
     else:
         model = Diffusion_models[args.model](
             in_channels=ae_channel_config[args.ae],
             out_channels=ae_channel_config[args.ae],
-            sample_size_h=latent_size_h,
-            sample_size_w=latent_size_w,
-            sample_size_t=latent_size_t,
+            sample_size_t=sample_size_t,
+            sample_size_h=sample_size_h,
+            sample_size_w=sample_size_w,
+            interpolation_scale_t=args.interpolation_scale_t,
             interpolation_scale_h=args.interpolation_scale_h,
             interpolation_scale_w=args.interpolation_scale_w,
-            interpolation_scale_t=args.interpolation_scale_t,
             sparse1d=args.sparse1d, 
             sparse_n=args.sparse_n, 
             skip_connection=args.skip_connection, 
             explicit_uniform_rope=args.explicit_uniform_rope, 
         )
-
+        
     # use pretrained model?
     if checkpoint_path is None and args.pretrained:
         model_state_dict = model.state_dict()
@@ -481,7 +509,7 @@ def main(args):
 
 
     # =======================================================================================================
-    # STEP 4: Create EMAModel
+    # STEP 6: Create EMAModel
     args.world_size = accelerator.num_processes
     if args.use_ema:
         ema_model_state_dict = model.state_dict()
@@ -497,7 +525,7 @@ def main(args):
 
 
     # =======================================================================================================
-    # STEP 5: Create Scheduler
+    # STEP 7: Create Scheduler
     kwargs = dict(
         prediction_type=args.prediction_type, 
         rescale_betas_zero_snr=args.rescale_betas_zero_snr
@@ -522,109 +550,43 @@ def main(args):
         torch.backends.cuda.matmul.allow_tf32 = True
 
     # =======================================================================================================
-    # STEP 6: Create Optimizer
+    # STEP 8: Create Optimizer
 
+    assert args.optimizer.lower() == "adamw"
     # params_to_optimize = model.parameters()
     params_to_optimize = param_groups_weight_decay(model, args.adam_weight_decay)
-    # Optimizer creation
-    if not (args.optimizer.lower() == "prodigy" or args.optimizer.lower() == "adamw"):
-        logger.warning(
-            f"Unsupported choice of optimizer: {args.optimizer}.Supported optimizers include [adamW, prodigy]."
-            "Defaulting to adamW"
-        )
-        args.optimizer = "adamw"
-
-    if args.use_8bit_adam and not args.optimizer.lower() == "adamw":
-        logger.warning(
-            f"use_8bit_adam is ignored when optimizer is not set to 'AdamW'. Optimizer was "
-            f"set to {args.optimizer.lower()}"
-        )
-
-    if args.optimizer.lower() == "adamw":
-        if args.use_8bit_adam:
-            try:
-                import bitsandbytes as bnb
-            except ImportError:
-                raise ImportError(
-                    "To use 8-bit Adam, please install the bitsandbytes library: `pip install bitsandbytes`."
-                )
-
-            optimizer_class = bnb.optim.AdamW8bit
-        else:
-            optimizer_class = torch.optim.AdamW
-
-        optimizer = optimizer_class(
-            params_to_optimize,
-            lr=args.learning_rate,
-            betas=(args.adam_beta1, args.adam_beta2),
-            # weight_decay=args.adam_weight_decay,
-            eps=args.adam_epsilon,
-        )
-
-    if args.optimizer.lower() == "prodigy":
+    if args.use_8bit_adam:
         try:
-            import prodigyopt
+            import bitsandbytes as bnb
         except ImportError:
-            raise ImportError("To use Prodigy, please install the prodigyopt library: `pip install prodigyopt`")
-
-        optimizer_class = prodigyopt.Prodigy
-
-        if args.learning_rate <= 0.1:
-            logger.warning(
-                "Learning rate is too low. When using prodigy, it's generally better to set learning rate around 1.0"
+            raise ImportError(
+                "To use 8-bit Adam, please install the bitsandbytes library: `pip install bitsandbytes`."
             )
+        optimizer_class = bnb.optim.AdamW8bit
+    else:
+        optimizer_class = torch.optim.AdamW
 
-        optimizer = optimizer_class(
-            params_to_optimize,
-            lr=args.learning_rate,
-            betas=(args.adam_beta1, args.adam_beta2),
-            beta3=args.prodigy_beta3,
-            # weight_decay=args.adam_weight_decay,
-            eps=args.adam_epsilon,
-            decouple=args.prodigy_decouple,
-            use_bias_correction=args.prodigy_use_bias_correction,
-            safeguard_warmup=args.prodigy_safeguard_warmup,
-        )
+    optimizer = optimizer_class(
+        params_to_optimize,
+        lr=args.learning_rate,
+        betas=(args.adam_beta1, args.adam_beta2),
+        # weight_decay=args.adam_weight_decay,
+        eps=args.adam_epsilon,
+    )
+
     logger.info(f"optimizer: {optimizer}")
     # =======================================================================================================
     
 
     # =======================================================================================================
-    # # STEP 7: Create Dataset & Dataloader & LR_Scheduler
-
-    total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
-    total_batch_size = total_batch_size // args.sp_size * args.train_sp_batch_size
-    args.total_batch_size = total_batch_size
-    if args.max_hxw is not None and args.min_hxw is None:
-        args.min_hxw = args.max_hxw // 4
-    train_dataset = getdataset(args)
-    sampler = LengthGroupedSampler(
-                args.train_batch_size,
-                world_size=accelerator.num_processes, 
-                gradient_accumulation_size=args.gradient_accumulation_steps, 
-                initial_global_step=initial_global_step_for_sampler, 
-                lengths=train_dataset.lengths, 
-                group_data=args.group_data, 
-            )
-    
-    train_dataloader = DataLoader(
-        train_dataset,
-        shuffle=False,
-        pin_memory=False,
-        collate_fn=Collate(args),
-        batch_size=args.train_batch_size,
-        num_workers=args.dataloader_num_workers,
-        sampler=sampler, 
-        drop_last=True, 
-        # prefetch_factor=4
-    )
+    # STEP 9: LR_Scheduler
 
     # Scheduler and math around the number of training steps.
-    overrode_max_train_steps = False
+    override_max_train_steps = False
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
     if args.max_train_steps is None:
         args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
-        overrode_max_train_steps = True
+        override_max_train_steps = True
 
     lr_scheduler = get_scheduler(
         args.lr_scheduler,
@@ -636,13 +598,12 @@ def main(args):
 
 
     # =======================================================================================================
-    # STEP 8: Prepare everything with our `accelerator`.
-    # model.requires_grad_(False)
-    # model.patch_embed.requires_grad_(True)
+    # STEP 10: Prepare everything with our `accelerator`.
+    model.requires_grad_(False)
+    model.patch_embed.requires_grad_(True)
 
     logger.info(f"Before accelerator.prepare, memory_allocated: {torch.cuda.memory_allocated()/GB:.2f} GB", main_process_only=True)
     model_config = model.config
-    model_config_to_save = model.to_json_string()
     try:
         model, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
             model, optimizer, train_dataloader, lr_scheduler
@@ -671,13 +632,13 @@ def main(args):
 
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
-    if overrode_max_train_steps:
+    if override_max_train_steps:
         args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
     # Afterwards we recalculate our number of training epochs
     args.num_train_epochs = math.ceil(args.max_train_steps / num_update_steps_per_epoch)
 
     # =======================================================================================================
-    # Step 9: Train!
+    # Step 11: Train!
     logger.info("***** Running training *****")
     logger.info(f"  Model = {model}")
     logger.info(f'  Model config = {model_config}')
