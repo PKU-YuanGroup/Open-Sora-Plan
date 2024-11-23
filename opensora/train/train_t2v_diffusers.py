@@ -241,6 +241,7 @@ def create_ema_model(
     try:
         ema_model.model, _, _, _ = deepspeed.initialize(model=ema_model.model, config_params=ds_config)
     except Exception as e:
+        print(e)
         raise ValueError(f'rank {rank}, error: {e}')
     return ema_model
 
@@ -343,9 +344,10 @@ def main(args):
     # =======================================================================================================
     # STEP 1: Check and Assert
     ae_stride_t, ae_stride_h, ae_stride_w = ae_stride_config[args.ae]
-    assert ae_stride_h == ae_stride_w, f"Support only ae_stride_h == ae_stride_w now, but found ae_stride_h ({ae_stride_h}), ae_stride_w ({ae_stride_w})"
     args.ae_stride_t, args.ae_stride_h, args.ae_stride_w = ae_stride_t, ae_stride_h, ae_stride_w
-    args.ae_stride = args.ae_stride_h
+    args.ae_stride = ae_stride = args.ae_stride_h
+    assert ae_stride_h == ae_stride_w, f"Support only ae_stride_h == ae_stride_w now, but found ae_stride_h ({ae_stride_h}), ae_stride_w ({ae_stride_w})"
+
 
     patch_size = args.model[-3:]
     patch_size_t, patch_size_h, patch_size_w = int(patch_size[0]), int(patch_size[1]), int(patch_size[2])
@@ -357,6 +359,7 @@ def main(args):
     if args.force_resolution:
         assert args.max_height % ae_stride_h == 0, f"Height must be divisible by ae_stride_h, but found Height ({args.max_height}), ae_stride_h ({ae_stride_h})."
         assert args.max_width % ae_stride_h == 0, f"Width size must be divisible by ae_stride_h, but found Width ({args.max_width}), ae_stride_h ({ae_stride_h})."
+
 
     args.stride_t = stride_t = ae_stride_t * patch_size_t
     args.stride = stride = ae_stride_h * patch_size_h
@@ -429,6 +432,11 @@ def main(args):
 
     # =======================================================================================================
     # STEP 5: Create diffusion model 
+    latent_size_t = (train_dataset.max_thw[0] + (ae_stride_t - 1)) // ae_stride_t
+    latent_size_h = train_dataset.max_thw[1] // ae_stride
+    latent_size_w = train_dataset.max_thw[2] // ae_stride
+    max_train_tokens = latent_size_t*latent_size_h*latent_size_w
+
     sample_size_t = (train_dataset.max_thw[0] + (ae_stride_t - 1)) // stride_t
     sample_size_h = train_dataset.max_thw[1] // stride
     sample_size_w = train_dataset.max_thw[2] // stride
@@ -461,20 +469,20 @@ def main(args):
         logger.info(f'Load from {args.pretrained}')
         if args.pretrained.endswith('.safetensors'):  
             # --pretrained path/to/.safetensors
-            model_state_dict = model.state_dict()
             from safetensors.torch import load_file as safe_load
             pretrained_checkpoint = safe_load(args.pretrained, device="cpu")
             checkpoint = get_common_weights(pretrained_checkpoint, model_state_dict)
             missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=True)
         elif os.path.isdir(args.pretrained):
             # --pretrained path/to/model  or  path/to/model_ema  # must have config.json and .safetensors
-            model = Diffusion_models_class[args.model].from_pretrained(args.pretrained)
-            missing_keys, unexpected_keys = [], []
-            model_state_dict = []
-            checkpoint = 1
+            pretrained_model = Diffusion_models_class[args.model].from_pretrained(args.pretrained)
+            pretrained_checkpoint = pretrained_model.state_dict()
+            checkpoint = get_common_weights(pretrained_checkpoint, model_state_dict)
+            missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=True)
+            del pretrained_checkpoint, pretrained_model
+            gc.collect()
         else:
             # --pretrained path/to/.pth or .pt or some other format
-            model_state_dict = model.state_dict()
             pretrained_checkpoint = torch.load(args.pretrained, map_location='cpu')
             if 'model' in checkpoint:
                 pretrained_checkpoint = pretrained_checkpoint['model']
@@ -599,8 +607,8 @@ def main(args):
 
     # =======================================================================================================
     # STEP 10: Prepare everything with our `accelerator`.
-    model.requires_grad_(False)
-    model.patch_embed.requires_grad_(True)
+    # model.requires_grad_(False)
+    # model.patch_embed.requires_grad_(True)
 
     logger.info(f"Before accelerator.prepare, memory_allocated: {torch.cuda.memory_allocated()/GB:.2f} GB", main_process_only=True)
     model_config = model.config
@@ -609,6 +617,7 @@ def main(args):
             model, optimizer, train_dataloader, lr_scheduler
         )
     except Exception as e:
+        print(e)
         raise ValueError(f'rank {accelerator.process_index}, error: {e}')
     if checkpoint_path:
         accelerator.load_state(checkpoint_path)
@@ -830,13 +839,14 @@ def main(args):
                     mask = None
                 # mask    (sp_bs*b t h w)
                 assert mask is None
-            b, c, _, _, _ = model_pred.shape
+            b, c, t, h, w = model_pred.shape
+            weight_for_tokens = t*h*w / max_train_tokens
             if mask is not None:
                 mask = mask.unsqueeze(1).repeat(1, c, 1, 1, 1).float()  # b t h w -> b c t h w
                 mask = mask.reshape(b, -1)
             if args.snr_gamma is None:
                 # model_pred: b c t h w, attention_mask: b t h w
-                loss = F.mse_loss(model_pred.float(), target.float(), reduction="none")
+                loss = weight_for_tokens * F.mse_loss(model_pred.float(), target.float(), reduction="none")
                 loss = loss.reshape(b, -1)
                 if mask is not None:
                     loss = (loss * mask).sum() / mask.sum()  # mean loss on unpad patches
@@ -856,7 +866,7 @@ def main(args):
                     mse_loss_weights = mse_loss_weights / (snr + 1)
                 else:
                     raise NameError(f'{noise_scheduler.config.prediction_type}')
-                loss = F.mse_loss(model_pred.float(), target.float(), reduction="none")
+                loss = weight_for_tokens * F.mse_loss(model_pred.float(), target.float(), reduction="none")
                 loss = loss.reshape(b, -1)
                 mse_loss_weights = mse_loss_weights.reshape(b, 1)
                 if mask is not None:
@@ -867,7 +877,7 @@ def main(args):
             if torch.all(mask.bool()):
                 mask = None
 
-            b, c, _, _, _ = model_pred.shape
+            b, c, t, h, w = model_pred.shape
             if mask is not None:
                 mask = mask.unsqueeze(1).repeat(1, c, 1, 1, 1).float()  # b t h w -> b c t h w
                 mask = mask.reshape(b, -1)
@@ -880,7 +890,11 @@ def main(args):
             target = noise - model_input
 
             # Compute regular loss.
+            weight_for_tokens = t*h*w / max_train_tokens
+            weighting = weighting.float() * weight_for_tokens
+            # print(weight_for_tokens, t, h, w, t*h*w / max_train_tokens)
             loss_mse = (weighting.float() * (model_pred.float() - target.float()) ** 2).reshape(target.shape[0], -1)
+
             if mask is not None:
                 loss = (loss_mse * mask).sum() / mask.sum()
             else:
@@ -966,11 +980,11 @@ def main(args):
     def train_one_step(step_, data_item_, prof_=None):
         train_loss = 0.0
         x, attn_mask, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2 = data_item_
-        print(
-            f'step: {step_}, rank: {accelerator.process_index}, x: {x.shape}, dtype: {x.dtype}, '
+        # print(
+            # f'step: {step_}, rank: {accelerator.process_index}, x: {x.shape}, dtype: {x.dtype}, '
             # f'attn_mask: {attn_mask.shape}, input_ids_1: {input_ids_1.shape}, cond_mask_1: {cond_mask_1.shape}, '
             # f'input_ids_2: {input_ids_2.shape}, cond_mask_2: {cond_mask_2.shape}' if input_ids_2 is not None else ''
-            )
+            # )
 
         x = x.to(accelerator.device, dtype=ae.vae.dtype, non_blocking=True)  # B C T H W
         attn_mask = attn_mask.to(accelerator.device, non_blocking=True)  # B T H W

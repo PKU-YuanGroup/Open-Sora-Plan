@@ -608,7 +608,7 @@ class T2V_dataset(Dataset):
         max_t = max([int(k.split('x')[0]) for k in counter.keys()])
         max_h = max([int(k.split('x')[1]) for k in counter.keys()])
         max_w = max([int(k.split('x')[2]) for k in counter.keys()])
-        
+        print(max_t, max_h, max_w)
         return pd.DataFrame(new_cap_list), sample_size, shape_idx_dict, (max_t, max_h, max_w)
     
     def decord_read(self, video_data):
