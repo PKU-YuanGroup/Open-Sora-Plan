@@ -30,62 +30,7 @@ Text & Image to Video Generation.
 
 ### WF-VAE
 
-As video generation models move toward higher resolutions and longer durations, the computational cost of video VAEs grows exponentially, becoming unsustainable. Most related work addresses this by using tiling to reduce inference memory consumption. However, in high-resolution, long-duration scenarios, tiling significantly increases inference time. Additionally, since tiling is lossy for latents, it can lead to visual artifacts such as shadows or flickering in the generated videos. Then, we introduce WFVAE, which provide a new model to handle these problems.
-
-#### Model Structure
-
-<center>
-<figure>
-	<img width="899" alt="SCR-20241023-tzct" src="https://github.com/user-attachments/assets/03615e1d-2633-4247-af0b-d93e2a935e3e">
-</figure>
-</center>
-
-The compression rate fundamentally determines the quality of VAE-reconstructed videos. We analyzed the energy and entropy of different subbands obtained through wavelet transform and found that most of the energy in videos is concentrated in the low-frequency bands. Moreover, by replacing the `LLL` subband of the VAE-reconstructed video with the original video's `LLL` subband, we observed a significant improvement in the spatiotemporal quality of the videos.
-
-<center>
-<figure>
-	<img src="https://github.com/user-attachments/assets/533666a6-05be-4584-8b14-86f01d0471dd" height=250 />
-</figure>
-</center>
-
-In previous VAE architectures, the lack of a "highway" for transmitting the dominant energy during video compression meant that this pathway had to be gradually established during model training, leading to redundancy in model parameters and structure. Therefore, in our model design, we created a more efficient transmission path for the LLL subband energy, significantly simplifying the model architecture, reducing inference time, and lowering memory consumption.
-
-#### Training Details
-
-More details will be provided in the forthcoming paper.
-
-#### Ablation Study
-
-In our experiments, we used the K400 training and validation sets, conducted on 8xH100 GPUs. The latent dimension was fixed at 4. We observed that as model parameters increased, there was still room for improvement in reconstruction metrics. GroupNorm showed instability during training, performing worse than LayerNorm on PSNR but better on LPIPS.
-
-<center>
-<figure>
-	<img src="https://github.com/user-attachments/assets/ed880143-72d1-4316-a1d4-5fdfc5ed155a" height=200 />
-	<img src="https://github.com/user-attachments/assets/303954c3-73ee-44f3-9897-d3d14b37b27e" height=200 />
-</figure>
-</center>
-
-#### Performance
-
-The following metrics were tested on H100 with float32 precision. For fairness, tiling was disabled for all models, and direct inference was performed.
-
-<center>
-<figure>
-	<img width="765" alt="SCR-20241023-tzwz" src="https://github.com/user-attachments/assets/f7d4f225-5d22-4152-90ad-32716884ae6c">
-</figure>
-</center>
-
-
-#### Evaluation
-
-We evaluated PSNR and LPIPS on the Panda70M test set at 256 pixels and 33 frames. In the open-source WF-VAE-S (8-dim), our encoder was distilled from the 8-dim OD-VAE, resulting in some metric degradation compared to direct training.
-
-
-| Latent Dim | Model | Params |  PSNR |  LPIPS | 
-|---|---|---|---|---|
-| 4 | OD-VAE（Our VAE in v1.2.0） | 94M + 144M | 30.311| 0.043|
-| 4 | WFVAE-S | 38M + 108M | 30.579 | 0.044 |
-| 8 | WFVAE-S（Distillion） |38M + 108M | 31.764|0.050 |
+For more details, please refer to https://github.com/PKU-YuanGroup/WF-VAE.
 
 #### Causal Cache
 
@@ -94,7 +39,6 @@ We evaluated PSNR and LPIPS on the Panda70M test set at 256 pixels and 33 frames
 	<img src="https://github.com/user-attachments/assets/59cb0543-225b-45a3-a4a6-429e5e753167" height=200 />
 </figure>
 </center>
-
 
 To address the issue of tiling, we replaced GroupNorm with LayerNorm and introduced a novel method called **Causal Cache**, enabling lossless temporal block-wise inference.
 
