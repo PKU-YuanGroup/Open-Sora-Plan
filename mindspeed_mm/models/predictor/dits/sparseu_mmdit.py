@@ -80,6 +80,7 @@ class SparseUMMDiT(MultiModalModule):
     ):
         super().__init__(config=None)
         args = get_args()
+        self.sequence_parallel = args.sequence_parallel
         self.gradient_checkpointing = False
         self.recompute_granularity = args.recompute_granularity
         self.distribute_saved_activations = args.distribute_saved_activations
@@ -208,6 +209,11 @@ class SparseUMMDiT(MultiModalModule):
             hidden_size, patch_size_t * patch_size * patch_size * out_channels
         )
 
+        # set label "sequence_parallel", for all_reduce the grad
+        for module in [self.time_text_embed, self.norm_final, self.norm_out]:
+            for param in module.parameters():
+                setattr(param, "sequence_parallel", self.sequence_parallel)
+
     def prepare_sparse_mask(self, attention_mask, encoder_attention_mask, sparse_n):
         attention_mask = attention_mask.unsqueeze(1)
         encoder_attention_mask = encoder_attention_mask.unsqueeze(1)
@@ -304,6 +310,10 @@ class SparseUMMDiT(MultiModalModule):
 
         for sparse_n in list(set(self.sparse_n)):
             self.sparse_mask[sparse_n] = self.prepare_sparse_mask(attention_mask, encoder_attention_mask, sparse_n)
+
+        if self.sequence_parallel:
+            hidden_states = tensor_parallel.scatter_to_sequence_parallel_region(hidden_states)
+            encoder_hidden_states = tensor_parallel.scatter_to_sequence_parallel_region(encoder_hidden_states)
 
         hidden_states, encoder_hidden_states, skip_connections = self._operate_on_enc(
             hidden_states, encoder_hidden_states, embedded_timestep, frames, height, width
@@ -431,6 +441,10 @@ class SparseUMMDiT(MultiModalModule):
 
         hidden_states = self.norm_out(hidden_states, temb=embedded_timestep)
 
+        if self.sequence_parallel:
+            hidden_states = tensor_parallel.gather_from_sequence_parallel_region(hidden_states,
+                                                                           tensor_parallel_output_grad=False)
+
         hidden_states = self.proj_out(hidden_states)
 
         hidden_states = hidden_states.reshape(
@@ -499,6 +513,9 @@ class SparseMMDiTBlock(nn.Module):
     ):
         super().__init__()
 
+        args = get_args()
+        self.sequence_parallel = args.sequence_parallel
+
         self.sparse1d = sparse1d
         self.sparse_n = sparse_n
         self.sparse_group = sparse_group
@@ -551,6 +568,11 @@ class SparseMMDiTBlock(nn.Module):
 
         self.rope = RoPE3D(interpolation_scale_thw=interpolation_scale_thw)
         self.position_getter = PositionGetter3D(atten_layout="SBH")
+
+        # set label "sequence_parallel", for all_reduce the grad
+        for module in [self.norm1, self.norm2]:
+            for param in module.parameters():
+                setattr(param, "sequence_parallel", self.sequence_parallel)
 
     def forward(
         self,
