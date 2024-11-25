@@ -30,7 +30,9 @@ Text & Image to Video Generation.
 
 ### WF-VAE
 
-For more details, please refer to https://github.com/PKU-YuanGroup/WF-VAE.
+As video generation models move toward higher resolutions and longer durations, the computational cost of video VAEs grows exponentially, becoming unsustainable. Most related work addresses this by using tiling to reduce inference memory consumption. However, in high-resolution, long-duration scenarios, tiling significantly increases inference time. Additionally, since tiling is lossy for latents, it can lead to visual artifacts such as shadows or flickering in the generated videos. Then, we introduce WFVAE, which provide a new model to handle these problems.
+
+For more details, please refer to [https://github.com/PKU-YuanGroup/WF-VAE](https://github.com/PKU-YuanGroup/WF-VAE).
 
 #### Causal Cache
 
