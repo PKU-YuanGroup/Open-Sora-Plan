@@ -7,13 +7,14 @@ import torch
 from einops import rearrange
 from transformers import CLIPTextModelWithProjection, CLIPTokenizer, CLIPImageProcessor, MT5Tokenizer, T5EncoderModel
 
+from diffusers.schedulers import DDPMScheduler
 from diffusers.pipelines.stable_diffusion import StableDiffusionPipelineOutput
 from diffusers.callbacks import MultiPipelineCallbacks, PipelineCallback
 from diffusers.image_processor import VaeImageProcessor
 from diffusers.models import AutoencoderKL, HunyuanDiT2DModel
 from diffusers.models.embeddings import get_2d_rotary_pos_embed
 from diffusers.pipelines.stable_diffusion.safety_checker import StableDiffusionSafetyChecker
-from diffusers.schedulers import DDPMScheduler, FlowMatchEulerDiscreteScheduler
+from opensora.utils.scheduler import OpenSoraFlowMatchEulerScheduler
 from diffusers.utils import logging, BaseOutput
 from diffusers.utils.torch_utils import randn_tensor
 from diffusers.pipelines.pipeline_utils import DiffusionPipeline
@@ -47,6 +48,86 @@ def rescale_noise_cfg(noise_cfg, noise_pred_text, guidance_rescale=0.0):
     return noise_cfg
 
 
+def opensora_two_linear_schedule(
+        first_linear_monitor_step,
+        second_linear_monitor_step,
+        pivot, 
+        ):
+    assert pivot <= 1.0, "pivot must be less than or equal to 1.0"
+    first_linear_step = int(pivot * first_linear_monitor_step)
+    second_linear_step = int(second_linear_monitor_step - pivot * second_linear_monitor_step)
+    num_inference_steps = first_linear_step + second_linear_step
+
+    first_linear_sigmas = [i / first_linear_monitor_step for i in range(first_linear_step+1)]
+    second_linear_sigmas = []
+    if pivot != 1.0:
+        # NOTE we define a second linear schedule that is f(x) = kx + b
+        second_linear_k = (1.0 - first_linear_sigmas[-1]) / (num_inference_steps - first_linear_step)
+        second_linear_b = 1.0 - second_linear_k * (first_linear_step + second_linear_step)
+        print('second_linear_k', second_linear_k, 'second_linear_b', second_linear_b, 
+              'first_linear_step', first_linear_step, 'second_linear_step', second_linear_step)
+        second_linear_sigmas = [
+            second_linear_k * i + second_linear_b for i in range(first_linear_step, num_inference_steps)
+        ]
+    first_linear_sigmas.pop(-1)
+    sigmas = first_linear_sigmas + second_linear_sigmas + [1.0]
+    print(f"Using two linear schedule, len(sigmas): {len(sigmas)}, sigmas: {sigmas}, num_inference_steps: {num_inference_steps}, "
+            f"first_linear_monitor_step: {first_linear_monitor_step}, second_linear_monitor_step: {second_linear_monitor_step}, "
+            f"pivot: {pivot}"
+            )
+    sigmas = [1.0 - x for x in sigmas]
+    return sigmas, num_inference_steps
+
+
+
+
+def opensora_three_linear_schedule(
+        first_linear_monitor_step,
+        second_linear_monitor_step,
+        third_linear_monitor_step,
+        pivot, 
+        pivot_1, 
+        ):
+    assert pivot <= 1.0, "pivot must be less than or equal to 1.0"
+    assert pivot_1 <= 1.0, "pivot_1 must be less than or equal to 1.0"
+    assert pivot <= pivot_1, "pivot must be less than or equal to pivot_1"
+    first_linear_step = int(pivot * first_linear_monitor_step)
+    second_linear_step = int(pivot_1 * second_linear_monitor_step - pivot * second_linear_monitor_step)
+    third_linear_step = int(third_linear_monitor_step - pivot_1 * third_linear_monitor_step)
+    num_inference_steps = first_linear_step + second_linear_step + third_linear_step
+    print('first_linear_step', first_linear_step, 'second_linear_step', second_linear_step, 'third_linear_step', third_linear_step)
+
+    first_linear_sigmas = [i / first_linear_monitor_step for i in range(first_linear_step+1)]
+    second_linear_sigmas = []
+    third_linear_sigmas = []
+    if pivot != 1.0:
+        # NOTE we define a second linear schedule that is f(x) = kx + b
+        second_linear_k = (pivot_1 - first_linear_sigmas[-1]) / second_linear_step
+        second_linear_b = pivot_1 - second_linear_k * (first_linear_step + second_linear_step)
+        print('second_linear_k', second_linear_k, 'second_linear_b', second_linear_b)
+        second_linear_sigmas = [
+            second_linear_k * i + second_linear_b for i in range(first_linear_step, first_linear_step+second_linear_step+1)
+        ]
+        if pivot_1 != 1.0:
+            # NOTE we define a second linear schedule that is f(x) = kx + b
+            third_linear_k = (1.0 - second_linear_sigmas[-1]) / third_linear_step
+            third_linear_b = 1.0 - third_linear_k * num_inference_steps
+            print('third_linear_k', third_linear_k, 'third_linear_b', third_linear_b)
+                
+            third_linear_sigmas = [
+                third_linear_k * i + third_linear_b for i in range(first_linear_step+second_linear_step, num_inference_steps)
+            ]
+        second_linear_sigmas.pop(-1)
+    first_linear_sigmas.pop(-1)
+    sigmas = first_linear_sigmas + second_linear_sigmas + third_linear_sigmas + [1.0]
+    print(f"Using three linear schedule, len(sigmas): {len(sigmas)}, sigmas: {sigmas}, num_inference_steps: {num_inference_steps}, "
+            f"first_linear_monitor_step: {first_linear_monitor_step}, second_linear_monitor_step: {second_linear_monitor_step}, "
+            f"third_linear_monitor_step: {third_linear_monitor_step}, pivot: {pivot}, pivot_1: {pivot_1}"
+            )
+    sigmas = [1.0 - x for x in sigmas]
+    return sigmas, num_inference_steps
+
+
 def opensora_linear_quadratic_schedule(num_inference_steps, approximate_steps=1000):
     assert approximate_steps % 2 == 0, "approximate_steps must be even"
     assert num_inference_steps % 2 == 0, "num_inference_steps must be even"
@@ -65,7 +146,10 @@ def opensora_linear_quadratic_schedule(num_inference_steps, approximate_steps=10
     ]
     sigmas = linear_sigmas + quadratic_sigmas + [1.0]
     sigmas = [1.0 - x for x in sigmas]
-    sigmas.pop(-1) # remove 0
+    print(
+        f"Using linear quadratic schedule, sigmas: {sigmas}, num_inference_steps: {num_inference_steps}, "
+        f"approximate_steps: {approximate_steps}"
+        )
     return sigmas
 
 # Copied from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion.retrieve_timesteps
@@ -457,7 +541,7 @@ class OpenSoraPipeline(DiffusionPipeline):
         else:
             latents = latents.to(device)
 
-        if not isinstance(self.scheduler, FlowMatchEulerDiscreteScheduler):
+        if not isinstance(self.scheduler, OpenSoraFlowMatchEulerScheduler):
             # scale the initial noise by the standard deviation required by the scheduler
             latents = latents * self.scheduler.init_noise_sigma
         return latents
@@ -515,8 +599,15 @@ class OpenSoraPipeline(DiffusionPipeline):
         max_sequence_length: int = 512,
         use_linear_quadratic_schedule: bool = False, 
         device = None, 
+        first_linear_monitor_step: int = 100,
+        second_linear_monitor_step: int = 0,
+        third_linear_monitor_step: int = 0,
+        pivot: float = 0.1,
+        pivot_1: float = 1.0,
+        use_two_linear_schedule: bool = False, 
+        use_three_linear_schedule: bool = False
     ):
-        
+        assert (not use_linear_quadratic_schedule) or (not use_two_linear_schedule) or (not use_three_linear_schedule)
         if isinstance(callback_on_step_end, (PipelineCallback, MultiPipelineCallbacks)):
             callback_on_step_end_tensor_inputs = callback_on_step_end.tensor_inputs
 
@@ -605,23 +696,42 @@ class OpenSoraPipeline(DiffusionPipeline):
             negative_prompt_attention_mask_2 = None
 
         # 4. Prepare timesteps
-        if not isinstance(self.scheduler, FlowMatchEulerDiscreteScheduler):
+        if not isinstance(self.scheduler, OpenSoraFlowMatchEulerScheduler):
             self.scheduler.set_timesteps(num_inference_steps, device=device)
             timesteps = self.scheduler.timesteps
             num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
             self._num_timesteps = len(timesteps)
         else:
-            # timesteps, num_inference_steps = retrieve_timesteps(self.scheduler, num_inference_steps, device, timesteps)
             sigmas = None
+            assert use_linear_quadratic_schedule or use_two_linear_schedule or use_three_linear_schedule
             if use_linear_quadratic_schedule:
                 approximate_steps = min(max(num_inference_steps*10, 250), 1000)
                 sigmas = opensora_linear_quadratic_schedule(
                     num_inference_steps=num_inference_steps, 
                     approximate_steps=approximate_steps
                     )
-                sigmas = np.array(sigmas)
-                print(f"Using linear quadratic schedule, sigmas: {sigmas}, num_inference_steps: {num_inference_steps}, approximate_steps: {approximate_steps}")
-            timesteps, num_inference_steps = retrieve_timesteps(self.scheduler, num_inference_steps, device, timesteps, sigmas)
+            elif use_two_linear_schedule:
+                sigmas, num_inference_steps = opensora_two_linear_schedule(
+                    first_linear_monitor_step=first_linear_monitor_step,
+                    second_linear_monitor_step=second_linear_monitor_step,
+                    pivot=pivot, 
+                    )
+            elif use_three_linear_schedule:
+                sigmas, num_inference_steps = opensora_three_linear_schedule(
+                    first_linear_monitor_step=first_linear_monitor_step,
+                    second_linear_monitor_step=second_linear_monitor_step,
+                    third_linear_monitor_step=third_linear_monitor_step,
+                    pivot=pivot, 
+                    pivot_1=pivot_1, 
+                    )
+            sigmas = np.array(sigmas)
+            # timesteps, num_inference_steps = retrieve_timesteps(self.scheduler, num_inference_steps, device, timesteps, sigmas)
+            # num_warmup_steps = max(len(timesteps) - num_inference_steps * self.scheduler.order, 0)
+            # self._num_timesteps = len(timesteps)
+            sigmas = self.scheduler.set_sigmas(num_inference_steps=num_inference_steps, device=device, sigmas=sigmas)
+            print(len(sigmas), sigmas)
+            timesteps = sigmas.clone() * self.scheduler.rescale  # rescale to [0, 1000.0)
+            timesteps = timesteps[:-1]
             num_warmup_steps = max(len(timesteps) - num_inference_steps * self.scheduler.order, 0)
             self._num_timesteps = len(timesteps)
         # 5. Prepare latent variables
@@ -641,7 +751,7 @@ class OpenSoraPipeline(DiffusionPipeline):
         )
 
         # 6. Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline
-        if not isinstance(self.scheduler, FlowMatchEulerDiscreteScheduler):
+        if not isinstance(self.scheduler, OpenSoraFlowMatchEulerScheduler):
             extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
         else:
             extra_step_kwargs = {}
@@ -680,11 +790,11 @@ class OpenSoraPipeline(DiffusionPipeline):
 
                 # expand the latents if we are doing classifier free guidance
                 latent_model_input = torch.cat([latents] * 2) if self.do_classifier_free_guidance else latents
-                if not isinstance(self.scheduler, FlowMatchEulerDiscreteScheduler):
+                if not isinstance(self.scheduler, OpenSoraFlowMatchEulerScheduler):
                     latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
 
                 # expand scalar t to 1-D tensor to match the 1st dim of latent_model_input
-                if not isinstance(self.scheduler, FlowMatchEulerDiscreteScheduler):
+                if not isinstance(self.scheduler, OpenSoraFlowMatchEulerScheduler):
                     timestep = torch.tensor([t] * latent_model_input.shape[0], device=device).to(
                         dtype=latent_model_input.dtype
                     )
@@ -707,7 +817,6 @@ class OpenSoraPipeline(DiffusionPipeline):
                 if get_sequence_parallel_state():
                     attention_mask = attention_mask.repeat(1, world_size, 1, 1)
                 # ==================make sp=====================================
-
                 noise_pred = self.transformer(
                     latent_model_input,
                     attention_mask=attention_mask, 
@@ -723,12 +832,16 @@ class OpenSoraPipeline(DiffusionPipeline):
                     noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
                     noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
 
-                if self.do_classifier_free_guidance and guidance_rescale > 0.0 and not isinstance(self.scheduler, FlowMatchEulerDiscreteScheduler):
+                if self.do_classifier_free_guidance and guidance_rescale > 0.0 and not isinstance(self.scheduler, OpenSoraFlowMatchEulerScheduler):
                     # Based on 3.4. in https://arxiv.org/pdf/2305.08891.pdf
                     noise_pred = rescale_noise_cfg(noise_pred, noise_pred_text, guidance_rescale=guidance_rescale)
 
                 # compute the previous noisy sample x_t -> x_t-1
-                latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs, return_dict=False)[0]
+                latents = self.scheduler.step(
+                    noise_pred, 
+                    i if isinstance(self.scheduler, OpenSoraFlowMatchEulerScheduler) else t, 
+                    latents, **extra_step_kwargs, return_dict=False
+                    )[0]
 
                 if callback_on_step_end is not None:
                     callback_kwargs = {}

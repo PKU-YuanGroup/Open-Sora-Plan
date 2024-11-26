@@ -259,11 +259,6 @@ def main(args):
     )
     if args.cogvideox_scheduler:
         noise_scheduler = CogVideoXDDIMScheduler(**kwargs)
-    elif args.v1_5_scheduler:
-        kwargs['beta_start'] = 0.00085
-        kwargs['beta_end'] = 0.0120
-        kwargs['beta_schedule'] = "scaled_linear"
-        noise_scheduler = DDPMScheduler(**kwargs)
     else:
         noise_scheduler = DDPMScheduler(**kwargs)
     # Move unet, vae and text_encoder to device and cast to weight_dtype
@@ -895,7 +890,6 @@ if __name__ == "__main__":
     parser.add_argument('--sparse1d', action='store_true')
     parser.add_argument('--sparse_n', type=int, default=2)
     parser.add_argument('--cogvideox_scheduler', action='store_true')
-    parser.add_argument('--v1_5_scheduler', action='store_true')
     parser.add_argument("--gradient_checkpointing", action="store_true", help="Whether or not to use gradient checkpointing to save memory at the expense of slower backward pass.")
 
     # diffusion setting

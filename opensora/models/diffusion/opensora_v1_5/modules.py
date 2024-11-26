@@ -51,7 +51,7 @@ class PositionGetter3D(object):
         e_h = s_h + h
         s_w = random.randint(0, self.max_w-w) if self.explicit_uniform_rope and training else 0
         e_w = s_w + w
-        # print(self.explicit_uniform_rope, training, b,s_t,e_t,s_h,e_h,s_w,e_w)
+        # print(f'{self.explicit_uniform_rope}, {training}, {b},{s_t},{e_t},{s_h},{e_h},{s_w},{e_w}')
         if not (b,s_t,e_t,s_h,e_h,s_w,e_w) in self.cache_positions:
             x = torch.arange(w, device=device)
             y = torch.arange(h, device=device)
@@ -275,12 +275,6 @@ class OpenSoraAttnProcessor2_0:
         query = attn.to_q(hidden_states)
         key = attn.to_k(hidden_states)
         value = attn.to_v(hidden_states)
-        # print(f'hidden_states query ', 
-        #         f'max {query.max()}, min {query.min()}, mean {query.mean()}, std {query.std()}')
-        # print(f'hidden_states key ', 
-        #         f'max {key.max()}, min {key.min()}, mean {key.mean()}, std {key.std()}')
-        # print(f'hidden_states value ', 
-        #         f'max {value.max()}, min {value.min()}, mean {value.mean()}, std {value.std()}')
         # -----------------------------------------------
 
         # -----------------------------------------------
@@ -288,12 +282,6 @@ class OpenSoraAttnProcessor2_0:
         encoder_hidden_states_query_proj = attn.add_q_proj(encoder_hidden_states)
         encoder_hidden_states_key_proj = attn.add_k_proj(encoder_hidden_states)
         encoder_hidden_states_value_proj = attn.add_v_proj(encoder_hidden_states)
-        # print(f'encoder_hidden_states_query_proj ', 
-        #         f'max {encoder_hidden_states_query_proj.max()}, min {encoder_hidden_states_query_proj.min()}, mean {encoder_hidden_states_query_proj.mean()}, std {encoder_hidden_states_query_proj.std()}')
-        # print(f'encoder_hidden_states_key_proj ', 
-        #         f'max {encoder_hidden_states_key_proj.max()}, min {encoder_hidden_states_key_proj.min()}, mean {encoder_hidden_states_key_proj.mean()}, std {encoder_hidden_states_key_proj.std()}')
-        # print(f'encoder_hidden_states_value_proj ', 
-        #         f'max {encoder_hidden_states_value_proj.max()}, min {encoder_hidden_states_value_proj.min()}, mean {encoder_hidden_states_value_proj.mean()}, std {encoder_hidden_states_value_proj.std()}')
         # -----------------------------------------------
 
         inner_dim = key.shape[-1]
@@ -307,27 +295,15 @@ class OpenSoraAttnProcessor2_0:
         key = key.view(-1, batch_size, FA_head_num, head_dim)
         query = attn.norm_q(query)
         key = attn.norm_k(key)
-        # print(f'norm_q ', 
-        #         f'max {query.max()}, min {query.min()}, mean {query.mean()}, std {query.std()}')
-        # print(f'norm_k ', 
-        #         f'max {key.max()}, min {key.min()}, mean {key.mean()}, std {key.std()}')
 
         encoder_hidden_states_query_proj = encoder_hidden_states_query_proj.view(-1, batch_size, FA_head_num, head_dim)
         encoder_hidden_states_key_proj = encoder_hidden_states_key_proj.view(-1, batch_size, FA_head_num, head_dim)
         encoder_hidden_states_query_proj = attn.norm_added_q(encoder_hidden_states_query_proj)
         encoder_hidden_states_key_proj = attn.norm_added_k(encoder_hidden_states_key_proj)
-        # print(f'norm_added_q ', 
-        #         f'max {encoder_hidden_states_query_proj.max()}, min {encoder_hidden_states_query_proj.min()}, mean {encoder_hidden_states_query_proj.mean()}, std {encoder_hidden_states_query_proj.std()}')
-        # print(f'norm_added_k ', 
-        #         f'max {encoder_hidden_states_key_proj.max()}, min {encoder_hidden_states_key_proj.min()}, mean {encoder_hidden_states_key_proj.mean()}, std {encoder_hidden_states_key_proj.std()}')
-
+        
         query = apply_rotary_emb(query, video_rotary_emb)
         key = apply_rotary_emb(key, video_rotary_emb)
-        # print(f'apply_rotary_emb query ', 
-        #         f'max {query.max()}, min {query.min()}, mean {query.mean()}, std {query.std()}')
-        # print(f'apply_rotary_emb key ', 
-        #         f'max {key.max()}, min {key.min()}, mean {key.mean()}, std {key.std()}')
-
+        
         query = query.view(-1, batch_size, FA_head_num * head_dim)
         key = key.view(-1, batch_size, FA_head_num * head_dim)
 
@@ -338,8 +314,6 @@ class OpenSoraAttnProcessor2_0:
         
         # -----------------------------------------------
         # Step 4, sparse token
-        # print(f'dense v shape: query {query.shape}, key {key.shape}, value {value.shape}')
-        # print(f'dense t shape: encoder_hidden_states_query_proj {encoder_hidden_states_query_proj.shape}, encoder_hidden_states_key_proj {encoder_hidden_states_key_proj.shape}, encoder_hidden_states_value_proj {encoder_hidden_states_value_proj.shape}')
         if self.sparse1d:
             query, pad_len = self._sparse_1d(query, total_frame, height, width)
             key, pad_len = self._sparse_1d(key, total_frame, height, width)
@@ -347,9 +321,6 @@ class OpenSoraAttnProcessor2_0:
             encoder_hidden_states_query_proj = self._sparse_1d_enc(encoder_hidden_states_query_proj)
             encoder_hidden_states_key_proj = self._sparse_1d_enc(encoder_hidden_states_key_proj)
             encoder_hidden_states_value_proj = self._sparse_1d_enc(encoder_hidden_states_value_proj)
-            # print(f'sparse v shape: query {query.shape}, key {key.shape}, value {value.shape}')
-            # print(f'sparse t shape: encoder_hidden_states_query_proj {encoder_hidden_states_query_proj.shape}, encoder_hidden_states_key_proj {encoder_hidden_states_key_proj.shape}, encoder_hidden_states_value_proj {encoder_hidden_states_value_proj.shape}')
-        
         # -----------------------------------------------
 
 
@@ -358,7 +329,6 @@ class OpenSoraAttnProcessor2_0:
         query = torch.cat([query, encoder_hidden_states_query_proj], dim=0)
         key = torch.cat([key, encoder_hidden_states_key_proj], dim=0)
         value = torch.cat([value, encoder_hidden_states_value_proj], dim=0)
-        # print(f'cat shape: query {query.shape}, key {key.shape}, value {value.shape}')
 
         if npu_config is not None:
             hidden_states = npu_config.run_attention(query, key, value, attention_mask, "SBH", head_dim, FA_head_num)
@@ -372,47 +342,24 @@ class OpenSoraAttnProcessor2_0:
             hidden_states = rearrange(hidden_states, 'b h s d -> s b (h d)', h=FA_head_num)
         # -----------------------------------------------
 
-        # print(f'scaled_dot_product_attention hidden_states ', 
-        #         f'max {hidden_states.max()}, min {hidden_states.min()}, mean {hidden_states.mean()}, std {hidden_states.std()}')
-
         # -----------------------------------------------
         # Step 6, split->reverse sparse->proj the attention outputs.
         hidden_states, encoder_hidden_states = hidden_states.split(
             [hidden_states.size(0) - text_seq_length, text_seq_length], dim=0
         )
-        # print(f'split v shape: hidden_states {hidden_states.shape}')
-        # print(f'split t shape: encoder_hidden_states {encoder_hidden_states.shape}')
         if self.sparse1d:
             hidden_states = self._reverse_sparse_1d(hidden_states, total_frame, height, width, pad_len)
             encoder_hidden_states = self._reverse_sparse_1d_enc(encoder_hidden_states)
-            # print(f'split v shape: hidden_states {hidden_states.shape}')
-            # print(f'split t shape: encoder_hidden_states {encoder_hidden_states.shape}')
 
-        # print(f'before to_out hidden_states ', 
-        #         f'max {hidden_states.max()}, min {hidden_states.min()}, mean {hidden_states.mean()}, std {hidden_states.std()}')
-        # print(f'before to_out encoder_hidden_states ', 
-        #         f'max {encoder_hidden_states.max()}, min {encoder_hidden_states.min()}, mean {encoder_hidden_states.mean()}, std {encoder_hidden_states.std()}')
-        
-        # hidden_states = attn.out_prenorm(hidden_states)
-        # print(f'hidden_states out_prenorm ', 
-        #         f'max {hidden_states.max()}, min {hidden_states.min()}, mean {hidden_states.mean()}, std {hidden_states.std()}')
         # linear proj
         hidden_states = attn.to_out[0](hidden_states)
         # dropout
         hidden_states = attn.to_out[1](hidden_states)
         if not attn.context_pre_only:
-            # encoder_hidden_states = attn.add_out_prenorm(encoder_hidden_states)
-            # print(f'encoder_hidden_states out_prenorm ', 
-            #         f'max {encoder_hidden_states.max()}, min {encoder_hidden_states.min()}, mean {encoder_hidden_states.mean()}, std {encoder_hidden_states.std()}')
             # linear proj for text feature
             encoder_hidden_states = attn.to_add_out(encoder_hidden_states)
         # -----------------------------------------------
 
-        # print(f'to_out hidden_states ', 
-        #         f'max {hidden_states.max()}, min {hidden_states.min()}, mean {hidden_states.mean()}, std {hidden_states.std()}')
-        # print(f'to_out encoder_hidden_states ', 
-        #         f'max {encoder_hidden_states.max()}, min {encoder_hidden_states.min()}, mean {encoder_hidden_states.mean()}, std {encoder_hidden_states.std()}')
-        # import sys;sys.exit()
         return hidden_states, encoder_hidden_states
 
 @maybe_allow_in_graph
@@ -502,19 +449,11 @@ class BasicTransformerBlock(nn.Module):
         # 0. Prepare rope embedding
         vis_seq_length, batch_size = hidden_states.size(0), hidden_states.size(1)
 
-        # print(f'hidden_states input', 
-        #         f'max {hidden_states.max()}, min {hidden_states.min()}, mean {hidden_states.mean()}, std {hidden_states.std()}')
-        # print(f'encoder_hidden_states input', 
-        #         f'max {encoder_hidden_states.max()}, min {encoder_hidden_states.min()}, mean {encoder_hidden_states.mean()}, std {encoder_hidden_states.std()}')
         # 1. Self-Attention
         # norm & scale & shift
         norm_hidden_states, norm_encoder_hidden_states, gate_msa, enc_gate_msa = self.norm1(
             hidden_states, encoder_hidden_states, embedded_timestep
             )
-        # print(f'norm_hidden_states norm1', 
-        #         f'max {norm_hidden_states.max()}, min {norm_hidden_states.min()}, mean {norm_hidden_states.mean()}, std {norm_hidden_states.std()}')
-        # print(f'norm_encoder_hidden_states norm1', 
-        #         f'max {norm_encoder_hidden_states.max()}, min {norm_encoder_hidden_states.min()}, mean {norm_encoder_hidden_states.mean()}, std {norm_encoder_hidden_states.std()}')
         # attn
         attn_hidden_states, attn_encoder_hidden_states = self.attn1(
             norm_hidden_states,
@@ -525,43 +464,22 @@ class BasicTransformerBlock(nn.Module):
             attention_mask=attention_mask, 
             video_rotary_emb=video_rotary_emb, 
         )
-        # print(f'attn_hidden_states attn1', 
-        #         f'max {attn_hidden_states.max()}, min {attn_hidden_states.min()}, mean {attn_hidden_states.mean()}, std {attn_hidden_states.std()}')
-        # print(f'attn_encoder_hidden_states attn1', 
-        #         f'max {attn_encoder_hidden_states.max()}, min {attn_encoder_hidden_states.min()}, mean {attn_encoder_hidden_states.mean()}, std {attn_encoder_hidden_states.std()}')
         # residual & gate
         hidden_states = hidden_states + gate_msa * attn_hidden_states
         encoder_hidden_states = encoder_hidden_states + enc_gate_msa * attn_encoder_hidden_states
 
-        # print(f'(gate_msa * attn_hidden_states) gate', 
-        #         f'max {(gate_msa * attn_hidden_states).max()}, min {(gate_msa * attn_hidden_states).min()}, mean {(gate_msa * attn_hidden_states).mean()}, std {(gate_msa * attn_hidden_states).std()}')
-        # print(f'(enc_gate_msa * attn_encoder_hidden_states) gate', 
-        #         f'max {(enc_gate_msa * attn_encoder_hidden_states).max()}, min {(enc_gate_msa * attn_encoder_hidden_states).min()}, mean {(enc_gate_msa * attn_encoder_hidden_states).mean()}, std {(enc_gate_msa * attn_encoder_hidden_states).std()}')
-        
-        # print(f'hidden_states residual & gate', 
-        #         f'max {hidden_states.max()}, min {hidden_states.min()}, mean {hidden_states.mean()}, std {hidden_states.std()}')
-        # print(f'encoder_hidden_states residual & gate', 
-        #         f'max {encoder_hidden_states.max()}, min {encoder_hidden_states.min()}, mean {encoder_hidden_states.mean()}, std {encoder_hidden_states.std()}')
         # 1. Share Feed-Forward
         # norm & scale & shift
         norm_hidden_states, norm_encoder_hidden_states, gate_ff, enc_gate_ff = self.norm2(
             hidden_states, encoder_hidden_states, embedded_timestep
         )
-        # print(f'norm_hidden_states norm & scale & shift', 
-        #         f'max {norm_hidden_states.max()}, min {norm_hidden_states.min()}, mean {norm_hidden_states.mean()}, std {norm_hidden_states.std()}')
-        # print(f'norm_encoder_hidden_states norm & scale & shift', 
-        #         f'max {norm_encoder_hidden_states.max()}, min {norm_encoder_hidden_states.min()}, mean {norm_encoder_hidden_states.mean()}, std {norm_encoder_hidden_states.std()}')
+        
         # ffn
         norm_hidden_states = torch.cat([norm_hidden_states, norm_encoder_hidden_states], dim=0)
         ff_output = self.ff(norm_hidden_states)
-        # print(f'ff_output ff', 
-        #         f'max {ff_output.max()}, min {ff_output.min()}, mean {ff_output.mean()}, std {ff_output.std()}')
+        
         # residual & gate
         hidden_states = hidden_states + gate_ff * ff_output[:vis_seq_length]
         encoder_hidden_states = encoder_hidden_states + enc_gate_ff * ff_output[vis_seq_length:]
-        # print(f'hidden_states ffn residual & gate', 
-        #         f'max {hidden_states.max()}, min {hidden_states.min()}, mean {hidden_states.mean()}, std {hidden_states.std()}')
-        # print(f'encoder_hidden_states ffn residual & gate', 
-        #         f'max {encoder_hidden_states.max()}, min {encoder_hidden_states.min()}, mean {encoder_hidden_states.mean()}, std {encoder_hidden_states.std()}')
 
         return hidden_states, encoder_hidden_states

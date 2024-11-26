@@ -53,11 +53,11 @@ from tqdm.auto import tqdm
 import json
 import copy
 import diffusers
-from diffusers import DDPMScheduler, PNDMScheduler, DPMSolverMultistepScheduler, CogVideoXDDIMScheduler, FlowMatchEulerDiscreteScheduler
+from opensora.utils.scheduler import OpenSoraFlowMatchEulerScheduler
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import compute_snr
 from diffusers.utils import check_min_version, is_wandb_available
-from diffusers.training_utils import compute_loss_weighting_for_sd3
+from diffusers.schedulers import CogVideoXDDIMScheduler, DDPMScheduler, DPMSolverMultistepScheduler
 
 from opensora.models.causalvideovae import ae_stride_config, ae_channel_config
 from opensora.models.text_encoder import get_text_warpper
@@ -65,7 +65,7 @@ from opensora.dataset import getdataset
 from opensora.models.diffusion import Diffusion_models, Diffusion_models_class
 from opensora.utils.dataset_utils import Collate, LengthGroupedSampler
 from opensora.utils.ema_utils import EMAModel
-from opensora.utils.utils import explicit_uniform_sampling, get_common_weights, compute_density_for_timestep_sampling
+from opensora.utils.utils import explicit_uniform_sampling, get_common_weights
 from opensora.sample.pipeline_opensora import OpenSoraPipeline
 from opensora.models.causalvideovae import ae_stride_config, ae_wrapper
 from opensora.utils.deepspeed_utils import backward, deepspeed_zero_init_disabled_context_manager
@@ -181,6 +181,8 @@ def param_groups_weight_decay(
     no_weight_decay_list = set(no_weight_decay_list)
     decay = []
     no_decay = []
+    decay_name = []
+    no_decay_name = []
     cnt = 0
     train = 0
     for name, param in model.named_parameters():
@@ -189,10 +191,13 @@ def param_groups_weight_decay(
             continue
         train += 1
         if param.ndim <= 1 or name.endswith(".bias") or name in no_weight_decay_list:
+            no_decay_name.append(name)
             no_decay.append(param)
         else:
+            decay_name.append(name)
             decay.append(param)
     logger.info(f'Train param [{train}/{cnt}], decay {len(decay)} param, no_decay {len(no_decay)} param')
+    logger.info(f'decay:\n{sorted(decay_name)}\nno_decay:\n{sorted(no_decay_name)}')
     return [
         {'params': no_decay, 'weight_decay': 0.},
         {'params': decay, 'weight_decay': weight_decay}]
@@ -540,14 +545,8 @@ def main(args):
     )
     if args.cogvideox_scheduler:
         noise_scheduler = CogVideoXDDIMScheduler(**kwargs)
-    elif args.v1_5_scheduler:
-        kwargs['beta_start'] = 0.00085
-        kwargs['beta_end'] = 0.0120
-        kwargs['beta_schedule'] = "scaled_linear"
-        noise_scheduler = DDPMScheduler(**kwargs)
     elif args.rf_scheduler:
-        noise_scheduler = FlowMatchEulerDiscreteScheduler()
-        noise_scheduler_copy = copy.deepcopy(noise_scheduler)
+        noise_scheduler = OpenSoraFlowMatchEulerScheduler(weighting_scheme=args.weighting_scheme, sigma_eps=args.sigma_eps)
     else:
         noise_scheduler = DDPMScheduler(**kwargs)
     # =======================================================================================================
@@ -678,17 +677,6 @@ def main(args):
     )
     progress_info = ProgressInfo(global_step, train_loss=0.0, max_grad_norm=0.0)
 
-    
-    def get_sigmas(timesteps, n_dim=4, dtype=torch.float32):
-        sigmas = noise_scheduler_copy.sigmas.to(device=accelerator.device, dtype=dtype)  # 0.001, 1
-        schedule_timesteps = noise_scheduler_copy.timesteps.to(accelerator.device)  # 1, 1000
-        timesteps = timesteps.to(accelerator.device)
-        step_indices = [(schedule_timesteps == t).nonzero().item() for t in timesteps]
-
-        sigma = sigmas[step_indices].flatten()
-        while len(sigma.shape) < n_dim:
-            sigma = sigma.unsqueeze(-1)
-        return sigma
 
     def sync_gradients_info(loss):
         # Checks if the accelerator has performed an optimization step behind the scenes
@@ -799,21 +787,23 @@ def main(args):
         else:
             # Sample a random timestep for each image
             # for weighting schemes where we sample timesteps non-uniformly
-            u = compute_density_for_timestep_sampling(
-                weighting_scheme=args.weighting_scheme,
+            sigmas = noise_scheduler.compute_density_for_sigma_sampling(
                 batch_size=bsz,
                 logit_mean=args.logit_mean,
                 logit_std=args.logit_std,
                 mode_scale=args.mode_scale,
-            )
-            indices = (u * noise_scheduler_copy.config.num_train_timesteps).long()
-            timesteps = noise_scheduler_copy.timesteps[indices].to(device=model_input.device)
+            ).to(device=accelerator.device)
+            timesteps = sigmas.clone() * noise_scheduler.rescale  # rescale to [0, 1000.0)
 
-            # Add noise according to flow matching.
-            # zt = (1 - texp) * x + texp * z1
-            sigmas = get_sigmas(timesteps, n_dim=model_input.ndim, dtype=model_input.dtype)
-            noisy_model_input = (1.0 - sigmas) * model_input + sigmas * noise
+            while sigmas.ndim < model_input.ndim:
+                sigmas = sigmas.unsqueeze(-1)
 
+            noisy_model_input = noise_scheduler.add_noise(model_input, sigmas, noise)
+            # print(f'model_input: {model_input.dtype}, sigmas: {sigmas.dtype}, noise: {noise.dtype}')
+            # print(f'timesteps: {timesteps.flatten()}')
+
+        noisy_model_input = noisy_model_input.to(weight_dtype)
+        # print(f'noisy_model_input({noisy_model_input.dtype}).to({weight_dtype}), timesteps: {timesteps.dtype}')
         model_pred = model(
             noisy_model_input,
             timesteps,
@@ -840,7 +830,7 @@ def main(args):
                 # mask    (sp_bs*b t h w)
                 assert mask is None
             b, c, t, h, w = model_pred.shape
-            weight_for_tokens = t*h*w / max_train_tokens
+            weight_for_tokens = t*h*w / max_train_tokens if args.equal_token_gradient_contribution else 1.0
             if mask is not None:
                 mask = mask.unsqueeze(1).repeat(1, c, 1, 1, 1).float()  # b t h w -> b c t h w
                 mask = mask.reshape(b, -1)
@@ -884,15 +874,15 @@ def main(args):
 
             # these weighting schemes use a uniform timestep sampling
             # and instead post-weight the loss
-            weighting = compute_loss_weighting_for_sd3(weighting_scheme=args.weighting_scheme, sigmas=sigmas)
-
+            weighting = noise_scheduler.compute_loss_weighting_for_sd3(sigmas=sigmas)
             # flow matching loss
             target = noise - model_input
 
             # Compute regular loss.
-            weight_for_tokens = t*h*w / max_train_tokens
-            weighting = weighting.float() * weight_for_tokens
-            # print(weight_for_tokens, t, h, w, t*h*w / max_train_tokens)
+            if args.equal_token_gradient_contribution:
+                weight_for_tokens = t*h*w / max_train_tokens
+                weighting = weighting.float() * weight_for_tokens
+                # print(f'weight_for_tokens: {weight_for_tokens}, weighting: {weighting.flatten()}')
             loss_mse = (weighting.float() * (model_pred.float() - target.float()) ** 2).reshape(target.shape[0], -1)
 
             if mask is not None:
@@ -905,6 +895,22 @@ def main(args):
         #     raise ValueError(f'Detect loss error, timestep {timesteps_list}')
         # max_timesteps = timesteps_list.max().item()
         # min_timesteps = timesteps_list.min().item()
+        # print('min_timesteps, max_timesteps', min_timesteps, max_timesteps)
+        # if (progress_info.global_step % args.check_exit) == 0:
+        #     path = '/storage/ongoing/9.29/mmdit/1.5/Open-Sora-Plan/counter.txt'
+        #     if os.path.exists(path):
+        #         with open(path, 'r') as f:
+        #             count = f.readlines()
+        #         count = [i.strip() for i in count]
+        #         if int(count[0]) == -1:
+        #             accelerator.wait_for_everyone()
+        #             accelerator.end_training()
+        #             code = 1
+        #             print(f'Exit safely with code {code}!')
+        #             import sys;sys.exit(code)
+                # else:
+                    # print('Not exit!')
+                    # pass
         max_timesteps, min_timesteps = 0, 0
 
         # Backpropagate
@@ -1081,7 +1087,6 @@ def main(args):
         else:
             with accelerator.accumulate(model):
                 # assert not torch.any(torch.isnan(x)), 'after vae'
-                x = x.to(weight_dtype)
                 model_kwargs = dict(
                     encoder_hidden_states=cond_1, attention_mask=attn_mask, 
                     encoder_attention_mask=cond_mask_1, 
@@ -1220,18 +1225,19 @@ if __name__ == "__main__":
     parser.add_argument('--sparse_n', type=int, default=2)
     parser.add_argument('--skip_connection', action='store_true')
     parser.add_argument('--cogvideox_scheduler', action='store_true')
-    parser.add_argument('--v1_5_scheduler', action='store_true')
     parser.add_argument('--rf_scheduler', action='store_true')
     parser.add_argument('--skip_abnorml_step', action='store_true')
     parser.add_argument("--post_to_device", action="store_true")
     parser.add_argument("--ema_bf16", action="store_true")
-    parser.add_argument("--weighting_scheme", type=str, default="logit_normal", choices=["sigma_sqrt", "logit_normal", "mode", "cosmap"])
+    parser.add_argument("--sigma_eps", type=float, default=0.0)
+    parser.add_argument("--weighting_scheme", type=str, default='logit_normal', choices=["sigma_sqrt", "logit_normal", "mode", "cosmap"])
     parser.add_argument("--logit_mean", type=float, default=0.0, help="mean to use when using the `'logit_normal'` weighting scheme.")
     parser.add_argument("--logit_std", type=float, default=1.0, help="std to use when using the `'logit_normal'` weighting scheme.")
     parser.add_argument("--mode_scale", type=float, default=1.29, help="Scale of mode weighting scheme. Only effective when using the `'mode'` as the `weighting_scheme`.")
     parser.add_argument("--gradient_checkpointing", action="store_true", help="Whether or not to use gradient checkpointing to save memory at the expense of slower backward pass.")
 
     # diffusion setting
+    parser.add_argument("--equal_token_gradient_contribution", action="store_true", help="")
     parser.add_argument("--snr_gamma", type=float, default=None, help="SNR weighting gamma to be used if rebalancing the loss. Recommended value is 5.0. More details here: https://arxiv.org/abs/2303.09556.")
     parser.add_argument("--use_ema", action="store_true", help="Whether to use EMA model.")
     parser.add_argument("--ema_decay", type=float, default=0.99)
@@ -1263,6 +1269,7 @@ if __name__ == "__main__":
                             " training using `--resume_from_checkpoint`."
                         ),
                         )
+    parser.add_argument("--check_exit", type=int, default=5)
     parser.add_argument("--resume_from_checkpoint", type=str, default=None,
                         help=(
                             "Whether training should be resumed from a previous checkpoint. Use a path saved by"

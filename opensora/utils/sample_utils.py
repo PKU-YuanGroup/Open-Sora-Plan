@@ -3,9 +3,9 @@ from diffusers.schedulers import (
     EulerDiscreteScheduler, DPMSolverMultistepScheduler,
     HeunDiscreteScheduler, EulerAncestralDiscreteScheduler,
     DEISMultistepScheduler, KDPM2AncestralDiscreteScheduler, 
-    DPMSolverSinglestepScheduler, CogVideoXDDIMScheduler, 
-    FlowMatchEulerDiscreteScheduler
+    DPMSolverSinglestepScheduler, CogVideoXDDIMScheduler
     )
+from opensora.utils.scheduler import OpenSoraFlowMatchEulerScheduler
 from einops import rearrange
 import time
 import torch
@@ -41,10 +41,6 @@ def get_scheduler(args):
         rescale_betas_zero_snr=args.rescale_betas_zero_snr, 
         timestep_spacing="trailing" if args.rescale_betas_zero_snr else 'leading', 
     )
-    if args.v1_5_scheduler:
-        kwargs['beta_start'] = 0.00085
-        kwargs['beta_end'] = 0.0120
-        kwargs['beta_schedule'] = "scaled_linear"
     if args.sample_method == 'DDIM':  
         scheduler_cls = DDIMScheduler
         kwargs['clip_sample'] = False
@@ -71,8 +67,8 @@ def get_scheduler(args):
         scheduler_cls = KDPM2AncestralDiscreteScheduler
     elif args.sample_method == 'CogVideoX':
         scheduler_cls = CogVideoXDDIMScheduler
-    elif args.sample_method == 'FlowMatchEulerDiscrete':
-        scheduler_cls = FlowMatchEulerDiscreteScheduler
+    elif args.sample_method == 'OpenSoraFlowMatchEuler':
+        scheduler_cls = OpenSoraFlowMatchEulerScheduler
         kwargs = {}
     else:
         raise NameError(f'Unsupport sample_method {args.sample_method}')
@@ -220,7 +216,6 @@ def save_video_grid(video, nrow=None):
 
 
 def run_model_and_save_samples(args, pipeline, caption_refiner_model=None, enhance_video_model=None):
-    dtype = torch.float32 if args.fp32 else torch.bfloat16
 
     if args.seed is not None:
         set_seed(args.seed, rank=args.local_rank, device_specific=True)
@@ -288,6 +283,13 @@ def run_model_and_save_samples(args, pipeline, caption_refiner_model=None, enhan
                 num_samples_per_prompt=args.num_samples_per_prompt,
                 max_sequence_length=args.max_sequence_length,
                 use_linear_quadratic_schedule=args.use_linear_quadratic_schedule, 
+                first_linear_monitor_step=args.first_linear_monitor_step,
+                second_linear_monitor_step=args.second_linear_monitor_step,
+                third_linear_monitor_step=args.third_linear_monitor_step,
+                pivot=args.pivot,
+                pivot_1=args.pivot_1,
+                use_two_linear_schedule=args.use_two_linear_schedule, 
+                use_three_linear_schedule=args.use_three_linear_schedule, 
             ).videos
         else:
             videos = pipeline(
@@ -301,6 +303,13 @@ def run_model_and_save_samples(args, pipeline, caption_refiner_model=None, enhan
                 num_samples_per_prompt=args.num_samples_per_prompt,
                 max_sequence_length=args.max_sequence_length,
                 use_linear_quadratic_schedule=args.use_linear_quadratic_schedule, 
+                first_linear_monitor_step=args.first_linear_monitor_step,
+                second_linear_monitor_step=args.second_linear_monitor_step,
+                third_linear_monitor_step=args.third_linear_monitor_step,
+                pivot=args.pivot,
+                pivot_1=args.pivot_1,
+                use_two_linear_schedule=args.use_two_linear_schedule, 
+                use_three_linear_schedule=args.use_three_linear_schedule, 
             ).videos
         if enhance_video_model is not None:
             # b t h w c
@@ -498,7 +507,14 @@ def get_args():
     parser.add_argument('--fp32', action='store_true')
     parser.add_argument('--use_pos_neg_prompt', action='store_true')
 
-    parser.add_argument('--v1_5_scheduler', action='store_true')
+    parser.add_argument('--first_linear_monitor_step', type=int, default=100)    
+    parser.add_argument('--second_linear_monitor_step', type=int, default=0)   
+    parser.add_argument('--third_linear_monitor_step', type=int, default=0)    
+    parser.add_argument('--pivot', type=float, default=0.1)    
+    parser.add_argument('--pivot_1', type=float, default=0.1)    
+    parser.add_argument('--use_two_linear_schedule', action='store_true')
+    parser.add_argument('--use_three_linear_schedule', action='store_true')
+
     parser.add_argument('--use_linear_quadratic_schedule', action='store_true')
     parser.add_argument('--conditional_pixel_values_path', type=str, default=None)
     parser.add_argument('--mask_type', type=str, default=None)

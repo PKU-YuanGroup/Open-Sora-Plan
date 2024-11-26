@@ -17,7 +17,7 @@ export NCCL_IB_RETRY_CNT=32
 # export NCCL_DEBUG=INFO
 export TOKENIZERS_PARALLELISM=false
 
-CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun --nnodes=1 --nproc_per_node 8 --master_port 29512 \
+CUDA_VISIBLE_DEVICES=0 torchrun --nnodes=1 --nproc_per_node 1 --master_port 29512 \
     -m opensora.sample.sample \
     --model_path mmdit13b_dense_rf_bs8192_lr1e-4_max1x256x256_min1x192x192_emaclip99_recap_coyo_merge_1025/checkpoint-101103/model_ema \
     --version v1_5 \
@@ -30,14 +30,19 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun --nnodes=1 --nproc_per_node 8 --ma
     --text_prompt examples/prompt.txt \
     --ae WFVAEModel_D32_8x8x8 \
     --ae_path "/storage/lcm/WF-VAE/results/Middle888" \
-    --save_img_path "./rf_1x256x256_v1_5_13b_cfg7.0_s100lq1000_101k_diff" \
+    --save_img_path "./rf_1x256x256_v1_5_13b_cfg7.0_s100_101k_diff_test_f100_s1000_t100_p0.4_0.5_fp32" \
     --fps 18 \
     --guidance_scale 7.0 \
     --num_sampling_steps 100 \
     --max_sequence_length 512 \
-    --sample_method FlowMatchEulerDiscrete \
+    --sample_method OpenSoraFlowMatchEuler \
     --seed 1234 \
-    --num_samples_per_prompt 4 \
+    --num_samples_per_prompt 1 \
     --prediction_type "v_prediction" \
-    --v1_5_scheduler \
-    --use_linear_quadratic_schedule
+    --first_linear_monitor_step 100 \
+    --second_linear_monitor_step 1000 \
+    --third_linear_monitor_step 100 \
+    --pivot 0.4 \
+    --pivot_1 0.5 \
+    --use_three_linear_schedule \
+    --fp32
