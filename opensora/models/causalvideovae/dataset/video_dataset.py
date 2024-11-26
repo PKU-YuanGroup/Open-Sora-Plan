@@ -246,5 +246,5 @@ class ValidVideoDataset(data.Dataset):
         frame_id_list = np.linspace(s, e - 1, num_frames, dtype=int)
         video_data = decord_vr.get_batch(frame_id_list).asnumpy()
         video_data = torch.from_numpy(video_data)
-        video_data = video_data.permute(3, 0, 1, 2)
+        video_data = video_data.permute(0, 3, 1, 2)
         return video_data
