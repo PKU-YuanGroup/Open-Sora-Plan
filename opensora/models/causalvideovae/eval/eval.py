@@ -84,25 +84,18 @@ class EvalDataset(ValidVideoDataset):
 
 def calculate_common_metric(args, dataloader, device):
     score_list = []
-    for batch_data in tqdm(dataloader):
-        real_videos = batch_data["real"].to(device)
-        generated_videos = batch_data["generated"].to(device)
-
+    for batch_data in tqdm(dataloader): # {'real': real_video_tensor, 'generated':generated_video_tensor }
+        real_videos = batch_data['real'] 
+        generated_videos = batch_data['generated']
         assert real_videos.shape[2] == generated_videos.shape[2]
-        if args.metric == "fvd":
-            tmp_list = list(
-                calculate_fvd(
-                    real_videos, generated_videos, args.device, method=args.fvd_method
-                )["value"].values()
-            )
-        elif args.metric == "ssim":
-            tmp_list = list(
-                calculate_ssim(real_videos, generated_videos)["value"].values()
-            )
-        elif args.metric == "psnr":
-            tmp_list = [calculate_psnr(real_videos, generated_videos)]
+        if args.metric == 'fvd':
+            tmp_list = list(calculate_fvd(real_videos, generated_videos, args.device, method=args.fvd_method)['value'].values())
+        elif args.metric == 'ssim':
+            tmp_list = list(calculate_ssim(real_videos, generated_videos)['value'].values())
+        elif args.metric == 'psnr':
+            tmp_list = list(calculate_psnr(real_videos, generated_videos)['value'].values())
         else:
-            tmp_list = [calculate_lpips(real_videos, generated_videos, args.device)]
+            tmp_list  = list(calculate_lpips(real_videos, generated_videos, args.device)['value'].values())
         score_list += tmp_list
     return np.mean(score_list)
 
