@@ -50,7 +50,7 @@ Text & Image to Video Generation.
 
 Open-Sora Plan shows excellent performance in video generation.
 
-### 🔥 High performance CausalVideoVAE, but with fewer training cost
+### 🔥 High performance CausalVideoVAE, but with lower training cost
 - High compression ratio with excellent performance, capable of **compressing videos by 256 times (4×8×8)**. Causal convolution supports simultaneous inference of images and videos but only need **1 node to train**.
 
 ### 🚀 Video Diffusion Model based on 3D attention, joint learning of spatiotemporal features.
