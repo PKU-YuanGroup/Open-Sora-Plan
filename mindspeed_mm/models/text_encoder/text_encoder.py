@@ -1,4 +1,5 @@
 import importlib
+import torch
 import torch.nn as nn
 from mindspeed_mm.utils.utils import get_dtype
 
@@ -7,6 +8,7 @@ TEXT_ENCODER_MAPPING = {
     "T5": "T5EncoderModel",
     "MT5": "MT5EncoderModel",
     "CLIP": "CLIPTextModel",
+    "CLIPWithProjection": "CLIPTextModelWithProjection",
 }
 
 
@@ -33,15 +35,12 @@ class TextEncoder(nn.Module):
         config = config.to_dict()
         self.backend = config.pop("hub_backend")
         self.use_attention_mask = config.pop("use_attention_mask", True)
-        self.ucg_rate = config.pop("ucg_rate", None)
         model_id = config["model_id"]
         if model_id not in TEXT_ENCODER_MAPPING:
             raise ValueError(f"{model_id} text encoder is currently not supported")
         else:
             self.automodel_name = TEXT_ENCODER_MAPPING[config.pop("model_id")]
         config["pretrained_model_name_or_path"] = config.pop("from_pretrained")
-        config["torch_dtype"] = get_dtype(config.pop("dtype"))
-
         # Only huggingface backend is supported, OpenMind backend will be supported soon.
         module = importlib.import_module("transformers")
         automodel = getattr(module, self.automodel_name)
@@ -52,24 +51,15 @@ class TextEncoder(nn.Module):
 
     def encode(self, input_ids, mask, **kwargs):
         attention_mask = mask if self.use_attention_mask else None
-        output = self.model(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            **kwargs)
-
-        if self.ucg_rate is not None and self.ucg_rate > 0.0:
-            def expand_dims_like(x, y):
-                while x.dim() != y.dim():
-                    x = x.unsqueeze(-1)
-                return x
-            emb = output.last_hidden_state
-            emb = (
-                expand_dims_like(
-                    torch.bernoulli(
-                        (1.0 - self.ucg_rate) * torch.ones(emb.shape[0], device=emb.device, dtype=emb.dtype)),
-                    emb,
-                )
-                * emb
-            )
-            output.last_hidden_state = emb
+        if self.automodel_name is not "CLIPTextModelWithProjection":
+            output = self.model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                **kwargs
+            )['last_hidden_state']
+        else:
+            output = self.model(
+                input_ids=input_ids,
+                output_hidden_states=True
+            )[0]
         return output

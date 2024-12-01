@@ -49,15 +49,16 @@ IMAGE_TRANSFORM_MAPPING = {
 }
 
 
-INTERPOLATIONMODE_MAPPING = {
-    "BICUBIC":  transforms.InterpolationMode.BICUBIC,
-    "BILINEAR": transforms.InterpolationMode.BILINEAR,
-    "NEAREST": transforms.InterpolationMode.NEAREST,
-    "NEAREST_EXACT": transforms.InterpolationMode.NEAREST_EXACT,
-    "BOX": transforms.InterpolationMode.BOX,
-    "HAMMING": transforms.InterpolationMode.HAMMING,
-    "LANCZOS": transforms.InterpolationMode.LANCZOS,
-}
+INTERPOLATIONMODE_LIST = [
+    "bicubic",
+    "bilinear",
+    "nearest",
+    "nearest-exact",
+    "box",
+    "hamming",
+    "lanczos",
+]
+
 
 
 def get_transforms(is_video=True, train_pipeline=None, image_size=None):
@@ -71,10 +72,6 @@ def get_transforms(is_video=True, train_pipeline=None, image_size=None):
     pipeline = []
     for pp_in in train_pipeline_info:
         param_info = pp_in.get("param", dict())
-
-        # 动态数据集场景下，用户须传入image_size,按照用户传的值做transforms
-        if image_size and "size" in param_info and param_info["size"] == "auto":
-            param_info["size"] = image_size
         trans_type = pp_in.get("trans_type", "")
         trans_info = TransformMaping(
             is_video=is_video, trans_type=trans_type, param=param_info
@@ -95,8 +92,11 @@ class TransformMaping:
         if self.is_video:
             if self.trans_type in VIDEO_TRANSFORM_MAPPING:
                 transforms_cls = VIDEO_TRANSFORM_MAPPING[self.trans_type]
-                if self.trans_type == "Resize" and "interpolation" in self.param:
-                    self.param["interpolation"] = INTERPOLATIONMODE_MAPPING[self.param["interpolation"]]
+                if "Resize" in self.trans_type  and "interpolation_mode" in self.param:
+                    if self.param["interpolation_mode"] not in INTERPOLATIONMODE_LIST:
+                        raise ValueError(
+                            f"Unsupported interpolation mode: {self.param['interpolation_mode']}"
+                        )
                 return transforms_cls(**self.param)
             else:
                 raise NotImplementedError(
@@ -105,8 +105,11 @@ class TransformMaping:
         else:
             if self.trans_type in IMAGE_TRANSFORM_MAPPING:
                 transforms_cls = IMAGE_TRANSFORM_MAPPING[self.trans_type]
-                if self.trans_type == "Resize" and "interpolation" in self.param:
-                    self.param["interpolation"] = INTERPOLATIONMODE_MAPPING[self.param["interpolation"]]
+                if "Resize" in self.trans_type  and "interpolation_mode" in self.param:
+                    if self.param["interpolation_mode"] not in INTERPOLATIONMODE_LIST:
+                        raise ValueError(
+                            f"Unsupported interpolation mode: {self.param['interpolation_mode']}"
+                        )
                 return transforms_cls(**self.param)
             else:
                 raise NotImplementedError(

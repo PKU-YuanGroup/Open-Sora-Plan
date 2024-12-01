@@ -10,6 +10,17 @@ from mindspeed_mm.utils.utils import video_to_image
 class HaarWaveletTransform3D(nn.Module):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
+        self.h_conv = WfCausalConv3d(1, 1, 2, padding=0, stride=2, bias=False)
+        self.g_conv = WfCausalConv3d(1, 1, 2, padding=0, stride=2, bias=False)
+        self.hh_conv = WfCausalConv3d(1, 1, 2, padding=0, stride=2, bias=False)
+        self.gh_conv = WfCausalConv3d(1, 1, 2, padding=0, stride=2, bias=False)
+        self.h_v_conv = WfCausalConv3d(1, 1, 2, padding=0, stride=2, bias=False)
+        self.g_v_conv = WfCausalConv3d(1, 1, 2, padding=0, stride=2, bias=False)
+        self.hh_v_conv = WfCausalConv3d(1, 1, 2, padding=0, stride=2, bias=False)
+        self.gh_v_conv = WfCausalConv3d(1, 1, 2, padding=0, stride=2, bias=False)
+        self._initialize_weights()
+
+    def _initialize_weights(self):
         h = torch.tensor([[[1, 1], [1, 1]], [[1, 1], [1, 1]]]) * 0.3536
         g = torch.tensor([[[1, -1], [1, -1]], [[1, -1], [1, -1]]]) * 0.3536
         hh = torch.tensor([[[1, 1], [-1, -1]], [[1, 1], [-1, -1]]]) * 0.3536
@@ -26,24 +37,16 @@ class HaarWaveletTransform3D(nn.Module):
         g_v = g_v.view(1, 1, 2, 2, 2)
         hh_v = hh_v.view(1, 1, 2, 2, 2)
         gh_v = gh_v.view(1, 1, 2, 2, 2)
-
-        self.h_conv = WfCausalConv3d(1, 1, 2, padding=0, stride=2, bias=False)
-        self.g_conv = WfCausalConv3d(1, 1, 2, padding=0, stride=2, bias=False)
-        self.hh_conv = WfCausalConv3d(1, 1, 2, padding=0, stride=2, bias=False)
-        self.gh_conv = WfCausalConv3d(1, 1, 2, padding=0, stride=2, bias=False)
-        self.h_v_conv = WfCausalConv3d(1, 1, 2, padding=0, stride=2, bias=False)
-        self.g_v_conv = WfCausalConv3d(1, 1, 2, padding=0, stride=2, bias=False)
-        self.hh_v_conv = WfCausalConv3d(1, 1, 2, padding=0, stride=2, bias=False)
-        self.gh_v_conv = WfCausalConv3d(1, 1, 2, padding=0, stride=2, bias=False)
-
-        self.h_conv.conv.weight.data = h
-        self.g_conv.conv.weight.data = g
-        self.hh_conv.conv.weight.data = hh
-        self.gh_conv.conv.weight.data = gh
-        self.h_v_conv.conv.weight.data = h_v
-        self.g_v_conv.conv.weight.data = g_v
-        self.hh_v_conv.conv.weight.data = hh_v
-        self.gh_v_conv.conv.weight.data = gh_v
+        with torch.no_grad():
+            self.h_conv.conv.weight.copy_(h.to(self.h_conv.conv.weight.device).to(self.h_conv.conv.weight.dtype))
+            self.g_conv.conv.weight.copy_(g.to(self.g_conv.conv.weight.device).to(self.g_conv.conv.weight.dtype))
+            self.hh_conv.conv.weight.copy_(hh.to(self.hh_conv.conv.weight.device).to(self.hh_conv.conv.weight.dtype))
+            self.gh_conv.conv.weight.copy_(gh.to(self.gh_conv.conv.weight.device).to(self.gh_conv.conv.weight.dtype))
+            self.h_v_conv.conv.weight.copy_(h_v.to(self.h_v_conv.conv.weight.device).to(self.h_v_conv.conv.weight.dtype))
+            self.g_v_conv.conv.weight.copy_(g_v.to(self.g_v_conv.conv.weight.device).to(self.g_v_conv.conv.weight.dtype))
+            self.hh_v_conv.conv.weight.copy_(hh_v.to(self.hh_v_conv.conv.weight.device).to(self.hh_v_conv.conv.weight.dtype))
+            self.gh_v_conv.conv.weight.copy_(gh_v.to(self.gh_v_conv.conv.weight.device).to(self.gh_v_conv.conv.weight.dtype))
+        
         self.h_conv.requires_grad_(False)
         self.g_conv.requires_grad_(False)
         self.hh_conv.requires_grad_(False)
@@ -121,7 +124,7 @@ class InverseHaarWaveletTransform3D(nn.Module):
             torch.tensor([[[1, -1], [-1, 1]], [[-1, 1], [1, -1]]]).view(1, 1, 2, 2, 2) * 0.3536
         )
         self.enable_cached = enable_cached
-        self.causal_cached = None
+        self.is_first_chunk = True
 
     def forward(self, coeffs):
         if coeffs.dim() != 5:
@@ -156,7 +159,8 @@ class InverseHaarWaveletTransform3D(nn.Module):
         high_low_high = F.conv_transpose3d(high_low_high, self.g_v, stride=2)
         high_high_low = F.conv_transpose3d(high_high_low, self.hh_v, stride=2)
         high_high_high = F.conv_transpose3d(high_high_high, self.gh_v, stride=2)
-        if self.enable_cached and self.causal_cached:
+        
+        if self.enable_cached and not self.is_first_chunk:
             reconstructed = (
                 low_low_low
                 + low_low_high
@@ -178,7 +182,7 @@ class InverseHaarWaveletTransform3D(nn.Module):
                 + high_high_low[:, :, 1:]
                 + high_high_high[:, :, 1:]
             )
-            self.causal_cached = True
+            
         reconstructed = rearrange(reconstructed, "(b c) 1 t h w -> b c t h w", b=b)
         return reconstructed
 

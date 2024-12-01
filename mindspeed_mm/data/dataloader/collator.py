@@ -37,7 +37,6 @@ class Collate:
         self,
         batch_size: int = 1,
         group_data: bool = False,
-        force_resolution: bool = False,
         max_height: int = 480,
         max_width: int = 640,
         ae_stride: int = 8,
@@ -48,7 +47,6 @@ class Collate:
     ):
         self.batch_size = batch_size
         self.group_data = group_data
-        self.force_resolution = force_resolution
 
         self.max_height = max_height
         self.max_width = max_width
@@ -227,6 +225,6 @@ class Collate:
         return (pad_batch_tubes, attention_mask, input_ids, cond_mask, input_ids_2, cond_mask_2)
 
 DATA_COLLATOR = {
-    "Defalut": Collate,
+    "Default": Collate,
     "GroupLength": Collate,
 }

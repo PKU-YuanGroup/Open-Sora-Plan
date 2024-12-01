@@ -15,6 +15,7 @@ import math
 import copy
 import random
 import urllib.parse as ul
+from tqdm import tqdm
 from fractions import Fraction
 from collections import Counter
 from typing import Any, Dict, Optional, Tuple, Union, Sequence
@@ -79,26 +80,24 @@ class DataFileReader:
             raise NotImplementedError("Not support now.")
 
     def get_datasamples(self, data_path, return_type="list"):
-        if data_path.endswith(".csv"):
-            data_out = pd.read_csv(data_path)
-            if return_type == "list":
-                return data_out.to_dict("records")
-            else:
-                return data_out
-        elif data_path.endswith(".json"):
+        if data_path.endswith(".json"):
             data_out = pd.read_json(data_path)
-            return data_out.to_dict("records")
         elif data_path.endswith(".pkl"):
             data_out = pd.read_pickle(data_path)
-            return data_out.to_dict("records")
         elif data_path.endswith(".jsonl"):
             data_out = pd.read_json(data_path, lines=True)
-            return data_out.to_dict("records")
         elif data_path.endswith(".parquat"):
             data_out = pd.read_parquat(data_path)
-            return data_out.to_dict("records")
         else:
-            raise NotImplementedError(f"Unsupported file format: {self.data_path}")
+            raise NotImplementedError(f"Unsupported file format: {data_path}")
+
+        if return_type == "list":
+            if isinstance(data_out, pd.DataFrame):
+                return data_out.to_dict("records")
+            elif isinstance(data_out, list):
+                return data_out
+        else:
+            raise NotImplementedError(f"Unsupported return_type: {return_type}")
 
     def get_cap_list(self, data_path):
         cap_lists = []
@@ -181,9 +180,6 @@ class VideoProcesser:
             frame_interval=1,
             train_pipeline=None,
             data_storage_mode="standard",
-            data_process_type=None,
-            skip_frame_num=0,
-            fps=None,
             train_fps=24,
             speed_factor=1.0,
             too_long_factor=5.0,
@@ -196,7 +192,8 @@ class VideoProcesser:
             force_5_ratio=False,
             seed=42,
             hw_stride=32,
-            hw_aspect_thr=1.5,
+            max_h_div_w_ratio=2.0,
+            min_h_div_w_ratio=None,
             ae_stride_t=4,
             sp_size=1,
             train_sp_batch_size=1,
@@ -210,9 +207,6 @@ class VideoProcesser:
         self.video_transforms = None
         self.temporal_sample = TemporalRandomCrop(num_frames * frame_interval)
         self.data_storage_mode = data_storage_mode
-        self.data_process_type = data_process_type
-        self.skip_frame_num = skip_frame_num
-        self.fps = fps
 
         self.max_height = max_height
         self.max_width = max_width
@@ -229,7 +223,8 @@ class VideoProcesser:
             self.seed = seed
             self.generator = torch.Generator().manual_seed(self.seed) 
             self.hw_stride = hw_stride
-            self.hw_aspect_thr = hw_aspect_thr
+            self.max_h_div_w_ratio = max_h_div_w_ratio
+            self.min_h_div_w_ratio = min_h_div_w_ratio if min_h_div_w_ratio is not None else 1 / max_h_div_w_ratio
             self.ae_stride_t = ae_stride_t
             self.sp_size = sp_size
             self.train_sp_batch_size = train_sp_batch_size
@@ -238,8 +233,17 @@ class VideoProcesser:
             self.min_num_frames = min_num_frames
 
 
-    def __call__(self, vframes, image_size=None, is_decord_read=False,
-                 predefine_num_frames=13, crop=[None, None, None, None]):
+    def __call__(
+        self, 
+        vframes, 
+        start_frame_idx,
+        clip_total_frames,
+        predefine_frame_indice=None,
+        fps=16,
+        image_size=None, 
+        is_decord_read=False, 
+        crop=[None, None, None, None]
+    ):
         if image_size:
             self.video_transforms = get_transforms(is_video=True, train_pipeline=self.train_pipeline,
                                                    image_size=image_size)
@@ -249,8 +253,11 @@ class VideoProcesser:
         if self.data_storage_mode == "combine":
             video = self.combine_data_video_process(
                 vframes,
+                start_frame_idx,
+                clip_total_frames,
                 is_decord_read=is_decord_read,
-                predefine_num_frames=predefine_num_frames,
+                predefine_frame_indice=predefine_frame_indice,
+                fps=fps,
                 crop=crop,
             )
         return video
@@ -270,53 +277,40 @@ class VideoProcesser:
         return video_data
 
     def combine_data_video_process(
-            self, vframes, is_decord_read=True, predefine_num_frames=13, crop=[None, None, None, None]
+        self, vframes, start_frame_idx, clip_total_frames, is_decord_read=True, predefine_frame_indice=None, fps=16, crop=[None, None, None, None]
     ):
-        total_frames = len(vframes)
-        fps = vframes.get_avg_fps() if vframes.get_avg_fps() > 0 else 30.0
+        predefine_num_frames = len(predefine_frame_indice)
+
         # resample in case high fps, such as 50/60/90/144 -> train_fps(e.g, 24)
-        frame_interval = (
-            1.0 if abs(fps - self.train_fps) < 0.1 else fps / self.train_fps
-        )
-        # some special video should be set to a different number
-        start_frame_idx = 0
-        frame_indices = np.arange(start_frame_idx, total_frames, frame_interval).astype(
-            int
-        )
-        frame_indices = frame_indices[frame_indices < total_frames]
+        frame_interval = 1.0 if abs(fps - self.train_fps) < 0.1 else fps / self.train_fps
+        frame_indices = np.arange(start_frame_idx, start_frame_idx + clip_total_frames, frame_interval).astype(int)
+        frame_indices = frame_indices[frame_indices < start_frame_idx + clip_total_frames]
         # speed up
         max_speed_factor = len(frame_indices) / self.num_frames
         if self.speed_factor > 1 and max_speed_factor > 1:
+            # speed_factor = random.uniform(1.0, min(self.speed_factor, max_speed_factor))
             speed_factor = min(self.speed_factor, max_speed_factor)
             target_frame_count = int(len(frame_indices) / speed_factor)
-            speed_frame_idx = np.linspace(
-                0, len(frame_indices) - 1, target_frame_count, dtype=int
-            )
+            speed_frame_idx = np.linspace(0, len(frame_indices) - 1, target_frame_count, dtype=int)
             frame_indices = frame_indices[speed_frame_idx]
 
         #  too long video will be temporal-crop randomly
         if len(frame_indices) > self.num_frames:
             begin_index, end_index = self.temporal_sample(len(frame_indices))
-            frame_indices = frame_indices[begin_index:end_index]
+            frame_indices = frame_indices[begin_index: end_index]
+            # frame_indices = frame_indices[:self.num_frames]  # head crop
 
         # to find a suitable end_frame_idx, to ensure we do not need pad video
         end_frame_idx = self.find_closest_y(
             len(frame_indices), vae_stride_t=self.ae_stride_t, model_ds_t=self.sp_size
         )
         if end_frame_idx == -1:  # too short that can not be encoded exactly by videovae
-            raise IndexError(
-                f"video has {total_frames} frames, but need to sample {len(frame_indices)} frames ({frame_indices})"
-            )
+            raise IndexError(f'video has {clip_total_frames} frames, but need to sample {len(frame_indices)} frames ({frame_indices})')
         frame_indices = frame_indices[:end_frame_idx]
         if predefine_num_frames != len(frame_indices):
-            raise ValueError(
-                f"predefine_num_frames ({predefine_num_frames}) is not equal with frame_indices ({len(frame_indices)})"
-            )
+            raise ValueError(f'video predefine_num_frames ({predefine_num_frames}) ({predefine_frame_indice}) is not equal with frame_indices ({len(frame_indices)}) ({frame_indices})')
         if len(frame_indices) < self.num_frames and self.drop_short_ratio >= 1:
-            raise IndexError(
-                f"video has {total_frames} frames, but need to sample {len(frame_indices)} frames ({frame_indices})"
-            )
-        
+            raise IndexError(f'video has {clip_total_frames} frames, but need to sample {len(frame_indices)} frames ({frame_indices})')
         video = self.get_batched_data(vframes, frame_indices, crop)
         # TCHW -> TCHW
         video = self.video_transforms(video)
@@ -344,10 +338,18 @@ class VideoProcesser:
         cnt_vid_res_too_small = 0
         cnt_vid_after_filter = 0
         cnt_img_after_filter = 0
-        cnt = 0
+        cnt = len(cap_list)
 
+        if torch.distributed.is_initialized():
+            world_size = torch.distributed.get_world_size()
+        else:
+            world_size = 1
+        total_batch_size = self.batch_size * world_size * self.gradient_accumulation_size
+        total_batch_size = total_batch_size // self.sp_size * self.train_sp_batch_size
+        # discard samples with shape which num is less than 4 * total_batch_size
+        filter_major_num = 4 * total_batch_size
 
-        for i in cap_list:
+        for i in tqdm(cap_list, desc=f"flitering samples"):
             path = i["path"]
 
             if path.endswith('.mp4'):
@@ -404,8 +406,8 @@ class VideoProcesser:
                         is_pick = filter_resolution(
                             sample_h, 
                             sample_w, 
-                            max_h_div_w_ratio=self.hw_aspect_thr, 
-                            min_h_div_w_ratio=1 / self.hw_aspect_thr
+                            max_h_div_w_ratio=self.max_h_div_w_ratio, 
+                            min_h_div_w_ratio=self.min_h_div_w_ratio
                         )
 
                         if not is_pick:
@@ -418,12 +420,11 @@ class VideoProcesser:
                         i["resolution"].update(dict(sample_height=sample_h, sample_width=sample_w))
 
                     else:
-                        aspect = self.max_height / self.max_width
                         is_pick = filter_resolution(
                             height, 
                             width, 
-                            max_h_div_w_ratio=self.hw_aspect_thr * aspect, 
-                            min_h_div_w_ratio=1 / self.hw_aspect_thr * aspect
+                            max_h_div_w_ratio=self.max_h_div_w_ratio, 
+                            min_h_div_w_ratio=self.min_h_div_w_ratio
                         )
 
                         if not is_pick:
@@ -503,9 +504,6 @@ class VideoProcesser:
             assert all([np.prod(np.array(k.split('x')[1:]).astype(np.int32)) <= self.max_hxw for k in counter_cp.keys()])
             assert all([np.prod(np.array(k.split('x')[1:]).astype(np.int32)) >= self.min_hxw for k in counter_cp.keys()])
 
-        total_batch_size = self.batch_size * torch.distributed.get_world_size() * self.gradient_accumulation_size
-        total_batch_size = total_batch_size // self.sp_size * self.train_sp_batch_size
-        filter_major_num = 4 * total_batch_size
         len_before_filter_major = len(new_cap_list)
         new_cap_list, sample_size = zip(*[[i, j] for i, j in zip(new_cap_list, sample_size) if counter[j] >= filter_major_num])
         for idx, shape in enumerate(sample_size):
@@ -741,48 +739,24 @@ class ImageProcesser:
             train_pipeline=None,
             image_reader_type="torchvision",
             image_processer_type="image2video",
-            dynamic_image_size=False,
-            image_size=224,
-            min_dynamic_patch=1,
-            max_dynamic_patch=6,
-            use_thumbnail=False,
             **kwargs,
     ):
         self.num_frames = num_frames
-        self.image_transforms = get_transforms(
-            is_video=False, train_pipeline=train_pipeline
-        )
         self.video_transforms = get_transforms(
             is_video=True, train_pipeline=train_pipeline
         )
         self.train_pipeline = train_pipeline
         self.image_reader_type = image_reader_type
         self.image_processer_type = image_processer_type
-        self.dynamic_image_size = dynamic_image_size
-        self.image_size = image_size
-        self.min_dynamic_patch = min_dynamic_patch
-        self.max_dynamic_patch = max_dynamic_patch
-        self.use_thumbnail = use_thumbnail
 
-    def __call__(self, image_path, train_pipeline, mode, num_image):
-        if self.image_processer_type == "image2video":
-            image = self.image_to_video(image_path)
-        elif self.image_processer_type == "image2image":
+    def __call__(self, image_path):
+        if self.image_processer_type == "image2image":
             image = self.image_to_image(image_path)
-        elif self.image_processer_type == "image2pixel":
-            image = self.image_to_pixel_values(image_path, train_pipeline, mode, num_image)
         else:
             raise NotImplementedError(
                 f"Unsupported image processer type: {self.image_processer_type}"
             )
         return image
-
-    def image_to_video(self, image_path):
-        image = self.image_reader(image_path)
-        image = self.image_transforms(image)
-        video = image.unsqueeze(0).repeat(self.num_frames, 1, 1, 1)
-        video = video.permute(1, 0, 2, 3)  # TCHW -> CTHW
-        return video
 
     def image_to_image(self, image_path):
         image = self.image_reader(image_path)
