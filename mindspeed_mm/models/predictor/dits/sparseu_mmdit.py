@@ -563,6 +563,7 @@ class SparseMMDiTBlock(nn.Module):
         width: int = None, 
     ) -> torch.FloatTensor:
         
+        # print(f'hidden_states: {hidden_states.shape}, encoder_hidden_states: {encoder_hidden_states.shape}, embedded_timestep: {embedded_timestep.shape}, frames: {frames}, height: {height}, width: {width}')
         # 0. Prepare rope embedding
         vis_seq_length, batch_size = hidden_states.shape[:2]
         pos_thw = self.position_getter(batch_size, t=frames, h=height, w=width, device=hidden_states.device)
@@ -572,7 +573,9 @@ class SparseMMDiTBlock(nn.Module):
         norm_hidden_states, norm_encoder_hidden_states, gate_msa, enc_gate_msa = self.norm1(
             hidden_states, encoder_hidden_states, embedded_timestep
         )        
-    
+
+        # print('norm1')
+        # print(f'norm_hidden_states: {norm_hidden_states.shape}, norm_encoder_hidden_states: {norm_encoder_hidden_states.shape}, gate_msa: {gate_msa.shape}, enc_gate_msa: {enc_gate_msa.shape}')
         # 2. MM Attention
         attn_hidden_states, attn_encoder_hidden_states = self.attn1(
             norm_hidden_states,
@@ -583,7 +586,8 @@ class SparseMMDiTBlock(nn.Module):
             attention_mask=attention_mask,
             video_rotary_emb=video_rotary_emb,
         )
-
+        # print('attn1')
+        # print(f'attn_hidden_states: {attn_hidden_states.shape}, attn_encoder_hidden_states: {attn_encoder_hidden_states.shape}')
         # 3. residual & gate
         hidden_states = hidden_states + gate_msa * attn_hidden_states
         encoder_hidden_states = encoder_hidden_states + enc_gate_msa * attn_encoder_hidden_states

@@ -424,7 +424,6 @@ class MaxHWStrideResizeVideo:
         self.interpolation_mode = interpolation_mode
         self.force_5_ratio = force_5_ratio
         self.hw_stride = hw_stride
-        
 
     def __call__(self, clip):
         """

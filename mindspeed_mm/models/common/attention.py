@@ -173,11 +173,11 @@ class MultiHeadSparseMMAttentionSBH(nn.Module):
 
         if qk_norm is not None and added_kv_proj_dim is not None:
             if qk_norm == "layer_norm":
-                self.norm_added_proj_q = nn.LayerNorm(added_kv_proj_dim, eps=eps, elementwise_affine=elementwise_affine)
-                self.norm_added_proj_k = nn.LayerNorm(added_kv_proj_dim, eps=eps, elementwise_affine=elementwise_affine)
+                self.norm_added_proj_q = nn.LayerNorm(head_dim, eps=eps, elementwise_affine=elementwise_affine)
+                self.norm_added_proj_k = nn.LayerNorm(head_dim, eps=eps, elementwise_affine=elementwise_affine)
             elif qk_norm == "rms_norm":
-                self.norm_added_proj_q = RMSNorm(added_kv_proj_dim, eps=eps)
-                self.norm_added_proj_k = RMSNorm(added_kv_proj_dim, eps=eps)
+                self.norm_added_proj_q = RMSNorm(head_dim, eps=eps)
+                self.norm_added_proj_k = RMSNorm(head_dim, eps=eps)
             else:
                 raise ValueError(f"Unsupported qk_norm: {qk_norm}")
         
@@ -348,11 +348,11 @@ class MultiHeadSparseMMAttentionSBH(nn.Module):
             encoder_hidden_states = encoder_hidden_states.view(text_sequence_length_length, batch_size, -1)
         
         # Step 7: Project out
-        hidden_states = self.proj_out(hidden_states)
+        hidden_states, _ = self.proj_out(hidden_states)
         hidden_states = self.dropout(hidden_states)
 
         if not self.context_pre_only:
-            encoder_hidden_states = self.added_proj_out(encoder_hidden_states)
+            encoder_hidden_states, _ = self.added_proj_out(encoder_hidden_states)
 
         return hidden_states, encoder_hidden_states
 
@@ -1134,21 +1134,66 @@ class WfCausalConv3dAttnBlock(nn.Module):
         k = k.permute(0, 2, 3, 4, 1).reshape(b * t, h * w, c).contiguous()
         v = v.permute(0, 2, 3, 4, 1).reshape(b * t, h * w, c).contiguous()
 
-        attn_output = torch_npu.npu_fusion_attention(
-            q,
-            k,
-            v,
-            head_num=1,
-            atten_mask=None,
-            input_layout="BSH",
-            scale=1 / math.sqrt(c)
-        )[0]
+        attn_output = self.run_attention(q, k, v, atten_mask=None, input_layout="BSH", head_dim=c, head_num=1, enable_FA=c<=512)
 
         attn_output = attn_output.reshape(b, t, h, w, c).permute(0, 4, 1, 2, 3)
         h_ = self.proj_out(attn_output)
 
         return x + h_
+    
+    def run_attention(self, query, key, value, atten_mask, input_layout, head_dim, head_num, enable_FA=True):
+        if enable_FA:
+            hidden_states = torch_npu.npu_fusion_attention(query, key, value,
+                                                           atten_mask=atten_mask,
+                                                           input_layout=input_layout,
+                                                           scale=1 / math.sqrt(head_dim),
+                                                           head_num=head_num)[0]
+        else:
+            hidden_states = self.scaled_dot_product_attention(query, key, value,
+                                                              atten_mask=atten_mask,
+                                                              input_layout=input_layout,
+                                                              scale=1 / math.sqrt(head_dim),
+                                                              head_num=head_num)
+        return hidden_states
 
+    def scaled_dot_product_attention(self, query, key, value, input_layout, head_num=None,
+                                     atten_mask=None, scale=None, dropout_p=0.0, is_causal=False) -> torch.Tensor:
+        def trans_tensor_shape(x, layout, head_num):
+            if layout == "BSH":
+                batch = x.shape[0]
+                x = x.view(batch, -1, head_num, x.shape[-1] // head_num).transpose(1, 2).contiguous()
+            elif layout == "SBH":
+                batch = x.shape[1]
+                x = x.view(-1, batch * head_num, x.shape[-1] // head_num).transpose(0, 1).contiguous()
+                x = x.view(batch, head_num, -1, x.shape[-1])
+            return x
+
+        query = trans_tensor_shape(query, input_layout, head_num)
+        key = trans_tensor_shape(key, input_layout, head_num)
+        value = trans_tensor_shape(value, input_layout, head_num)
+
+        attn_weight = query @ key.transpose(-2, -1) * scale
+        attn_bias = torch.zeros_like(attn_weight, dtype=query.dtype, device=query.device)
+        if is_causal:
+            assert atten_mask is None
+            temp_mask = torch.zeros_like(attn_weight, dtype=torch.bool, device=query.device).tril(diagonal=0)
+            attn_bias.masked_fill_(temp_mask.logical_not(), -10000.0)
+            attn_bias.to(query.dtype)
+
+        if atten_mask is not None:
+            assert (not self.enable_FA) and atten_mask.dtype != torch.bool, \
+                "attention_mask must not be bool type when use this function"
+
+        attn_weight += attn_bias
+        attn_weight = torch.softmax(attn_weight, dim=-1)
+        attn_weight = torch.dropout(attn_weight, dropout_p, train=True)
+        output = attn_weight @ value
+        if input_layout == "BSH":
+            output = output.transpose(1, 2).contiguous().view(output.shape[0], -1, head_num * output.shape[-1])
+        else:
+            output = output.view(output.shape[0] * head_num, -1, output.shape[-1]).transpose(0, 1).contiguous()
+            output = output.view(output.shape[0], -1, head_num * output.shape[-1])
+        return output
 
 class WhisperAttention(nn.Module):
     """

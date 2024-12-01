@@ -2,7 +2,7 @@
 """Pretrain SoRA."""
 
 import torch
-import gc
+
 import mindspeed.megatron_adaptor
 
 from megatron.core import mpu
@@ -16,7 +16,14 @@ from megatron.training.utils import (
 from mindspeed_mm.configs.config import mm_extra_args_provider
 from mindspeed_mm.training import pretrain
 from mindspeed_mm.data import build_mm_dataloader, build_mm_dataset
-from mindspeed_mm.data.data_utils.constants import VIDEO, PROMPT_IDS, PROMPT_MASK, VIDEO_MASK
+from mindspeed_mm.data.data_utils.constants import (
+    VIDEO, 
+    PROMPT_IDS, 
+    PROMPT_MASK, 
+    VIDEO_MASK,
+    PROMPT_IDS_2, 
+    PROMPT_MASK_2, 
+)
 from mindspeed_mm.data.data_utils.utils import build_iterations
 from mindspeed_mm.models.sora_model import SoRAModel
 
@@ -64,7 +71,17 @@ def forward_step(data_iterator, model):
     prompt_ids = batch.pop(PROMPT_IDS, None)
     video_mask = batch.pop(VIDEO_MASK, None)
     prompt_mask = batch.pop(PROMPT_MASK, None)
-    output_tensor_list = model(video, prompt_ids, video_mask, prompt_mask=prompt_mask, **batch)
+    prompt_ids_2 = batch.pop(PROMPT_IDS_2, None)
+    prompt_mask_2 = batch.pop(PROMPT_MASK_2, None)
+    output_tensor_list = model(
+        video=video,
+        video_mask=video_mask,
+        prompt_ids=prompt_ids,
+        prompt_mask=prompt_mask,
+        prompt_ids_2=prompt_ids_2,
+        prompt_mask_2=prompt_mask_2,
+        **batch,
+    )
     loss_dict = unwrap_model(model).compute_loss(*output_tensor_list)
     return loss_dict, loss_func
 
@@ -83,7 +100,6 @@ def train_valid_test_datasets_provider(train_val_test_num_samples):
 
 
 if __name__ == "__main__":
-    gc.set_threshold(700, 10, 10000)
     train_valid_test_datasets_provider.is_distributed = True
     pretrain(
         train_valid_test_datasets_provider,

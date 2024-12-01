@@ -15,6 +15,7 @@
 # limitations under the License.
 import importlib
 from functools import lru_cache
+from typing import Union
 from einops import rearrange
 
 import torch

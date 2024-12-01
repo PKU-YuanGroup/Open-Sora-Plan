@@ -143,8 +143,8 @@ cython_debug/
 # pycharm stuff
 .idea
 
-# megatron core
-/megatron/
+# # megatron core
+# /megatron/
 
 # User stuff
 /kernel*/
@@ -156,8 +156,11 @@ cython_debug/
 # test 
 /tests/st/run_jsons/
 /tests/st/run_logs/
+test*.py
 
+# npu compute json
 fusion_result.json
+ge_check_op.json
 
 #sample dir
 /opensora_samples/

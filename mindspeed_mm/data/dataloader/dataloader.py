@@ -121,7 +121,7 @@ def prepare_sampler_dataloader(
     process_group = process_group if process_group is not None else _get_default_group()
     if sampler_type == "LengthGroupedSampler":
         if group_data:
-            LengthGroupedSampler(
+            sampler = LengthGroupedSampler(
                 batch_size,
                 world_size=process_group.size(),
                 num_replicas=process_group.size(),
@@ -141,7 +141,7 @@ def prepare_sampler_dataloader(
 
         if collate_param is None:
             raise ValueError("collate_param must be provided.")
-        data_collate_type = collate_param.pop("model_name")
+        data_collate_type = collate_param.pop("model_name", None)
         if data_collate_type is None:
             collate_fn = DATA_COLLATOR['Default'](**collate_param)
         else:

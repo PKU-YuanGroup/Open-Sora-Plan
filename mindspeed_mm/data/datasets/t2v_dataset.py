@@ -38,7 +38,6 @@ from mindspeed_mm.data.data_utils.data_transform import (
 
 T2VOutputData = {
     VIDEO: [],
-    TEXT: [],
     PROMPT_IDS: [],
     PROMPT_MASK: [],
     PROMPT_IDS_2: [],
@@ -84,7 +83,6 @@ class T2VDataset(MMBaseDataset):
 
         self.num_frames = vid_img_process.get("num_frames", 16)
         self.frame_interval = vid_img_process.get("frame_interval", 1)
-        self.resolution = vid_img_process.get("resolution", (256, 256))
 
         self.max_height = vid_img_process.get("max_height", 480)
         self.max_width = vid_img_process.get("max_width", 640)
@@ -98,10 +96,6 @@ class T2VDataset(MMBaseDataset):
         self.image_processer_type = vid_img_process.get(
             "image_processer_type", "image2image"
         )
-        self.data_process_type = vid_img_process.get("data_process_type", "")
-        self.skip_frame_num = vid_img_process.get("skip_frame_num", 0)
-        self.fps = vid_img_process.get("fps", None)
-
         self.hw_stride = vid_img_process.get("hw_stride", 32)
         self.ae_stride_t = vid_img_process.get("ae_stride_t", 32)
         self.force_resolution = vid_img_process.get("force_resolution", True)
@@ -111,7 +105,8 @@ class T2VDataset(MMBaseDataset):
         self.gradient_accumulation_size = vid_img_process.get("gradient_accumulation_size", 1)
         self.batch_size = vid_img_process.get("batch_size", 1)
         self.seed = vid_img_process.get("seed", 42)
-        self.hw_aspect_thr = vid_img_process.get("hw_aspect_thr", 1.5)
+        self.max_h_div_w_ratio = vid_img_process.get("max_h_div_w_ratio", 2.0)
+        self.min_h_div_w_ratio = vid_img_process.get("min_h_div_w_ratio", None)
         self.min_num_frames = vid_img_process.get("min_num_frames", 29)
         self.use_aesthetic = vid_img_process.get("use_aesthetic", False) 
 
@@ -130,9 +125,6 @@ class T2VDataset(MMBaseDataset):
             frame_interval=self.frame_interval,
             train_pipeline=self.train_pipeline,
             data_storage_mode=self.data_storage_mode,
-            data_process_type=self.data_process_type,
-            skip_frame_num=self.skip_frame_num,
-            fps=self.fps,
             train_fps=self.train_fps,
             speed_factor=self.speed_factor,
             too_long_factor=self.too_long_factor,
@@ -145,7 +137,9 @@ class T2VDataset(MMBaseDataset):
             force_5_ratio=self.force_5_ratio,
             seed=self.seed,
             hw_stride=self.hw_stride,
-            hw_aspect_thr=self.hw_aspect_thr,
+            max_h_div_w_ratio=self.max_h_div_w_ratio,
+            min_h_div_w_ratio=self.min_h_div_w_ratio,
+            ae_stride_t=self.ae_stride_t,
             sp_size=self.sp_size,
             train_sp_batch_size=self.train_sp_batch_size,
             gradient_accumulation_size=self.gradient_accumulation_size,
@@ -177,6 +171,7 @@ class T2VDataset(MMBaseDataset):
             self.data_samples, self.sample_size, self.shape_idx_dict = (
                 self.video_processer.define_frame_index(self.data_samples)
             )
+            self.lengths = self.sample_size
 
     def __getitem__(self, index):
         try:
@@ -214,13 +209,20 @@ class T2VDataset(MMBaseDataset):
             raise AssertionError(f"file {file_path} do not exist!")
         file_type = self.get_type(file_path)
         if file_type == "video":
-            frame_indice = sample["sample_frame_index"]
+            predefine_frame_indice = sample["sample_frame_index"]
+            start_frame_idx = sample["start_frame_idx"]
+            clip_total_frames = sample["num_frames"]
+            fps = sample["fps"]
+            crop = sample.get("crop", [None, None, None, None])
             vframes, _, is_decord_read = self.video_reader(file_path)
             video = self.video_processer(
                 vframes,
                 is_decord_read=is_decord_read,
-                predefine_num_frames=len(frame_indice),
-                crop=sample.get("crop", [None, None, None, None]),
+                start_frame_idx=start_frame_idx,
+                clip_total_frames=clip_total_frames,
+                predefine_frame_indice=predefine_frame_indice,
+                fps=fps,
+                crop=crop,
             )
             examples[VIDEO] = video
         elif file_type == "image":
