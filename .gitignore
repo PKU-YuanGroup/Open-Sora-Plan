@@ -162,5 +162,8 @@ test*.py
 fusion_result.json
 ge_check_op.json
 
-#sample dir
+# sample dir
 /opensora_samples/
+
+# multi-node script
+SoraClusterScripts/

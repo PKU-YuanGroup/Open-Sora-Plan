@@ -90,7 +90,7 @@ class T2VDataset(MMBaseDataset):
         self.min_hxw = vid_img_process.get("min_hxw", None)
         self.train_fps = vid_img_process.get("train_fps", 24)
         self.speed_factor = vid_img_process.get("speed_factor", 1.0)
-        self.too_long_factor = vid_img_process.get("too_long_factor", 1.0)
+        self.too_long_factor = vid_img_process.get("too_long_factor", 5.0)
         self.drop_short_ratio = vid_img_process.get("drop_short_ratio", 1.0)
         self.cfg = vid_img_process.get("cfg", 0.1)
         self.image_processer_type = vid_img_process.get(
@@ -180,7 +180,7 @@ class T2VDataset(MMBaseDataset):
             return data
         except Exception as e:
             if len(str(e)) < 2:
-                e = f"TimeoutError, {self.timeout}s timeout occur with {self.cap_list.iloc[index]['path']}"
+                e = f"TimeoutError, {self.timeout}s timeout occur with {self.data_samples.iloc[index]['path']}"
             print(f"Error: {e}")
             index_cand = self.shape_idx_dict[self.sample_size[index]]  # pick same shape
             return self.__getitem__(random.choice(index_cand))
