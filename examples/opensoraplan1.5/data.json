@@ -9,13 +9,13 @@
 		"preprocess_parameters": {
 			"video_reader_type": "decoder",
 			"image_reader_type": "Image",
-			"num_frames": 33,
+			"num_frames": 65,
 			"frame_interval": 1,
-			"max_height": 320,
-			"max_width": 320,
+			"max_height": 512,
+			"max_width": 512,
 			"max_hxw": 65536,
 			"min_hxw": 36864,
-			"force_resolution": false,
+			"force_resolution": true,
 			"max_h_div_w_ratio": 2.0,
 			"min_h_div_w_ratio": 0.5,
 			"force_5_ratio": false,
@@ -25,25 +25,15 @@
 			"speed_factor": 1.0,
 			"drop_short_ratio": 1.0,
 			"cfg": 0.1,
-			"batch_size": 4,
+			"batch_size": 1,
 			"train_pipeline": {
 				"video": [{
 						"trans_type": "ToTensorVideo"
 					},
 					{
-						"trans_type": "MaxHWStrideResizeVideo",
+						"trans_type": "CenterCropResizeVideo",
 						"param": {
-							"max_hxw": 65536,
-							"force_5_ratio": false,
-							"hw_stride": 16,
-							"interpolation_mode": "bicubic"
-						}
-					},
-					{
-						"trans_type": "SpatialStrideCropVideo",
-						"param": {
-							"stride": 16,
-							"force_5_ratio": false
+							"size": [512, 512]
 						}
 					},
 					{
@@ -54,19 +44,9 @@
 					"trans_type": "ToTensorVideo"
 					},
 					{
-						"trans_type": "MaxHWStrideResizeVideo",
+						"trans_type": "CenterCropResizeVideo",
 						"param": {
-							"max_hxw": 65536,
-							"force_5_ratio": false,
-							"hw_stride": 16,
-							"interpolation_mode": "bicubic"
-						}
-					},
-					{
-						"trans_type": "SpatialStrideCropVideo",
-						"param": {
-							"stride": 16,
-							"force_5_ratio": false
+							"size": [512, 512]
 						}
 					},
 					{
@@ -92,15 +72,15 @@
 	"dataloader_param": {
 		"dataloader_mode": "sampler",
         "sampler_type": "LengthGroupedSampler",
-		"batch_size": 4,
+		"batch_size": 1,
 		"num_workers": 10,
 		"shuffle": false,
 		"drop_last": true,
 		"pin_memory": false,
 		"group_data": true,
 		"collate_param": {
-			"batch_size": 4,
-			"num_frames": 1,
+			"batch_size": 1,
+			"num_frames": 105,
 			"group_data": true,
 			"ae_stride": 8,
 			"ae_stride_t": 8,

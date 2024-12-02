@@ -10,6 +10,7 @@ from diffusers.models.embeddings import PixArtAlphaTextProjection
 from diffusers.models.normalization import AdaLayerNormSingle, RMSNorm
 from megatron.core import mpu, tensor_parallel
 from megatron.training import get_args
+from megatron.training.utils import print_rank_0 as print
 
 from mindspeed_mm.models.common import MultiModalModule
 from mindspeed_mm.models.common.embeddings import PatchEmbed2D, RoPE3D, PositionGetter3D
@@ -270,6 +271,7 @@ class SparseUMMDiT(MultiModalModule):
         **kwargs
     ) -> torch.Tensor:
         batch_size, c, frames, height, width = hidden_states.shape
+        print(f"model forward, hidden_states: {hidden_states.shape}, timestep: {timestep.shape}, pooled_projections: {pooled_projections.shape}, encoder_hidden_states: {encoder_hidden_states.shape}, attention_mask: {attention_mask.shape}, encoder_attention_mask: {encoder_attention_mask.shape}")
         encoder_attention_mask = encoder_attention_mask.view(batch_size, -1, encoder_attention_mask.shape[-1])
         if self.training and mpu.get_context_parallel_world_size() > 1:
             frames //= mpu.get_context_parallel_world_size()

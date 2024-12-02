@@ -458,8 +458,8 @@ class VideoProcesser:
 
                 # comment out it to enable dynamic frames training
                 if (
-                        len(frame_indices) < self.num_frames
-                        and torch.rand(1, generator=self.generator).item() < self.drop_short_ratio
+                    len(frame_indices) < self.num_frames
+                    and torch.rand(1, generator=self.generator).item() < self.drop_short_ratio
                 ):
                     cnt_too_short += 1
                     continue
@@ -473,7 +473,7 @@ class VideoProcesser:
                     len(frame_indices), vae_stride_t=self.ae_stride_t, model_ds_t=self.sp_size
                 )
                 if (
-                        end_frame_idx == -1
+                    end_frame_idx == -1
                 ):  # too short that can not be encoded exactly by videovae
                     cnt_too_short += 1
                     continue

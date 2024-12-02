@@ -1,1 +1,1 @@
-/home/obs_data/20240426/20240704-02-bbc-01,/home/save_dir/captions/10.12_hwpkl_movie_sucai/movie_bbc01_final_300528.pkl
+/home/obs_data,/home/save_dir/captions/video_cap_1126/video_cap_1337217_0.pkl
