@@ -53,7 +53,7 @@
         "model_id": "SparseUMMDiT",
         "num_layers": [2, 4, 4, 8, 4, 4, 2],
         "sparse_n": [1, 2, 4, 8, 4, 2, 1],
-        "sparse1d": false,
+        "sparse1d": true,
         "num_heads": 16,
         "head_dim": 128,
         "in_channels": 32,
@@ -61,7 +61,7 @@
         "timestep_embed_dim": 768,
         "caption_channels": 2048,
         "pooled_projection_dim": 1280,
-        "skip_connection": false,
+        "skip_connection": true,
         "dropout": 0.0,
         "attention_bias": true,
         "patch_size": 2,
@@ -83,4 +83,3 @@
         "t_sample_method": "explicit_uniform"
     }
 }
-
