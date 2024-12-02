@@ -339,7 +339,7 @@ class MultiHeadSparseMMAttentionSBH(nn.Module):
             scale=1 / math.sqrt(self.head_dim)
         )[0]
 
-        hidden_states, encoder_hidden_states = out.split([visual_sequence_length, text_sequence_length_length], dim=0)
+        hidden_states, encoder_hidden_states = out.split([out.size(0) - text_sequence_length_length, text_sequence_length_length], dim=0)
 
         # Step 6: Reverse sparse 1D
         if self.sparse1d:
