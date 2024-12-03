@@ -8,7 +8,8 @@ This project aims to create a simple and scalable repo, to reproduce [Sora](http
 
 <h5 align="left">
 
-[![arXiv](https://img.shields.io/badge/Arxiv-2412.00131-b31b1b.svg?logo=arXiv)](https://arxiv.org/abs/2412.00131)
+[![arXiv](https://img.shields.io/badge/Arxiv-Open--Sora%20Plan-b31b1b.svg?logo=arXiv)](https://arxiv.org/abs/2412.00131)
+[![arXiv](https://img.shields.io/badge/Arxiv-WF--VAE-b31b1b.svg?logo=arXiv)](https://arxiv.org/abs/2411.17459)
 [![License](https://img.shields.io/badge/License-Apache-yellow)](https://github.com/PKU-YuanGroup/Open-Sora-Plan/blob/main/LICENSE)  <br>
 [![slack badge](https://img.shields.io/badge/Discord-join-blueviolet?logo=discord&amp)](https://discord.gg/DFZg5678)
 [![WeChat badge](https://img.shields.io/badge/微信-加入-green?logo=wechat&amp)](https://github.com/PKU-YuanGroup/Open-Sora-Plan/issues/53#issuecomment-1987226516)
@@ -33,7 +34,7 @@ This project aims to create a simple and scalable repo, to reproduce [Sora](http
   
   > 近期将新增华为昇腾多模态MindSpeed-MM分支，借助华为MindSpeed-MM套件的能力支撑Open-Sora Plan参数的扩增，为更大参数规模的模型训练提供TP、SP等分布式训练能力。
 
-* **[2024.12.03]** ⚡️ We released our [arxiv paper](https://arxiv.org/abs/2412.00131) for v1.3. The next more powerful version is coming soon.
+* **[2024.12.03]** ⚡️ We released our [arxiv paper](https://arxiv.org/abs/2412.00131) and WF-VAE [paper](https://arxiv.org/abs/2411.17459) for v1.3. The next more powerful version is coming soon.
 * **[2024.10.16]** 🎉 We released version 1.3.0, featuring: **WFVAE**, **prompt refiner**, **data filtering strategy**, **sparse attention**, and **bucket training strategy**. We also support 93x480p within **24G VRAM**. More details can be found at our latest [report](docs/Report-v1.3.0.md).
 * **[2024.08.13]** 🎉 We are launching Open-Sora Plan v1.2.0 **I2V** model, which is based on Open-Sora Plan v1.2.0. The current version supports image-to-video generation and transition generation (the starting and ending frames conditions for video generation). Check out the Image-to-Video section in this [report](https://github.com/PKU-YuanGroup/Open-Sora-Plan/blob/main/docs/Report-v1.2.0.md#training-image-to-video-diffusion-model).
 * **[2024.07.24]** 🔥🔥🔥 v1.2.0 is here! Utilizing a 3D full attention architecture instead of 2+1D. We released a true 3D video diffusion model trained on 4s 720p. Check out our latest [report](docs/Report-v1.2.0.md).
@@ -207,6 +208,15 @@ For more details, please refer to the [Contribution Guidelines](docs/Contributio
   title={Open-Sora Plan: Open-Source Large Video Generation Model},
   author={Bin Lin and Yunyang Ge and Xinhua Cheng and Zongjian Li and Bin Zhu and Shaodong Wang and Xianyi He and Yang Ye and Shenghai Yuan and Liuhan Chen and Tanghui Jia and Junwu Zhang and Zhenyu Tang and Yatian Pang and Bin She and Cen Yan and Zhiheng Hu and Xiaoyi Dong and Lin Chen and Zhang Pan and Xing Zhou and Shaoling Dong and Yonghong Tian and Li Yuan},
   journal={arXiv preprint arXiv:2412.00131},
+  year={2024}
+}
+```
+
+```bibtex
+@article{li2024wfvaeenhancingvideovae,
+  title={WF-VAE: Enhancing Video VAE by Wavelet-Driven Energy Flow for Latent Video Diffusion Model},
+  author={Zongjian Li and Bin Lin and Yang Ye and Liuhan Chen and Xinhua Cheng and Shenghai Yuan and Li Yuan},
+  journal={arXiv preprint arXiv:2411.17459},
   year={2024}
 }
 ```
