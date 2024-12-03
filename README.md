@@ -199,22 +199,15 @@ For more details, please refer to the [Contribution Guidelines](docs/Contributio
 
 # ✏️ Citing
 
-## BibTeX
 
 ```bibtex
-@software{pku_yuan_lab_and_tuzhan_ai_etc_2024_10948109,
-  author       = {PKU-Yuan Lab and Tuzhan AI etc.},
-  title        = {Open-Sora-Plan},
-  month        = apr,
-  year         = 2024,
-  publisher    = {GitHub},
-  doi          = {10.5281/zenodo.10948109},
-  url          = {https://doi.org/10.5281/zenodo.10948109}
+@article{lin2024opensoraplanopensourcelarge,
+  title={Open-Sora Plan: Open-Source Large Video Generation Model},
+  author={Bin Lin and Yunyang Ge and Xinhua Cheng and Zongjian Li and Bin Zhu and Shaodong Wang and Xianyi He and Yang Ye and Shenghai Yuan and Liuhan Chen and Tanghui Jia and Junwu Zhang and Zhenyu Tang and Yatian Pang and Bin She and Cen Yan and Zhiheng Hu and Xiaoyi Dong and Lin Chen and Zhang Pan and Xing Zhou and Shaoling Dong and Yonghong Tian and Li Yuan},
+  journal={arXiv preprint arXiv:2412.00131},
+  year={2024}
 }
 ```
-## Latest DOI
-
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.10948109.svg)](https://zenodo.org/records/10948109)
 
 # 🤝 Community contributors
 
