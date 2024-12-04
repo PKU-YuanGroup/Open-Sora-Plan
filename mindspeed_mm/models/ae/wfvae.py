@@ -356,10 +356,6 @@ class WFVAE(MultiModalModule):
             **kwargs
     ) -> None:
         super().__init__(config=None)
-        scale = kwargs.get("scale", [0.18215] * latent_dim)
-        shift = kwargs.get("shift", [0] * latent_dim)
-        self.register_buffer("scale", torch.tensor(scale)[None, :, None, None, None])
-        self.register_buffer("shift", torch.tensor(shift)[None, :, None, None, None])
 
         # Hardcode for now
         self.t_chunk_enc = 16

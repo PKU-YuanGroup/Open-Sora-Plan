@@ -9,10 +9,10 @@
 		"preprocess_parameters": {
 			"video_reader_type": "decoder",
 			"image_reader_type": "Image",
-			"num_frames": 65,
+			"num_frames": 105,
 			"frame_interval": 1,
-			"max_height": 512,
-			"max_width": 512,
+			"max_height": 768,
+			"max_width": 768,
 			"max_hxw": 65536,
 			"min_hxw": 36864,
 			"force_resolution": true,
@@ -33,7 +33,7 @@
 					{
 						"trans_type": "CenterCropResizeVideo",
 						"param": {
-							"size": [512, 512]
+							"size": [768, 768]
 						}
 					},
 					{
@@ -46,7 +46,7 @@
 					{
 						"trans_type": "CenterCropResizeVideo",
 						"param": {
-							"size": [512, 512]
+							"size": [768, 768]
 						}
 					},
 					{

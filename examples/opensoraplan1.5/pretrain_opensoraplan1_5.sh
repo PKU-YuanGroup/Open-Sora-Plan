@@ -8,7 +8,7 @@ export MULTI_STREAM_MEMORY_REUSE=1
 export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
 export COMBINED_ENABLE=1
 export CPU_AFFINITY_CONF=1
-export HCCL_CONNECT_TIMEOUT=1200
+export HCCL_CONNECT_TIMEOUT=1800
 export GLOO_SOCKET_IFNAME=enp67s0f0
 
 GPUS_PER_NODE=8
@@ -58,6 +58,7 @@ GPT_ARGS="
     --rotary-base 500000 \
     --swiglu \
     --no-masked-softmax-fusion \
+    --bf16 \
     --lr 1e-5 \
     --min-lr 1e-5 \
     --adam-beta1 0.9 \
@@ -75,12 +76,18 @@ GPT_ARGS="
     --no-save-optim \
     --no-save-rng \
     --use-distributed-optimizer \
+    --recompute-granularity full \
+    --recompute-method block \
+    --recompute-num-layers 48 \
+    --sequence-parallel \
+    --use-ascend-mc2 \
 "
 
 MM_ARGS="
     --mm-data $MM_DATA \
     --mm-model $MM_MODEL \
-    --mm-tool $MM_TOOL
+    --mm-tool $MM_TOOL \
+    --model_custom_precision
 "
 
 OUTPUT_ARGS="
