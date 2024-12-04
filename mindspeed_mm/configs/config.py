@@ -80,6 +80,7 @@ class MMConfig:
     
 def _add_mm_args(parser):
     group = parser.add_argument_group(title="multimodel")
+    group.add_argument("--model_custom_precision", action="store_true", default=True, help="Use custom precision for model, e.g., we use fp32 for vae and fp16 for predictor.")
     group.add_argument("--mm-data", type=str, default="")
     group.add_argument("--mm-model", type=str, default="")
     group.add_argument("--mm-tool", type=str, default="")
