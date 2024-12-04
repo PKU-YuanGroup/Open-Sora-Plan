@@ -82,7 +82,7 @@ class SparseUMMDiT(MultiModalModule):
         super().__init__(config=None)
         args = get_args()
         self.sequence_parallel = args.sequence_parallel
-        self.gradient_checkpointing = False
+        self.gradient_checkpointing = True
         self.recompute_granularity = args.recompute_granularity
         self.distribute_saved_activations = args.distribute_saved_activations
         self.recompute_method = args.recompute_method
@@ -211,8 +211,11 @@ class SparseUMMDiT(MultiModalModule):
         )
 
         # set label "sequence_parallel", for all_reduce the grad
-        for module in [self.time_text_embed, self.norm_final, self.norm_out]:
-            for param in module.parameters():
+        modules = [self.time_text_embed, self.norm_final, self.norm_out]
+        if self.skip_connection:
+            modules += [self.skip_norm_linear, self.skip_norm_linear_enc]
+        for module in modules:
+            for name, param in module.named_parameters():
                 setattr(param, "sequence_parallel", self.sequence_parallel)
 
     def prepare_sparse_mask(self, attention_mask, encoder_attention_mask, sparse_n):
@@ -271,7 +274,7 @@ class SparseUMMDiT(MultiModalModule):
         **kwargs
     ) -> torch.Tensor:
         batch_size, c, frames, height, width = hidden_states.shape
-        print(f"model forward, hidden_states: {hidden_states.shape}, timestep: {timestep.shape}, pooled_projections: {pooled_projections.shape}, encoder_hidden_states: {encoder_hidden_states.shape}, attention_mask: {attention_mask.shape}, encoder_attention_mask: {encoder_attention_mask.shape}")
+        # print(f"model forward, hidden_states: {hidden_states.shape}, timestep: {timestep.shape}, pooled_projections: {pooled_projections.shape}, encoder_hidden_states: {encoder_hidden_states.shape}, attention_mask: {attention_mask.shape}, encoder_attention_mask: {encoder_attention_mask.shape}")
         encoder_attention_mask = encoder_attention_mask.view(batch_size, -1, encoder_attention_mask.shape[-1])
         if self.training and mpu.get_context_parallel_world_size() > 1:
             frames //= mpu.get_context_parallel_world_size()
@@ -328,9 +331,6 @@ class SparseUMMDiT(MultiModalModule):
         hidden_states, encoder_hidden_states = self._operate_on_dec(
             hidden_states, skip_connections, encoder_hidden_states, embedded_timestep, frames, height, width
         )
-
-        # To (b, t*h*w, h) or (b, t//sp*h*w, h)
-        hidden_states = rearrange(hidden_states, 's b h -> b s h', b=batch_size).contiguous()
 
         # 3. Output
         output = self._get_output_for_patched_inputs(
@@ -446,6 +446,9 @@ class SparseUMMDiT(MultiModalModule):
         if self.sequence_parallel:
             hidden_states = tensor_parallel.gather_from_sequence_parallel_region(hidden_states,
                                                                            tensor_parallel_output_grad=False)
+
+        # To (b, t*h*w, h) or (b, t//sp*h*w, h)
+        hidden_states = rearrange(hidden_states, 's b h -> b s h', b=hidden_states.shape[1]).contiguous()
 
         hidden_states = self.proj_out(hidden_states)
 

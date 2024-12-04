@@ -18,7 +18,8 @@ from diffusers.schedulers import (
     DEISMultistepScheduler,
     KDPM2AncestralDiscreteScheduler,
     CogVideoXDPMScheduler,
-    CogVideoXDDIMScheduler
+    CogVideoXDDIMScheduler,
+    FlowMatchEulerDiscreteScheduler
 )
 from diffusers.training_utils import compute_snr
 from megatron.core import mpu
@@ -172,8 +173,8 @@ class DiffusersScheduler:
                     rank=dist.get_rank(),
                     bsz=b, device=x_start.device,
                 )
-        if mpu.get_context_parallel_world_size() > 1:
-            self.broadcast_timesteps(t)
+        self.broadcast_timesteps(t)
+
         if self.noise_offset:
             # https://www.crosslabs.org//blog/diffusion-with-offset-noise
             noise += self.noise_offset * torch.randn((b, c, 1, 1, 1), device=x_start.device)
@@ -228,9 +229,10 @@ class DiffusersScheduler:
             for i, t in enumerate(self.timesteps):
                 # timestep = torch.tensor([i] * shape[0], device=self.device)
                 latent_model_input = torch.cat([latents] * 2) if self.do_classifier_free_guidance else latents
-                latent_model_input = self.diffusion.scale_model_input(latent_model_input, t)
-                current_timestep = t
-                current_timestep = current_timestep.expand(latent_model_input.shape[0])
+                if not isinstance(self.diffusion, FlowMatchEulerDiscreteScheduler):
+                    latent_model_input = self.diffusion.scale_model_input(latent_model_input, t)
+                if not isinstance(self.diffusion, FlowMatchEulerDiscreteScheduler):
+                    current_timestep = t.expand(latent_model_input.shape[0])
                 if use_dynamic_cfg:
                     # b t c h w  -> b c t h w
                     model_kwargs["latents"] = latent_model_input.permute(0, 2, 1, 3, 4)
@@ -286,6 +288,10 @@ class DiffusersScheduler:
         return latents
 
     def broadcast_timesteps(self, input_: torch.Tensor):
-        sp_size = mpu.get_context_parallel_world_size()
-        src = int(os.getenv("RANK", "0")) // sp_size * sp_size
-        dist.broadcast(input_, src=src, group=mpu.get_context_parallel_group())
+        cp_src_rank = list(mpu.get_context_parallel_global_ranks())[0]
+        if mpu.get_context_parallel_world_size() > 1:
+            dist.broadcast(input_, cp_src_rank, group=mpu.get_context_parallel_group())
+
+        tp_src_rank = mpu.get_tensor_model_parallel_src_rank()
+        if mpu.get_tensor_model_parallel_world_size() > 1:
+            dist.broadcast(input_, tp_src_rank, group=mpu.get_tensor_model_parallel_group())

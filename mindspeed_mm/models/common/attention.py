@@ -159,7 +159,7 @@ class MultiHeadSparseMMAttentionSBH(nn.Module):
             skip_bias_add=False
         )
 
-        if self.context_pre_only is not None and not self.context_pre_only:
+        if self.context_pre_only is not None:
             self.added_proj_out = tensor_parallel.RowParallelLinear(
                 added_kv_proj_dim,
                 self.inner_dim,
@@ -270,6 +270,9 @@ class MultiHeadSparseMMAttentionSBH(nn.Module):
         added_k, _ = self.added_proj_k(encoder_hidden_states)
         added_v, _ = self.added_proj_v(encoder_hidden_states)
 
+        visual_sequence_length, batch_size, _ = q.shape
+        text_sequence_length_length, batch_size, _ = added_q.shape
+
         total_frames = frames
 
         if self.sp_size > 1:
@@ -325,6 +328,8 @@ class MultiHeadSparseMMAttentionSBH(nn.Module):
             added_v = self._sparse_1d_enc(added_v)
 
         # Step 5: Concat hidden_states and encoder_hidden_states to do mm attention
+        fa_visual_sequence_length = q.shape[0]
+        fa_text_sequence_length_length = added_q.shape[0]
         q = torch.cat([q, added_q], dim=0)
         k = torch.cat([k, added_k], dim=0)
         v = torch.cat([v, added_v], dim=0)
@@ -339,7 +344,7 @@ class MultiHeadSparseMMAttentionSBH(nn.Module):
             scale=1 / math.sqrt(self.head_dim)
         )[0]
 
-        hidden_states, encoder_hidden_states = out.split([out.size(0) - text_sequence_length_length, text_sequence_length_length], dim=0)
+        hidden_states, encoder_hidden_states = out.split([fa_visual_sequence_length, fa_text_sequence_length_length], dim=0)
 
         # Step 6: Reverse sparse 1D
         if self.sparse1d:
@@ -363,7 +368,7 @@ class MultiHeadSparseMMAttentionSBH(nn.Module):
         hidden_states, _ = self.proj_out(hidden_states)
         hidden_states = self.dropout(hidden_states)
 
-        if not self.context_pre_only:
+        if self.context_pre_only is not None:
             encoder_hidden_states, _ = self.added_proj_out(encoder_hidden_states)
 
         return hidden_states, encoder_hidden_states
