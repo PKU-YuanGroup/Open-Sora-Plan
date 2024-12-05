@@ -202,6 +202,7 @@ class SparseUMMDiT(MultiModalModule):
             output_dim=hidden_size * 2,
             norm_elementwise_affine=norm_elementwise_affine,
             norm_eps=norm_eps,
+            chunk_dim=1,
             norm_cls=norm_cls,
         )
 

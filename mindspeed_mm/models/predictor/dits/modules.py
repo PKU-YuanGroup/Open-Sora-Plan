@@ -27,17 +27,61 @@ class CombinedTimestepTextProjEmbeddings(nn.Module):
 
         return conditioning
 
-class AdaNorm(AdaLayerNorm):
-    def __init__(self, norm_cls='rms_norm',  **kwargs) -> None:
-        super().__init__(**kwargs)
+
+class AdaNorm(nn.Module):
+    r"""
+    Norm layer modified to incorporate timestep embeddings.
+
+    Parameters:
+        embedding_dim (`int`): The size of each embedding vector.
+        num_embeddings (`int`, *optional*): The size of the embeddings dictionary.
+        output_dim (`int`, *optional*):
+        norm_elementwise_affine (`bool`, defaults to `False):
+        norm_eps (`bool`, defaults to `False`):
+    """
+
+    def __init__(
+        self,
+        embedding_dim: int,
+        num_embeddings: Optional[int] = None,
+        output_dim: Optional[int] = None,
+        norm_elementwise_affine: bool = False,
+        norm_eps: float = 1e-5,
+        norm_cls: str = 'rms_norm',
+    ):
+        super().__init__()
+
+        output_dim = output_dim or embedding_dim * 2
+
+        if num_embeddings is not None:
+            self.emb = nn.Embedding(num_embeddings, embedding_dim)
+        else:
+            self.emb = None
+
+        self.silu = nn.SiLU()
+        self.linear = nn.Linear(embedding_dim, output_dim)
         if norm_cls == 'rms_norm':
             self.norm_cls = RMSNorm
         elif norm_cls == 'layer_norm':
             self.norm_cls = nn.LayerNorm
         self.norm = self.norm_cls(
-            self.norm.normalized_shape, eps=self.norm.eps, elementwise_affine=self.norm.elementwise_affine
-            )
+            output_dim // 2, eps=norm_eps, elementwise_affine=norm_elementwise_affine
+        )
 
+    def forward(
+        self, x: torch.Tensor, timestep: Optional[torch.Tensor] = None, temb: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
+        if self.emb is not None:
+            temb = self.emb(timestep)
+
+        temb = self.linear(self.silu(temb))
+        # x shape: (S B H), temb shape: (B, H)
+        shift, scale = temb.chunk(2, dim=1)
+        shift = shift[None, :, :]
+        scale = scale[None, :, :]
+ 
+        x = self.norm(x) * (1 + scale) + shift
+        return x
 
 class OpenSoraNormZero(nn.Module):
     def __init__(

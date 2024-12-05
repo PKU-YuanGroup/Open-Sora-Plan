@@ -1,1 +1,1 @@
-/home/obs_data,/home/save_dir/captions/video_cap_1126/video_cap_1337217_0.pkl
+/home/save_dir/recap_datacomp_1b_data/output,/home/save_dir/captions/exists_1022/part0_2557988.pkl
