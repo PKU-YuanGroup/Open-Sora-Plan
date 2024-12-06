@@ -36,7 +36,7 @@ from .pos_embeddings import (
 from .rope import (
     PositionGetter3D,
     RoPE3D,
-    apply_rope1d,
+    apply_rotary_emb
 )
 
 __all__ = [
