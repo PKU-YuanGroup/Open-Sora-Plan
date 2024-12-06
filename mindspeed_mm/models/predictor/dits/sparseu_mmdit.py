@@ -12,7 +12,7 @@ from megatron.training import get_args
 from megatron.training.utils import print_rank_0 as print
 
 from mindspeed_mm.models.common import MultiModalModule
-from mindspeed_mm.models.common.embeddings import PatchEmbed2D, RoPE3D, PositionGetter3D
+from mindspeed_mm.models.common.embeddings import PatchEmbed2D, RoPE3D, PositionGetter3D, apply_rotary_emb
 from mindspeed_mm.models.common.ffn import FeedForward
 from mindspeed_mm.models.common.attention import MultiHeadSparseMMAttentionSBH
 from mindspeed_mm.models.common.normalize import normalize
@@ -60,8 +60,12 @@ class SparseUMMDiT(MultiModalModule):
         out_channels: Optional[int] = None,
         num_layers: List[int] = [2, 4, 8, 4, 2], 
         sparse_n: List[int] = [1, 4, 16, 4, 1], 
+        double_ff: bool = False,
         dropout: float = 0.0,
         attention_bias: bool = True,
+        sample_size_h: Optional[int] = None,
+        sample_size_w: Optional[int] = None,
+        sample_size_t: Optional[int] = None,
         patch_size: Optional[int] = None,
         patch_size_t: Optional[int] = None,
         activation_fn: str = "gelu-approximate",
@@ -76,10 +80,13 @@ class SparseUMMDiT(MultiModalModule):
         timestep_embed_dim: int = 512,
         norm_cls: str = 'rms_norm', 
         skip_connection: bool = False,
+        explicit_uniform_rope: bool = False, 
         **kwargs
     ):
         super().__init__(config=None)
         args = get_args()
+        self.num_heads = num_heads
+        self.head_dim = head_dim
         self.sequence_parallel = args.sequence_parallel
         self.gradient_checkpointing = True
         self.recompute_granularity = args.recompute_granularity
@@ -135,6 +142,12 @@ class SparseUMMDiT(MultiModalModule):
         # 3. anthor text embedding
         self.caption_projection = nn.Linear(caption_channels, hidden_size)
 
+        # 4. rope
+        self.rope = RoPE3D(interpolation_scale_thw=interpolation_scale_thw)
+        self.position_getter = PositionGetter3D(
+            sample_size_t, sample_size_h, sample_size_w, explicit_uniform_rope, atten_layout="SBH"
+        )
+
         # forward transformer blocks
         self.transformer_blocks = []
         self.skip_norm_linear = []
@@ -176,6 +189,7 @@ class SparseUMMDiT(MultiModalModule):
                         norm_elementwise_affine=norm_elementwise_affine,
                         norm_eps=norm_eps,
                         interpolation_scale_thw=interpolation_scale_thw,
+                        double_ff=double_ff,
                         sparse1d=sparse1d if sparse_n > 1 else False,
                         sparse_n=sparse_n,
                         sparse_group=i % 2 == 1 if sparse_n > 1 else False,
@@ -272,6 +286,7 @@ class SparseUMMDiT(MultiModalModule):
         **kwargs
     ) -> torch.Tensor:
         batch_size, c, frames, height, width = hidden_states.shape
+
         # print(f"model forward, hidden_states: {hidden_states.shape}, timestep: {timestep.shape}, pooled_projections: {pooled_projections.shape}, encoder_hidden_states: {encoder_hidden_states.shape}, attention_mask: {attention_mask.shape}, encoder_attention_mask: {encoder_attention_mask.shape}")
         encoder_attention_mask = encoder_attention_mask.view(batch_size, -1, encoder_attention_mask.shape[-1])
         if self.training and mpu.get_context_parallel_world_size() > 1:
@@ -314,20 +329,26 @@ class SparseUMMDiT(MultiModalModule):
         for sparse_n in list(set(self.sparse_n)):
             self.sparse_mask[sparse_n] = self.prepare_sparse_mask(attention_mask, encoder_attention_mask, sparse_n)
 
+        pos_thw = self.position_getter(
+            batch_size, t=frames, h=height, w=width, 
+            device=hidden_states.device, training=self.training
+        )
+        video_rotary_emb = self.rope(self.head_dim, pos_thw, hidden_states.device, hidden_states.dtype)
+
         if self.sequence_parallel:
             hidden_states = tensor_parallel.scatter_to_sequence_parallel_region(hidden_states)
             encoder_hidden_states = tensor_parallel.scatter_to_sequence_parallel_region(encoder_hidden_states)
 
         hidden_states, encoder_hidden_states, skip_connections = self._operate_on_enc(
-            hidden_states, encoder_hidden_states, embedded_timestep, frames, height, width
+            hidden_states, encoder_hidden_states, embedded_timestep, frames, height, width, video_rotary_emb
         )
 
         hidden_states, encoder_hidden_states = self._operate_on_mid(
-            hidden_states, encoder_hidden_states, embedded_timestep, frames, height, width
+            hidden_states, encoder_hidden_states, embedded_timestep, frames, height, width, video_rotary_emb
         )
 
         hidden_states, encoder_hidden_states = self._operate_on_dec(
-            hidden_states, skip_connections, encoder_hidden_states, embedded_timestep, frames, height, width
+            hidden_states, skip_connections, encoder_hidden_states, embedded_timestep, frames, height, width, video_rotary_emb
         )
 
         # 3. Output
@@ -353,7 +374,7 @@ class SparseUMMDiT(MultiModalModule):
 
     def _operate_on_enc(
         self, hidden_states, encoder_hidden_states,
-        embedded_timestep, frames, height, width
+        embedded_timestep, frames, height, width, video_rotary_emb
     ):
         
         skip_connections = []
@@ -369,6 +390,7 @@ class SparseUMMDiT(MultiModalModule):
                     frames=frames,
                     height=height,
                     width=width,
+                    video_rotary_emb=video_rotary_emb
                 )
                 if self.skip_connection:
                     skip_connections.append([hidden_states, encoder_hidden_states])
@@ -376,7 +398,7 @@ class SparseUMMDiT(MultiModalModule):
     
     def _operate_on_mid(
         self, hidden_states, encoder_hidden_states,
-        embedded_timestep, frames, height, width
+        embedded_timestep, frames, height, width, video_rotary_emb
     ):
         for idx_, block in enumerate(self.transformer_blocks[len(self.num_layers) // 2]):
             attention_mask = self.sparse_mask[block.sparse_n][block.sparse_group]
@@ -389,12 +411,13 @@ class SparseUMMDiT(MultiModalModule):
                 frames=frames,
                 height=height,
                 width=width,
+                video_rotary_emb=video_rotary_emb
             )
             return hidden_states, encoder_hidden_states
         
     def _operate_on_dec(
         self, hidden_states, skip_connections, encoder_hidden_states,
-        embedded_timestep, frames, height, width
+        embedded_timestep, frames, height, width, video_rotary_emb
     ):
         for idx, stage_block in enumerate(self.transformer_blocks[len(self.num_layers) // 2 + 1:]):
             if self.skip_connection:
@@ -415,6 +438,7 @@ class SparseUMMDiT(MultiModalModule):
                     frames=frames,
                     height=height,
                     width=width,
+                    video_rotary_emb=video_rotary_emb
                 )
                 
         return hidden_states, encoder_hidden_states
@@ -465,7 +489,7 @@ class SparseUMMDiT(MultiModalModule):
         )
         return output
     
-    def block_forward(self, block, hidden_states, attention_mask, encoder_hidden_states, embedded_timestep, frames, height, width):
+    def block_forward(self, block, hidden_states, attention_mask, encoder_hidden_states, embedded_timestep, frames, height, width, video_rotary_emb):
         if self.training and self.gradient_checkpointing:
             ckpt_kwargs: Dict[str, Any] = {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
             hidden_states, encoder_hidden_states = torch.utils.checkpoint.checkpoint(
@@ -477,6 +501,7 @@ class SparseUMMDiT(MultiModalModule):
                 frames,
                 height,
                 width,
+                video_rotary_emb,
                 **ckpt_kwargs
             )
         else:
@@ -488,6 +513,7 @@ class SparseUMMDiT(MultiModalModule):
                 frames=frames,
                 height=height,
                 width=width,
+                video_rotary_emb=video_rotary_emb
             )
         return hidden_states, encoder_hidden_states
 
@@ -509,6 +535,7 @@ class SparseMMDiTBlock(nn.Module):
         ff_bias: bool = True,
         context_pre_only: bool = False,
         interpolation_scale_thw: Tuple[int] = (1, 1, 1),
+        double_ff: bool = False,
         sparse1d: bool = False,
         sparse_n: int = 2,
         sparse_group: bool = False,
@@ -566,8 +593,16 @@ class SparseMMDiTBlock(nn.Module):
             bias=ff_bias,
         )
 
-        self.rope = RoPE3D(interpolation_scale_thw=interpolation_scale_thw)
-        self.position_getter = PositionGetter3D(atten_layout="SBH")
+        self.double_ff = double_ff
+        if self.double_ff:
+            self.ff_enc = FeedForward(
+                dim,
+                dropout=dropout,
+                activation_fn=activation_fn,
+                final_dropout=final_dropout,
+                inner_dim=ff_inner_dim,
+                bias=ff_bias,
+            )
 
     def forward(
         self,
@@ -577,14 +612,13 @@ class SparseMMDiTBlock(nn.Module):
         embedded_timestep: Optional[torch.LongTensor] = None,
         frames: int = None, 
         height: int = None, 
-        width: int = None, 
+        width: int = None,
+        video_rotary_emb: Optional[torch.FloatTensor] = None,
     ) -> torch.FloatTensor:
         
         # print(f'hidden_states: {hidden_states.shape}, encoder_hidden_states: {encoder_hidden_states.shape}, embedded_timestep: {embedded_timestep.shape}, frames: {frames}, height: {height}, width: {width}')
         # 0. Prepare rope embedding
         vis_seq_length, batch_size = hidden_states.shape[:2]
-        pos_thw = self.position_getter(batch_size, t=frames, h=height, w=width, device=hidden_states.device)
-        video_rotary_emb = self.rope(self.head_dim, pos_thw, hidden_states.device, hidden_states.dtype)
 
         # 1. norm & scale & shift
         norm_hidden_states, norm_encoder_hidden_states, gate_msa, enc_gate_msa = self.norm1(
@@ -613,15 +647,21 @@ class SparseMMDiTBlock(nn.Module):
         norm_hidden_states, norm_encoder_hidden_states, gate_ff, enc_gate_ff = self.norm2(
             hidden_states, encoder_hidden_states, embedded_timestep
         )
+        if self.double_ff:
+            # 5. FFN
+            vis_ff_output = self.ff(norm_hidden_states)
+            enc_ff_output = self.ff_enc(norm_encoder_hidden_states)
+            # 6. residual & gate
+            hidden_states = hidden_states + gate_ff * vis_ff_output
+            encoder_hidden_states = encoder_hidden_states + enc_gate_ff * enc_ff_output
+        else:
+            # 5. FFN
+            norm_hidden_states = torch.cat([norm_hidden_states, norm_encoder_hidden_states], dim=0)
+            ff_output = self.ff(norm_hidden_states)
+            # 6. residual & gate
+            hidden_states = hidden_states + gate_ff * ff_output[:vis_seq_length]
+            encoder_hidden_states = encoder_hidden_states + enc_gate_ff * ff_output[vis_seq_length:]
 
-        # 5. FFN
-        norm_hidden_states = torch.cat([norm_hidden_states, norm_encoder_hidden_states], dim=0)
-        ff_output = self.ff(norm_hidden_states)
-
-        # 6. residual & gate
-        hidden_states = hidden_states + gate_ff * ff_output[:vis_seq_length]
-        encoder_hidden_states = encoder_hidden_states + enc_gate_ff * ff_output[vis_seq_length:]
-        
         return hidden_states, encoder_hidden_states
 
 
