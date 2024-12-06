@@ -11,7 +11,7 @@ from megatron.core import mpu, tensor_parallel
 from megatron.training import get_args
 from megatron.training.arguments import core_transformer_config_from_args
 
-from diffusers.models.normalization import RMSNorm
+from megatron.legacy.model.rms_norm import RMSNorm
 
 from mindspeed_mm.utils.utils import video_to_image
 from mindspeed_mm.models.common.normalize import normalize
@@ -89,8 +89,8 @@ class MultiHeadSparseMMAttentionSBH(nn.Module):
             self.norm_proj_q = nn.LayerNorm(head_dim, eps=eps, elementwise_affine=elementwise_affine)
             self.norm_proj_k = nn.LayerNorm(head_dim, eps=eps, elementwise_affine=elementwise_affine)
         elif qk_norm == "rms_norm":
-            self.norm_proj_q = RMSNorm(head_dim, eps=eps)
-            self.norm_proj_k = RMSNorm(head_dim, eps=eps)
+            self.norm_proj_q = RMSNorm(head_dim, eps=eps, sequence_parallel=self.sequence_parallel)
+            self.norm_proj_k = RMSNorm(head_dim, eps=eps, sequence_parallel=self.sequence_parallel)
         else:
             raise ValueError(f"Unsupported qk_norm: {qk_norm}")
 
@@ -177,20 +177,10 @@ class MultiHeadSparseMMAttentionSBH(nn.Module):
                 self.norm_added_proj_q = nn.LayerNorm(head_dim, eps=eps, elementwise_affine=elementwise_affine)
                 self.norm_added_proj_k = nn.LayerNorm(head_dim, eps=eps, elementwise_affine=elementwise_affine)
             elif qk_norm == "rms_norm":
-                self.norm_added_proj_q = RMSNorm(head_dim, eps=eps)
-                self.norm_added_proj_k = RMSNorm(head_dim, eps=eps)
+                self.norm_added_proj_q = RMSNorm(head_dim, eps=eps, sequence_parallel=self.sequence_parallel)
+                self.norm_added_proj_k = RMSNorm(head_dim, eps=eps, sequence_parallel=self.sequence_parallel)
             else:
                 raise ValueError(f"Unsupported qk_norm: {qk_norm}")
-
-        # set label "sequence_parallel", for all_reduce the grad
-        if qk_norm is not None:
-            for module in [self.norm_proj_q, self.norm_proj_k]:
-                for param in module.parameters():
-                    setattr(param, "sequence_parallel", self.sequence_parallel)
-            if added_kv_proj_dim is not None:
-                for module in [self.norm_added_proj_q, self.norm_added_proj_k]:
-                    for param in module.parameters():
-                        setattr(param, "sequence_parallel", self.sequence_parallel)
 
         
 
