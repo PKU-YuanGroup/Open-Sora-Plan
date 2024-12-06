@@ -2,10 +2,12 @@ import torch
 from torch import nn
 import torch_npu
 import torch.nn.functional as F
-
+from megatron.core import mpu, tensor_parallel
+from megatron.training import get_args
+from megatron.training.arguments import core_transformer_config_from_args
 from typing import Any, Dict, Optional, Tuple
 
-from diffusers.models.normalization import RMSNorm, AdaLayerNorm
+from megatron.legacy.model.rms_norm import RMSNorm
 from diffusers.models.embeddings import PixArtAlphaTextProjection, Timesteps, TimestepEmbedding
 
 
@@ -65,7 +67,7 @@ class AdaNorm(nn.Module):
         elif norm_cls == 'layer_norm':
             self.norm_cls = nn.LayerNorm
         self.norm = self.norm_cls(
-            output_dim // 2, eps=norm_eps, elementwise_affine=norm_elementwise_affine
+            output_dim // 2, eps=norm_eps
         )
 
     def forward(
@@ -94,20 +96,35 @@ class OpenSoraNormZero(nn.Module):
         norm_cls: str = 'rms_norm', 
     ) -> None:
         super().__init__()
+        args = get_args()
+        self.sequence_parallel = args.sequence_parallel
+        config = core_transformer_config_from_args(args)
+
         if norm_cls == 'rms_norm':
             self.norm_cls = RMSNorm
         elif norm_cls == 'layer_norm':
             self.norm_cls = nn.LayerNorm
 
         self.silu = nn.SiLU()
-        self.linear = nn.Linear(timestep_embed_dim, 6 * embedding_dim, bias=bias)
-        self.norm = self.norm_cls(embedding_dim, eps=eps, elementwise_affine=elementwise_affine)
-        self.norm_enc = self.norm_cls(embedding_dim, eps=eps, elementwise_affine=elementwise_affine)
+        self.linear = tensor_parallel.ColumnParallelLinear(
+            timestep_embed_dim,
+            6 * embedding_dim,
+            config=config,
+            init_method=config.init_method,
+            gather_output=True
+        )
+        self.norm = self.norm_cls(embedding_dim, eps=eps, sequence_parallel=self.sequence_parallel)
+        self.norm_enc = self.norm_cls(embedding_dim, eps=eps, sequence_parallel=self.sequence_parallel)
+
+        # set label "sequence_parallel", for all_reduce the grad
+        for module in [self.norm, self.norm_enc]:
+            for param in module.parameters():
+                setattr(param, "sequence_parallel", self.sequence_parallel)
 
     def forward(
         self, hidden_states: torch.Tensor, encoder_hidden_states: torch.Tensor, temb: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        shift, scale, gate, enc_shift, enc_scale, enc_gate = self.linear(self.silu(temb)).chunk(6, dim=1)
+        shift, scale, gate, enc_shift, enc_scale, enc_gate = self.linear(self.silu(temb))[0].chunk(6, dim=1)
         hidden_states = self.norm(hidden_states) * (1 + scale)[None, :, :] + shift[None, :, :] # because hidden_states'shape is (S B H), so we need to add None at the first dimension
         encoder_hidden_states = self.norm_enc(encoder_hidden_states) * (1 + enc_scale)[None, :, :] + enc_shift[None, :, :]
         return hidden_states, encoder_hidden_states, gate[None, :, :], enc_gate[None, :, :]

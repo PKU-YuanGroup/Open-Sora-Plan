@@ -6,8 +6,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from diffusers.utils import is_torch_version
-from diffusers.models.embeddings import PixArtAlphaTextProjection
-from diffusers.models.normalization import AdaLayerNormSingle, RMSNorm
+from megatron.legacy.model.rms_norm import RMSNorm
 from megatron.core import mpu, tensor_parallel
 from megatron.training import get_args
 from megatron.training.utils import print_rank_0 as print
@@ -147,9 +146,9 @@ class SparseUMMDiT(MultiModalModule):
                 self.skip_norm_linear.append(
                     nn.Sequential(
                         self.norm_cls(
-                            hidden_size * 2, 
-                            elementwise_affine=norm_elementwise_affine, 
-                            eps=norm_eps
+                            hidden_size * 2,
+                            eps=norm_eps,
+                            sequence_parallel=self.sequence_parallel,
                         ), 
                         nn.Linear(hidden_size * 2, hidden_size), 
                     )
@@ -157,9 +156,9 @@ class SparseUMMDiT(MultiModalModule):
                 self.skip_norm_linear_enc.append(
                     nn.Sequential(
                         self.norm_cls(
-                            hidden_size * 2, 
-                            elementwise_affine=norm_elementwise_affine, 
-                            eps=norm_eps
+                            hidden_size * 2,
+                            eps=norm_eps,
+                            sequence_parallel=self.sequence_parallel,
                         ), 
                         nn.Linear(hidden_size * 2, hidden_size), 
                     )
@@ -194,7 +193,7 @@ class SparseUMMDiT(MultiModalModule):
             self.skip_norm_linear_enc = nn.ModuleList(self.skip_norm_linear_enc)
 
         self.norm_final = self.norm_cls(
-            hidden_size, eps=norm_eps, elementwise_affine=norm_elementwise_affine
+            hidden_size, eps=norm_eps, sequence_parallel=self.sequence_parallel,
         )
 
         self.norm_out = AdaNorm(
@@ -517,9 +516,6 @@ class SparseMMDiTBlock(nn.Module):
     ):
         super().__init__()
 
-        args = get_args()
-        self.sequence_parallel = args.sequence_parallel
-
         self.sparse1d = sparse1d
         self.sparse_n = sparse_n
         self.sparse_group = sparse_group
@@ -572,11 +568,6 @@ class SparseMMDiTBlock(nn.Module):
 
         self.rope = RoPE3D(interpolation_scale_thw=interpolation_scale_thw)
         self.position_getter = PositionGetter3D(atten_layout="SBH")
-
-        # set label "sequence_parallel", for all_reduce the grad
-        for module in [self.norm1, self.norm2]:
-            for param in module.parameters():
-                setattr(param, "sequence_parallel", self.sequence_parallel)
 
     def forward(
         self,
