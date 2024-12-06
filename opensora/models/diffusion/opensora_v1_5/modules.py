@@ -105,15 +105,14 @@ class RoPE3D(torch.nn.Module):
         cos_t, sin_t = self.get_cos_sin(D_t, min_poses[0], max_poses[0], device, dtype, self.interpolation_scale_t)
         cos_y, sin_y = self.get_cos_sin(D, min_poses[1], max_poses[1], device, dtype, self.interpolation_scale_h)
         cos_x, sin_x = self.get_cos_sin(D, min_poses[2], max_poses[2], device, dtype, self.interpolation_scale_w)
-        return poses, cos_t, sin_t, cos_y, sin_y, cos_x, sin_x
-    
-def rotate_half(x):
-    x1, x2 = x[..., : x.shape[-1] // 2], x[..., x.shape[-1] // 2:]
-    return torch.cat((-x2, x1), dim=-1)
 
-def apply_rope1d(tokens, pos1d, cos, sin):
+        cos_t, sin_t = compute_rope1d(poses[0], cos_t, sin_t)
+        cos_y, sin_y = compute_rope1d(poses[1], cos_y, sin_y)
+        cos_x, sin_x = compute_rope1d(poses[2], cos_x, sin_x)
+        return cos_t, sin_t, cos_y, sin_y, cos_x, sin_x
+    
+def compute_rope1d(pos1d, cos, sin):
     """
-        * tokens: ntokens x batch_size x nheads x dim
         * pos1d: ntokens x batch_size
     """
     assert pos1d.ndim == 2
@@ -121,20 +120,30 @@ def apply_rope1d(tokens, pos1d, cos, sin):
     cos = torch.nn.functional.embedding(pos1d, cos)[:, :, None, :]
     sin = torch.nn.functional.embedding(pos1d, sin)[:, :, None, :]
 
+    return cos, sin
+
+def apply_rope1d(tokens, cos, sin):
+    """
+        * tokens: ntokens x batch_size x nheads x dim
+    """
     return (tokens * cos) + (rotate_half(tokens) * sin)
     
 def apply_rotary_emb(tokens, video_rotary_emb):
-    poses, cos_t, sin_t, cos_y, sin_y, cos_x, sin_x = video_rotary_emb
+    cos_t, sin_t, cos_y, sin_y, cos_x, sin_x = video_rotary_emb
     # split features into three along the feature dimension, and apply rope1d on each half
     dim = tokens.shape[-1]
     D_t = dim // 16 * 4
     D = dim // 16 * 6
     t, y, x = torch.split(tokens, [D_t, D, D], dim=-1)
-    t = apply_rope1d(t, poses[0], cos_t, sin_t)
-    y = apply_rope1d(y, poses[1], cos_y, sin_y)
-    x = apply_rope1d(x, poses[2], cos_x, sin_x)
+    t = apply_rope1d(t, cos_t, sin_t)
+    y = apply_rope1d(y, cos_y, sin_y)
+    x = apply_rope1d(x, cos_x, sin_x)
     tokens = torch.cat((t, y, x), dim=-1)
     return tokens
+
+def rotate_half(x):
+    x1, x2 = x[..., : x.shape[-1] // 2], x[..., x.shape[-1] // 2:]
+    return torch.cat((-x2, x1), dim=-1)
 
 class CombinedTimestepTextProjEmbeddings(nn.Module):
     def __init__(self, timestep_embed_dim, embedding_dim, pooled_projection_dim):
@@ -193,6 +202,10 @@ class OpenSoraNormZero(nn.Module):
         shift, scale, gate, enc_shift, enc_scale, enc_gate = self.linear(self.silu(temb)).chunk(6, dim=1)
         hidden_states = self.norm(hidden_states) * (1 + scale)[None, :, :] + shift[None, :, :]
         encoder_hidden_states = self.norm_enc(encoder_hidden_states) * (1 + enc_scale)[None, :, :] + enc_shift[None, :, :]
+        # print(f'enc_shift '
+        # f'max {enc_shift.max()}, min {enc_shift.min()}, mean {enc_shift.mean()}, std {enc_shift.std()}')
+        # print(f'enc_scale '
+        # f'max {enc_scale.max()}, min {enc_scale.min()}, mean {enc_scale.mean()}, std {enc_scale.std()}')
         return hidden_states, encoder_hidden_states, gate[None, :, :], enc_gate[None, :, :]
         # shift, scale, gate, enc_shift, enc_scale, enc_gate = self.linear(self.silu(temb)).chunk(6, dim=1)
         # hidden_states = self.norm(hidden_states) * (1 + scale)[:, None, :] + shift[:, None, :]
@@ -454,6 +467,10 @@ class BasicTransformerBlock(nn.Module):
         norm_hidden_states, norm_encoder_hidden_states, gate_msa, enc_gate_msa = self.norm1(
             hidden_states, encoder_hidden_states, embedded_timestep
             )
+        # print(f'pre-attn norm_hidden_states '
+        # f'max {norm_hidden_states.max()}, min {norm_hidden_states.min()}, mean {norm_hidden_states.mean()}, std {norm_hidden_states.std()}')
+        # print(f'pre-attn norm_encoder_hidden_states '
+        # f'max {norm_encoder_hidden_states.max()}, min {norm_encoder_hidden_states.min()}, mean {norm_encoder_hidden_states.mean()}, std {norm_encoder_hidden_states.std()}')
         # attn
         attn_hidden_states, attn_encoder_hidden_states = self.attn1(
             norm_hidden_states,
@@ -464,21 +481,57 @@ class BasicTransformerBlock(nn.Module):
             attention_mask=attention_mask, 
             video_rotary_emb=video_rotary_emb, 
         )
+        # print('========================')
+        # print(f'after attn hidden_states, ', 
+        #         f'max {attn_hidden_states.max()}, min {attn_hidden_states.min()}, mean {attn_hidden_states.mean()}, std {attn_hidden_states.std()}')
+        # print(f'gate_msa '
+        # f'max {gate_msa.max()}, min {gate_msa.min()}, mean {gate_msa.mean()}, std {gate_msa.std()}')
+        # print(f'(gate_msa * attn_hidden_states) '
+        # f'max {(gate_msa * attn_hidden_states).max()}, min {(gate_msa * attn_hidden_states).min()}, mean {(gate_msa * attn_hidden_states).mean()}, std {(gate_msa * attn_hidden_states).std()}')
+        
+        # print('-----------------------')
+        # print(f'after attn encoder_hidden_states, ', 
+        #         f'max {attn_encoder_hidden_states.max()}, min {attn_encoder_hidden_states.min()}, mean {attn_encoder_hidden_states.mean()}, std {attn_encoder_hidden_states.std()}')
+        # print(f'enc_gate_msa '
+        # f'max {enc_gate_msa.max()}, min {enc_gate_msa.min()}, mean {enc_gate_msa.mean()}, std {enc_gate_msa.std()}')
+        # print(f'(enc_gate_msa * attn_encoder_hidden_states) '
+        # f'max {(enc_gate_msa * attn_encoder_hidden_states).max()}, min {(enc_gate_msa * attn_encoder_hidden_states).min()}, mean {(enc_gate_msa * attn_encoder_hidden_states).mean()}, std {(enc_gate_msa * attn_encoder_hidden_states).std()}')
+        
         # residual & gate
+        # print('-----------------------')
         hidden_states = hidden_states + gate_msa * attn_hidden_states
         encoder_hidden_states = encoder_hidden_states + enc_gate_msa * attn_encoder_hidden_states
-
+        # print(f'hidden_states '
+        # f'max {hidden_states.max()}, min {hidden_states.min()}, mean {hidden_states.mean()}, std {hidden_states.std()}')
+        # print(f'encoder_hidden_states '
+        # f'max {encoder_hidden_states.max()}, min {encoder_hidden_states.min()}, mean {encoder_hidden_states.mean()}, std {encoder_hidden_states.std()}')
+        # print('========================')
+        # print('-----------------------')
         # 1. Share Feed-Forward
         # norm & scale & shift
         norm_hidden_states, norm_encoder_hidden_states, gate_ff, enc_gate_ff = self.norm2(
             hidden_states, encoder_hidden_states, embedded_timestep
         )
         
+        # print(f'norm_hidden_states '
+        # f'max {norm_hidden_states.max()}, min {norm_hidden_states.min()}, mean {norm_hidden_states.mean()}, std {norm_hidden_states.std()}')
+        # print(f'norm_encoder_hidden_states '
+        # f'max {norm_encoder_hidden_states.max()}, min {norm_encoder_hidden_states.min()}, mean {norm_encoder_hidden_states.mean()}, std {norm_encoder_hidden_states.std()}')
         # ffn
         norm_hidden_states = torch.cat([norm_hidden_states, norm_encoder_hidden_states], dim=0)
         ff_output = self.ff(norm_hidden_states)
-        
+        # print('-----------------------')
         # residual & gate
+        # print(f'gate_ff '
+        # f'max {gate_ff.max()}, min {gate_ff.min()}, mean {gate_ff.mean()}, std {gate_ff.std()}')
+        # print(f'after ffn hidden_states, ', 
+        # f'max {ff_output[:vis_seq_length].max()}, min {ff_output[:vis_seq_length].min()}, mean {ff_output[:vis_seq_length].mean()}, std {ff_output[:vis_seq_length].std()}')
+        
+        # print(f'enc_gate_ff '
+        # f'max {enc_gate_ff.max()}, min {enc_gate_ff.min()}, mean {enc_gate_ff.mean()}, std {enc_gate_ff.std()}')
+        # print(f'after ffn encoder_hidden_states, ', 
+        #         f'max {ff_output[vis_seq_length:].max()}, min {ff_output[vis_seq_length:].min()}, mean {ff_output[vis_seq_length:].mean()}, std {ff_output[vis_seq_length:].std()}')
+        
         hidden_states = hidden_states + gate_ff * ff_output[:vis_seq_length]
         encoder_hidden_states = encoder_hidden_states + enc_gate_ff * ff_output[vis_seq_length:]
 

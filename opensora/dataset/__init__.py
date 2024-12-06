@@ -63,6 +63,7 @@ if __name__ == "__main__":
     '''
     python opensora/dataset/__init__.py
     accelerate launch --num_processes 1 opensora/dataset/__init__.py
+    accelerate launch --num_processes 8 opensora/dataset/__init__.py
     '''
     from accelerate import Accelerator
     from opensora.utils.dataset_utils import LengthGroupedSampler, Collate
@@ -88,7 +89,7 @@ if __name__ == "__main__":
         'interpolation_scale_h': 1,
         'interpolation_scale_w': 1,
         'cache_dir': '../cache_dir', 
-        'data': '/storage/ongoing/9.29/mmdit/1.5/Open-Sora-Plan/scripts/train_data/merge_data.txt', 
+        'data': '/storage/ongoing/9.29/mmdit/1.5/Open-Sora-Plan/scripts/train_data/video_data_debug.txt', 
         'train_fps': 18, 
         'drop_short_ratio': 0.0, 
         'speed_factor': 1.0, 
@@ -111,6 +112,7 @@ if __name__ == "__main__":
         'min_hxw': 384*288, 
         'force_5_ratio': True, 
         'random_data': False, 
+        'train_video_only': False, 
         'train_image_batch_size': 1
     }
     )

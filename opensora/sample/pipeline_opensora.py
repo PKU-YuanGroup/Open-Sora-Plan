@@ -615,7 +615,7 @@ class OpenSoraPipeline(DiffusionPipeline):
         num_frames = num_frames or (self.transformer.config.sample_size_t - 1) * self.vae.vae_scale_factor[0] + 1
         height = height or self.transformer.config.sample_size[0] * self.vae.vae_scale_factor[1]
         width = width or self.transformer.config.sample_size[1] * self.vae.vae_scale_factor[2]
-
+        
         # 1. Check inputs. Raise error if not correct
         self.check_inputs(
             prompt,
@@ -831,8 +831,8 @@ class OpenSoraPipeline(DiffusionPipeline):
                 if self.do_classifier_free_guidance:
                     noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
                     noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
-
-                if self.do_classifier_free_guidance and guidance_rescale > 0.0 and not isinstance(self.scheduler, OpenSoraFlowMatchEulerScheduler):
+                
+                if self.do_classifier_free_guidance and guidance_rescale > 0.0:
                     # Based on 3.4. in https://arxiv.org/pdf/2305.08891.pdf
                     noise_pred = rescale_noise_cfg(noise_pred, noise_pred_text, guidance_rescale=guidance_rescale)
 

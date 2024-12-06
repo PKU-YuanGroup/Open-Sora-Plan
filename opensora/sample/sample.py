@@ -15,11 +15,18 @@ from opensora.sample.caption_refiner import OpenSoraCaptionRefiner
 
 if __name__ == "__main__":
     args = get_args()
-    dtype = torch.float32 if args.fp32 else torch.float16
+
+    dtype_mapping = {
+        'fp16': torch.float16, 
+        'fp32': torch.float32, 
+        'bf16': torch.bfloat16
+    }
+    
+    weight_dtype = dtype_mapping[args.weight_dtype]
 
     if torch_npu is not None:
         npu_config.print_msg(args)
-        npu_config.conv_dtype = dtype
+        npu_config.conv_dtype = torch.float16
         init_npu_env(args)
     else:
         args = init_gpu_env(args)
@@ -30,9 +37,9 @@ if __name__ == "__main__":
         enhance_video_model = VEnhancer(model_path=args.enhance_video, version='v2', device=device)
     else:
         enhance_video_model = None
-    pipeline = prepare_pipeline(args, dtype, device)
+    pipeline = prepare_pipeline(args, device)
     if args.caption_refiner is not None:
-        caption_refiner_model = OpenSoraCaptionRefiner(args, dtype, device)
+        caption_refiner_model = OpenSoraCaptionRefiner(args, weight_dtype, device)
     else:
         caption_refiner_model = None
 

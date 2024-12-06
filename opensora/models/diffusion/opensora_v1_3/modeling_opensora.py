@@ -306,7 +306,6 @@ OpenSora_v1_3_models_class = {
 
 if __name__ == '__main__':
     from opensora.models.causalvideovae import ae_stride_config, ae_channel_config
-    from opensora.models.causalvideovae import ae_norm, ae_denorm
     from opensora.models import CausalVAEModelWrapper
 
     args = type('args', (), 

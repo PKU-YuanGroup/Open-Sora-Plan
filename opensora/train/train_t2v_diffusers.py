@@ -902,15 +902,15 @@ def main(args):
         #         with open(path, 'r') as f:
         #             count = f.readlines()
         #         count = [i.strip() for i in count]
-        #         if int(count[0]) == -1:
+        #         if int(count[0]) == 1000:
         #             accelerator.wait_for_everyone()
         #             accelerator.end_training()
         #             code = 1
         #             print(f'Exit safely with code {code}!')
         #             import sys;sys.exit(code)
-                # else:
-                    # print('Not exit!')
-                    # pass
+        #         else:
+        #             print('Not exit!')
+        #             pass
         max_timesteps, min_timesteps = 0, 0
 
         # Backpropagate

@@ -19,12 +19,12 @@
         "stage": 3,
         "overlap_comm": true,
         "contiguous_gradients": true,
-        "sub_group_size": 1e9,
-        "reduce_bucket_size": 5e8,
-        "stage3_prefetch_bucket_size": 5e8,
-        "stage3_param_persistence_threshold": 1e5,
-        "stage3_max_live_parameters": 1e9,
-        "stage3_max_reuse_distance": 1e9,
+        "sub_group_size": 536870912,
+        "reduce_bucket_size": 536870912,
+        "stage3_prefetch_bucket_size": 536870912,
+        "stage3_param_persistence_threshold": 524288,
+        "stage3_max_live_parameters": 536870912,
+        "stage3_max_reuse_distance": 536870912,
         "stage3_gather_16bit_weights_on_model_save": true
     }
 }

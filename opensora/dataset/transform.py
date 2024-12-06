@@ -256,11 +256,11 @@ class RandomCropVideo:
 
 
 RATIOS = [
-    [16, 9],
-    [9, 16],
+    # [16, 9],
+    # [9, 16],
     [1, 1],
-    [4, 3],
-    [3, 4]
+    # [4, 3],
+    # [3, 4]
 ]
 
 def find_closest_ratio(h, w):
@@ -353,14 +353,13 @@ def longsideresize(h, w, size, skip_low_resolution):
     return h, w
 
 def maxhwresize(ori_height, ori_width, max_hxw, force_5_ratio=True, hw_stride=16):
-
     if ori_height * ori_width > max_hxw:
         if force_5_ratio:
             ratio_h, ratio_w = find_closest_ratio(ori_height, ori_width)
             target_h, target_w = get_hw_for_ratio(ratio_h, ratio_w, max_hxw, hw_stride)
             new_height, new_width = shortsideresize(ori_height, ori_width, (target_h, target_w), skip_low_resolution=False)
         else:
-            scale_factor = np.sqrt(max_hxw / (ori_height * ori_width))
+            scale_factor = floor(np.sqrt(max_hxw / (ori_height * ori_width)))
             new_height = int(ori_height * scale_factor)
             new_width = int(ori_width * scale_factor)
     else:
@@ -958,7 +957,7 @@ if __name__ == '__main__':
         SpatialStrideCropVideo(stride=hw_stride, force_5_ratio=True), 
     ])
 
-    image = torch.randn([1, 3, 320, 350])
+    image = torch.randn([1, 3, 256, 512])
     print(transform(image).shape)
 
 

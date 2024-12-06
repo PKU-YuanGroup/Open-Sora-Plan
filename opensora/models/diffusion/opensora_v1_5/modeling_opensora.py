@@ -14,7 +14,7 @@ from diffusers.models.embeddings import PixArtAlphaTextProjection
 from opensora.models.diffusion.opensora_v1_5.modules import CombinedTimestepTextProjEmbeddings, BasicTransformerBlock, AdaNorm
 from opensora.utils.utils import to_2tuple
 from opensora.models.diffusion.common import PatchEmbed2D
-from .modules import RoPE3D, PositionGetter3D
+from opensora.models.diffusion.opensora_v1_5.modules import RoPE3D, PositionGetter3D
 try:
     import torch_npu
     from opensora.npu_config import npu_config
@@ -393,6 +393,7 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
                         height=height, 
                         width=width, 
                     )
+                # print()
                 # print(f'enc hidden_states, block_{idx_} ', 
                 #         f'max {hidden_states.max()}, min {hidden_states.min()}, mean {hidden_states.mean()}, std {hidden_states.std()}')
                 # print(f'enc encoder_hidden_states, block_{idx_} ', 
@@ -450,6 +451,7 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
                     height=height, 
                     width=width, 
                 )
+            # print()
             # print(f'mid hidden_states, block_{idx_} ', 
             #         f'max {hidden_states.max()}, min {hidden_states.min()}, mean {hidden_states.mean()}, std {hidden_states.std()}')
             # print(f'mid encoder_hidden_states, block_{idx_} ', 
@@ -517,6 +519,7 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
                         height=height, 
                         width=width, 
                     )
+                # print()
                 # print(f'dec hidden_states, block_{idx_} ', 
                 #         f'max {hidden_states.max()}, min {hidden_states.min()}, mean {hidden_states.mean()}, std {hidden_states.std()}')
                 # print(f'dec encoder_hidden_states, block_{idx_} ', 
@@ -526,6 +529,7 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
 
     def _operate_on_patched_inputs(self, hidden_states, encoder_hidden_states, timestep, pooled_projections):
         
+        # print('_operate_on_patched_inputs')
         # print(f'enc hidden_states, ', 
         #         f'max {hidden_states.max()}, min {hidden_states.min()}, mean {hidden_states.mean()}, std {hidden_states.std()}')
         # print(f'enc encoder_hidden_states, ', 
@@ -574,7 +578,6 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
             height * self.config.patch_size, 
             width * self.config.patch_size
         )
-        # import sys;sys.exit()
         return output
 
 
@@ -670,7 +673,6 @@ if __name__ == '__main__':
     python opensora/models/diffusion/opensora_v1_5/modeling_opensora.py
     '''
     from opensora.models.causalvideovae import ae_stride_config, ae_channel_config
-    from opensora.models.causalvideovae import ae_norm, ae_denorm
     from opensora.models import CausalVAEModelWrapper
     from opensora.utils.ema_utils import EMAModel
     args = type('args', (), 
@@ -697,10 +699,13 @@ if __name__ == '__main__':
     latent_size_h = args.max_height // ae_stride_h
     latent_size_w = args.max_width // ae_stride_w
     num_frames = (args.num_frames - 1) // ae_stride_t + 1
+    
 
+    model = OpenSoraT2V_v1_5.from_pretrained("11.10_mmdit13b_dense_rf_bs8192_lr5e-5_max1x384x384_min1x384x288_emaclip99_border109m/checkpoint-5967/model_ema")
+    import ipdb;ipdb.set_trace()
     # device = torch.device('cpu')
     device = torch.device('cuda:0')
-    model = OpenSoraT2V_v1_5_3B_122(
+    model = OpenSoraT2V_v1_5_6B_122(
         in_channels=c, 
         out_channels=c, 
         sample_size_h=latent_size_h, 
@@ -718,8 +723,8 @@ if __name__ == '__main__':
     print(f'{sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e9} B')
     # import sys;sys.exit()
     try:
-        path = "/storage/ongoing/9.29/mmdit/1.5/Open-Sora-Plan/debug/checkpoint-10/pytorch_model.bin"
-        ckpt = torch.load(path, map_location="cpu")
+        # path = "/storage/ongoing/9.29/mmdit/1.5/Open-Sora-Plan/debug/checkpoint-10/pytorch_model.bin"
+        # ckpt = torch.load(path, map_location="cpu")
         # msg = model.load_state_dict(ckpt, strict=True) # OpenSoraT2V_v1_5.from_pretrained('/storage/ongoing/9.29/mmdit/1.5/Open-Sora-Plan/test_ckpt')
         
         # ema_model = EMAModel.from_pretrained('./test_v1_5', OpenSoraT2V_v1_5)
@@ -741,5 +746,5 @@ if __name__ == '__main__':
     with torch.no_grad():
         output = model(**model_kwargs)
     print(output[0].shape)
-    # model.save_pretrained('./test_v1_5')
+    model.save_pretrained('./test_v1_5_6b')
 

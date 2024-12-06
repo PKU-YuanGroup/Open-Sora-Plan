@@ -75,12 +75,19 @@ def get_scheduler(args):
     scheduler = scheduler_cls(**kwargs)
     return scheduler
 
-def prepare_pipeline(args, dtype, device):
+def prepare_pipeline(args, device):
     
-    weight_dtype = dtype
+    dtype_mapping = {
+        'fp16': torch.float16, 
+        'fp32': torch.float32, 
+        'bf16': torch.bfloat16
+    }
+    
+    ae_dtype = dtype_mapping[args.ae_dtype]
+    weight_dtype = dtype_mapping[args.weight_dtype]
 
     vae = ae_wrapper[args.ae](args.ae_path)
-    vae.vae = vae.vae.to(device=device, dtype=weight_dtype).eval()
+    vae.vae = vae.vae.to(device=device, dtype=ae_dtype).eval()
     vae.vae_scale_factor = ae_stride_config[args.ae]
     if args.enable_tiling:
         vae.vae.enable_tiling()
@@ -131,7 +138,6 @@ def prepare_pipeline(args, dtype, device):
                 # device_map=None, 
                 torch_dtype=weight_dtype
                 ).eval()
-    
     scheduler = get_scheduler(args)
     pipeline_class = OpenSoraInpaintPipeline if args.model_type == 'inpaint' or args.model_type == 'i2v' else OpenSoraPipeline
 
@@ -279,6 +285,7 @@ def run_model_and_save_samples(args, pipeline, caption_refiner_model=None, enhan
                 height=args.height,
                 width=args.width,
                 num_inference_steps=args.num_sampling_steps,
+                guidance_rescale=args.guidance_rescale, 
                 guidance_scale=args.guidance_scale,
                 num_samples_per_prompt=args.num_samples_per_prompt,
                 max_sequence_length=args.max_sequence_length,
@@ -299,6 +306,7 @@ def run_model_and_save_samples(args, pipeline, caption_refiner_model=None, enhan
                 height=args.height,
                 width=args.width,
                 num_inference_steps=args.num_sampling_steps,
+                guidance_rescale=args.guidance_rescale, 
                 guidance_scale=args.guidance_scale,
                 num_samples_per_prompt=args.num_samples_per_prompt,
                 max_sequence_length=args.max_sequence_length,
@@ -478,6 +486,8 @@ def get_args():
     parser.add_argument("--num_frames", type=int, default=1)
     parser.add_argument("--height", type=int, default=512)
     parser.add_argument("--width", type=int, default=512)
+    parser.add_argument("--ae_dtype", type=str, default='fp16')
+    parser.add_argument("--weight_dtype", type=str, default='fp16')
     parser.add_argument("--device", type=str, default='cuda:0')
     parser.add_argument("--cache_dir", type=str, default='./cache_dir')
     parser.add_argument("--caption_refiner", type=str, default=None)
@@ -488,6 +498,7 @@ def get_args():
     parser.add_argument("--text_encoder_name_2", type=str, default=None)
     parser.add_argument("--save_img_path", type=str, default="./sample_videos/t2v")
     parser.add_argument("--guidance_scale", type=float, default=7.5)
+    parser.add_argument("--guidance_rescale", type=float, default=0.0)
     parser.add_argument("--sample_method", type=str, default="PNDM")
     parser.add_argument("--num_sampling_steps", type=int, default=50)
     parser.add_argument("--fps", type=int, default=24)
@@ -504,7 +515,6 @@ def get_args():
     parser.add_argument('--local_rank', type=int, default=-1)    
     parser.add_argument('--world_size', type=int, default=1)    
     parser.add_argument('--sp', action='store_true')
-    parser.add_argument('--fp32', action='store_true')
     parser.add_argument('--use_pos_neg_prompt', action='store_true')
 
     parser.add_argument('--first_linear_monitor_step', type=int, default=100)    
