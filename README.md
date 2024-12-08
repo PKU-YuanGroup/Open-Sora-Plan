@@ -204,18 +204,18 @@ For more details, please refer to the [Contribution Guidelines](docs/Contributio
 
 
 ```bibtex
-@article{lin2024opensoraplanopensourcelarge,
+@article{lin2024open,
   title={Open-Sora Plan: Open-Source Large Video Generation Model},
-  author={Bin Lin and Yunyang Ge and Xinhua Cheng and Zongjian Li and Bin Zhu and Shaodong Wang and Xianyi He and Yang Ye and Shenghai Yuan and Liuhan Chen and Tanghui Jia and Junwu Zhang and Zhenyu Tang and Yatian Pang and Bin She and Cen Yan and Zhiheng Hu and Xiaoyi Dong and Lin Chen and Zhang Pan and Xing Zhou and Shaoling Dong and Yonghong Tian and Li Yuan},
+  author={Lin, Bin and Ge, Yunyang and Cheng, Xinhua and Li, Zongjian and Zhu, Bin and Wang, Shaodong and He, Xianyi and Ye, Yang and Yuan, Shenghai and Chen, Liuhan and others},
   journal={arXiv preprint arXiv:2412.00131},
   year={2024}
 }
 ```
 
 ```bibtex
-@article{li2024wfvaeenhancingvideovae,
+@article{li2024wf,
   title={WF-VAE: Enhancing Video VAE by Wavelet-Driven Energy Flow for Latent Video Diffusion Model},
-  author={Zongjian Li and Bin Lin and Yang Ye and Liuhan Chen and Xinhua Cheng and Shenghai Yuan and Li Yuan},
+  author={Li, Zongjian and Lin, Bin and Ye, Yang and Chen, Liuhan and Cheng, Xinhua and Yuan, Shenghai and Yuan, Li},
   journal={arXiv preprint arXiv:2411.17459},
   year={2024}
 }
