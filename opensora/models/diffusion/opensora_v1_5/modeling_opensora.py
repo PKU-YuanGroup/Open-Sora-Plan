@@ -117,7 +117,8 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
 
         assert len(self.config.num_layers) == len(self.config.sparse_n)
         assert len(self.config.num_layers) % 2 == 1
-        assert all([i % 2 == 0 for i in self.config.num_layers])
+        if self.config.sparse1d:
+            assert all([i % 2 == 0 for i in self.config.num_layers]) 
 
         if not self.config.sparse1d:
             self.config.sparse_n = self.sparse_n = [1] * len(self.config.sparse_n)
@@ -234,7 +235,8 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
             self.config.hidden_size, self.config.patch_size_t * self.config.patch_size * self.config.patch_size * self.out_channels
         )
 
-
+        # self.mse = []
+        # self.mse_enc = []
     def forward(
         self,
         hidden_states: torch.Tensor,
@@ -316,7 +318,7 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
             batch_size, t=frame, h=height, w=width, 
             device=hidden_states.device, training=self.training
             )
-        video_rotary_emb = self.rope(self.attention_head_dim, pos_thw, hidden_states.device, hidden_states.dtype)
+        video_rotary_emb = self.rope(self.attention_head_dim, pos_thw, hidden_states.device)
 
         hidden_states, encoder_hidden_states, skip_connections = self._operate_on_enc(
             hidden_states, encoder_hidden_states, 
@@ -393,6 +395,8 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
                         height=height, 
                         width=width, 
                     )
+                # self.mse.append(hidden_states)
+                # self.mse_enc.append(encoder_hidden_states)
                 # print()
                 # print(f'enc hidden_states, block_{idx_} ', 
                 #         f'max {hidden_states.max()}, min {hidden_states.min()}, mean {hidden_states.mean()}, std {hidden_states.std()}')
@@ -457,6 +461,8 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
             # print(f'mid encoder_hidden_states, block_{idx_} ', 
             #         f'max {encoder_hidden_states.max()}, min {encoder_hidden_states.min()}, mean {encoder_hidden_states.mean()}, std {encoder_hidden_states.std()}')
         
+            # self.mse.append(hidden_states)
+            # self.mse_enc.append(encoder_hidden_states)
         return hidden_states, encoder_hidden_states
 
 
@@ -524,6 +530,28 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
                 #         f'max {hidden_states.max()}, min {hidden_states.min()}, mean {hidden_states.mean()}, std {hidden_states.std()}')
                 # print(f'dec encoder_hidden_states, block_{idx_} ', 
                 #         f'max {encoder_hidden_states.max()}, min {encoder_hidden_states.min()}, mean {encoder_hidden_states.mean()}, std {encoder_hidden_states.std()}')
+        
+                # self.mse.append(hidden_states)
+                # self.mse_enc.append(encoder_hidden_states)
+
+        # from matplotlib import pyplot as plt
+        # with open('1.txt', 'r') as f:
+        #     index = f.readlines()[0].strip()
+        # mse_values = [torch.mean((self.mse[i].float() - self.mse[i + 1].float()) ** 2).detach().cpu().item() for i in range(40 - 1)]
+        # mse_values_enc = [torch.mean((self.mse_enc[i].float() - self.mse_enc[i + 1].float()) ** 2).detach().cpu().item() for i in range(40 - 1)]
+        # plt.figure(figsize=(10, 5))
+        # plt.plot(range(1, len(mse_values) + 1), mse_values, marker='o', color="blue", label='img')
+        # plt.plot(range(1, len(mse_values_enc) + 1), mse_values_enc, marker='x', color="red", label='text')
+        # plt.title("MSE Between Consecutive Matrices")
+        # plt.xlabel("Matrix Pair Index")
+        # plt.ylabel("MSE")
+        # plt.legend()
+        # plt.grid(True)
+        # plt.savefig(f'mse_{index}.jpg')
+        # with open('1.txt', 'w') as f:
+        #     index = f.write(str(int(index)+1))
+        # self.mse = []
+        # self.mse_enc = []
         return hidden_states, encoder_hidden_states
 
 
@@ -672,6 +700,7 @@ if __name__ == '__main__':
     '''
     python opensora/models/diffusion/opensora_v1_5/modeling_opensora.py
     '''
+    from deepspeed.runtime.utils import get_weight_norm
     from opensora.models.causalvideovae import ae_stride_config, ae_channel_config
     from opensora.models import CausalVAEModelWrapper
     from opensora.utils.ema_utils import EMAModel
@@ -702,22 +731,35 @@ if __name__ == '__main__':
     
 
     model = OpenSoraT2V_v1_5.from_pretrained("11.10_mmdit13b_dense_rf_bs8192_lr5e-5_max1x384x384_min1x384x288_emaclip99_border109m/checkpoint-5967/model_ema")
-    import ipdb;ipdb.set_trace()
+    # for blk in model.transformer_blocks:
+    #     for i in blk:
+    #         weight_norm = get_weight_norm(parameters=i.parameters(), mpu=None)
+    #         print(weight_norm)
+    state_dict = model.state_dict()
+    
     # device = torch.device('cpu')
     device = torch.device('cuda:0')
-    model = OpenSoraT2V_v1_5_6B_122(
+    model_ = OpenSoraT2V_v1_5_13B_122(
         in_channels=c, 
         out_channels=c, 
         sample_size_h=latent_size_h, 
         sample_size_w=latent_size_w, 
         sample_size_t=num_frames, 
-        norm_cls='rms_norm', 
+        norm_cls='layer_norm', 
         interpolation_scale_t=args.interpolation_scale_t, 
         interpolation_scale_h=args.interpolation_scale_h, 
         interpolation_scale_w=args.interpolation_scale_w, 
         sparse1d=args.sparse1d, 
         )
-    print(model)
+    print(model_)
+    model_.load_state_dict(state_dict, strict=False)
+    model_.save_pretrained('12.11_14bmmdit_final384_rms2layer')
+    import sys;sys.exit()
+    import ipdb;ipdb.set_trace()
+    weight_norm = get_weight_norm(parameters=model.parameters(), mpu=None)
+    print(weight_norm)
+    import sys;sys.exit()
+
     total_cnt = len(list(model.named_parameters()))
     print('total_cnt', total_cnt)
     print(f'{sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e9} B')

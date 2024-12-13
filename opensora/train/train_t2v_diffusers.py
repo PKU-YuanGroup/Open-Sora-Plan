@@ -466,6 +466,7 @@ def main(args):
             sparse_n=args.sparse_n, 
             skip_connection=args.skip_connection, 
             explicit_uniform_rope=args.explicit_uniform_rope, 
+            norm_cls=args.norm_cls
         )
         
     # use pretrained model?
@@ -484,8 +485,8 @@ def main(args):
             pretrained_checkpoint = pretrained_model.state_dict()
             checkpoint = get_common_weights(pretrained_checkpoint, model_state_dict)
             missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=True)
-            del pretrained_checkpoint, pretrained_model
-            gc.collect()
+            # del pretrained_checkpoint, pretrained_model
+            # gc.collect()
         else:
             # --pretrained path/to/.pth or .pt or some other format
             pretrained_checkpoint = torch.load(args.pretrained, map_location='cpu')
@@ -495,8 +496,8 @@ def main(args):
             missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=True)
         logger.info(f'missing_keys {len(missing_keys)} {missing_keys}, unexpected_keys {len(unexpected_keys)}')
         logger.info(f'Successfully load {len(model_state_dict) - len(missing_keys)}/{len(model_state_dict)} keys from {args.pretrained}!')
-        del model_state_dict, checkpoint, missing_keys, unexpected_keys
-        gc.collect()
+        # del model_state_dict, checkpoint, missing_keys, unexpected_keys
+        # gc.collect()
 
 
     # `accelerate` 0.16.0 will have better support for customized saving
@@ -1214,6 +1215,7 @@ if __name__ == "__main__":
     parser.add_argument('--interpolation_scale_h', type=float, default=1.0)
     parser.add_argument('--interpolation_scale_w', type=float, default=1.0)
     parser.add_argument('--interpolation_scale_t', type=float, default=1.0)
+    parser.add_argument("--norm_cls", type=str, default='rms_norm', choices=['rms_norm', 'layer_norm'])
     parser.add_argument("--ae", type=str, default="stabilityai/sd-vae-ft-mse")
     parser.add_argument("--ae_path", type=str, default="stabilityai/sd-vae-ft-mse")
     parser.add_argument("--text_encoder_name_1", type=str, default='DeepFloyd/t5-v1_1-xxl')

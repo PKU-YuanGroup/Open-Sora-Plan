@@ -19,7 +19,7 @@ export TOKENIZERS_PARALLELISM=false
 
 CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun --nnodes=1 --nproc_per_node 8 --master_port 29513 \
     -m opensora.sample.sample \
-    --model_path /storage/dataset/osp1_5_7k/model_ema \
+    --model_path 12.11_mmdit13b_dense_rf_bs8192_lr1e-4_max1x384x384_min1x384x288_emaclip99_wd0_rms2layer/checkpoint-4506/model \
     --version v1_5 \
     --num_frames 1 \
     --height 384 \
@@ -30,11 +30,11 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun --nnodes=1 --nproc_per_node 8 --ma
     --text_prompt examples/prompt.txt \
     --ae WFVAEModel_D32_8x8x8 \
     --ae_path "/storage/lcm/WF-VAE/results/Middle888" \
-    --save_img_path "./final_384_384x384_cfg7.0_test" \
+    --save_img_path "./final_384_384x384_cfg7.0_test_fp16_14b_rms2fp32layernorm_4k" \
     --fps 18 \
     --guidance_scale 7.0 \
     --guidance_rescale 0.0 \
-    --num_sampling_steps 100 \
+    --num_sampling_steps 1000 \
     --max_sequence_length 512 \
     --sample_method OpenSoraFlowMatchEuler \
     --seed 1234 \
@@ -42,5 +42,5 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun --nnodes=1 --nproc_per_node 8 --ma
     --prediction_type "v_prediction" \
     --use_linear_quadratic_schedule \
     --use_pos_neg_prompt \
-    --ae_dtype fp32 \
-    --weight_dtype fp32
+    --ae_dtype fp16 \
+    --weight_dtype fp16

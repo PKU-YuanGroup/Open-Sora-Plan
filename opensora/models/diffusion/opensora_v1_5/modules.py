@@ -6,7 +6,7 @@ from diffusers.utils import logging
 from diffusers.utils.torch_utils import maybe_allow_in_graph
 from diffusers.models.attention import FeedForward
 from torch.nn import functional as F
-from diffusers.models.normalization import RMSNorm, AdaLayerNorm
+from diffusers.models.normalization import RMSNorm, AdaLayerNorm, FP32LayerNorm
 from diffusers.models.attention_processor import Attention
 from diffusers.models.embeddings import PixArtAlphaTextProjection, Timesteps, TimestepEmbedding
 
@@ -78,18 +78,18 @@ class RoPE3D(torch.nn.Module):
         self.interpolation_scale_w = interpolation_scale_thw[2]
         self.cache = {}
 
-    def get_cos_sin(self, D, seq_start, seq_end, device, dtype, interpolation_scale=1):
-        if (D, seq_start, seq_start, seq_end, device, dtype) not in self.cache:
+    def get_cos_sin(self, D, seq_start, seq_end, device, interpolation_scale=1):
+        if (D, seq_start, seq_start, seq_end, device) not in self.cache:
             inv_freq = 1.0 / (self.base ** (torch.arange(0, D, 2).float().to(device) / D))
             t = torch.arange(seq_start, seq_end, device=device, dtype=inv_freq.dtype) / interpolation_scale
-            freqs = torch.einsum("i,j->ij", t, inv_freq).to(dtype)
+            freqs = torch.einsum("i,j->ij", t, inv_freq)
             freqs = torch.cat((freqs, freqs), dim=-1)
             cos = freqs.cos()  # (Seq, Dim)
             sin = freqs.sin()
-            self.cache[D, seq_start, seq_start, seq_end, device, dtype] = (cos, sin)
-        return self.cache[D, seq_start, seq_start, seq_end, device, dtype]
+            self.cache[D, seq_start, seq_start, seq_end, device] = (cos, sin)
+        return self.cache[D, seq_start, seq_start, seq_end, device]
 
-    def forward(self, dim, positions, device, dtype):
+    def forward(self, dim, positions, device):
         """
         input:
             * dim: head_dim
@@ -102,9 +102,9 @@ class RoPE3D(torch.nn.Module):
         D = dim // 16 * 6
         poses, min_poses, max_poses = positions
         assert len(poses) == 3 and poses[0].ndim == 2 # Batch, Seq, 3
-        cos_t, sin_t = self.get_cos_sin(D_t, min_poses[0], max_poses[0], device, dtype, self.interpolation_scale_t)
-        cos_y, sin_y = self.get_cos_sin(D, min_poses[1], max_poses[1], device, dtype, self.interpolation_scale_h)
-        cos_x, sin_x = self.get_cos_sin(D, min_poses[2], max_poses[2], device, dtype, self.interpolation_scale_w)
+        cos_t, sin_t = self.get_cos_sin(D_t, min_poses[0], max_poses[0], device, self.interpolation_scale_t)
+        cos_y, sin_y = self.get_cos_sin(D, min_poses[1], max_poses[1], device, self.interpolation_scale_h)
+        cos_x, sin_x = self.get_cos_sin(D, min_poses[2], max_poses[2], device, self.interpolation_scale_w)
 
         cos_t, sin_t = compute_rope1d(poses[0], cos_t, sin_t)
         cos_y, sin_y = compute_rope1d(poses[1], cos_y, sin_y)
@@ -134,11 +134,12 @@ def apply_rotary_emb(tokens, video_rotary_emb):
     dim = tokens.shape[-1]
     D_t = dim // 16 * 4
     D = dim // 16 * 6
-    t, y, x = torch.split(tokens, [D_t, D, D], dim=-1)
+    origin_dtype = tokens.dtype
+    t, y, x = torch.split(tokens.float(), [D_t, D, D], dim=-1)
     t = apply_rope1d(t, cos_t, sin_t)
     y = apply_rope1d(y, cos_y, sin_y)
     x = apply_rope1d(x, cos_x, sin_x)
-    tokens = torch.cat((t, y, x), dim=-1)
+    tokens = torch.cat((t, y, x), dim=-1).to(origin_dtype)
     return tokens
 
 def rotate_half(x):
@@ -169,7 +170,7 @@ class AdaNorm(AdaLayerNorm):
         if norm_cls == 'rms_norm':
             self.norm_cls = RMSNorm
         elif norm_cls == 'layer_norm':
-            self.norm_cls = nn.LayerNorm
+            self.norm_cls = FP32LayerNorm
         self.norm = self.norm_cls(
             self.norm.normalized_shape, eps=self.norm.eps, elementwise_affine=self.norm.elementwise_affine
             )
@@ -189,7 +190,7 @@ class OpenSoraNormZero(nn.Module):
         if norm_cls == 'rms_norm':
             self.norm_cls = RMSNorm
         elif norm_cls == 'layer_norm':
-            self.norm_cls = nn.LayerNorm
+            self.norm_cls = FP32LayerNorm
 
         self.silu = nn.SiLU()
         self.linear = nn.Linear(timestep_embed_dim, 6 * embedding_dim, bias=bias)
@@ -354,7 +355,13 @@ class OpenSoraAttnProcessor2_0:
             )
             hidden_states = rearrange(hidden_states, 'b h s d -> s b (h d)', h=FA_head_num)
         # -----------------------------------------------
-
+        # scores = torch.matmul(query, key.transpose(-2, -1)) / (FA_head_num ** 0.5)  # QK^T / sqrt(d_k)
+        # attention_weights = F.softmax(scores, dim=-1)
+        # with open('1.txt', 'r') as f:
+        #     index = f.readlines()[0].strip()
+        # torch.save(attention_weights, f'attn_{index}.pt')
+        # with open('1.txt', 'w') as f:
+        #     index = f.write(str(int(index)+1))
         # -----------------------------------------------
         # Step 6, split->reverse sparse->proj the attention outputs.
         hidden_states, encoder_hidden_states = hidden_states.split(
@@ -407,7 +414,7 @@ class BasicTransformerBlock(nn.Module):
         if norm_cls == 'rms_norm':
             self.norm_cls = RMSNorm
         elif norm_cls == 'layer_norm':
-            self.norm_cls = nn.LayerNorm
+            self.norm_cls = FP32LayerNorm
 
         # 1. Self-Attn
         self.norm1 = OpenSoraNormZero(
@@ -420,15 +427,15 @@ class BasicTransformerBlock(nn.Module):
             dim_head=attention_head_dim, 
             heads=num_attention_heads,
             context_pre_only=context_pre_only,
-            qk_norm=norm_cls,
+            qk_norm='rms_norm',
             eps=norm_eps,
             dropout=dropout,
             bias=attention_bias,
             out_bias=attention_out_bias,
             processor=OpenSoraAttnProcessor2_0(sparse1d, sparse_n, sparse_group),
         )
-        self.attn1.norm_added_q = self.norm_cls(attention_head_dim, eps=norm_eps, elementwise_affine=norm_elementwise_affine)
-        self.attn1.norm_added_k = self.norm_cls(attention_head_dim, eps=norm_eps, elementwise_affine=norm_elementwise_affine)
+        self.attn1.norm_added_q = RMSNorm(attention_head_dim, eps=norm_eps, elementwise_affine=norm_elementwise_affine)
+        self.attn1.norm_added_k = RMSNorm(attention_head_dim, eps=norm_eps, elementwise_affine=norm_elementwise_affine)
         
         # self.attn1.out_prenorm = self.norm_cls(dim, eps=norm_eps, elementwise_affine=norm_elementwise_affine)
         # if not context_pre_only:

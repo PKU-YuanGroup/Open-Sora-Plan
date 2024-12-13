@@ -110,3 +110,13 @@ vpred*
 merge_model*
 counter.txt
 sync.sh
+1.txt
+inf_*sh
+plot*py
+make*py
+vis_attn*
+14b_del_stage*
+mse_vis*
+vis_mse*
+merge_jpg*
+14b_del_*layer
