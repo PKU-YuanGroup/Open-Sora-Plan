@@ -19,31 +19,13 @@ export NCCL_IB_RETRY_CNT=32
 export TOKENIZERS_PARALLELISM=false
 # export NCCL_ALGO=Tree
 
-# MAIN_PROCESS_IP=${1}
-# MAIN_PROCESS_PORT=${2}
-# NUM_MACHINES=${3}
-# NUM_PROCESSES=${4}
-# MACHINE_RANK=${5}
-
-# accelerate launch \
-#     --config_file scripts/accelerate_configs/multi_node_example.k8s.yaml \
-#     --main_process_ip=${MAIN_PROCESS_IP} \
-#     --main_process_port=${MAIN_PROCESS_PORT} \
-#     --num_machines=${NUM_MACHINES} \
-#     --num_processes=${NUM_PROCESSES} \
-#     --machine_rank=${MACHINE_RANK} \
-
-# accelerate launch \
-#     --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
 
 accelerate launch \
     --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
     opensora/train/train_t2v_diffusers.py \
     --ema_deepspeed_config_file scripts/accelerate_configs/zero3.json \
-    --model OpenSoraT2V_v1_5-3B/122 \
-    --text_encoder_name_1 google/t5-v1_1-xl \
-    --cache_dir "../../cache_dir/" \
-    --text_encoder_name_2 laion/CLIP-ViT-bigG-14-laion2B-39B-b160k \
+    --model OpenSoraT2I-2B/122 \
+    --text_encoder_name_1 google/t5-v1_1-xxl \
     --cache_dir "../../cache_dir/" \
     --dataset t2v \
     --data scripts/train_data/image_data_debug.txt \
@@ -51,18 +33,18 @@ accelerate launch \
     --ae_path "/storage/lcm/WF-VAE/results/Middle888" \
     --sample_rate 1 \
     --num_frames 1 \
-    --max_hxw 65536 \
-    --min_hxw 36864 \
-    --force_5_ratio \
+    --max_height 256 \
+    --max_width 256 \
+    --force_resolution \
     --gradient_checkpointing \
-    --train_batch_size=2 \
+    --train_batch_size=16 \
     --train_image_batch_size=1 \
     --dataloader_num_workers 16 \
     --learning_rate=1e-4 \
     --lr_scheduler="constant_with_warmup" \
     --mixed_precision="bf16" \
     --report_to="wandb" \
-    --checkpointing_steps=500000 \
+    --checkpointing_steps=2000 \
     --allow_tf32 \
     --model_max_length 512 \
     --ema_start_step 0 \

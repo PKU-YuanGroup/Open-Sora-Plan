@@ -805,6 +805,8 @@ def main(args):
 
         noisy_model_input = noisy_model_input.to(weight_dtype)
         # print(f'noisy_model_input({noisy_model_input.dtype}).to({weight_dtype}), timesteps: {timesteps.dtype}')
+        if args.force_resolution:
+            model_kwargs['attention_mask'] = None
         model_pred = model(
             noisy_model_input,
             timesteps,
@@ -865,7 +867,7 @@ def main(args):
                 else:
                     loss = (loss * mse_loss_weights).mean()
         else:
-            if torch.all(mask.bool()):
+            if mask is None or torch.all(mask.bool()):
                 mask = None
 
             b, c, t, h, w = model_pred.shape
@@ -1030,7 +1032,7 @@ def main(args):
                 x = torch.rand(
                     b, ae_channel_config[args.ae], 
                     (t - 1) // ae_stride_t + 1, h // ae_stride_h, w // ae_stride_w, 
-                    device=x.device, dtype=x.dtype)
+                    device=x.device, dtype=ae.vae.dtype)
             else:
                 x = ae.encode(x)  # B C T H W
             # print(f'step: {step_}, rank: {accelerator.process_index}, after vae.encode, x: {x.shape}, dtype: {x.dtype}, mean: {x.mean()}, std: {x.std()}')
@@ -1337,15 +1339,16 @@ if __name__ == "__main__":
     parser.add_argument("--train_sp_batch_size", type=int, default=1, help="Batch size for sequence parallel training")
 
     args = parser.parse_args()
-    try:
-        main(args)
-        import sys
-        code = 0
-        print('Exit with code: ', code)
-        sys.exit(code)
-    except Exception as e:
-        print(f'Error with {e}')
-        import sys
-        code = -1
-        print('Exit with code: ', code)
-        sys.exit(code)
+    main(args)
+    # try:
+    #     main(args)
+    #     import sys
+    #     code = 0
+    #     print('Exit with code: ', code)
+    #     sys.exit(code)
+    # except Exception as e:
+    #     print(f'Error with {e}')
+    #     import sys
+    #     code = -1
+    #     print('Exit with code: ', code)
+    #     sys.exit(code)

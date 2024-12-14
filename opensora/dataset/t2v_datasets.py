@@ -185,17 +185,17 @@ class T2V_dataset(Dataset):
         return len(self.cap_list)
 
     def __getitem__(self, idx):
-        try:
-            future = self.executor.submit(self.get_data, idx)
-            data = future.result(timeout=self.timeout) 
-            # data = self.get_data(idx)
-            return data
-        except Exception as e:
-            if len(str(e)) < 2:
-                e = f"TimeoutError, {self.timeout}s timeout occur with {self.cap_list.iloc[idx]['path']}"
-            logger.info(f'Error with {e}')
-            index_cand = self.shape_idx_dict[self.sample_size[idx]]  # pick same shape
-            return self.__getitem__(random.choice(index_cand))
+        # try:
+        future = self.executor.submit(self.get_data, idx)
+        data = future.result(timeout=self.timeout) 
+        # data = self.get_data(idx)
+        return data
+        # except Exception as e:
+        #     if len(str(e)) < 2:
+        #         e = f"TimeoutError, {self.timeout}s timeout occur with {self.cap_list.iloc[idx]['path']}"
+        #     logger.info(f'Error with {e}')
+        #     index_cand = self.shape_idx_dict[self.sample_size[idx]]  # pick same shape
+        #     return self.__getitem__(random.choice(index_cand))
 
     def get_data(self, idx):
         data = self.cap_list.iloc[idx]
@@ -274,7 +274,9 @@ class T2V_dataset(Dataset):
         sample_w = image_data['resolution'][0]['sample_width']
         batch_images = [self.get_image(path, cap) for path, cap in zip(image_data['path'], image_data['cap'])]
         keys = list(batch_images[0].keys())
-        batch_images_dict = {k: torch.cat([batch_images[i][k] for i in range(self.train_image_batch_size)]) for k in keys}
+        batch_images_dict = {
+            k: torch.cat([batch_images[i][k] for i in range(self.train_image_batch_size)]) if batch_images[0][k] is not None else None for k in keys
+            }
         '''
         pixel_values bs_i*C, 1, H, W
         input_ids_1 bs_i, l
