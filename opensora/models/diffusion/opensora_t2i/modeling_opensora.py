@@ -64,6 +64,7 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
         layerwise_text_mlp: bool = False,
         time_as_x_token: bool = False,
         time_as_text_token: bool = False,
+        sandwich_norm: bool = False,
     ):
         super().__init__()
         assert not (time_as_x_token and time_as_text_token), "Cannot have both time_as_token and time_as_text_token"
@@ -150,6 +151,7 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
                         layerwise_text_mlp=self.config.layerwise_text_mlp, 
                         time_as_x_token=self.config.time_as_x_token, 
                         time_as_text_token=self.config.time_as_text_token, 
+                        sandwich_norm=self.config.sandwich_norm, 
                     )
                     for i in range(num_layer)
                 ]
@@ -460,12 +462,29 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
         return output
 
 
+def OpenSoraT2I_2B_111(**kwargs):
+    return OpenSoraT2I(  # 33 layers
+        num_layers=[16, 1, 16], 
+        attention_head_dim=64, num_attention_heads=24, 
+        timestep_embed_dim=512, patch_size_t=1, patch_size=1, 
+        caption_channels=4096, pooled_projection_dim=0, **kwargs
+    )
+
 def OpenSoraT2I_2B_122(**kwargs):
     return OpenSoraT2I(  # 33 layers
         num_layers=[16, 1, 16], 
         attention_head_dim=64, num_attention_heads=24, 
         timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
         caption_channels=4096, pooled_projection_dim=0, **kwargs
+    )
+
+def OpenSoraT2I_2B_122_SandWichNorm(**kwargs):
+    return OpenSoraT2I(  # 33 layers
+        num_layers=[16, 1, 16], 
+        attention_head_dim=64, num_attention_heads=24, 
+        timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
+        caption_channels=4096, pooled_projection_dim=0, 
+        sandwich_norm=True, **kwargs
     )
 
 def OpenSoraT2I_2B_122_LN(**kwargs):
@@ -533,7 +552,9 @@ def OpenSoraT2I_2B_122_TimeAsT(**kwargs):
     )
 
 OpenSora_T2I_models = {
+    "OpenSoraT2I-2B/111": OpenSoraT2I_2B_111, 
     "OpenSoraT2I-2B/122": OpenSoraT2I_2B_122, 
+    "OpenSoraT2I-2B/122/SandWichNorm": OpenSoraT2I_2B_122_SandWichNorm, 
     "OpenSoraT2I-2B/122/LN": OpenSoraT2I_2B_122_LN, 
     "OpenSoraT2I-2B/122/Skip": OpenSoraT2I_2B_122_Skip, 
     "OpenSoraT2I-2B/122/Norm_Skip": OpenSoraT2I_2B_122_Norm_Skip, 
@@ -544,7 +565,9 @@ OpenSora_T2I_models = {
 }
 
 OpenSora_T2I_models_class = {
+    "OpenSoraT2I-2B/111": OpenSoraT2I,
     "OpenSoraT2I-2B/122": OpenSoraT2I,
+    "OpenSoraT2I-2B/122/SandWichNorm": OpenSoraT2I, 
     "OpenSoraT2I-2B/122/LN": OpenSoraT2I, 
     "OpenSoraT2I-2B/122/Skip": OpenSoraT2I, 
     "OpenSoraT2I-2B/122/Norm_Skip": OpenSoraT2I, 
@@ -597,7 +620,7 @@ if __name__ == '__main__':
     
     # device = torch.device('cpu')
     device = torch.device('cuda:0')
-    model = OpenSoraT2I_2B_122_TimeAsT(
+    model = OpenSoraT2I_2B_122_SandWichNorm(
         in_channels=c, 
         out_channels=c, 
         sample_size_h=latent_size_h, 

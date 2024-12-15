@@ -554,8 +554,11 @@ def main(args):
 
     # Enable TF32 for faster training on Ampere GPUs
     # https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices
+    torch.backends.cuda.matmul.allow_tf32 = False 
+    torch.backends.cudnn.allow_tf32 = False
     if args.allow_tf32:
         torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
 
     # =======================================================================================================
     # STEP 8: Create Optimizer

@@ -392,8 +392,10 @@ class BasicTransformerBlock(nn.Module):
         layerwise_text_mlp: bool = False,
         time_as_x_token: bool = False,
         time_as_text_token: bool = False,
+        sandwich_norm: bool = False, 
     ):
         super().__init__()
+        self.sandwich_norm = sandwich_norm
         self.time_as_x_token = time_as_x_token
         self.time_as_text_token = time_as_text_token
         self.time_as_token = time_as_x_token or time_as_text_token
@@ -431,6 +433,8 @@ class BasicTransformerBlock(nn.Module):
             out_bias=attention_out_bias,
             processor=OpenSoraAttnProcessor2_0(time_as_x_token=time_as_x_token, time_as_text_token=False),
         )
+        if self.sandwich_norm:
+            self.post_norm1 = self.norm_cls(dim, eps=norm_eps, elementwise_affine=norm_elementwise_affine)
         
         # 3. Cross-Attn
         if self.layerwise_text_mlp:
@@ -450,6 +454,8 @@ class BasicTransformerBlock(nn.Module):
             out_bias=attention_out_bias,
             processor=OpenSoraAttnProcessor2_0(time_as_x_token=False, time_as_text_token=False),
         )
+        if self.sandwich_norm:
+            self.post_norm2 = self.norm_cls(dim, eps=norm_eps, elementwise_affine=norm_elementwise_affine)
 
         # 3. Feed-forward
         self.norm3 = self.norm_cls(dim, eps=norm_eps, elementwise_affine=norm_elementwise_affine)
@@ -461,6 +467,8 @@ class BasicTransformerBlock(nn.Module):
             inner_dim=ff_inner_dim,
             bias=ff_bias,
         )
+        if self.sandwich_norm:
+            self.post_norm3 = self.norm_cls(dim, eps=norm_eps, elementwise_affine=norm_elementwise_affine)
 
     
     def forward(
@@ -504,6 +512,8 @@ class BasicTransformerBlock(nn.Module):
             attention_mask=attention_mask, 
             video_rotary_emb=video_rotary_emb, 
         )
+        if self.sandwich_norm:
+            attn_hidden_states = self.post_norm1(attn_hidden_states)
         if self.time_as_token:
             hidden_states = hidden_states + attn_hidden_states
         else:
@@ -533,6 +543,8 @@ class BasicTransformerBlock(nn.Module):
             attention_mask=encoder_attention_mask, 
             video_rotary_emb=None, 
         )
+        if self.sandwich_norm:
+            attn_hidden_states = self.post_norm2(attn_hidden_states)
         if self.time_as_token:
             hidden_states = hidden_states + attn_hidden_states
         else:
@@ -551,6 +563,8 @@ class BasicTransformerBlock(nn.Module):
             norm_hidden_states = self.norm3(hidden_states) * (1 + ffn_scale)[None, :, :] + ffn_shift[None, :, :]
         # ffn
         ff_output = self.ff(norm_hidden_states)
+        if self.sandwich_norm:
+            ff_output = self.post_norm3(ff_output)
         if self.time_as_token:
             hidden_states = hidden_states + ff_output
         else:
