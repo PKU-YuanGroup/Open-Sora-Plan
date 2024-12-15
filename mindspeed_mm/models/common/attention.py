@@ -73,7 +73,6 @@ class MultiHeadSparseMMAttentionSBH(nn.Module):
         
 
         args = get_args()
-        self.sequence_parallel = args.sequence_parallel
         config = core_transformer_config_from_args(args)
         self.sp_size = mpu.get_context_parallel_world_size()
         self.tp_size = mpu.get_tensor_model_parallel_world_size()
@@ -89,8 +88,8 @@ class MultiHeadSparseMMAttentionSBH(nn.Module):
             self.norm_proj_q = nn.LayerNorm(head_dim, eps=eps, elementwise_affine=elementwise_affine)
             self.norm_proj_k = nn.LayerNorm(head_dim, eps=eps, elementwise_affine=elementwise_affine)
         elif qk_norm == "rms_norm":
-            self.norm_proj_q = RMSNorm(head_dim, eps=eps, sequence_parallel=self.sequence_parallel)
-            self.norm_proj_k = RMSNorm(head_dim, eps=eps, sequence_parallel=self.sequence_parallel)
+            self.norm_proj_q = RMSNorm(head_dim, eps=eps, sequence_parallel=True)
+            self.norm_proj_k = RMSNorm(head_dim, eps=eps, sequence_parallel=True)
         else:
             raise ValueError(f"Unsupported qk_norm: {qk_norm}")
 
@@ -177,8 +176,8 @@ class MultiHeadSparseMMAttentionSBH(nn.Module):
                 self.norm_added_proj_q = nn.LayerNorm(head_dim, eps=eps, elementwise_affine=elementwise_affine)
                 self.norm_added_proj_k = nn.LayerNorm(head_dim, eps=eps, elementwise_affine=elementwise_affine)
             elif qk_norm == "rms_norm":
-                self.norm_added_proj_q = RMSNorm(head_dim, eps=eps, sequence_parallel=self.sequence_parallel)
-                self.norm_added_proj_k = RMSNorm(head_dim, eps=eps, sequence_parallel=self.sequence_parallel)
+                self.norm_added_proj_q = RMSNorm(head_dim, eps=eps, sequence_parallel=True)
+                self.norm_added_proj_k = RMSNorm(head_dim, eps=eps, sequence_parallel=True)
             else:
                 raise ValueError(f"Unsupported qk_norm: {qk_norm}")
 

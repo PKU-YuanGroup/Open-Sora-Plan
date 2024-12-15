@@ -4,7 +4,7 @@ import os
 import torch
 import torch.nn as nn
 from torch.utils.checkpoint import checkpoint, checkpoint_sequential
-
+from megatron.core import mpu
 import safetensors
 
 
@@ -39,6 +39,32 @@ def load_checkpoint(model, ckpt_path):
         ckpt_dict = safetensors.torch.load_file(ckpt_path)
     else:
         raise ValueError(f"Invalid checkpoint path: {ckpt_path}")
+
+    ckpt_dict = ckpt_dict["model"]
+
+    suffixes_1 = ["attn1.proj_q.weight", "attn1.proj_q.bias",
+                  "attn1.proj_k.weight", "attn1.proj_k.bias",
+                  "attn1.proj_v.weight", "attn1.proj_v.bias",
+                  "attn1.added_proj_q.weight", "attn1.added_proj_q.bias",
+                  "attn1.added_proj_k.weight", "attn1.added_proj_k.bias",
+                  "attn1.added_proj_v.weight", "attn1.added_proj_v.bias",
+                  "net.0.proj.weight", "net.0.proj.bias",
+                  "linear.weight", "linear.bias"]
+    suffixes_2 = ["attn1.proj_out.weight", "attn1.added_proj_out.weight", "net.2.weight"]
+    for key, value in ckpt_dict.items():
+        if isinstance(value, torch.Tensor):
+            if any(key.endswith(suffix) for suffix in suffixes_1):
+                ckpt_dict[key] = torch.chunk(value, mpu.get_tensor_model_parallel_world_size(), dim=0)[
+                    mpu.get_tensor_model_parallel_rank()]
+                # print(f"Key1: {key}, Shape: {ckpt_dict[key].shape}")
+
+            if any(key.endswith(suffix) for suffix in suffixes_2):
+                ckpt_dict[key] = torch.chunk(value, mpu.get_tensor_model_parallel_world_size(), dim=1)[
+                    mpu.get_tensor_model_parallel_rank()]
+                # print(f"Key2: {key}, Shape: {ckpt_dict[key].shape}")
+        else:
+            # print(f"Key: {key}, Type: {type(value)}")
+            pass
 
     missing_keys, unexpected_keys = model.load_state_dict(ckpt_dict, strict=False)
     print(f"Missing keys: {missing_keys}")
