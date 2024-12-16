@@ -413,7 +413,7 @@ class SparseUMMDiT(MultiModalModule):
                 width=width,
                 video_rotary_emb=video_rotary_emb
             )
-            return hidden_states, encoder_hidden_states
+        return hidden_states, encoder_hidden_states
         
     def _operate_on_dec(
         self, hidden_states, skip_connections, encoder_hidden_states,

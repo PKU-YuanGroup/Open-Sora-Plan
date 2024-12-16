@@ -106,6 +106,9 @@ class OptimizerConfig:
     clip_grad: float = 1.0
     """Gradient clipping based on global L2 norm."""
 
+    clip_grad_ema_decay: float = 0.99
+    """EMA decay coefficient of Adaptive Gradient clipping in Open-Sora Plan based on global L2 norm."""
+
     log_num_zeros_in_grad: bool = False
     """If true, calculate and log the number of zeros in gradient."""
 

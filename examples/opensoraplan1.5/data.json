@@ -11,8 +11,8 @@
 			"image_reader_type": "Image",
 			"num_frames": 1,
 			"frame_interval": 1,
-			"max_height": 768,
-			"max_width": 768,
+			"max_height": 256,
+			"max_width": 256,
 			"max_hxw": 65536,
 			"min_hxw": 36864,
 			"force_resolution": true,
@@ -25,7 +25,7 @@
 			"speed_factor": 1.0,
 			"drop_short_ratio": 1.0,
 			"cfg": 0.1,
-			"batch_size": 4,
+			"batch_size": 1,
 			"train_pipeline": {
 				"video": [{
 						"trans_type": "ToTensorVideo"
@@ -33,7 +33,7 @@
 					{
 						"trans_type": "CenterCropResizeVideo",
 						"param": {
-							"size": [768, 768]
+							"size": [256, 256]
 						}
 					},
 					{
@@ -46,7 +46,7 @@
 					{
 						"trans_type": "CenterCropResizeVideo",
 						"param": {
-							"size": [768, 768]
+							"size": [256, 256]
 						}
 					},
 					{
@@ -72,14 +72,14 @@
 	"dataloader_param": {
 		"dataloader_mode": "sampler",
         "sampler_type": "LengthGroupedSampler",
-		"batch_size": 4,
+		"batch_size": 1,
 		"num_workers": 10,
 		"shuffle": false,
 		"drop_last": true,
 		"pin_memory": false,
 		"group_data": true,
 		"collate_param": {
-			"batch_size": 4,
+			"batch_size": 1,
 			"num_frames": 1,
 			"group_data": true,
 			"ae_stride": 8,

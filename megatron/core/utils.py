@@ -5,8 +5,10 @@ import math
 import operator
 from functools import reduce
 
+import amp_C
 import torch
-
+from apex.multi_tensor_apply import multi_tensor_applier
+from torch import inf
 from megatron.core import parallel_state
 from megatron.core.dist_checkpointing.mapping import ShardedTensor
 
