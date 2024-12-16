@@ -1,5 +1,5 @@
 
-The original code is from [T2I-CompBench++](https://github.com/Karine-Huang/T2I-CompBench).
+The original code is from [ImageReward](https://github.com/THUDM/ImageReward).
 
 
 ## Requirements and Installation

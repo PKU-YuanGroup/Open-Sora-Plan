@@ -57,7 +57,7 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
         sparse1d: bool = False,
         pooled_projection_dim: int = 1024, 
         timestep_embed_dim: int = 512,
-        norm_cls: str = 'rms_norm', 
+        norm_cls: str = 'layer_norm', 
         skip_connection: bool = False, 
         norm_skip: bool = False, 
         explicit_uniform_rope: bool = False, 
@@ -65,6 +65,8 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
         time_as_x_token: bool = False,
         time_as_text_token: bool = False,
         sandwich_norm: bool = False,
+        conv_out: bool = False,
+        conv_ffn: bool = False,
     ):
         super().__init__()
         assert not (time_as_x_token and time_as_text_token), "Cannot have both time_as_token and time_as_text_token"
@@ -152,6 +154,7 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
                         time_as_x_token=self.config.time_as_x_token, 
                         time_as_text_token=self.config.time_as_text_token, 
                         sandwich_norm=self.config.sandwich_norm, 
+                        conv_ffn=self.config.conv_ffn
                     )
                     for i in range(num_layer)
                 ]
@@ -169,6 +172,7 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
         self.proj_out = nn.Linear(
             self.config.hidden_size, self.config.patch_size_t * self.config.patch_size * self.config.patch_size * self.out_channels
         )
+        self.final_conv = nn.Conv2d(self.out_channels, self.out_channels, 3, padding=1) if self.config.conv_out else nn.Identity()
 
     def forward(
         self,
@@ -459,6 +463,7 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
             height * self.config.patch_size, 
             width * self.config.patch_size
         )
+        output = self.final_conv(output)
         return output
 
 
@@ -487,6 +492,14 @@ def OpenSoraT2I_2B_122_SandWichNorm(**kwargs):
         sandwich_norm=True, **kwargs
     )
 
+def OpenSoraT2I_2B_122_ConvFFN(**kwargs):
+    return OpenSoraT2I(  # 33 layers
+        num_layers=[16, 1, 16], 
+        attention_head_dim=64, num_attention_heads=24, 
+        timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
+        caption_channels=4096, pooled_projection_dim=0, 
+        conv_ffn=True, **kwargs
+    )
 def OpenSoraT2I_2B_122_LN(**kwargs):
     kwargs.pop('norm_cls', None)
     return OpenSoraT2I(  # 33 layers
@@ -496,6 +509,14 @@ def OpenSoraT2I_2B_122_LN(**kwargs):
         caption_channels=4096, pooled_projection_dim=0, norm_cls='layer_norm', **kwargs
     )
 
+def OpenSoraT2I_2B_122_FinalConv(**kwargs):
+    return OpenSoraT2I(  # 33 layers
+        num_layers=[16, 1, 16], 
+        attention_head_dim=64, num_attention_heads=24, 
+        timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
+        caption_channels=4096, pooled_projection_dim=0, 
+        conv_out=True, **kwargs
+    )
 def OpenSoraT2I_2B_122_Skip(**kwargs):
     return OpenSoraT2I(  # 33 layers
         num_layers=[16, 1, 16], 
@@ -554,6 +575,8 @@ def OpenSoraT2I_2B_122_TimeAsT(**kwargs):
 OpenSora_T2I_models = {
     "OpenSoraT2I-2B/111": OpenSoraT2I_2B_111, 
     "OpenSoraT2I-2B/122": OpenSoraT2I_2B_122, 
+    "OpenSoraT2I-2B/122/ConvFFN": OpenSoraT2I_2B_122_ConvFFN, 
+    "OpenSoraT2I-2B/122/FinalConv": OpenSoraT2I_2B_122_FinalConv, 
     "OpenSoraT2I-2B/122/SandWichNorm": OpenSoraT2I_2B_122_SandWichNorm, 
     "OpenSoraT2I-2B/122/LN": OpenSoraT2I_2B_122_LN, 
     "OpenSoraT2I-2B/122/Skip": OpenSoraT2I_2B_122_Skip, 
@@ -567,6 +590,8 @@ OpenSora_T2I_models = {
 OpenSora_T2I_models_class = {
     "OpenSoraT2I-2B/111": OpenSoraT2I,
     "OpenSoraT2I-2B/122": OpenSoraT2I,
+    "OpenSoraT2I-2B/122/ConvFFN": OpenSoraT2I, 
+    "OpenSoraT2I-2B/122/FinalConv": OpenSoraT2I, 
     "OpenSoraT2I-2B/122/SandWichNorm": OpenSoraT2I, 
     "OpenSoraT2I-2B/122/LN": OpenSoraT2I, 
     "OpenSoraT2I-2B/122/Skip": OpenSoraT2I, 
@@ -620,18 +645,17 @@ if __name__ == '__main__':
     
     # device = torch.device('cpu')
     device = torch.device('cuda:0')
-    model = OpenSoraT2I_2B_122_SandWichNorm(
+    model = OpenSoraT2I_2B_122_ConvFFN(
         in_channels=c, 
         out_channels=c, 
         sample_size_h=latent_size_h, 
         sample_size_w=latent_size_w, 
         sample_size_t=num_frames, 
-        norm_cls='rms_norm', 
         interpolation_scale_t=args.interpolation_scale_t, 
         interpolation_scale_h=args.interpolation_scale_h, 
         interpolation_scale_w=args.interpolation_scale_w, 
         )
-    # print(model)
+    print(model)
     # model_.load_state_dict(state_dict, strict=False)
     # model_.save_pretrained('12.11_14bmmdit_final384_rms2layer')
     # import sys;sys.exit()

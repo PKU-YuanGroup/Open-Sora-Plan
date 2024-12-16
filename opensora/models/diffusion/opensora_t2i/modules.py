@@ -9,7 +9,7 @@ from torch.nn import functional as F
 from diffusers.models.normalization import RMSNorm, AdaLayerNorm, FP32LayerNorm
 from diffusers.models.attention_processor import Attention
 from diffusers.models.embeddings import PixArtAlphaTextProjection, Timesteps, TimestepEmbedding
-from diffusers.models.activations import FP32SiLU
+from diffusers.models.activations import FP32SiLU, GEGLU, GELU, ApproximateGELU, FP32SiLU, SwiGLU
 
 try:
     from flash_attn import flash_attn_qkvpacked_func, flash_attn_func
@@ -368,6 +368,132 @@ class OpenSoraAttnProcessor2_0:
 
         return hidden_states
 
+
+
+class ConvFeedForward(nn.Module):
+    def __init__(self, dim, inner_dim, bias=True, activation_fn='geglu', dropout=0.0, final_dropout=False, rep=True):
+        super(ConvFeedForward, self).__init__()
+
+        self.rep = rep
+        self.bias = bias
+
+        self.hidden_features = hidden_features = inner_dim
+
+        # buffer
+        self.buffer = False # False: empty
+        self.project_in_weight = None
+        self.project_in_bias = None
+        self.dwconv_weight = None
+        self.dwconv_bias = None
+        self.project_out_weight = None
+        self.project_out_bias = None
+
+        if rep:
+            self.project_in = nn.Conv2d(dim, hidden_features, kernel_size=1, bias=bias)
+            self.drop_out = nn.Dropout(dropout)
+            self.dwconv = nn.ModuleList([
+                nn.Conv2d(hidden_features, hidden_features, kernel_size=5, stride=1, padding=2, dilation=1, groups=hidden_features, bias=bias),
+                nn.Conv2d(hidden_features, hidden_features, kernel_size=3, stride=1, padding=1, dilation=1, groups=hidden_features, bias=bias),
+                nn.Conv2d(hidden_features, hidden_features, kernel_size=1, stride=1, padding=0, dilation=1, groups=hidden_features, bias=bias)
+            ])
+
+            self.project_out = nn.Conv2d(hidden_features, dim, kernel_size=1, bias=bias)
+
+        else:
+            self.project_in = nn.Conv2d(dim, hidden_features, kernel_size=1, bias=bias)
+            self.dwconv = nn.Conv2d(hidden_features, hidden_features, kernel_size=5, stride=1, padding=2, groups=hidden_features, bias=bias)
+            self.project_out = nn.Conv2d(hidden_features, dim, kernel_size=1, bias=bias)
+
+
+        
+        if activation_fn == "gelu":
+            self.act_fn = GELU(dim, inner_dim, bias=bias)
+        if activation_fn == "gelu-approximate":
+            self.act_fn = GELU(dim, inner_dim, approximate="tanh", bias=bias)
+        elif activation_fn == "geglu":
+            self.act_fn = GEGLU(dim, inner_dim, bias=bias)
+        elif activation_fn == "geglu-approximate":
+            self.act_fn = ApproximateGELU(dim, inner_dim, bias=bias)
+        elif activation_fn == "swiglu":
+            self.act_fn = SwiGLU(dim, inner_dim, bias=bias)
+
+        # FF as used in Vision Transformer, MLP-Mixer, etc. have a final dropout
+        self.final_dropout = nn.Dropout(dropout) if final_dropout else nn.Identity()
+    def clear_buffer(self):
+        self.buffer = False # False: empty
+        self.project_in_weight = None
+        self.project_in_bias = None
+        self.dwconv_weight = None
+        self.dwconv_bias = None
+        self.project_out_weight = None
+        self.project_out_bias = None
+
+    def add_buffer(self):
+        self.buffer = True
+
+        w1 = self.project_in.weight.squeeze().detach()
+        self.project_in_weight = w1.unsqueeze(-1).unsqueeze(-1)
+        self.project_in_bias = None
+
+        if self.bias:
+            b1 = self.project_in.bias.detach()
+            self.project_in_bias = b1
+
+        self.dwconv_weight = self.dwconv[0].weight.detach()
+        self.dwconv_weight[:, :, 1:4, 1:4] += self.dwconv[1].weight.detach()
+        self.dwconv_weight[:, :, 2:3, 2:3] += (self.dwconv[2].weight.detach() + 1.) # skip connection
+        
+        self.dwconv_bias = None
+        if self.bias:
+            self.dwconv_bias = self.dwconv[0].bias.detach() + self.dwconv[1].bias.detach() + self.dwconv[2].bias.detach()
+
+        w1 = self.project_out.weight.squeeze().detach()
+        self.project_out_weight = w1
+        self.project_out_bias = None
+
+        if self.bias:
+            b1 = self.project_out.bias.detach()
+            self.project_out_bias = b1
+
+
+    def train(self, mode: bool = True):
+        if not isinstance(mode, bool):
+            raise ValueError("training mode is expected to be boolean")
+        self.training = mode
+        if mode:
+            self.clear_buffer() # added: clear rep buffer
+        else:
+            self.add_buffer() # added: add rep buffer
+        for module in self.children():
+            module.train(mode)
+        return self
+    
+
+    def forward(self, x, frame, height, width):
+        x = rearrange(x, '(t h w) b c -> (b t) c h w', t=frame, h=height, w=width)
+
+        if (not self.rep) or (self.rep and self.training):
+            x = self.project_in(x)
+            x = self.act_fn(x)
+            x = self.drop_out(x)
+            if self.rep:
+                out = x
+                for module in self.dwconv:
+                    out = out + module(x)
+            else:
+                out = self.dwconv(x)
+            x = self.project_out(out)
+            x = self.final_dropout(x)
+        else: # eval & rep
+            x = F.conv2d(x, self.project_in_weight, self.project_in_bias) # project_in
+            x = self.act_fn(x)
+            x = F.conv2d(x, self.dwconv_weight, self.dwconv_bias, padding=2, groups=self.hidden_features)
+            x = F.conv2d(x, self.project_out_weight, self.project_out_bias) # project_out
+
+        x = rearrange(x, '(b t) c h w -> (t h w) b c', t=frame, h=height, w=width)
+        return x
+
+
 @maybe_allow_in_graph
 class BasicTransformerBlock(nn.Module):
     def __init__(
@@ -393,6 +519,7 @@ class BasicTransformerBlock(nn.Module):
         time_as_x_token: bool = False,
         time_as_text_token: bool = False,
         sandwich_norm: bool = False, 
+        conv_ffn: bool = False,
     ):
         super().__init__()
         self.sandwich_norm = sandwich_norm
@@ -459,14 +586,17 @@ class BasicTransformerBlock(nn.Module):
 
         # 3. Feed-forward
         self.norm3 = self.norm_cls(dim, eps=norm_eps, elementwise_affine=norm_elementwise_affine)
-        self.ff = FeedForward(
+
+        ffn_cls = ConvFeedForward if conv_ffn else FeedForward
+        ff_inner_dim = 2 * dim if conv_ffn else 4 * dim
+        self.ff = ffn_cls(
             dim,
             dropout=dropout,
             activation_fn=activation_fn,
             final_dropout=final_dropout,
             inner_dim=ff_inner_dim,
             bias=ff_bias,
-        )
+        ) 
         if self.sandwich_norm:
             self.post_norm3 = self.norm_cls(dim, eps=norm_eps, elementwise_affine=norm_elementwise_affine)
 
@@ -562,7 +692,7 @@ class BasicTransformerBlock(nn.Module):
             # norm & scale & shift
             norm_hidden_states = self.norm3(hidden_states) * (1 + ffn_scale)[None, :, :] + ffn_shift[None, :, :]
         # ffn
-        ff_output = self.ff(norm_hidden_states)
+        ff_output = self.ff(norm_hidden_states, frame=frame, height=height, width=width)
         if self.sandwich_norm:
             ff_output = self.post_norm3(ff_output)
         if self.time_as_token:
