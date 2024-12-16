@@ -405,16 +405,7 @@ class ConvFeedForward(nn.Module):
             self.project_out = nn.Conv2d(hidden_features, dim, kernel_size=1, bias=bias)
 
 
-        if activation_fn == "gelu":
-            self.act_fn = GELU(dim, inner_dim, bias=bias)
-        if activation_fn == "gelu-approximate":
-            self.act_fn = GELU(dim, inner_dim, approximate="tanh", bias=bias)
-        elif activation_fn == "geglu":
-            self.act_fn = GEGLU(dim, inner_dim, bias=bias)
-        elif activation_fn == "geglu-approximate":
-            self.act_fn = ApproximateGELU(dim, inner_dim, bias=bias)
-        elif activation_fn == "swiglu":
-            self.act_fn = SwiGLU(dim, inner_dim, bias=bias)
+        self.act_fn = nn.GELU()
 
         # FF as used in Vision Transformer, MLP-Mixer, etc. have a final dropout
         self.final_dropout = nn.Dropout(dropout) if final_dropout else nn.Identity()
@@ -535,9 +526,9 @@ class BasicTransformerBlock(nn.Module):
 
         if self.time_as_token:
             self.map_time_to_token = nn.Sequential(
-                nn.Linear(in_features=timestep_embed_dim, out_features=4 * dim, bias=True), 
+                nn.Linear(in_features=timestep_embed_dim, out_features=dim, bias=True), 
                 FP32SiLU(), 
-                nn.Linear(in_features=4 * dim, out_features=caption_channels if time_as_text_token else dim, bias=True)
+                nn.Linear(in_features=dim, out_features=caption_channels if time_as_text_token else dim, bias=True)
             )
         else:
             self.silu = nn.SiLU()
@@ -564,7 +555,11 @@ class BasicTransformerBlock(nn.Module):
         
         # 3. Cross-Attn
         if self.layerwise_text_mlp:
-            self.text_mlp = PixArtAlphaTextProjection(caption_channels, caption_channels, act_fn='silu_fp32')
+            self.text_norm_mlp = nn.Sequential(
+                self.norm_cls(caption_channels, eps=norm_eps, elementwise_affine=norm_elementwise_affine), 
+                nn.Linear(caption_channels, caption_channels, bias=True), 
+                FP32SiLU()
+            )
         self.norm2 = self.norm_cls(dim, eps=norm_eps, elementwise_affine=norm_elementwise_affine)
         self.attn2 = Attention(
             query_dim=dim,
@@ -587,7 +582,7 @@ class BasicTransformerBlock(nn.Module):
         self.norm3 = self.norm_cls(dim, eps=norm_eps, elementwise_affine=norm_elementwise_affine)
 
         ffn_cls = ConvFeedForward if conv_ffn else FeedForward
-        ff_inner_dim = 2 * dim if conv_ffn else 4 * dim
+        ff_inner_dim = int(2.5 * dim) if conv_ffn else 4 * dim
         self.ff = ffn_cls(
             dim,
             dropout=dropout,
@@ -662,7 +657,7 @@ class BasicTransformerBlock(nn.Module):
             norm_hidden_states = self.norm2(hidden_states) * (1 + crs_scale)[None, :, :] + crs_shift[None, :, :]
         # attn
         if self.layerwise_text_mlp:
-            encoder_hidden_states = self.text_mlp(encoder_hidden_states)
+            encoder_hidden_states = self.text_norm_mlp(encoder_hidden_states)
         attn_hidden_states = self.attn2(
             norm_hidden_states,
             encoder_hidden_states=encoder_hidden_states,

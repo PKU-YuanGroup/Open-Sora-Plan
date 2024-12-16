@@ -12,7 +12,7 @@ class Qwen2VLWrapper(nn.Module):
         super(Qwen2VLWrapper, self).__init__()
         self.model_name = model_name
         print(f'Loading Qwen2VL model from {self.model_name}...')
-        self.text_enc = Qwen2VLModel.from_pretrained(self.model_name, **kwargs).eval()
+        self.text_enc = Qwen2VLModel.from_pretrained(self.model_name, attn_implementation="flash_attention_2", **kwargs).eval()
 
     def forward(self, input_ids, attention_mask):
         text_encoder_embs = self.text_enc(input_ids=input_ids, attention_mask=attention_mask)['last_hidden_state']

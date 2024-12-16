@@ -181,7 +181,7 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
         self.proj_out = nn.Linear(
             self.config.hidden_size, self.config.patch_size_t * self.config.patch_size * self.config.patch_size * self.out_channels
         )
-        self.final_conv = nn.Conv2d(self.out_channels, self.out_channels, 3, padding=1) if self.config.conv_out else nn.Identity()
+        self.final_conv = nn.Conv2d(self.out_channels, self.out_channels, 3, padding=1) if self.config.conv_out else None
 
     def forward(
         self,
@@ -234,7 +234,7 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
             encoder_attention_mask = (1 - encoder_attention_mask.to(self.dtype)) * -10000.0
             encoder_attention_mask = encoder_attention_mask.unsqueeze(1)
 
-        if encoder_attention_mask_2 is not None and encoder_attention_mask_2.ndim == 3:  
+        if encoder_attention_mask_2 is not None and encoder_attention_mask_2.ndim == 3 and self.caption_projection_2 is not None:  
             # b, 1, l -> only images
             encoder_attention_mask_2 = (1 - encoder_attention_mask_2.to(self.dtype)) * -10000.0
             encoder_attention_mask_2 = encoder_attention_mask_2.unsqueeze(1)
@@ -489,7 +489,10 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
             height * self.config.patch_size, 
             width * self.config.patch_size
         )
-        output = self.final_conv(output)
+        if self.final_conv is not None:
+            output = rearrange(output, "b c t h w -> (b t) c h w", t=num_frames * self.config.patch_size_t)
+            output = self.final_conv(output)
+            output = rearrange(output, "(b t) c h w -> b c t h w", t=num_frames * self.config.patch_size_t)
         return output
 
 
@@ -676,7 +679,7 @@ if __name__ == '__main__':
     b = 1
     c = 32
     cond_c = 4096
-    cond_c2 = 3584
+    cond_c2 = 4096
     cond_c3 = 1280
     num_timesteps = 1000
     ae_stride_t, ae_stride_h, ae_stride_w = ae_stride_config[args.ae]
@@ -694,7 +697,8 @@ if __name__ == '__main__':
     
     # device = torch.device('cpu')
     device = torch.device('cuda:0')
-    model = OpenSoraT2I_2B_122_4k3584(
+
+    model = OpenSoraT2I_2B_122_ConvFFN(
         in_channels=c, 
         out_channels=c, 
         sample_size_h=latent_size_h, 
@@ -714,7 +718,8 @@ if __name__ == '__main__':
     # import sys;sys.exit()
 
     total_cnt = len(list(model.named_parameters()))
-    print('total_cnt', total_cnt)
+    # print('total_cnt', total_cnt)
+    # print(k, 'total_cnt', total_cnt)
     print(f'{sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e9} B')
     # import sys;sys.exit()
     # try:

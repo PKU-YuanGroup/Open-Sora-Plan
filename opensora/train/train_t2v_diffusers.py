@@ -419,7 +419,7 @@ def main(args):
     # =======================================================================================================
     # STEP 4: Create text encoder model
     with ContextManagers(deepspeed_zero_init_disabled_context_manager()):
-        text_enc_1 = get_text_warpper(args.text_encoder_name_1)(args).eval()
+        text_enc_1 = get_text_warpper(args.text_encoder_name_1)(args.text_encoder_name_1).eval()
         text_enc_1.requires_grad_(False)
         if not args.post_to_device:
             text_enc_1.to(accelerator.device, dtype=weight_dtype)
@@ -427,7 +427,7 @@ def main(args):
 
         text_enc_2 = None
         if args.text_encoder_name_2 is not None:
-            text_enc_2 = get_text_warpper(args.text_encoder_name_2)(args).eval()
+            text_enc_2 = get_text_warpper(args.text_encoder_name_2)(args.text_encoder_name_2).eval()
             text_enc_2.requires_grad_(False)
             if not args.post_to_device:
                 text_enc_2.to(accelerator.device, dtype=weight_dtype)
@@ -435,7 +435,7 @@ def main(args):
 
         text_enc_3 = None
         if args.text_encoder_name_3 is not None:
-            text_enc_3 = get_text_warpper(args.text_encoder_name_3)(args).eval()
+            text_enc_3 = get_text_warpper(args.text_encoder_name_3)(args.text_encoder_name_3).eval()
             text_enc_3.requires_grad_(False)
             if not args.post_to_device:
                 text_enc_3.to(accelerator.device, dtype=weight_dtype)
@@ -1343,7 +1343,7 @@ if __name__ == "__main__":
     parser.add_argument("--adam_beta1", type=float, default=0.9, help="The beta1 parameter for the Adam and Prodigy optimizers.")
     parser.add_argument("--adam_beta2", type=float, default=0.95, help="The beta2 parameter for the Adam and Prodigy optimizers.")
     parser.add_argument("--prodigy_decouple", type=bool, default=True, help="Use AdamW style decoupled weight decay")
-    parser.add_argument("--adam_weight_decay", type=float, default=1e-01, help="Weight decay to use for unet params")
+    parser.add_argument("--adam_weight_decay", type=float, default=1e-02, help="Weight decay to use for unet params")
     parser.add_argument("--adam_weight_decay_text_encoder", type=float, default=None, help="Weight decay to use for text_encoder")
     parser.add_argument("--adam_epsilon", type=float, default=1e-8, help="Epsilon value for the Adam optimizer and Prodigy optimizers.")
     parser.add_argument("--prodigy_use_bias_correction", type=bool, default=True, help="Turn on Adam's bias correction. True by default. Ignored if optimizer is adamW")

@@ -12,7 +12,7 @@ class GLM4VWrapper(nn.Module):
         super(GLM4VWrapper, self).__init__()
         self.model_name = model_name
         print(f'Loading GLM4V model from {self.model_name}...')
-        self.text_enc = ChatGLMModel.from_pretrained(self.model_name, **kwargs).eval()
+        self.text_enc = ChatGLMModel.from_pretrained(self.model_name, attn_implementation="flash_attention_2", **kwargs).eval()
         self.text_enc.vision = None
 
     def forward(self, input_ids, attention_mask):
