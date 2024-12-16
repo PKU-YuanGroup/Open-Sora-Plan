@@ -223,7 +223,7 @@ class SparseUMMDiT(MultiModalModule):
         )
 
         # set label "sequence_parallel", for all_reduce the grad
-        modules = [self.time_text_embed, self.norm_final, self.norm_out]
+        modules = [self.norm_final]
         if self.skip_connection:
             modules += [self.skip_norm_linear, self.skip_norm_linear_enc]
         for module in modules:
@@ -330,7 +330,7 @@ class SparseUMMDiT(MultiModalModule):
             self.sparse_mask[sparse_n] = self.prepare_sparse_mask(attention_mask, encoder_attention_mask, sparse_n)
 
         pos_thw = self.position_getter(
-            batch_size, t=frames, h=height, w=width, 
+            batch_size, t=frames * mpu.get_context_parallel_world_size(), h=height, w=width,
             device=hidden_states.device, training=self.training
         )
         video_rotary_emb = self.rope(self.head_dim, pos_thw, hidden_states.device, hidden_states.dtype)

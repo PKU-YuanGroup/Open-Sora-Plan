@@ -52,7 +52,10 @@ class AdaNorm(nn.Module):
         norm_cls: str = 'rms_norm',
     ):
         super().__init__()
-
+        args = get_args()
+        self.sequence_parallel = args.sequence_parallel
+        config = core_transformer_config_from_args(args)
+        config.sequence_parallel = False
         output_dim = output_dim or embedding_dim * 2
 
         if num_embeddings is not None:
@@ -61,13 +64,19 @@ class AdaNorm(nn.Module):
             self.emb = None
 
         self.silu = nn.SiLU()
-        self.linear = nn.Linear(embedding_dim, output_dim)
+        self.linear = tensor_parallel.SingleColumnParallelLinear(
+            embedding_dim,
+            output_dim,
+            config=config,
+            init_method=config.init_method,
+            gather_output=False
+        )
         if norm_cls == 'rms_norm':
             self.norm_cls = RMSNorm
         elif norm_cls == 'layer_norm':
             self.norm_cls = nn.LayerNorm
         self.norm = self.norm_cls(
-            output_dim // 2, eps=norm_eps
+            output_dim // 2, eps=norm_eps, sequence_parallel=self.sequence_parallel
         )
 
     def forward(
@@ -76,7 +85,11 @@ class AdaNorm(nn.Module):
         if self.emb is not None:
             temb = self.emb(timestep)
 
-        temb = self.linear(self.silu(temb))
+        temb = self.linear(self.silu(temb))[0]
+        if self.sequence_parallel:
+            temb = tensor_parallel.mappings.all_gather_last_dim_from_tensor_parallel_region(temb)
+        else:
+            temb = tensor_parallel.mappings.gather_from_tensor_model_parallel_region(temb)
         # x shape: (S B H), temb shape: (B, H)
         shift, scale = temb.chunk(2, dim=1)
         shift = shift[None, :, :]
@@ -99,6 +112,7 @@ class OpenSoraNormZero(nn.Module):
         args = get_args()
         self.sequence_parallel = args.sequence_parallel
         config = core_transformer_config_from_args(args)
+        config.sequence_parallel = False
 
         if norm_cls == 'rms_norm':
             self.norm_cls = RMSNorm
@@ -106,25 +120,25 @@ class OpenSoraNormZero(nn.Module):
             self.norm_cls = nn.LayerNorm
 
         self.silu = nn.SiLU()
-        self.linear = tensor_parallel.ColumnParallelLinear(
+        self.linear = tensor_parallel.SingleColumnParallelLinear(
             timestep_embed_dim,
             6 * embedding_dim,
             config=config,
             init_method=config.init_method,
-            gather_output=True
+            gather_output=False
         )
         self.norm = self.norm_cls(embedding_dim, eps=eps, sequence_parallel=self.sequence_parallel)
         self.norm_enc = self.norm_cls(embedding_dim, eps=eps, sequence_parallel=self.sequence_parallel)
 
-        # set label "sequence_parallel", for all_reduce the grad
-        for module in [self.norm, self.norm_enc]:
-            for param in module.parameters():
-                setattr(param, "sequence_parallel", self.sequence_parallel)
-
     def forward(
         self, hidden_states: torch.Tensor, encoder_hidden_states: torch.Tensor, temb: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        shift, scale, gate, enc_shift, enc_scale, enc_gate = self.linear(self.silu(temb))[0].chunk(6, dim=1)
+        temb = self.linear(self.silu(temb))[0]
+        if self.sequence_parallel:
+            temb = tensor_parallel.mappings.all_gather_last_dim_from_tensor_parallel_region(temb)
+        else:
+            temb = tensor_parallel.mappings.gather_from_tensor_model_parallel_region(temb)
+        shift, scale, gate, enc_shift, enc_scale, enc_gate = temb.chunk(6, dim=1)
         hidden_states = self.norm(hidden_states) * (1 + scale)[None, :, :] + shift[None, :, :] # because hidden_states'shape is (S B H), so we need to add None at the first dimension
         encoder_hidden_states = self.norm_enc(encoder_hidden_states) * (1 + enc_scale)[None, :, :] + enc_shift[None, :, :]
         return hidden_states, encoder_hidden_states, gate[None, :, :], enc_gate[None, :, :]
