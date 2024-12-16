@@ -77,28 +77,40 @@ class Collate:
         cond_mask_1 = [i['cond_mask_1'] for i in batch]  # b [1, l] or b [bs_i, l]
         input_ids_2 = [i['input_ids_2'] for i in batch]  # b [1, l] or b [bs_i, l]
         cond_mask_2 = [i['cond_mask_2'] for i in batch]  # b [1, l] or b [bs_i, l]
-        assert all([i is None for i in input_ids_2]) or all([i is not None for i in input_ids_2])
-        assert all([i is None for i in cond_mask_2]) or all([i is not None for i in cond_mask_2])
+        input_ids_3 = [i['input_ids_3'] for i in batch]  # b [1, l] or b [bs_i, l]
+        cond_mask_3 = [i['cond_mask_3'] for i in batch]  # b [1, l] or b [bs_i, l]
         if all([i is None for i in input_ids_2]):
             input_ids_2 = None
         if all([i is None for i in cond_mask_2]):
             cond_mask_2 = None
-        return batch_tubes, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2
+        if all([i is None for i in input_ids_3]):
+            input_ids_3 = None
+        if all([i is None for i in cond_mask_3]):
+            cond_mask_3 = None
+        return batch_tubes, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2, input_ids_3, cond_mask_3
 
     def __call__(self, batch):
-        batch_tubes, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2 = self.package(batch)
+        batch_tubes, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2, input_ids_3, cond_mask_3 = self.package(batch)
 
         ds_stride = self.ae_stride * self.patch_size
         t_ds_stride = self.ae_stride_t * self.patch_size_t
         
-        pad_batch_tubes, attention_mask, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2 = self.process(
-            batch_tubes, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2, 
+        pad_batch_tubes, attention_mask, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2, input_ids_3, cond_mask_3 = \
+            self.process(
+            batch_tubes, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2, input_ids_3, cond_mask_3, 
             t_ds_stride, ds_stride, self.max_thw, self.ae_stride_thw
         )
         assert not torch.any(torch.isnan(pad_batch_tubes)), 'after pad_batch_tubes'
-        return pad_batch_tubes, attention_mask, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2
+        return pad_batch_tubes, attention_mask, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2, input_ids_3, cond_mask_3
 
-    def process(self, batch_tubes, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2, t_ds_stride, ds_stride, max_thw, ae_stride_thw):
+    def process(
+            self, 
+            batch_tubes, 
+            input_ids_1, cond_mask_1, 
+            input_ids_2, cond_mask_2, 
+            input_ids_3, cond_mask_3, 
+            t_ds_stride, ds_stride, max_thw, ae_stride_thw
+            ):
         # pad to max multiple of ds_stride
         batch_input_size = [i.shape for i in batch_tubes]  # [(c, t, h, w), (c, t, h, w)] or [(c*bs_i, t, h, w), (c*bs_i, t, h, w)]
         assert len(batch_input_size) == self.batch_size
@@ -124,6 +136,10 @@ class Collate:
                     input_ids_2 = [input_ids_2[i] for i in pick_idx]  # b [1, l] or b [bs_i, l]
                 if cond_mask_2 is not None:
                     cond_mask_2 = [cond_mask_2[i] for i in pick_idx]  # b [1, l] or b [bs_i, l]
+                if input_ids_3 is not None:
+                    input_ids_3 = [input_ids_3[i] for i in pick_idx]  # b [1, l] or b [bs_i, l]
+                if cond_mask_3 is not None:
+                    cond_mask_3 = [cond_mask_3[i] for i in pick_idx]  # b [1, l] or b [bs_i, l]
 
             for i in range(1, self.batch_size):
                 assert batch_input_size[0] == batch_input_size[i]
@@ -179,18 +195,22 @@ class Collate:
         cond_mask_1 = torch.stack(cond_mask_1)  # b 1 l or b bs_i l
         input_ids_2 = torch.stack(input_ids_2) if input_ids_2 is not None else input_ids_2  # b 1 l or b bs_i l
         cond_mask_2 = torch.stack(cond_mask_2) if cond_mask_2 is not None else cond_mask_2  # b 1 l or b bs_i l
+        input_ids_3 = torch.stack(input_ids_3) if input_ids_3 is not None else input_ids_3  # b 1 l or b bs_i l
+        cond_mask_3 = torch.stack(cond_mask_3) if cond_mask_3 is not None else cond_mask_3  # b 1 l or b bs_i l
 
         input_ids_1 = rearrange(input_ids_1, 'b x l -> (b x) l')
         cond_mask_1 = rearrange(cond_mask_1, 'b x l -> (b x) l')
         input_ids_2 = rearrange(input_ids_2, 'b x l -> (b x) l') if input_ids_2 is not None else input_ids_2
         cond_mask_2 = rearrange(cond_mask_2, 'b x l -> (b x) l') if cond_mask_2 is not None else cond_mask_2
+        input_ids_3 = rearrange(input_ids_3, 'b x l -> (b x) l') if input_ids_3 is not None else input_ids_3
+        cond_mask_3 = rearrange(cond_mask_3, 'b x l -> (b x) l') if cond_mask_3 is not None else cond_mask_3
         
         attention_mask = rearrange(attention_mask, 'b x t h w -> (b x) t h w')
 
         if pad_batch_tubes.shape[2] == 1: # for image b, x*c, t, h, w
             pad_batch_tubes = rearrange(pad_batch_tubes, 'b (x c) t h w -> (b x) c t h w', x=self.image_batch_size)
 
-        return pad_batch_tubes, attention_mask, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2
+        return pad_batch_tubes, attention_mask, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2, input_ids_3, cond_mask_3
 
 
 def group_data_fun(lengths, generator=None):

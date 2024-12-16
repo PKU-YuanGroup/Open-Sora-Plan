@@ -191,11 +191,11 @@ class CombinedTimestepTextProjEmbeddings(nn.Module):
         return conditioning
 
 class AdaNorm(AdaLayerNorm):
-    def __init__(self, norm_cls='rms_norm',  **kwargs) -> None:
+    def __init__(self, norm_cls='fp32_layer_norm',  **kwargs) -> None:
         super().__init__(**kwargs)
         if norm_cls == 'rms_norm':
             self.norm_cls = RMSNorm
-        elif norm_cls == 'layer_norm':
+        elif norm_cls == 'fp32_layer_norm':
             self.norm_cls = FP32LayerNorm
         self.norm = self.norm_cls(
             self.norm.normalized_shape, eps=self.norm.eps, elementwise_affine=self.norm.elementwise_affine
@@ -210,12 +210,12 @@ class OpenSoraNormZero(nn.Module):
         elementwise_affine: bool = True,
         eps: float = 1e-5,
         bias: bool = True,
-        norm_cls: str = 'rms_norm', 
+        norm_cls: str = 'fp32_layer_norm', 
     ) -> None:
         super().__init__()
         if norm_cls == 'rms_norm':
             self.norm_cls = RMSNorm
-        elif norm_cls == 'layer_norm':
+        elif norm_cls == 'fp32_layer_norm':
             self.norm_cls = FP32LayerNorm
 
         self.silu = nn.SiLU()
@@ -241,12 +241,12 @@ class OpenSoraNormZero(nn.Module):
         elementwise_affine: bool = True,
         eps: float = 1e-5,
         bias: bool = True,
-        norm_cls: str = 'rms_norm', 
+        norm_cls: str = 'fp32_layer_norm', 
     ) -> None:
         super().__init__()
         if norm_cls == 'rms_norm':
             self.norm_cls = RMSNorm
-        elif norm_cls == 'layer_norm':
+        elif norm_cls == 'fp32_layer_norm':
             self.norm_cls = FP32LayerNorm
 
         self.silu = nn.SiLU()
@@ -405,7 +405,6 @@ class ConvFeedForward(nn.Module):
             self.project_out = nn.Conv2d(hidden_features, dim, kernel_size=1, bias=bias)
 
 
-        
         if activation_fn == "gelu":
             self.act_fn = GELU(dim, inner_dim, bias=bias)
         if activation_fn == "gelu-approximate":
@@ -514,7 +513,7 @@ class BasicTransformerBlock(nn.Module):
         attention_out_bias: bool = True,
         context_pre_only: bool = False,
         interpolation_scale_thw: Tuple[int] = (1, 1, 1), 
-        norm_cls: str = 'rms_norm', 
+        norm_cls: str = 'fp32_layer_norm', 
         layerwise_text_mlp: bool = False,
         time_as_x_token: bool = False,
         time_as_text_token: bool = False,
@@ -531,7 +530,7 @@ class BasicTransformerBlock(nn.Module):
         self.layerwise_text_mlp = layerwise_text_mlp
         if norm_cls == 'rms_norm':
             self.norm_cls = RMSNorm
-        elif norm_cls == 'layer_norm':
+        elif norm_cls == 'fp32_layer_norm':
             self.norm_cls = FP32LayerNorm
 
         if self.time_as_token:
@@ -553,7 +552,7 @@ class BasicTransformerBlock(nn.Module):
             dim_head=attention_head_dim, 
             heads=num_attention_heads,
             context_pre_only=context_pre_only,
-            qk_norm='rms_norm',
+            qk_norm=norm_cls,
             eps=norm_eps,
             dropout=dropout,
             bias=attention_bias,
@@ -574,7 +573,7 @@ class BasicTransformerBlock(nn.Module):
             dim_head=attention_head_dim, 
             heads=num_attention_heads,
             context_pre_only=context_pre_only,
-            qk_norm='rms_norm',
+            qk_norm=norm_cls,
             eps=norm_eps,
             dropout=dropout,
             bias=attention_bias,

@@ -65,6 +65,7 @@ def get_args():
     parser.add_argument("--ae_path", type=str, default='CausalVAEModel_4x8x8')
     parser.add_argument("--text_encoder_name_1", type=str, default='DeepFloyd/t5-v1_1-xxl')
     parser.add_argument("--text_encoder_name_2", type=str, default=None)
+    parser.add_argument("--text_encoder_name_3", type=str, default=None)
     parser.add_argument("--sample_method", type=str, default="OpenSoraFlowMatchEuler")
     parser.add_argument('--enable_tiling', action='store_true')
     parser.add_argument('--compile', action='store_true')
@@ -92,4 +93,4 @@ if __name__ == "__main__":
         guidance_scale=7.0, 
         num_samples_per_prompt=1, 
         )  # b t h w c, [0, 255]
-    Image.fromarray(image[0][0].detach().cpu().numpy()).save('test.png')
+    Image.fromarray(image[0][0].detach().cpu().numpy()).save('test_t3.png')

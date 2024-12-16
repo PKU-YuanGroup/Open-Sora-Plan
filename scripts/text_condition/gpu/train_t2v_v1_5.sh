@@ -24,8 +24,9 @@ accelerate launch \
     --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
     opensora/train/train_t2v_diffusers.py \
     --ema_deepspeed_config_file scripts/accelerate_configs/zero3.json \
-    --model OpenSoraT2I-2B/122 \
-    --text_encoder_name_1 google/t5-v1_1-xxl \
+    --model OpenSoraT2I-2B/122/4k4k \
+    --text_encoder_name_1 /storage/ongoing/12.13/t2i/Open-Sora-Plan/cache_dir/google/t5-v1_1-xxl \
+    --text_encoder_name_2 /storage/ongoing/12.13/t2i/Open-Sora-Plan/cache_dir/glm-4v-9b \
     --cache_dir "../../cache_dir/" \
     --dataset t2v \
     --data scripts/train_data/image_data_debug.txt \
@@ -45,7 +46,6 @@ accelerate launch \
     --mixed_precision="bf16" \
     --report_to="wandb" \
     --checkpointing_steps=2000 \
-    --allow_tf32 \
     --model_max_length 512 \
     --ema_start_step 0 \
     --cfg 0.1 \

@@ -1,5 +1,5 @@
 from torchvision.transforms import Compose
-from transformers import AutoTokenizer, AutoImageProcessor
+from opensora.models.text_encoder import get_text_tokenizer
 
 from torchvision import transforms
 from torchvision.transforms import Lambda
@@ -28,14 +28,14 @@ def getdataset(args):
             MaxHWStrideResizeVideo(args.max_hxw, force_5_ratio=args.force_5_ratio, hw_stride=args.hw_stride, interpolation_mode="bicubic"), 
             SpatialStrideCropVideo(stride=args.hw_stride, force_5_ratio=args.force_5_ratio), 
         ]
-
-    # tokenizer_1 = AutoTokenizer.from_pretrained(args.text_encoder_name_1, cache_dir=args.cache_dir)
-    tokenizer_1 = AutoTokenizer.from_pretrained('/storage/ongoing/12.13/t2i/Open-Sora-Plan/cache_dir/google/t5-v1_1-xxl', cache_dir=args.cache_dir)
-    # tokenizer_1 = AutoTokenizer.from_pretrained('/storage/ongoing/new/Open-Sora-Plan/cache_dir/mt5-xxl', cache_dir=args.cache_dir)
+    
+    tokenizer_1 = get_text_tokenizer(args.text_encoder_name_1).from_pretrained(args.text_encoder_name_1)
     tokenizer_2 = None
     if args.text_encoder_name_2 is not None:
-        # tokenizer_2 = AutoTokenizer.from_pretrained(args.text_encoder_name_2, cache_dir=args.cache_dir)
-        tokenizer_2 = AutoTokenizer.from_pretrained('/storage/cache_dir/CLIP-ViT-bigG-14-laion2B-39B-b160k', cache_dir=args.cache_dir)
+        tokenizer_2 = get_text_tokenizer(args.text_encoder_name_2).from_pretrained(args.text_encoder_name_2)
+    tokenizer_3 = None
+    if args.text_encoder_name_3 is not None:
+        tokenizer_3 = get_text_tokenizer(args.text_encoder_name_3).from_pretrained(args.text_encoder_name_3)
     if args.dataset == 't2v':
         transform = transforms.Compose([
             ToTensorVideo(),
@@ -44,7 +44,7 @@ def getdataset(args):
         ])  # also work for img, because img is video when frame=1
         return T2V_dataset(
             args, transform=transform, temporal_sample=temporal_sample, 
-            tokenizer_1=tokenizer_1, tokenizer_2=tokenizer_2
+            tokenizer_1=tokenizer_1, tokenizer_2=tokenizer_2, tokenizer_3=tokenizer_3
             )
     elif args.dataset == 'i2v' or args.dataset == 'inpaint':
         resize_transform = Compose(resize)
@@ -54,7 +54,7 @@ def getdataset(args):
         ])
         return Inpaint_dataset(
             args, resize_transform=resize_transform, transform=transform, 
-            temporal_sample=temporal_sample, tokenizer_1=tokenizer_1, tokenizer_2=tokenizer_2
+            temporal_sample=temporal_sample, tokenizer_1=tokenizer_1, tokenizer_3=tokenizer_3
         )
     raise NotImplementedError(args.dataset)
 
@@ -95,7 +95,7 @@ if __name__ == "__main__":
         'speed_factor': 1.0, 
         'cfg': 0.1, 
         'text_encoder_name_1': 'google/mt5-xxl', 
-        'text_encoder_name_2': None,
+        'text_encoder_name_3': None,
         'dataloader_num_workers': 8,
         'force_resolution': False, 
         'use_decord': True, 

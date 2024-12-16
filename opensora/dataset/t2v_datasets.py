@@ -131,7 +131,7 @@ class DecordDecoder(object):
             return None
         
 class T2V_dataset(Dataset):
-    def __init__(self, args, transform, temporal_sample, tokenizer_1, tokenizer_2):
+    def __init__(self, args, transform, temporal_sample, tokenizer_1, tokenizer_2, tokenizer_3):
         self.data = args.data
         self.num_frames = args.num_frames
         self.train_fps = args.train_fps
@@ -139,6 +139,7 @@ class T2V_dataset(Dataset):
         self.temporal_sample = temporal_sample
         self.tokenizer_1 = tokenizer_1
         self.tokenizer_2 = tokenizer_2
+        self.tokenizer_3 = tokenizer_3
         self.model_max_length = args.model_max_length
         self.cfg = args.cfg
         self.speed_factor = args.speed_factor
@@ -162,12 +163,6 @@ class T2V_dataset(Dataset):
         self.random_data = args.random_data
         self.force_5_ratio = args.force_5_ratio
         self.train_video_only = args.train_video_only
-
-        self.support_Chinese = False
-        if 'mt5' in args.text_encoder_name_1:
-            self.support_Chinese = True
-        if args.text_encoder_name_2 is not None and 'mt5' in args.text_encoder_name_2:
-            self.support_Chinese = True
 
         s = time.time()
         self.cap_list, self.sample_size, self.shape_idx_dict, self.max_thw = self.define_frame_index(self.data)
@@ -230,15 +225,11 @@ class T2V_dataset(Dataset):
         if not isinstance(text, list):
             text = [text]
         text = [random.choice(text)]
-        # if video_data.get('aesthetic', None) is not None or video_data.get('aes', None) is not None:
-        #     aes = video_data.get('aesthetic', None) or video_data.get('aes', None)
-        #     text = [add_aesthetic_notice_video(text[0], aes)]
-        text = text_preprocessing(text, support_Chinese=self.support_Chinese)
 
         text = text if random.random() > self.cfg else ""
 
         text_tokens_and_mask_1 = self.tokenizer_1(
-            text,
+            text=text,
             max_length=self.model_max_length,
             padding='max_length',
             truncation=True,
@@ -252,20 +243,34 @@ class T2V_dataset(Dataset):
         input_ids_2, cond_mask_2 = None, None
         if self.tokenizer_2 is not None:
             text_tokens_and_mask_2 = self.tokenizer_2(
-                text,
-                max_length=self.tokenizer_2.model_max_length,
+                text=text,
+                max_length=self.model_max_length,
                 padding='max_length',
                 truncation=True,
                 return_attention_mask=True,
                 add_special_tokens=True,
                 return_tensors='pt'
             )
-            input_ids_2 = text_tokens_and_mask_2['input_ids']  # 1 77
-            cond_mask_2 = text_tokens_and_mask_2['attention_mask']  # 1 77
+            input_ids_2 = text_tokens_and_mask_2['input_ids']  # 1 512
+            cond_mask_2 = text_tokens_and_mask_2['attention_mask']  # 1 512
+
+        input_ids_3, cond_mask_3 = None, None
+        if self.tokenizer_3 is not None:
+            text_tokens_and_mask_3 = self.tokenizer_3(
+                text=text,
+                max_length=self.tokenizer_3.model_max_length,
+                padding='max_length',
+                truncation=True,
+                return_attention_mask=True,
+                add_special_tokens=True,
+                return_tensors='pt'
+            )
+            input_ids_3 = text_tokens_and_mask_3['input_ids']  # 1 77
+            cond_mask_3 = text_tokens_and_mask_3['attention_mask']  # 1 77
 
         return dict(
             pixel_values=video, input_ids_1=input_ids_1, cond_mask_1=cond_mask_1, 
-            input_ids_2=input_ids_2, cond_mask_2=cond_mask_2,
+            input_ids_2=input_ids_2, cond_mask_2=cond_mask_2, input_ids_3=input_ids_3, cond_mask_3=cond_mask_3,
             )
 
 
@@ -283,6 +288,8 @@ class T2V_dataset(Dataset):
         cond_mask_1 bs_i, l
         input_ids_2 bs_i, l
         cond_mask_2 bs_i, l
+        input_ids_3 bs_i, l
+        cond_mask_3 bs_i, l
         '''
         image = batch_images_dict['pixel_values']
         assert image.shape[2] == sample_h and image.shape[3] == sample_w, f"image_data: {image_data}, but found image {image.shape}"
@@ -303,15 +310,12 @@ class T2V_dataset(Dataset):
 
         caps = cap if isinstance(cap, list) else [cap]
         # caps = [random.choice(caps)]
-        caps = [caps[0]]
-        # if image_data.get('aesthetic', None) is not None or image_data.get('aes', None) is not None:
-        #     aes = image_data.get('aesthetic', None) or image_data.get('aes', None)
-        #     caps = [add_aesthetic_notice_image(caps[0], aes)]
-        text = text_preprocessing(caps, support_Chinese=self.support_Chinese)
+        text = [caps[0]]
+        
         text = text if random.random() > self.cfg else ""
 
         text_tokens_and_mask_1 = self.tokenizer_1(
-            text,
+            text=text,
             max_length=self.model_max_length,
             padding='max_length',
             truncation=True,
@@ -325,8 +329,8 @@ class T2V_dataset(Dataset):
         input_ids_2, cond_mask_2 = None, None
         if self.tokenizer_2 is not None:
             text_tokens_and_mask_2 = self.tokenizer_2(
-                text,
-                max_length=self.tokenizer_2.model_max_length,
+                text=text,
+                max_length=self.model_max_length,
                 padding='max_length',
                 truncation=True,
                 return_attention_mask=True,
@@ -336,9 +340,25 @@ class T2V_dataset(Dataset):
             input_ids_2 = text_tokens_and_mask_2['input_ids']  # 1, l
             cond_mask_2 = text_tokens_and_mask_2['attention_mask']  # 1, l
 
+        input_ids_3, cond_mask_3 = None, None
+        if self.tokenizer_3 is not None:
+            text_tokens_and_mask_3 = self.tokenizer_3(
+                text=text,
+                max_length=self.tokenizer_3.model_max_length,
+                padding='max_length',
+                truncation=True,
+                return_attention_mask=True,
+                add_special_tokens=True,
+                return_tensors='pt'
+            )
+            input_ids_3 = text_tokens_and_mask_3['input_ids']  # 1, l
+            cond_mask_3 = text_tokens_and_mask_3['attention_mask']  # 1, l
+
         return dict(
-            pixel_values=image, input_ids_1=input_ids_1, cond_mask_1=cond_mask_1, 
-            input_ids_2=input_ids_2, cond_mask_2=cond_mask_2
+            pixel_values=image, 
+            input_ids_1=input_ids_1, cond_mask_1=cond_mask_1, 
+            input_ids_2=input_ids_2, cond_mask_2=cond_mask_2, 
+            input_ids_3=input_ids_3, cond_mask_3=cond_mask_3, 
             )
 
     def define_frame_index(self, data):

@@ -51,13 +51,14 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
         norm_elementwise_affine: bool = True,
         norm_eps: float = 1e-6,
         caption_channels: int = None,
+        caption_channels_2: int = None,
         interpolation_scale_h: float = 1.0,
         interpolation_scale_w: float = 1.0,
         interpolation_scale_t: float = 1.0,
         sparse1d: bool = False,
         pooled_projection_dim: int = 1024, 
         timestep_embed_dim: int = 512,
-        norm_cls: str = 'layer_norm', 
+        norm_cls: str = 'fp32_layer_norm', 
         skip_connection: bool = False, 
         norm_skip: bool = False, 
         explicit_uniform_rope: bool = False, 
@@ -76,7 +77,7 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
         self.gradient_checkpointing = False
         if norm_cls == 'rms_norm':
             self.norm_cls = RMSNorm
-        elif norm_cls == 'layer_norm':
+        elif norm_cls == 'fp32_layer_norm':
             self.norm_cls = FP32LayerNorm
 
         assert len(self.config.num_layers) % 2 == 1
@@ -111,7 +112,15 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
             time_as_token=self.config.time_as_x_token or self.config.time_as_text_token
         )
 
-        # 3. rope
+        # 3. anthor text embedding
+        text_hidden_size = self.config.caption_channels
+        self.caption_projection_2 = None
+        if self.config.caption_channels_2 is not None and self.config.caption_channels_2 > 0:
+            text_hidden_size = max(text_hidden_size, self.config.caption_channels_2)
+            self.caption_projection_2 = PixArtAlphaTextProjection(self.config.caption_channels_2, text_hidden_size, act_fn="silu_fp32")
+        self.caption_projection = PixArtAlphaTextProjection(self.config.caption_channels, text_hidden_size, act_fn="silu_fp32")
+
+        # 4. rope
         self.rope = RoPE3D(interpolation_scale_thw=interpolation_scale_thw)
         self.position_getter = PositionGetter3D(
             self.config.sample_size_t, self.config.sample_size_h, self.config.sample_size_w, 
@@ -142,7 +151,7 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
                         self.config.num_attention_heads,
                         self.config.attention_head_dim,
                         self.config.timestep_embed_dim, 
-                        self.config.caption_channels, 
+                        text_hidden_size, 
                         dropout=self.config.dropout,
                         activation_fn=self.config.activation_fn,
                         attention_bias=self.config.attention_bias,
@@ -182,6 +191,8 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
         encoder_hidden_states: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         encoder_attention_mask: Optional[torch.Tensor] = None,
+        encoder_hidden_states_2: Optional[torch.Tensor] = None,
+        encoder_attention_mask_2: Optional[torch.Tensor] = None,
         return_dict: bool = True,
         **kwargs, 
     ):
@@ -223,13 +234,20 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
             encoder_attention_mask = (1 - encoder_attention_mask.to(self.dtype)) * -10000.0
             encoder_attention_mask = encoder_attention_mask.unsqueeze(1)
 
+        if encoder_attention_mask_2 is not None and encoder_attention_mask_2.ndim == 3:  
+            # b, 1, l -> only images
+            encoder_attention_mask_2 = (1 - encoder_attention_mask_2.to(self.dtype)) * -10000.0
+            encoder_attention_mask_2 = encoder_attention_mask_2.unsqueeze(1)
+
+            encoder_attention_mask = torch.cat([encoder_attention_mask, encoder_attention_mask_2], dim=-1)
+
         # 1. Input
         frame = ((frame - 1) // self.config.patch_size_t + 1) if frame % 2 == 1 else frame // self.config.patch_size_t  # patchfy
         height, width = hidden_states.shape[-2] // self.config.patch_size, hidden_states.shape[-1] // self.config.patch_size
 
 
         hidden_states, encoder_hidden_states, embedded_timestep = self._operate_on_patched_inputs(
-            hidden_states, encoder_hidden_states, timestep, pooled_projections
+            hidden_states, encoder_hidden_states, encoder_hidden_states_2, timestep, pooled_projections
         )
         # To
         # x            (t*h*w b d) or (t//sp*h*w b d)
@@ -420,7 +438,7 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
         return hidden_states
 
 
-    def _operate_on_patched_inputs(self, hidden_states, encoder_hidden_states, timestep, pooled_projections):
+    def _operate_on_patched_inputs(self, hidden_states, encoder_hidden_states, encoder_hidden_states_2, timestep, pooled_projections):
         
         # print('_operate_on_patched_inputs')
         # print(f'enc hidden_states, ', 
@@ -433,8 +451,16 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
             pooled_projections = pooled_projections.squeeze(1)  # b 1 1 d -> b 1 d
         timesteps_emb = self.time_text_embed(timestep, pooled_projections, hidden_states.dtype)  # (N, D)
             
+        encoder_hidden_states = self.caption_projection(encoder_hidden_states)  # b, 1, l, d
         assert encoder_hidden_states.shape[1] == 1  # b, 1, l, d
         encoder_hidden_states = encoder_hidden_states.squeeze(1)
+
+        if encoder_hidden_states_2 is not None and self.caption_projection_2 is not None:
+            encoder_hidden_states_2 = self.caption_projection_2(encoder_hidden_states_2)  # b, 1, l, d
+            assert encoder_hidden_states_2 is None or encoder_hidden_states_2.shape[1] == 1  # b, 1, l, d
+            encoder_hidden_states_2 = encoder_hidden_states_2.squeeze(1)
+
+            encoder_hidden_states = torch.cat([encoder_hidden_states, encoder_hidden_states_2], dim=1)
         # print('_operate_on_patched_inputs')
         # print(f'enc timesteps_emb, ', 
         #         f'max {timesteps_emb.max()}, min {timesteps_emb.min()}, mean {timesteps_emb.mean()}, std {timesteps_emb.std()}')
@@ -483,6 +509,24 @@ def OpenSoraT2I_2B_122(**kwargs):
         caption_channels=4096, pooled_projection_dim=0, **kwargs
     )
 
+def OpenSoraT2I_2B_122_4k3584(**kwargs):
+    return OpenSoraT2I(  # 33 layers
+        num_layers=[16, 1, 16], 
+        attention_head_dim=64, num_attention_heads=24, 
+        timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
+        caption_channels=4096, pooled_projection_dim=0, 
+        caption_channels_2=3584, **kwargs
+    )
+
+def OpenSoraT2I_2B_122_4k4k(**kwargs):
+    return OpenSoraT2I(  # 33 layers
+        num_layers=[16, 1, 16], 
+        attention_head_dim=64, num_attention_heads=24, 
+        timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
+        caption_channels=4096, pooled_projection_dim=0, 
+        caption_channels_2=4096, **kwargs
+    )
+
 def OpenSoraT2I_2B_122_SandWichNorm(**kwargs):
     return OpenSoraT2I(  # 33 layers
         num_layers=[16, 1, 16], 
@@ -500,13 +544,13 @@ def OpenSoraT2I_2B_122_ConvFFN(**kwargs):
         caption_channels=4096, pooled_projection_dim=0, 
         conv_ffn=True, **kwargs
     )
-def OpenSoraT2I_2B_122_LN(**kwargs):
+def OpenSoraT2I_2B_122_RMSN(**kwargs):
     kwargs.pop('norm_cls', None)
     return OpenSoraT2I(  # 33 layers
         num_layers=[16, 1, 16], 
         attention_head_dim=64, num_attention_heads=24, 
         timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
-        caption_channels=4096, pooled_projection_dim=0, norm_cls='layer_norm', **kwargs
+        caption_channels=4096, pooled_projection_dim=0, norm_cls='rms_norm', **kwargs
     )
 
 def OpenSoraT2I_2B_122_FinalConv(**kwargs):
@@ -575,10 +619,12 @@ def OpenSoraT2I_2B_122_TimeAsT(**kwargs):
 OpenSora_T2I_models = {
     "OpenSoraT2I-2B/111": OpenSoraT2I_2B_111, 
     "OpenSoraT2I-2B/122": OpenSoraT2I_2B_122, 
+    "OpenSoraT2I-2B/122/4k3584": OpenSoraT2I_2B_122_4k3584, 
+    "OpenSoraT2I-2B/122/4k4k": OpenSoraT2I_2B_122_4k4k, 
     "OpenSoraT2I-2B/122/ConvFFN": OpenSoraT2I_2B_122_ConvFFN, 
     "OpenSoraT2I-2B/122/FinalConv": OpenSoraT2I_2B_122_FinalConv, 
     "OpenSoraT2I-2B/122/SandWichNorm": OpenSoraT2I_2B_122_SandWichNorm, 
-    "OpenSoraT2I-2B/122/LN": OpenSoraT2I_2B_122_LN, 
+    "OpenSoraT2I-2B/122/RMSN": OpenSoraT2I_2B_122_RMSN, 
     "OpenSoraT2I-2B/122/Skip": OpenSoraT2I_2B_122_Skip, 
     "OpenSoraT2I-2B/122/Norm_Skip": OpenSoraT2I_2B_122_Norm_Skip, 
     "OpenSoraT2I-2B/122/CLIP": OpenSoraT2I_2B_122_CLIP, 
@@ -590,10 +636,12 @@ OpenSora_T2I_models = {
 OpenSora_T2I_models_class = {
     "OpenSoraT2I-2B/111": OpenSoraT2I,
     "OpenSoraT2I-2B/122": OpenSoraT2I,
+    "OpenSoraT2I-2B/122/4k3584": OpenSoraT2I, 
+    "OpenSoraT2I-2B/122/4k4k": OpenSoraT2I, 
     "OpenSoraT2I-2B/122/ConvFFN": OpenSoraT2I, 
     "OpenSoraT2I-2B/122/FinalConv": OpenSoraT2I, 
     "OpenSoraT2I-2B/122/SandWichNorm": OpenSoraT2I, 
-    "OpenSoraT2I-2B/122/LN": OpenSoraT2I, 
+    "OpenSoraT2I-2B/122/RMSN": OpenSoraT2I, 
     "OpenSoraT2I-2B/122/Skip": OpenSoraT2I, 
     "OpenSoraT2I-2B/122/Norm_Skip": OpenSoraT2I, 
     "OpenSoraT2I-2B/122/CLIP": OpenSoraT2I, 
@@ -628,7 +676,8 @@ if __name__ == '__main__':
     b = 1
     c = 32
     cond_c = 4096
-    cond_c1 = 1280
+    cond_c2 = 3584
+    cond_c3 = 1280
     num_timesteps = 1000
     ae_stride_t, ae_stride_h, ae_stride_w = ae_stride_config[args.ae]
     latent_size_h = args.max_height // ae_stride_h
@@ -645,7 +694,7 @@ if __name__ == '__main__':
     
     # device = torch.device('cpu')
     device = torch.device('cuda:0')
-    model = OpenSoraT2I_2B_122_ConvFFN(
+    model = OpenSoraT2I_2B_122_4k3584(
         in_channels=c, 
         out_channels=c, 
         sample_size_h=latent_size_h, 
@@ -667,8 +716,8 @@ if __name__ == '__main__':
     total_cnt = len(list(model.named_parameters()))
     print('total_cnt', total_cnt)
     print(f'{sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e9} B')
-    import sys;sys.exit()
-    try:
+    # import sys;sys.exit()
+    # try:
         # path = "/storage/ongoing/9.29/mmdit/1.5/Open-Sora-Plan/debug/checkpoint-10/pytorch_model.bin"
         # ckpt = torch.load(path, map_location="cpu")
         # msg = model.load_state_dict(ckpt, strict=True) # OpenSoraT2V_v1_5.from_pretrained('/storage/ongoing/9.29/mmdit/1.5/Open-Sora-Plan/test_ckpt')
@@ -677,19 +726,22 @@ if __name__ == '__main__':
         # ema_model.save_pretrained('./test_v1_5_ema')
         # with open('config.json', "w", encoding="utf-8") as writer:
         #     writer.write(model.to_json_string())
-        print(msg)
-    except Exception as e:
-        print(e)
+    #     print(msg)
+    # except Exception as e:
+    #     print(e)
     model = model.to(device)
     x = torch.randn(b, c,  1+(args.num_frames-1)//ae_stride_t, args.max_height//ae_stride_h, args.max_width//ae_stride_w).to(device)
     cond = torch.randn(b, 1, args.model_max_length, cond_c).to(device)
+    cond_2 = torch.randn(b, 1, args.model_max_length, cond_c2).to(device)
     attn_mask = torch.randint(0, 2, (b, 1+(args.num_frames-1)//ae_stride_t, args.max_height//ae_stride_h, args.max_width//ae_stride_w)).to(device)  # B L or B 1+num_images L
     cond_mask = torch.randint(0, 2, (b, 1, args.model_max_length)).to(device)  # B 1 L
+    cond_mask_2 = torch.randint(0, 2, (b, 1, args.model_max_length)).to(device)  # B 1 L
     timestep = torch.randint(0, 1000, (b,), device=device)
-    pooled_projections = torch.randn(b, 1, cond_c1).to(device)
+    pooled_projections = torch.randn(b, 1, cond_c3).to(device)
     model_kwargs = dict(hidden_states=x, encoder_hidden_states=cond, attention_mask=attn_mask, 
-                        # pooled_projections=pooled_projections, 
-                        encoder_attention_mask=cond_mask, timestep=timestep)
+                        pooled_projections=pooled_projections, 
+                        encoder_attention_mask=cond_mask, timestep=timestep, 
+                        encoder_hidden_states_2=cond_2, encoder_attention_mask_2=cond_mask_2)
     with torch.no_grad():
         output = model(**model_kwargs)
     print(output[0].shape)

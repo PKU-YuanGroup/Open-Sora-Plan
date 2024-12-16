@@ -354,7 +354,7 @@ def main(args):
     assert ae_stride_h == ae_stride_w, f"Support only ae_stride_h == ae_stride_w now, but found ae_stride_h ({ae_stride_h}), ae_stride_w ({ae_stride_w})"
 
 
-    patch_size = args.model[-3:]
+    patch_size = args.model.split('/')[1]
     patch_size_t, patch_size_h, patch_size_w = int(patch_size[0]), int(patch_size[1]), int(patch_size[2])
     args.patch_size = patch_size_h
     args.patch_size_t, args.patch_size_h, args.patch_size_w = patch_size_t, patch_size_h, patch_size_w
@@ -431,7 +431,15 @@ def main(args):
             text_enc_2.requires_grad_(False)
             if not args.post_to_device:
                 text_enc_2.to(accelerator.device, dtype=weight_dtype)
-                logger.info(f"Load text encoder model finish, memory_allocated: {torch.cuda.memory_allocated()/GB:.2f} GB", main_process_only=True)
+                logger.info(f"Load text encoder model 2 finish, memory_allocated: {torch.cuda.memory_allocated()/GB:.2f} GB", main_process_only=True)
+
+        text_enc_3 = None
+        if args.text_encoder_name_3 is not None:
+            text_enc_3 = get_text_warpper(args.text_encoder_name_3)(args).eval()
+            text_enc_3.requires_grad_(False)
+            if not args.post_to_device:
+                text_enc_3.to(accelerator.device, dtype=weight_dtype)
+                logger.info(f"Load text encoder model 3 finish, memory_allocated: {torch.cuda.memory_allocated()/GB:.2f} GB", main_process_only=True)
     # =======================================================================================================
 
 
@@ -485,8 +493,8 @@ def main(args):
             pretrained_checkpoint = pretrained_model.state_dict()
             checkpoint = get_common_weights(pretrained_checkpoint, model_state_dict)
             missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=True)
-            # del pretrained_checkpoint, pretrained_model
-            # gc.collect()
+            del pretrained_checkpoint, pretrained_model
+            gc.collect()
         else:
             # --pretrained path/to/.pth or .pt or some other format
             pretrained_checkpoint = torch.load(args.pretrained, map_location='cpu')
@@ -496,8 +504,8 @@ def main(args):
             missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=True)
         logger.info(f'missing_keys {len(missing_keys)} {missing_keys}, unexpected_keys {len(unexpected_keys)}')
         logger.info(f'Successfully load {len(model_state_dict) - len(missing_keys)}/{len(model_state_dict)} keys from {args.pretrained}!')
-        # del model_state_dict, checkpoint, missing_keys, unexpected_keys
-        # gc.collect()
+        del model_state_dict, checkpoint, missing_keys, unexpected_keys
+        gc.collect()
 
 
     # `accelerate` 0.16.0 will have better support for customized saving
@@ -544,9 +552,7 @@ def main(args):
         prediction_type=args.prediction_type, 
         rescale_betas_zero_snr=args.rescale_betas_zero_snr
     )
-    if args.cogvideox_scheduler:
-        noise_scheduler = CogVideoXDDIMScheduler(**kwargs)
-    elif args.rf_scheduler:
+    if args.rf_scheduler:
         noise_scheduler = OpenSoraFlowMatchEulerScheduler(weighting_scheme=args.weighting_scheme, sigma_eps=args.sigma_eps)
     else:
         noise_scheduler = DDPMScheduler(**kwargs)
@@ -641,6 +647,9 @@ def main(args):
         if args.text_encoder_name_2 is not None:
             text_enc_2.to(accelerator.device, dtype=weight_dtype)
             logger.info(f"Load text encoder model 2 finish, memory_allocated: {torch.cuda.memory_allocated()/GB:.2f} GB", main_process_only=True)
+        if args.text_encoder_name_3 is not None:
+            text_enc_3.to(accelerator.device, dtype=weight_dtype)
+            logger.info(f"Load text encoder model 3 finish, memory_allocated: {torch.cuda.memory_allocated()/GB:.2f} GB", main_process_only=True)
 
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
@@ -669,6 +678,8 @@ def main(args):
     logger.info(f"  Text_enc_1 = {args.text_encoder_name_1}; Dtype = {weight_dtype}; Parameters = {sum(p.numel() for p in text_enc_1.parameters()) / 1e9} B")
     if args.text_encoder_name_2 is not None:
         logger.info(f"  Text_enc_2 = {args.text_encoder_name_2}; Dtype = {weight_dtype}; Parameters = {sum(p.numel() for p in text_enc_2.parameters()) / 1e9} B")
+    if args.text_encoder_name_3 is not None:
+        logger.info(f"  Text_enc_3 = {args.text_encoder_name_2}; Dtype = {weight_dtype}; Parameters = {sum(p.numel() for p in text_enc_3.parameters()) / 1e9} B")
     if args.use_ema:
         logger.info(f"  EMA model = {type(ema_model.model)}; Dtype = {ema_model.model.dtype}; Parameters = {sum(p.numel() for p in ema_model.model.parameters()) / 1e9} B")
 
@@ -991,11 +1002,12 @@ def main(args):
 
     def train_one_step(step_, data_item_, prof_=None):
         train_loss = 0.0
-        x, attn_mask, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2 = data_item_
+        x, attn_mask, input_ids_1, cond_mask_1, input_ids_2, cond_mask_2, input_ids_3, cond_mask_3 = data_item_
         # print(
             # f'step: {step_}, rank: {accelerator.process_index}, x: {x.shape}, dtype: {x.dtype}, '
             # f'attn_mask: {attn_mask.shape}, input_ids_1: {input_ids_1.shape}, cond_mask_1: {cond_mask_1.shape}, '
             # f'input_ids_2: {input_ids_2.shape}, cond_mask_2: {cond_mask_2.shape}' if input_ids_2 is not None else ''
+            # f'input_ids_3: {input_ids_3.shape}, cond_mask_3: {cond_mask_3.shape}' if input_ids_3 is not None else ''
             # )
 
         x = x.to(accelerator.device, dtype=ae.vae.dtype, non_blocking=True)  # B C T H W
@@ -1004,6 +1016,8 @@ def main(args):
         cond_mask_1 = cond_mask_1.to(accelerator.device, non_blocking=True)  # B L
         input_ids_2 = input_ids_2.to(accelerator.device, non_blocking=True) if input_ids_2 is not None else input_ids_2 # B L
         cond_mask_2 = cond_mask_2.to(accelerator.device, non_blocking=True) if cond_mask_2 is not None else cond_mask_2 # B L
+        input_ids_3 = input_ids_3.to(accelerator.device, non_blocking=True) if input_ids_3 is not None else input_ids_3 # B L
+        cond_mask_3 = cond_mask_3.to(accelerator.device, non_blocking=True) if cond_mask_3 is not None else cond_mask_3 # B L
         
         with torch.no_grad():
             B, L = input_ids_1.shape  # B L
@@ -1017,17 +1031,30 @@ def main(args):
                 cond_1 = text_enc_1(input_ids_1, cond_mask_1)  # B L D
             cond_1 = cond_1.reshape(B, N, L, -1)
             cond_mask_1 = cond_mask_1.reshape(B, N, L)
+
+            
             if text_enc_2 is not None:
-                B_, L_ = input_ids_2.shape  # B L
-                N_ = 1
-                # input_ids_2 = input_ids_2.reshape(-1, L_)
                 if args.random_data:
-                    cond_2 = torch.rand(B, 1280, device=x.device, dtype=weight_dtype)
+                    cond_2 = torch.rand(B, L, 2048, device=x.device, dtype=weight_dtype)
                 else:
-                    cond_2 = text_enc_2(input_ids_2, cond_mask_2)  # B D
-                cond_2 = cond_2.reshape(B_, N_, -1)  # B 1 D
+                    cond_2 = text_enc_2(input_ids_2, cond_mask_2)  # B L D
+                cond_2 = cond_2.reshape(B, N, L, -1)
+                cond_mask_2 = cond_mask_2.reshape(B, N, L)
             else:
                 cond_2 = None
+                cond_mask_2 = None
+
+            if text_enc_3 is not None:
+                B_, L_ = input_ids_2.shape  # B L
+                N_ = 1
+                # input_ids_3 = input_ids_3.reshape(-1, L_)
+                if args.random_data:
+                    cond_3 = torch.rand(B, 1280, device=x.device, dtype=weight_dtype)
+                else:
+                    cond_3 = text_enc_3(input_ids_3, cond_mask_3)  # B D
+                cond_3 = cond_3.reshape(B_, N_, -1)  # B 1 D
+            else:
+                cond_3 = None
 
             # Map input images to latent space + normalize latents
             if args.random_data:
@@ -1066,28 +1093,34 @@ def main(args):
             else:
                 set_sequence_parallel_state(True)
         if get_sequence_parallel_state():
-            x, cond_1, attn_mask, cond_mask_1, cond_2 = prepare_parallel_data(
-                x, cond_1, attn_mask, cond_mask_1, cond_2
+            x, cond_1, attn_mask, cond_mask_1, cond_2, cond_mask_2, cond_3 = prepare_parallel_data(
+                x, cond_1, attn_mask, cond_mask_1, cond_2, cond_mask_2, cond_3
                 )        
             # x            (b c t h w)   -gather0-> (sp*b c t h w)   -scatter2-> (sp*b c t//sp h w)
             # cond_1       (b sp l/sp d) -gather0-> (sp*b sp l/sp d) -scatter1-> (sp*b 1 l/sp d)
             # attn_mask    (b t*sp h w)  -gather0-> (sp*b t*sp h w)  -scatter1-> (sp*b t h w)
             # cond_mask_1  (b sp l)      -gather0-> (sp*b sp l)      -scatter1-> (sp*b 1 l)
-            # cond_2       (b sp d)      -gather0-> (sp*b sp d)      -scatter1-> (sp*b 1 d)
+            # cond_2       (b sp l/sp d) -gather0-> (sp*b sp l/sp d) -scatter1-> (sp*b 1 l/sp d)
+            # cond_mask_2  (b sp l)      -gather0-> (sp*b sp l)      -scatter1-> (sp*b 1 l)
+            # cond_3       (b sp d)      -gather0-> (sp*b sp d)      -scatter1-> (sp*b 1 d)
             for iter in range(args.train_batch_size * args.sp_size // args.train_sp_batch_size):
                 with accelerator.accumulate(model):
                     # x            (sp_bs*b c t//sp h w)
                     # cond_1       (sp_bs*b 1 l/sp d)
                     # attn_mask    (sp_bs*b t h w)
                     # cond_mask_1  (sp_bs*b 1 l)
-                    # cond_2       (sp_bs*b 1 d)
+                    # cond_2       (sp_bs*b 1 l/sp d)
+                    # cond_mask_2  (sp_bs*b 1 l)
+                    # cond_3       (sp_bs*b 1 d)
                     st_idx = iter * args.train_sp_batch_size
                     ed_idx = (iter + 1) * args.train_sp_batch_size
                     model_kwargs = dict(
                         encoder_hidden_states=cond_1[st_idx: ed_idx],
                         attention_mask=attn_mask[st_idx: ed_idx],
                         encoder_attention_mask=cond_mask_1[st_idx: ed_idx], 
-                        pooled_projections=cond_2[st_idx: ed_idx] if cond_2 is not None else None, 
+                        encoder_hidden_states_2=cond_2[st_idx: ed_idx] if cond_2 is not None else None,
+                        encoder_attention_mask_2=cond_mask_2[st_idx: ed_idx] if cond_2 is not None else None, 
+                        pooled_projections=cond_3[st_idx: ed_idx] if cond_3 is not None else None, 
                         )
                     run(step_, x[st_idx: ed_idx], model_kwargs, prof_)
         else:
@@ -1096,7 +1129,9 @@ def main(args):
                 model_kwargs = dict(
                     encoder_hidden_states=cond_1, attention_mask=attn_mask, 
                     encoder_attention_mask=cond_mask_1, 
-                    pooled_projections=cond_2
+                    encoder_hidden_states_2=cond_2, 
+                    encoder_attention_mask_2=cond_mask_2, 
+                    pooled_projections=cond_3
                     )
                 run(step_, x, model_kwargs, prof_)
 
@@ -1225,6 +1260,7 @@ if __name__ == "__main__":
     parser.add_argument("--ae_path", type=str, default="stabilityai/sd-vae-ft-mse")
     parser.add_argument("--text_encoder_name_1", type=str, default='DeepFloyd/t5-v1_1-xxl')
     parser.add_argument("--text_encoder_name_2", type=str, default=None)
+    parser.add_argument("--text_encoder_name_3", type=str, default=None)
     parser.add_argument("--cache_dir", type=str, default='./cache_dir')
     parser.add_argument("--pretrained", type=str, default=None)
     parser.add_argument('--explicit_uniform_rope', action='store_true')

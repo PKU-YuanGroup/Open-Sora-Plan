@@ -214,8 +214,10 @@ def retrieve_timesteps(
 
 class OpenSoraPipeline(DiffusionPipeline):
 
-    model_cpu_offload_seq = "text_encoder->text_encoder_2->transformer->vae"
+    model_cpu_offload_seq = "text_encoder->text_encoder_2->text_encoder_3->transformer->vae"
     _optional_components = [
+        "text_encoder_3",
+        "tokenizer_3",
         "text_encoder_2",
         "tokenizer_2",
         "text_encoder",
@@ -227,6 +229,8 @@ class OpenSoraPipeline(DiffusionPipeline):
         "negative_prompt_embeds",
         "prompt_embeds_2",
         "negative_prompt_embeds_2",
+        "prompt_embeds_3",
+        "negative_prompt_embeds_3",
     ]
 
     def __init__(
@@ -236,8 +240,10 @@ class OpenSoraPipeline(DiffusionPipeline):
         tokenizer: MT5Tokenizer,
         transformer: OpenSoraT2V_v1_3,
         scheduler: DDPMScheduler,
-        text_encoder_2: CLIPTextModelWithProjection = None,
-        tokenizer_2: CLIPTokenizer = None,
+        text_encoder_2 = None,
+        tokenizer_2 = None,
+        text_encoder_3: CLIPTextModelWithProjection = None,
+        tokenizer_3: CLIPTokenizer = None,
     ):
         super().__init__()
 
@@ -249,6 +255,8 @@ class OpenSoraPipeline(DiffusionPipeline):
             transformer=transformer,
             scheduler=scheduler,
             text_encoder_2=text_encoder_2,
+            text_encoder_3=text_encoder_3,
+            tokenizer_3=tokenizer_3,
         )
 
     def encode_prompt(
@@ -300,7 +308,9 @@ class OpenSoraPipeline(DiffusionPipeline):
                 Index of the text encoder to use. `0` for T5 and `1` for clip.
         """
         if dtype is None:
-            if self.text_encoder_2 is not None:
+            if self.text_encoder_3 is not None:
+                dtype = self.text_encoder_3.dtype
+            elif self.text_encoder_2 is not None:
                 dtype = self.text_encoder_2.dtype
             elif self.transformer is not None:
                 dtype = self.transformer.dtype
@@ -311,8 +321,8 @@ class OpenSoraPipeline(DiffusionPipeline):
             device = getattr(self, '_execution_device', None) or getattr(self, 'device', None) or torch.device('cuda')
 
 
-        tokenizers = [self.tokenizer, self.tokenizer_2]
-        text_encoders = [self.text_encoder, self.text_encoder_2]
+        tokenizers = [self.tokenizer, self.tokenizer_2, self.tokenizer_3]
+        text_encoders = [self.text_encoder, self.text_encoder_2, self.text_encoder_3]
 
         tokenizer = tokenizers[text_encoder_index]
         text_encoder = text_encoders[text_encoder_index]
@@ -321,6 +331,8 @@ class OpenSoraPipeline(DiffusionPipeline):
             if text_encoder_index == 0:
                 max_length = 512
             if text_encoder_index == 1:
+                max_length = 512
+            if text_encoder_index == 2:
                 max_length = 77
         else:
             max_length = max_sequence_length
@@ -360,7 +372,7 @@ class OpenSoraPipeline(DiffusionPipeline):
             )
             prompt_embeds = prompt_embeds[0]
 
-            if text_encoder_index == 1:
+            if text_encoder_index == 2:
                 prompt_embeds = prompt_embeds.unsqueeze(1)  # b d -> b 1 d for clip
 
             prompt_attention_mask = prompt_attention_mask.repeat(num_samples_per_prompt, 1)
@@ -409,7 +421,7 @@ class OpenSoraPipeline(DiffusionPipeline):
                 attention_mask=negative_prompt_attention_mask,
             )
             negative_prompt_embeds = negative_prompt_embeds[0]
-            if text_encoder_index == 1:
+            if text_encoder_index == 2:
                 negative_prompt_embeds = negative_prompt_embeds.unsqueeze(1)  # b d -> b 1 d for clip
             negative_prompt_attention_mask = negative_prompt_attention_mask.repeat(num_samples_per_prompt, 1)
 
@@ -457,6 +469,10 @@ class OpenSoraPipeline(DiffusionPipeline):
         negative_prompt_embeds_2=None,
         prompt_attention_mask_2=None,
         negative_prompt_attention_mask_2=None,
+        prompt_embeds_3=None,
+        negative_prompt_embeds_3=None,
+        prompt_attention_mask_3=None,
+        negative_prompt_attention_mask_3=None,
         callback_on_step_end_tensor_inputs=None,
     ):
         if (num_frames - 1) % 4 != 0:
@@ -489,9 +505,10 @@ class OpenSoraPipeline(DiffusionPipeline):
 
         if prompt_embeds is not None and prompt_attention_mask is None:
             raise ValueError("Must provide `prompt_attention_mask` when specifying `prompt_embeds`.")
-
         if prompt_embeds_2 is not None and prompt_attention_mask_2 is None:
             raise ValueError("Must provide `prompt_attention_mask_2` when specifying `prompt_embeds_2`.")
+        if prompt_embeds_3 is not None and prompt_attention_mask_3 is None:
+            raise ValueError("Must provide `prompt_attention_mask_3` when specifying `prompt_embeds_3`.")
 
         if negative_prompt is not None and negative_prompt_embeds is not None:
             raise ValueError(
@@ -501,11 +518,15 @@ class OpenSoraPipeline(DiffusionPipeline):
 
         if negative_prompt_embeds is not None and negative_prompt_attention_mask is None:
             raise ValueError("Must provide `negative_prompt_attention_mask` when specifying `negative_prompt_embeds`.")
-
         if negative_prompt_embeds_2 is not None and negative_prompt_attention_mask_2 is None:
             raise ValueError(
                 "Must provide `negative_prompt_attention_mask_2` when specifying `negative_prompt_embeds_2`."
             )
+        if negative_prompt_embeds_3 is not None and negative_prompt_attention_mask_3 is None:
+            raise ValueError(
+                "Must provide `negative_prompt_attention_mask_3` when specifying `negative_prompt_embeds_3`."
+            )
+        
         if prompt_embeds is not None and negative_prompt_embeds is not None:
             if prompt_embeds.shape != negative_prompt_embeds.shape:
                 raise ValueError(
@@ -519,6 +540,13 @@ class OpenSoraPipeline(DiffusionPipeline):
                     "`prompt_embeds_2` and `negative_prompt_embeds_2` must have the same shape when passed directly, but"
                     f" got: `prompt_embeds_2` {prompt_embeds_2.shape} != `negative_prompt_embeds_2`"
                     f" {negative_prompt_embeds_2.shape}."
+                )
+        if prompt_embeds_3 is not None and negative_prompt_embeds_3 is not None:
+            if prompt_embeds_3.shape != negative_prompt_embeds_3.shape:
+                raise ValueError(
+                    "`prompt_embeds_3` and `negative_prompt_embeds_3` must have the same shape when passed directly, but"
+                    f" got: `prompt_embeds_3` {prompt_embeds_3.shape} != `negative_prompt_embeds_3`"
+                    f" {negative_prompt_embeds_3.shape}."
                 )
 
     # Copied from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion.StableDiffusionPipeline.prepare_latents
@@ -583,12 +611,16 @@ class OpenSoraPipeline(DiffusionPipeline):
         latents: Optional[torch.Tensor] = None,
         prompt_embeds: Optional[torch.Tensor] = None,
         prompt_embeds_2: Optional[torch.Tensor] = None,
+        prompt_embeds_3: Optional[torch.Tensor] = None,
         negative_prompt_embeds: Optional[torch.Tensor] = None,
         negative_prompt_embeds_2: Optional[torch.Tensor] = None,
+        negative_prompt_embeds_3: Optional[torch.Tensor] = None,
         prompt_attention_mask: Optional[torch.Tensor] = None,
         prompt_attention_mask_2: Optional[torch.Tensor] = None,
+        prompt_attention_mask_3: Optional[torch.Tensor] = None,
         negative_prompt_attention_mask: Optional[torch.Tensor] = None,
         negative_prompt_attention_mask_2: Optional[torch.Tensor] = None,
+        negative_prompt_attention_mask_3: Optional[torch.Tensor] = None,
         output_type: Optional[str] = "pil",
         return_dict: bool = True,
         callback_on_step_end: Optional[
@@ -631,6 +663,10 @@ class OpenSoraPipeline(DiffusionPipeline):
             negative_prompt_embeds_2,
             prompt_attention_mask_2,
             negative_prompt_attention_mask_2,
+            prompt_embeds_3,
+            negative_prompt_embeds_3,
+            prompt_attention_mask_3,
+            negative_prompt_attention_mask_3,
             callback_on_step_end_tensor_inputs,
         )
         self._guidance_scale = guidance_scale
@@ -686,7 +722,7 @@ class OpenSoraPipeline(DiffusionPipeline):
                 negative_prompt_embeds=negative_prompt_embeds_2,
                 prompt_attention_mask=prompt_attention_mask_2,
                 negative_prompt_attention_mask=negative_prompt_attention_mask_2,
-                max_sequence_length=77,
+                max_sequence_length=max_sequence_length,
                 text_encoder_index=1,
             )
         else:
@@ -694,6 +730,32 @@ class OpenSoraPipeline(DiffusionPipeline):
             negative_prompt_embeds_2 = None
             prompt_attention_mask_2 = None
             negative_prompt_attention_mask_2 = None
+
+        if self.tokenizer_3 is not None:
+            (
+                prompt_embeds_3,
+                negative_prompt_embeds_3,
+                prompt_attention_mask_3,
+                negative_prompt_attention_mask_3,
+            ) = self.encode_prompt(
+                prompt=prompt,
+                device=device,
+                dtype=self.transformer.dtype,
+                num_samples_per_prompt=num_samples_per_prompt,
+                do_classifier_free_guidance=self.do_classifier_free_guidance,
+                negative_prompt=negative_prompt,
+                prompt_embeds=prompt_embeds_3,
+                negative_prompt_embeds=negative_prompt_embeds_3,
+                prompt_attention_mask=prompt_attention_mask_3,
+                negative_prompt_attention_mask=negative_prompt_attention_mask_3,
+                max_sequence_length=77,
+                text_encoder_index=2,
+            )
+        else:
+            prompt_embeds_3 = None
+            negative_prompt_embeds_3 = None
+            prompt_attention_mask_3 = None
+            negative_prompt_attention_mask_3 = None
 
         # 4. Prepare timesteps
         if not isinstance(self.scheduler, OpenSoraFlowMatchEulerScheduler):
@@ -762,12 +824,18 @@ class OpenSoraPipeline(DiffusionPipeline):
             if self.tokenizer_2 is not None:
                 prompt_embeds_2 = torch.cat([negative_prompt_embeds_2, prompt_embeds_2])
                 prompt_attention_mask_2 = torch.cat([negative_prompt_attention_mask_2, prompt_attention_mask_2])
+            if self.tokenizer_3 is not None:
+                prompt_embeds_3 = torch.cat([negative_prompt_embeds_3, prompt_embeds_3])
+                prompt_attention_mask_3 = torch.cat([negative_prompt_attention_mask_3, prompt_attention_mask_3])
 
         prompt_embeds = prompt_embeds.to(device=device)
         prompt_attention_mask = prompt_attention_mask.to(device=device)
         if self.tokenizer_2 is not None:
             prompt_embeds_2 = prompt_embeds_2.to(device=device)
             prompt_attention_mask_2 = prompt_attention_mask_2.to(device=device)
+        if self.tokenizer_3 is not None:
+            prompt_embeds_3 = prompt_embeds_3.to(device=device)
+            prompt_attention_mask_3 = prompt_attention_mask_3.to(device=device)
 
 
         # ==================make sp=====================================
@@ -780,6 +848,16 @@ class OpenSoraPipeline(DiffusionPipeline):
                 ).contiguous()
             rank = hccl_info.rank if torch_npu is not None else nccl_info.rank
             prompt_embeds = prompt_embeds[:, rank, :, :]
+
+            if prompt_embeds_2 is not None:
+                prompt_embeds_2 = rearrange(
+                    prompt_embeds_2, 
+                    'b (n x) h -> b n x h', 
+                    n=world_size,
+                    x=prompt_embeds_2.shape[1] // world_size
+                    ).contiguous()
+                rank = hccl_info.rank if torch_npu is not None else nccl_info.rank
+                prompt_embeds_2 = prompt_embeds_2[:, rank, :, :]
         # ==================make sp=====================================
 
         # 8. Denoising loop
@@ -807,8 +885,14 @@ class OpenSoraPipeline(DiffusionPipeline):
                     prompt_embeds = prompt_embeds.unsqueeze(1)  # b l d -> b 1 l d
                 if prompt_attention_mask.ndim == 2:
                     prompt_attention_mask = prompt_attention_mask.unsqueeze(1)  # b l -> b 1 l
-                if prompt_embeds_2 is not None and prompt_embeds_2.ndim == 2:
-                    prompt_embeds = prompt_embeds.unsqueeze(1)  # b d -> b 1 d
+
+                if prompt_embeds_2 is not None and prompt_embeds_2.ndim == 3:
+                    prompt_embeds_2 = prompt_embeds_2.unsqueeze(1)  # b l d -> b 1 l d
+                if prompt_attention_mask_2 is not None and prompt_attention_mask_2.ndim == 2:
+                    prompt_attention_mask_2 = prompt_attention_mask_2.unsqueeze(1)  # b l -> b 1 l
+                
+                if prompt_embeds_3 is not None and prompt_embeds_3.ndim == 2:
+                    prompt_embeds_3 = prompt_embeds_3.unsqueeze(1)  # b d -> b 1 d
                 
                 attention_mask = torch.ones_like(latent_model_input)[:, 0].to(device=device)
                 # ==================prepare my shape=====================================
@@ -822,8 +906,10 @@ class OpenSoraPipeline(DiffusionPipeline):
                     attention_mask=attention_mask, 
                     encoder_hidden_states=prompt_embeds,
                     encoder_attention_mask=prompt_attention_mask,
+                    encoder_hidden_states_2=prompt_embeds_2,
+                    encoder_attention_mask_2=prompt_attention_mask_2,
                     timestep=timestep,
-                    pooled_projections=prompt_embeds_2,
+                    pooled_projections=prompt_embeds_3,
                     return_dict=False,
                 )[0]
                 assert not torch.any(torch.isnan(noise_pred))
@@ -853,9 +939,9 @@ class OpenSoraPipeline(DiffusionPipeline):
                     prompt_embeds = callback_outputs.pop("prompt_embeds", prompt_embeds)
                     negative_prompt_embeds = callback_outputs.pop("negative_prompt_embeds", negative_prompt_embeds)
                     prompt_embeds_2 = callback_outputs.pop("prompt_embeds_2", prompt_embeds_2)
-                    negative_prompt_embeds_2 = callback_outputs.pop(
-                        "negative_prompt_embeds_2", negative_prompt_embeds_2
-                    )
+                    negative_prompt_embeds_2 = callback_outputs.pop("negative_prompt_embeds_2", negative_prompt_embeds_2)
+                    prompt_embeds_3 = callback_outputs.pop("prompt_embeds_3", prompt_embeds_3)
+                    negative_prompt_embeds_3 = callback_outputs.pop("negative_prompt_embeds_3", negative_prompt_embeds_3)
 
                 if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
                     progress_bar.update()

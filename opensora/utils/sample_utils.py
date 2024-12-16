@@ -33,7 +33,7 @@ from opensora.sample.pipeline_opensora import OpenSoraPipeline
 from opensora.sample.pipeline_inpaint import OpenSoraInpaintPipeline
 from opensora.models.diffusion.opensora_v1_3.modeling_opensora import OpenSoraT2V_v1_3
 from opensora.models.diffusion.opensora_v1_3.modeling_inpaint import OpenSoraInpaint_v1_3
-from transformers import T5EncoderModel, T5Tokenizer, AutoTokenizer, MT5EncoderModel, CLIPTextModelWithProjection
+from opensora.models.text_encoder import get_text_tokenizer, get_text_cls
 
 def get_scheduler(args):
     kwargs = dict(
@@ -92,30 +92,35 @@ def prepare_pipeline(args, device):
     if args.enable_tiling:
         vae.vae.enable_tiling()
 
-    if 'mt5' in args.text_encoder_name_1:
-        text_encoder_1 = MT5EncoderModel.from_pretrained(
-            args.text_encoder_name_1, cache_dir=args.cache_dir, 
-            torch_dtype=weight_dtype
-            ).eval()
-    else:
-        text_encoder_1 = T5EncoderModel.from_pretrained(
-            args.text_encoder_name_1, cache_dir=args.cache_dir, 
-            torch_dtype=weight_dtype
-            ).eval()
-    tokenizer_1 = AutoTokenizer.from_pretrained(
+    text_encoder_1 = get_text_cls(args.text_encoder_name_1).from_pretrained(
+        args.text_encoder_name_1, cache_dir=args.cache_dir, 
+        torch_dtype=weight_dtype
+        ).eval()
+    tokenizer_1 = get_text_tokenizer(args.text_encoder_name_1).from_pretrained(
         args.text_encoder_name_1, cache_dir=args.cache_dir
         )
 
     if args.text_encoder_name_2 is not None:
-        text_encoder_2 = CLIPTextModelWithProjection.from_pretrained(
+        text_encoder_2 = get_text_cls(args.text_encoder_name_2).from_pretrained(
             args.text_encoder_name_2, cache_dir=args.cache_dir, 
             torch_dtype=weight_dtype
             ).eval()
-        tokenizer_2 = AutoTokenizer.from_pretrained(
+        tokenizer_2 = get_text_tokenizer(args.text_encoder_name_2).from_pretrained(
             args.text_encoder_name_2, cache_dir=args.cache_dir
             )
     else:
         text_encoder_2, tokenizer_2 = None, None
+        
+    if args.text_encoder_name_3 is not None:
+        text_encoder_3 = get_text_cls(args.text_encoder_name_3).from_pretrained(
+            args.text_encoder_name_3, cache_dir=args.cache_dir, 
+            torch_dtype=weight_dtype
+            ).eval()
+        tokenizer_3 = get_text_tokenizer(args.text_encoder_name_3).from_pretrained(
+            args.text_encoder_name_3, cache_dir=args.cache_dir
+            )
+    else:
+        text_encoder_3, tokenizer_3 = None, None
 
     if args.version == 'v1_3':
         if args.model_type == 'inpaint' or args.model_type == 'i2v':
@@ -149,6 +154,8 @@ def prepare_pipeline(args, device):
         transformer=transformer_model, 
         text_encoder_2=text_encoder_2,
         tokenizer_2=tokenizer_2,
+        text_encoder_3=text_encoder_3,
+        tokenizer_3=tokenizer_3,
     ).to(device)
 
     if args.save_memory:
@@ -496,6 +503,7 @@ def get_args():
     parser.add_argument("--enhance_video", type=str, default=None)
     parser.add_argument("--text_encoder_name_1", type=str, default='DeepFloyd/t5-v1_1-xxl')
     parser.add_argument("--text_encoder_name_2", type=str, default=None)
+    parser.add_argument("--text_encoder_name_3", type=str, default=None)
     parser.add_argument("--save_img_path", type=str, default="./sample_videos/t2v")
     parser.add_argument("--guidance_scale", type=float, default=7.5)
     parser.add_argument("--guidance_rescale", type=float, default=0.0)
