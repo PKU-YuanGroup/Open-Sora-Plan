@@ -1,14 +1,16 @@
 
-The original code is from [ImageReward](https://github.com/THUDM/ImageReward).
+The original code is from [VQAScore](https://github.com/linzhiqiu/t2v_metrics).
 
 
 ## Requirements and Installation
 
+```
 pip install git+https://github.com/openai/CLIP.git
-pip install fairscale==0.4.13
+pip install open-clip-torch
+```
 
-下载[THUDM/ImageReward](https://huggingface.co/THUDM/ImageReward)到$CACHE_DIR
-下载[google-bert/bert-base-uncased](https://huggingface.co/google-bert/bert-base-uncased)到$CACHE_DIR
+下载[zhiqiulin/clip-flant5-xxl](https://huggingface.co/zhiqiulin/clip-flant5-xxl)到$CACHE_DIR
+下载[openai/clip-vit-large-patch14-336](https://huggingface.co/openai/clip-vit-large-patch14-336)到$CACHE_DIR
 
 ## Eval
 
@@ -16,7 +18,7 @@ pip install fairscale==0.4.13
 
 修改$PROMPT, 目前支持['DrawBench', 'PartiPrompts', 'GenAI']
 ```
-bash opensora/eval/imagereward/step1_gen_samples.sh
+bash opensora/eval/vqascore/step1_gen_samples.sh
 ```
 
 ```
@@ -36,6 +38,17 @@ bash opensora/eval/imagereward/step1_gen_samples.sh
 
 ### Step 2
 
+#### GenAI-Bench
+
+只有$PROMPT=='GenAI'才支持
 ```
-bash opensora/eval/imagereward/step2_run_model.sh
+bash opensora/eval/vqascore/step2_genai_image_eval.sh
 ```
+
+
+#### VQAScore
+
+```
+bash opensora/eval/vqascore/step2_run_model.sh
+```
+

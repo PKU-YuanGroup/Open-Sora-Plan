@@ -123,3 +123,7 @@ merge_jpg*
 efficientvit
 tz_poster
 flash-attention
+efficientvit*
+**/generated_images
+**/gen_img_for_human_pref
+hf_cache
