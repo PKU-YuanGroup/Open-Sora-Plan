@@ -1,0 +1,38 @@
+accelerate
+numpy
+pandas
+pillow
+tqdm
+
+# for modelscope
+
+
+modelscope
+datasets==2.16.0
+simplejson
+
+# cloudpickle
+# decord>=0.6.0
+# diffusers
+# fairseq
+# ftfy>=6.0.3
+# librosa==0.10.1
+# modelscope
+# opencv-python
+# compatible with taming-transformers-rom1504
+rapidfuzz
+# rough-score was just recently updated from 0.0.4 to 0.0.7
+# which introduced compatability issues that are being investigated
+rouge_score<=0.0.4
+safetensors
+# scikit-video
+soundfile
+taming-transformers-rom1504
+tiktoken
+timm
+tokenizers
+torchvision
+transformers
+transformers_stream_generator
+unicodedata2
+zhconv
