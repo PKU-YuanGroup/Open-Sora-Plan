@@ -72,7 +72,7 @@ class Score(nn.Module):
         
         dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
         counter = 0
-        for batch_idx, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
+        for batch_idx, batch in enumerate(tqdm(dataloader)):
             cur_batch_size = len(batch['images'][0])
             assert len(batch['images']) == num_images, \
                 f"Number of image options in batch {batch_idx} is {len(batch['images'])}. Expected {num_images} images."

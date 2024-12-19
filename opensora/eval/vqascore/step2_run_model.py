@@ -43,7 +43,6 @@ if __name__ == "__main__":
         img_list = [os.path.join(args.image_dir, f'{i}.jpg') for i in ids]
 
         dataset = [dict(images=[i], texts=[j]) for i, j in zip(img_list, prompt)]
-        assert args.batch_size == len(dataset)
         score = model.batch_forward(dataset=dataset, batch_size=args.batch_size)
         scores.extend(score.detach().flatten().float().cpu().tolist())
 
