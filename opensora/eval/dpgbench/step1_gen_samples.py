@@ -103,8 +103,8 @@ if __name__ == "__main__":
     device = torch.cuda.current_device()
     pipeline = prepare_pipeline(args, device)
 
-    if not os.path.exists(args.save_path):
-        os.makedirs(args.save_path)
+    if not os.path.exists(args.result_path):
+        os.makedirs(args.result_path)
 
     for filename in os.listdir(args.prompt_path):
         if filename.endswith('.txt'):  # 只处理txt文件
@@ -125,7 +125,7 @@ if __name__ == "__main__":
 
             img_name = filename.replace('.txt', '.png')
 
-            save_path = os.path.join(args.save_path, img_name)
+            save_path = os.path.join(args.result_path, img_name)
 
             concat_image(image, save_path)
 

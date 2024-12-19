@@ -8,5 +8,5 @@ CUDA_VISIBLE_DEVICES=0 python -m opensora.eval.dpgbench.step1_gen_samples \
     --ae_path "/storage/lcm/WF-VAE/results/Middle888" \
     --ae_dtype fp16 \
     --weight_dtype fp16 \
-    --prompt_path /storage/hxy/t2i/opensora/Open-Sora-Plan/opensora/eval/eval_prompts/DPGbench/prompts \
+    --prompt_path /storage/hxy/t2i/osp/Open-Sora-Plan/opensora/eval/eval_prompts/DPGbench/prompts \
     --result_path /storage/hxy/t2i/opensora/Open-Sora-Plan/opensora/eval/dpgbench/results

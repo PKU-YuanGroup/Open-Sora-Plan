@@ -16,7 +16,7 @@ from tqdm import tqdm
 def parse_args():
     parser = argparse.ArgumentParser(description="DPG-Bench evaluation.")
     parser.add_argument(
-        "--image-root-path",
+        "--image_root_path",
         type=str,
         default=None,
     )
@@ -31,29 +31,27 @@ def parse_args():
         default='/storage/hxy/t2i/opensora/Open-Sora-Plan/opensora/eval/eval_prompts/DPGbench/dpg_bench.csv',
     )
     parser.add_argument(
-        "--res-path",
+        "--res_path",
         type=str,
         default='/storage/hxy/t2i/opensora/Open-Sora-Plan/opensora/eval/dpgbench_test/score_result/result.txt',
     )
     parser.add_argument(
-        "--pic-num",
+        "--pic_num",
         type=int,
         default=1,
     )
     parser.add_argument(
-        "--vqa-model",
+        "--vqa_model",
         type=str,
         default='mplug',
     )
 
     parser.add_argument(
-        "--vqa-model-ckpt",
+        "--vqa_model_ckpt",
         type=str,
         default='/storage/hxy/t2i/opensora/Open-Sora-Plan/opensora/eval/dpgbench_test/mplug',
     )
 
-
-    
 
     args = parser.parse_args()
     return args
@@ -190,7 +188,7 @@ def main():
 
     device = str(accelerator.device)
     if args.vqa_model == 'mplug':
-        vqa_model = MPLUG(args.vqa_model_ckqt, device=device)
+        vqa_model = MPLUG("/storage/hxy/t2i/opensora/Open-Sora-Plan/opensora/eval/dpgbench/weight", device=device)
     else:
         raise NotImplementedError
     vqa_model = accelerator.prepare(vqa_model)

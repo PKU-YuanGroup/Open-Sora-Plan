@@ -10,7 +10,7 @@ tqdm
 modelscope
 datasets==2.16.0
 simplejson
-
+decord>=0.6.0
 # cloudpickle
 # decord>=0.6.0
 # diffusers
