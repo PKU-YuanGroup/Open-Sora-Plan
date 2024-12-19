@@ -1,6 +1,0 @@
-Looking in indexes: https://mirrors.bfsu.edu.cn/pypi/web/simple
-Collecting decord
-  Using cached https://mirrors.bfsu.edu.cn/pypi/web/packages/11/79/936af42edf90a7bd4e41a6cac89c913d4b47fa48a26b042d5129a9242ee3/decord-0.6.0-py3-none-manylinux2010_x86_64.whl (13.6 MB)
-Requirement already satisfied: numpy>=1.14.0 in /storage/miniconda3/envs/dpgbench/lib/python3.10/site-packages (from decord) (2.0.2)
-Installing collected packages: decord
-Successfully installed decord-0.6.0
