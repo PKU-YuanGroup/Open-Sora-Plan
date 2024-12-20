@@ -12,6 +12,18 @@ except:
     pass
 from opensora.utils.sample_utils import prepare_pipeline, get_args
 from opensora.utils.utils import set_seed
+import torch.distributed as dist
+
+def init_gpu_env(args):
+    local_rank = int(os.getenv('RANK', 0))
+    world_size = int(os.getenv('WORLD_SIZE', 1))
+    args.local_rank = local_rank
+    args.world_size = world_size
+    torch.cuda.set_device(local_rank)
+    dist.init_process_group(
+        backend='nccl', init_method='env://', 
+        world_size=world_size, rank=local_rank
+        )
 
 def run_model_and_return_samples(
         pipeline, 
@@ -92,55 +104,63 @@ def get_args():
     parser.add_argument('--rescale_betas_zero_snr', action='store_true')
     parser.add_argument('--result_path', type=str, default='/storage/hxy/t2i/opensora/Open-Sora-Plan/opensora/eval/dpgbench_test/results')
     parser.add_argument('--prompt_path', type=str, default='/storage/hxy/t2i/opensora/Open-Sora-Plan/opensora/eval/dpgbench_test/ELLA/dpg_bench/prompts')
- 
+    parser.add_argument('--world_size', type=int, default=1, help="number of gpus for eval")
+    parser.add_argument('--local_rank', type=int, default=0, help="node rank for distributed training")   
+
     args = parser.parse_args()
     return args
 
 if __name__ == "__main__":
     args = get_args()
+    init_gpu_env(args)
     seed = 1234
     set_seed(seed, rank=0, device_specific=False)
     device = torch.cuda.current_device()
+    # import ipdb;ipdb.set_trace()
     pipeline = prepare_pipeline(args, device)
 
     if not os.path.exists(args.result_path):
         os.makedirs(args.result_path)
 
+    # all_texts = []
+    file_names = []
+
     for filename in os.listdir(args.prompt_path):
         if filename.endswith('.txt'):  # 只处理txt文件
             file_path = os.path.join(args.prompt_path, filename)
-            with open(file_path, 'r', encoding='utf-8') as file:
-                text_prompt = file.read()  # 读取文件中的文本
-                # all_texts.append(text)  # 将文本添加到列表中
+
+            # all_texts.append(file_path)
+            file_names.append(file_path)
+
+            # with open(file_path, 'r', encoding='utf-8') as file:
+            #     text_prompt = file.read()  # 读取文件中的文本
+            #     all_texts.append(text_prompt)  # 将文本添加到列表中
             
-            image = run_model_and_return_samples(
-            pipeline, 
-            text_prompt, 
-            height=384, 
-            width=384, 
-            num_sampling_steps=100, 
-            guidance_scale=7.0, 
-            num_samples_per_prompt=4, 
-            )  # b t h w c, [0, 255]
+    for index, file_path in enumerate(file_names):
 
-            img_name = filename.replace('.txt', '.png')
+        with open(file_path, 'r', encoding='utf-8') as file:
+            text_prompt = file.read()  # 读取文件中的文本
+            # all_texts.append(text_prompt)  # 将文本添加到列表中
 
-            save_path = os.path.join(args.result_path, img_name)
 
-            concat_image(image, save_path)
+        if not index % args.world_size == args.local_rank:
+            continue
 
-    # text_prompt = 'a dog'
-    # image = run_model_and_return_samples(
-    #     pipeline, 
-    #     text_prompt, 
-    #     height=384, 
-    #     width=384, 
-    #     num_sampling_steps=100, 
-    #     guidance_scale=7.0, 
-    #     num_samples_per_prompt=4, 
-    #     )  # b t h w c, [0, 255]
-    
-    # # import ipdb;ipdb.set_trace()
+        image = run_model_and_return_samples(
+        pipeline, 
+        text_prompt, 
+        height=384, 
+        width=384, 
+        num_sampling_steps=100, 
+        guidance_scale=7.0, 
+        num_samples_per_prompt=4, 
+        )  # b t h w c, [0, 255]
 
-    # # Image.fromarray(image[0][0].detach().cpu().numpy()).save('test_t3.png')
-    # concat_image(image, 'test.png')
+        filename = file_path.split('/')[-1]
+
+        img_name = filename.replace('.txt', '.png')
+
+        save_path = os.path.join(args.result_path, img_name)
+
+        concat_image(image, save_path)
+

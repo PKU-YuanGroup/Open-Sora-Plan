@@ -32,3 +32,6 @@ local_dir为本地存放权重路径
 bash dpgbench/step2_compute_dpg_bench.sh $YOUR_IMAGE_PATH $RESOLUTION
 ```
 
+
+YOUR_IMAGE_PATH是存放生成图片的root路径
+RESOLUTION是图片分辨率
