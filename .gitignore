@@ -127,3 +127,4 @@ efficientvit*
 **/generated_images
 **/gen_img_for_human_pref
 hf_cache
+geneval_outputs
