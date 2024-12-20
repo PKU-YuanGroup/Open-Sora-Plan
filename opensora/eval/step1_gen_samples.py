@@ -39,6 +39,7 @@ def get_args():
     parser.add_argument("--prediction_type", type=str, default='epsilon', help="The prediction_type that shall be used for training. Choose between 'epsilon' or 'v_prediction' or leave `None`. If left to `None` the default prediction type of the scheduler: `noise_scheduler.config.prediciton_type` is chosen.")
     parser.add_argument('--rescale_betas_zero_snr', action='store_true')
     parser.add_argument('--sp', action='store_true')
+    parser.add_argument('--allow_tf32', action='store_true')
  
     args = parser.parse_args()
     return args
@@ -54,7 +55,12 @@ if __name__ == "__main__":
     else:
         args = init_gpu_env(args)
 
-        
+    torch.backends.cuda.matmul.allow_tf32 = False 
+    torch.backends.cudnn.allow_tf32 = False
+    if args.allow_tf32:
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+
     set_seed(args.seed, rank=0, device_specific=False)
     device = torch.cuda.current_device()
     pipeline = prepare_pipeline(args, device)
