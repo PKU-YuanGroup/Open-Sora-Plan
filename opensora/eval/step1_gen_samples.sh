@@ -1,6 +1,6 @@
 
 PROMPT="DrawBench"
-OUTPUT_DIR="opensora/eval/gen_img_for_human_pref_6b/${PROMPT}"
+OUTPUT_DIR="opensora/eval/gen_img_for_human_pref_6b_lastwd01/${PROMPT}"
 
 CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6 torchrun --nnodes=1 --nproc_per_node 7 --master_port 29513 \
      -m opensora.eval.step1_gen_samples \
