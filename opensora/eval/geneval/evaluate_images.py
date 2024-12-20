@@ -42,10 +42,10 @@ def parse_args():
         )
     return args
 
-# DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-# assert DEVICE == "cuda"
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+assert DEVICE == "cuda"
 
-DEVICE = "cpu"
+# DEVICE = "cpu"
 
 def timed(fn):
     def wrapper(*args, **kwargs):
