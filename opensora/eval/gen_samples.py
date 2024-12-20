@@ -93,4 +93,4 @@ if __name__ == "__main__":
         guidance_scale=7.0, 
         num_samples_per_prompt=1, 
         )  # b t h w c, [0, 255]
-    Image.fromarray(image[0][0].detach().cpu().numpy()).save('test_t3.png')
+    Image.fromarray(image[0][0].detach().cpu().numpy()).save('test_t3_doubleffn.png')

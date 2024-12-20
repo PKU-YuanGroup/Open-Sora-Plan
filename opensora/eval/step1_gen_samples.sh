@@ -1,10 +1,10 @@
 
 PROMPT="DrawBench"
-OUTPUT_DIR="opensora/eval/gen_img_for_human_pref_6b_lastwd01/${PROMPT}"
+OUTPUT_DIR="opensora/eval/gen_img_for_human_pref_6b/${PROMPT}"
 
 CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6 torchrun --nnodes=1 --nproc_per_node 7 --master_port 29513 \
      -m opensora.eval.step1_gen_samples \
-    --model_path /storage/dataset/ospv1_5_image_ckpt/wd1e-1_last_ckpt/model_ema \
+    --model_path /storage/dataset/osp1_5_7k/model_ema \
     --output_dir ${OUTPUT_DIR} \
     --prompt_type ${PROMPT} \
     --text_encoder_name_1 "/storage/cache_dir/t5-v1_1-xl" \
