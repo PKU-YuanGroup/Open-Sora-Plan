@@ -51,8 +51,6 @@ cd ..
 mim install mmengine mmcv-full==1.7.0
 ```
 
-
-
 Install the MMDet:
 
 ```bash
@@ -63,7 +61,7 @@ cd mmdetection; git checkout 2.x
 pip install -v -e .
 ```
 
-Third, download the Mask2Former object detection config and weights:
+Download the Mask2Former object detection config and weights:
 
 ```bash
 bash download_models.sh detector/
