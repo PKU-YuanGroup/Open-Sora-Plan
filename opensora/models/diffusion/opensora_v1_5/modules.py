@@ -1,25 +1,16 @@
-
+import random
 import torch
 from torch import nn
-from typing import Optional, Tuple
+import torch.nn.functional as F
+from typing import Any, Dict, Optional, Tuple
 from diffusers.utils import logging
 from diffusers.utils.torch_utils import maybe_allow_in_graph
 from diffusers.models.attention import FeedForward
-from torch.nn import functional as F
-from diffusers.models.normalization import RMSNorm, AdaLayerNorm, FP32LayerNorm
+from diffusers.models.normalization import RMSNorm, AdaLayerNorm
 from diffusers.models.attention_processor import Attention
 from diffusers.models.embeddings import PixArtAlphaTextProjection, Timesteps, TimestepEmbedding
 
-logger = logging.get_logger(__name__)
-
-
-import torch
 from einops import rearrange, repeat
-from typing import Any, Dict, Optional, Tuple
-import torch
-import torch.nn.functional as F
-import random
-from torch import nn
 try:
     import torch_npu
     from opensora.npu_config import npu_config, set_run_dtype
@@ -32,6 +23,7 @@ except:
     from opensora.utils.parallel_states import get_sequence_parallel_state, nccl_info as xccl_info
     from opensora.utils.communications import all_to_all_SBH
 
+logger = logging.get_logger(__name__)
 
 class PositionGetter3D(object):
     """ return positions of patches """
@@ -79,15 +71,15 @@ class RoPE3D(torch.nn.Module):
         self.cache = {}
 
     def get_cos_sin(self, D, seq_start, seq_end, device, interpolation_scale=1):
-        if (D, seq_start, seq_start, seq_end, device) not in self.cache:
+        if (D, seq_start, seq_start, seq_end) not in self.cache:
             inv_freq = 1.0 / (self.base ** (torch.arange(0, D, 2).float().to(device) / D))
-            t = torch.arange(seq_start, seq_end, device=device, dtype=inv_freq.dtype) / interpolation_scale
+            t = torch.arange(seq_start, seq_end, device=device, dtype=torch.float32) / interpolation_scale
             freqs = torch.einsum("i,j->ij", t, inv_freq)
             freqs = torch.cat((freqs, freqs), dim=-1)
             cos = freqs.cos()  # (Seq, Dim)
             sin = freqs.sin()
-            self.cache[D, seq_start, seq_start, seq_end, device] = (cos, sin)
-        return self.cache[D, seq_start, seq_start, seq_end, device]
+            self.cache[D, seq_start, seq_start, seq_end] = (cos, sin)
+        return self.cache[D, seq_start, seq_start, seq_end]
 
     def forward(self, dim, positions, device):
         """
@@ -104,12 +96,17 @@ class RoPE3D(torch.nn.Module):
         assert len(poses) == 3 and poses[0].ndim == 2 # Batch, Seq, 3
         cos_t, sin_t = self.get_cos_sin(D_t, min_poses[0], max_poses[0], device, self.interpolation_scale_t)
         cos_y, sin_y = self.get_cos_sin(D, min_poses[1], max_poses[1], device, self.interpolation_scale_h)
-        cos_x, sin_x = self.get_cos_sin(D, min_poses[2], max_poses[2], device, self.interpolation_scale_w)
+        cos_x, sin_x = self.get_cos_sin(D, min_poses[2], max_poses[2], device,  self.interpolation_scale_w)
 
         cos_t, sin_t = compute_rope1d(poses[0], cos_t, sin_t)
         cos_y, sin_y = compute_rope1d(poses[1], cos_y, sin_y)
         cos_x, sin_x = compute_rope1d(poses[2], cos_x, sin_x)
         return cos_t, sin_t, cos_y, sin_y, cos_x, sin_x
+    
+    
+def rotate_half(x):
+    x1, x2 = x[..., : x.shape[-1] // 2], x[..., x.shape[-1] // 2:]
+    return torch.cat((-x2, x1), dim=-1)
     
 def compute_rope1d(pos1d, cos, sin):
     """
@@ -141,10 +138,11 @@ def apply_rotary_emb(tokens, video_rotary_emb):
     x = apply_rope1d(x, cos_x, sin_x)
     tokens = torch.cat((t, y, x), dim=-1).to(origin_dtype)
     return tokens
-
-def rotate_half(x):
-    x1, x2 = x[..., : x.shape[-1] // 2], x[..., x.shape[-1] // 2:]
-    return torch.cat((-x2, x1), dim=-1)
+  
+def maybe_clamp_tensor(x, max_value=65504.0, min_value=-65504.0, training=True):
+    if not training and x.dtype == torch.float16:
+        x.nan_to_num_(posinf=max_value, neginf=min_value)
+    return x
 
 class CombinedTimestepTextProjEmbeddings(nn.Module):
     def __init__(self, timestep_embed_dim, embedding_dim, pooled_projection_dim):
@@ -164,8 +162,19 @@ class CombinedTimestepTextProjEmbeddings(nn.Module):
 
         return conditioning
 
+class FP32LayerNorm(nn.LayerNorm):
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        origin_dtype = inputs.dtype
+        return F.layer_norm(
+            inputs.float(),
+            self.normalized_shape,
+            self.weight.float() if self.weight is not None else None,
+            self.bias.float() if self.bias is not None else None,
+            self.eps,
+        ).to(origin_dtype)      
+      
 class AdaNorm(AdaLayerNorm):
-    def __init__(self, norm_cls='rms_norm',  **kwargs) -> None:
+    def __init__(self, norm_cls='layer_norm',  **kwargs) -> None:
         super().__init__(**kwargs)
         if norm_cls == 'rms_norm':
             self.norm_cls = RMSNorm
@@ -184,7 +193,7 @@ class OpenSoraNormZero(nn.Module):
         elementwise_affine: bool = True,
         eps: float = 1e-5,
         bias: bool = True,
-        norm_cls: str = 'rms_norm', 
+        norm_cls: str = 'layer_norm', 
     ) -> None:
         super().__init__()
         if norm_cls == 'rms_norm':
@@ -203,10 +212,6 @@ class OpenSoraNormZero(nn.Module):
         shift, scale, gate, enc_shift, enc_scale, enc_gate = self.linear(self.silu(temb)).chunk(6, dim=1)
         hidden_states = self.norm(hidden_states) * (1 + scale)[None, :, :] + shift[None, :, :]
         encoder_hidden_states = self.norm_enc(encoder_hidden_states) * (1 + enc_scale)[None, :, :] + enc_shift[None, :, :]
-        # print(f'enc_shift '
-        # f'max {enc_shift.max()}, min {enc_shift.min()}, mean {enc_shift.mean()}, std {enc_shift.std()}')
-        # print(f'enc_scale '
-        # f'max {enc_scale.max()}, min {enc_scale.min()}, mean {enc_scale.mean()}, std {enc_scale.std()}')
         return hidden_states, encoder_hidden_states, gate[None, :, :], enc_gate[None, :, :]
         # shift, scale, gate, enc_shift, enc_scale, enc_gate = self.linear(self.silu(temb)).chunk(6, dim=1)
         # hidden_states = self.norm(hidden_states) * (1 + scale)[:, None, :] + shift[:, None, :]
@@ -355,13 +360,7 @@ class OpenSoraAttnProcessor2_0:
             )
             hidden_states = rearrange(hidden_states, 'b h s d -> s b (h d)', h=FA_head_num)
         # -----------------------------------------------
-        # scores = torch.matmul(query, key.transpose(-2, -1)) / (FA_head_num ** 0.5)  # QK^T / sqrt(d_k)
-        # attention_weights = F.softmax(scores, dim=-1)
-        # with open('1.txt', 'r') as f:
-        #     index = f.readlines()[0].strip()
-        # torch.save(attention_weights, f'attn_{index}.pt')
-        # with open('1.txt', 'w') as f:
-        #     index = f.write(str(int(index)+1))
+
         # -----------------------------------------------
         # Step 6, split->reverse sparse->proj the attention outputs.
         hidden_states, encoder_hidden_states = hidden_states.split(
@@ -398,13 +397,14 @@ class BasicTransformerBlock(nn.Module):
         final_dropout: bool = False,
         ff_inner_dim: Optional[int] = None,
         ff_bias: bool = False,
+        double_ff: bool = False,
         attention_out_bias: bool = True,
         context_pre_only: bool = False,
         interpolation_scale_thw: Tuple[int] = (1, 1, 1), 
         sparse1d: bool = False,
         sparse_n: int = 2,
         sparse_group: bool = False,
-        norm_cls: str = 'rms_norm', 
+        norm_cls: str = 'layer_norm', 
     ):
         super().__init__()
         self.sparse1d = sparse1d
@@ -454,6 +454,17 @@ class BasicTransformerBlock(nn.Module):
             bias=ff_bias,
         )
 
+        self.double_ff = double_ff
+        if self.double_ff:
+            self.ff_enc = FeedForward(
+                dim,
+                dropout=dropout,
+                activation_fn=activation_fn,
+                final_dropout=final_dropout,
+                inner_dim=ff_inner_dim,
+                bias=ff_bias,
+            )
+
     
     def forward(
         self,
@@ -471,13 +482,11 @@ class BasicTransformerBlock(nn.Module):
 
         # 1. Self-Attention
         # norm & scale & shift
+        hidden_states = maybe_clamp_tensor(hidden_states, training=self.training)
+        encoder_hidden_states = maybe_clamp_tensor(encoder_hidden_states, training=self.training)
         norm_hidden_states, norm_encoder_hidden_states, gate_msa, enc_gate_msa = self.norm1(
             hidden_states, encoder_hidden_states, embedded_timestep
             )
-        # print(f'pre-attn norm_hidden_states '
-        # f'max {norm_hidden_states.max()}, min {norm_hidden_states.min()}, mean {norm_hidden_states.mean()}, std {norm_hidden_states.std()}')
-        # print(f'pre-attn norm_encoder_hidden_states '
-        # f'max {norm_encoder_hidden_states.max()}, min {norm_encoder_hidden_states.min()}, mean {norm_encoder_hidden_states.mean()}, std {norm_encoder_hidden_states.std()}')
         # attn
         attn_hidden_states, attn_encoder_hidden_states = self.attn1(
             norm_hidden_states,
@@ -488,58 +497,29 @@ class BasicTransformerBlock(nn.Module):
             attention_mask=attention_mask, 
             video_rotary_emb=video_rotary_emb, 
         )
-        # print('========================')
-        # print(f'after attn hidden_states, ', 
-        #         f'max {attn_hidden_states.max()}, min {attn_hidden_states.min()}, mean {attn_hidden_states.mean()}, std {attn_hidden_states.std()}')
-        # print(f'gate_msa '
-        # f'max {gate_msa.max()}, min {gate_msa.min()}, mean {gate_msa.mean()}, std {gate_msa.std()}')
-        # print(f'(gate_msa * attn_hidden_states) '
-        # f'max {(gate_msa * attn_hidden_states).max()}, min {(gate_msa * attn_hidden_states).min()}, mean {(gate_msa * attn_hidden_states).mean()}, std {(gate_msa * attn_hidden_states).std()}')
-        
-        # print('-----------------------')
-        # print(f'after attn encoder_hidden_states, ', 
-        #         f'max {attn_encoder_hidden_states.max()}, min {attn_encoder_hidden_states.min()}, mean {attn_encoder_hidden_states.mean()}, std {attn_encoder_hidden_states.std()}')
-        # print(f'enc_gate_msa '
-        # f'max {enc_gate_msa.max()}, min {enc_gate_msa.min()}, mean {enc_gate_msa.mean()}, std {enc_gate_msa.std()}')
-        # print(f'(enc_gate_msa * attn_encoder_hidden_states) '
-        # f'max {(enc_gate_msa * attn_encoder_hidden_states).max()}, min {(enc_gate_msa * attn_encoder_hidden_states).min()}, mean {(enc_gate_msa * attn_encoder_hidden_states).mean()}, std {(enc_gate_msa * attn_encoder_hidden_states).std()}')
-        
         # residual & gate
-        # print('-----------------------')
         hidden_states = hidden_states + gate_msa * attn_hidden_states
         encoder_hidden_states = encoder_hidden_states + enc_gate_msa * attn_encoder_hidden_states
-        # print(f'hidden_states '
-        # f'max {hidden_states.max()}, min {hidden_states.min()}, mean {hidden_states.mean()}, std {hidden_states.std()}')
-        # print(f'encoder_hidden_states '
-        # f'max {encoder_hidden_states.max()}, min {encoder_hidden_states.min()}, mean {encoder_hidden_states.mean()}, std {encoder_hidden_states.std()}')
-        # print('========================')
-        # print('-----------------------')
+
         # 1. Share Feed-Forward
         # norm & scale & shift
+        hidden_states = maybe_clamp_tensor(hidden_states, training=self.training)
+        encoder_hidden_states = maybe_clamp_tensor(encoder_hidden_states, training=self.training)
         norm_hidden_states, norm_encoder_hidden_states, gate_ff, enc_gate_ff = self.norm2(
             hidden_states, encoder_hidden_states, embedded_timestep
         )
         
-        # print(f'norm_hidden_states '
-        # f'max {norm_hidden_states.max()}, min {norm_hidden_states.min()}, mean {norm_hidden_states.mean()}, std {norm_hidden_states.std()}')
-        # print(f'norm_encoder_hidden_states '
-        # f'max {norm_encoder_hidden_states.max()}, min {norm_encoder_hidden_states.min()}, mean {norm_encoder_hidden_states.mean()}, std {norm_encoder_hidden_states.std()}')
-        # ffn
-        norm_hidden_states = torch.cat([norm_hidden_states, norm_encoder_hidden_states], dim=0)
-        ff_output = self.ff(norm_hidden_states)
-        # print('-----------------------')
-        # residual & gate
-        # print(f'gate_ff '
-        # f'max {gate_ff.max()}, min {gate_ff.min()}, mean {gate_ff.mean()}, std {gate_ff.std()}')
-        # print(f'after ffn hidden_states, ', 
-        # f'max {ff_output[:vis_seq_length].max()}, min {ff_output[:vis_seq_length].min()}, mean {ff_output[:vis_seq_length].mean()}, std {ff_output[:vis_seq_length].std()}')
-        
-        # print(f'enc_gate_ff '
-        # f'max {enc_gate_ff.max()}, min {enc_gate_ff.min()}, mean {enc_gate_ff.mean()}, std {enc_gate_ff.std()}')
-        # print(f'after ffn encoder_hidden_states, ', 
-        #         f'max {ff_output[vis_seq_length:].max()}, min {ff_output[vis_seq_length:].min()}, mean {ff_output[vis_seq_length:].mean()}, std {ff_output[vis_seq_length:].std()}')
-        
-        hidden_states = hidden_states + gate_ff * ff_output[:vis_seq_length]
-        encoder_hidden_states = encoder_hidden_states + enc_gate_ff * ff_output[vis_seq_length:]
+        if self.double_ff:
+            vis_ff_output = self.ff(norm_hidden_states)
+            enc_ff_output = self.ff_enc(norm_encoder_hidden_states)
+            hidden_states = hidden_states + gate_ff * vis_ff_output
+            encoder_hidden_states = encoder_hidden_states + enc_gate_ff * enc_ff_output
+        else:
+            # ffn
+            norm_hidden_states = torch.cat([norm_hidden_states, norm_encoder_hidden_states], dim=0)
+            ff_output = self.ff(norm_hidden_states)
+            # residual & gate
+            hidden_states = hidden_states + gate_ff * ff_output[:vis_seq_length]
+            encoder_hidden_states = encoder_hidden_states + enc_gate_ff * ff_output[vis_seq_length:]
 
         return hidden_states, encoder_hidden_states

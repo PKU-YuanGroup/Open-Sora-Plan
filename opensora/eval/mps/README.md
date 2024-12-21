@@ -12,9 +12,9 @@ The original code is from [MPS](https://github.com/Kwai-Kolors/MPS).
 
 ### Step 1
 
-修改$PROMPT, 目前支持['DrawBench', 'PartiPrompts', 'GenAI']
+修改$PROMPT, 目前支持['GenAI527', 'GenAI1600', 'DALLE3', 'DOCCI-Test-Pivots', 'DrawBench', 'Gecko-Rel', 'PartiPrompts']
 ```
-bash opensora/eval/mps/step1_gen_samples.sh
+bash opensora/eval/step1_gen_samples.sh
 ```
 
 ```

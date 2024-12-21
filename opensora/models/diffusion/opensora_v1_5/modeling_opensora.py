@@ -14,7 +14,7 @@ from diffusers.models.embeddings import PixArtAlphaTextProjection
 from opensora.models.diffusion.opensora_v1_5.modules import CombinedTimestepTextProjEmbeddings, BasicTransformerBlock, AdaNorm
 from opensora.utils.utils import to_2tuple
 from opensora.models.diffusion.common import PatchEmbed2D
-from opensora.models.diffusion.opensora_v1_5.modules import RoPE3D, PositionGetter3D
+from opensora.models.diffusion.opensora_v1_5.modules import RoPE3D, PositionGetter3D, FP32LayerNorm
 try:
     import torch_npu
     from opensora.npu_config import npu_config
@@ -24,7 +24,24 @@ except:
     npu_config = None
     from opensora.utils.parallel_states import get_sequence_parallel_state, nccl_info
 
+def zero_initialized_skip_connection(module_cls):
+    if not issubclass(module_cls, nn.Linear):
+        raise TypeError(f"Expected module_cls to be nn.Linear, but got {module_cls.__name__}.")
+    def zero_init(*args, **kwargs):
+        module = module_cls(*args, **kwargs)
+        in_features = module.in_features
+        out_features = module.out_features
+        if in_features != 2 * out_features:
+            raise ValueError("Expected in_features to be twice out_features, "
+                             f"but got in_features={in_features} and out_features={out_features}.")
 
+        module.weight.data[:, :out_features] = torch.eye(out_features, dtype=module.weight.dtype)
+        module.weight.data[:, out_features:] = 0.0
+        if module.bias is not None:
+            module.bias.data.fill_(0.0)
+        return module
+    return zero_init
+  
 
 def prepare_sparse_mask(attention_mask, encoder_attention_mask, sparse_n, head_num):
     attention_mask = attention_mask.unsqueeze(1)
@@ -104,6 +121,8 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
         norm_cls: str = 'rms_norm', 
         skip_connection: bool = False, 
         explicit_uniform_rope: bool = False, 
+        skip_connection_zero_init: bool = True,
+        double_ff: bool = False,
     ):
         super().__init__()
         # Set some common variables used across the board.
@@ -113,7 +132,7 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
         if norm_cls == 'rms_norm':
             self.norm_cls = RMSNorm
         elif norm_cls == 'layer_norm':
-            self.norm_cls = nn.LayerNorm
+            self.norm_cls = FP32LayerNorm
 
         assert len(self.config.num_layers) == len(self.config.sparse_n)
         assert len(self.config.num_layers) % 2 == 1
@@ -169,14 +188,15 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
         for idx, (num_layer, sparse_n) in enumerate(zip(self.config.num_layers, self.config.sparse_n)):
             is_last_stage = idx == len(self.config.num_layers) - 1
             if self.config.skip_connection and idx > len(self.config.num_layers) // 2:
+                skip_connection_linear = zero_initialized_skip_connection(nn.Linear) if self.config.skip_connection_zero_init else nn.Linear
                 self.skip_norm_linear.append(
                     nn.Sequential(
                         self.norm_cls(
                             self.config.hidden_size*2, 
                             elementwise_affine=self.config.norm_elementwise_affine, 
                             eps=self.config.norm_eps
-                            ), 
-                        nn.Linear(self.config.hidden_size*2, self.config.hidden_size), 
+                        ) if not self.config.skip_connection_zero_init else nn.Identity(), 
+                        skip_connection_linear(self.config.hidden_size*2, self.config.hidden_size), 
                     )
                 )
                 self.skip_norm_linear_enc.append(
@@ -185,8 +205,8 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
                             self.config.hidden_size*2, 
                             elementwise_affine=self.config.norm_elementwise_affine, 
                             eps=self.config.norm_eps
-                            ), 
-                        nn.Linear(self.config.hidden_size*2, self.config.hidden_size), 
+                        ) if not self.config.skip_connection_zero_init else nn.Identity(), 
+                        skip_connection_linear(self.config.hidden_size*2, self.config.hidden_size), 
                     )
                 )
             stage_blocks = nn.ModuleList(
@@ -202,6 +222,7 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
                         norm_elementwise_affine=self.config.norm_elementwise_affine,
                         norm_eps=self.config.norm_eps,
                         interpolation_scale_thw=interpolation_scale_thw, 
+                        double_ff=self.config.double_ff,
                         sparse1d=self.config.sparse1d if sparse_n > 1 else False, 
                         sparse_n=sparse_n, 
                         sparse_group=i % 2 == 1 if sparse_n > 1 else False, 
@@ -730,16 +751,16 @@ if __name__ == '__main__':
     num_frames = (args.num_frames - 1) // ae_stride_t + 1
     
 
-    model = OpenSoraT2V_v1_5.from_pretrained("11.10_mmdit13b_dense_rf_bs8192_lr5e-5_max1x384x384_min1x384x288_emaclip99_border109m/checkpoint-5967/model_ema")
+    # model = OpenSoraT2V_v1_5.from_pretrained("11.10_mmdit13b_dense_rf_bs8192_lr5e-5_max1x384x384_min1x384x288_emaclip99_border109m/checkpoint-5967/model_ema")
     # for blk in model.transformer_blocks:
     #     for i in blk:
     #         weight_norm = get_weight_norm(parameters=i.parameters(), mpu=None)
     #         print(weight_norm)
-    state_dict = model.state_dict()
+    # state_dict = model.state_dict()
     
     # device = torch.device('cpu')
     device = torch.device('cuda:0')
-    model_ = OpenSoraT2V_v1_5_13B_122(
+    model = OpenSoraT2V_v1_5_13B_122(
         in_channels=c, 
         out_channels=c, 
         sample_size_h=latent_size_h, 
@@ -751,14 +772,14 @@ if __name__ == '__main__':
         interpolation_scale_w=args.interpolation_scale_w, 
         sparse1d=args.sparse1d, 
         )
-    print(model_)
-    model_.load_state_dict(state_dict, strict=False)
-    model_.save_pretrained('12.11_14bmmdit_final384_rms2layer')
-    import sys;sys.exit()
-    import ipdb;ipdb.set_trace()
-    weight_norm = get_weight_norm(parameters=model.parameters(), mpu=None)
-    print(weight_norm)
-    import sys;sys.exit()
+    # print(model_)
+    # model_.load_state_dict(state_dict, strict=False)
+    # model_.save_pretrained('12.11_14bmmdit_final384_rms2layer')
+    # import sys;sys.exit()
+    # import ipdb;ipdb.set_trace()
+    # weight_norm = get_weight_norm(parameters=model.parameters(), mpu=None)
+    # print(weight_norm)
+    # import sys;sys.exit()
 
     total_cnt = len(list(model.named_parameters()))
     print('total_cnt', total_cnt)
@@ -788,5 +809,5 @@ if __name__ == '__main__':
     with torch.no_grad():
         output = model(**model_kwargs)
     print(output[0].shape)
-    model.save_pretrained('./test_v1_5_6b')
+    # model.save_pretrained('./test_v1_5_6b')
 

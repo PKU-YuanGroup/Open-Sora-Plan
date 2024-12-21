@@ -1,16 +1,12 @@
 
-The original code is from [VQAScore](https://github.com/linzhiqiu/t2v_metrics).
+The original code is from [improved-aesthetic-predictor-v2](https://github.com/christophschuhmann/improved-aesthetic-predictor).
 
 
 ## Requirements and Installation
 
-```
-pip install git+https://github.com/openai/CLIP.git
-pip install open-clip-torch
-```
+下载[ViT-L/14](https://openaipublic.azureedge.net/clip/models/b8cca3fd41ae0c99ba7e8951adf17d267cdb84cd88be6f7c2e0eca1737a03836/ViT-L-14.pt)到$CACHE_DIR
+下载[sac+logos+ava1-l14-linearMSE.pth](https://github.com/christophschuhmann/improved-aesthetic-predictor/blob/main/ava%2Blogos-l14-linearMSE.pth)到$CACHE_DIR
 
-下载[zhiqiulin/clip-flant5-xxl](https://huggingface.co/zhiqiulin/clip-flant5-xxl)到$CACHE_DIR
-下载[openai/clip-vit-large-patch14-336](https://huggingface.co/openai/clip-vit-large-patch14-336)到$CACHE_DIR
 
 ## Eval
 
@@ -38,17 +34,6 @@ bash opensora/eval/step1_gen_samples.sh
 
 ### Step 2
 
-#### GenAI-Bench
-
-只有$PROMPT=='GenAI'才支持
 ```
-bash opensora/eval/vqascore/step2_genai_image_eval.sh
+bash opensora/eval/laionaesv2/step2_run_model.sh
 ```
-
-
-#### VQAScore
-
-```
-bash opensora/eval/vqascore/step2_run_model.sh
-```
-
