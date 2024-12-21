@@ -28,7 +28,7 @@ def parse_args():
     parser.add_argument(
         "--csv",
         type=str,
-        default='/storage/hxy/t2i/opensora/Open-Sora-Plan/opensora/eval/eval_prompts/DPGbench/dpg_bench.csv',
+        default='/storage/hxy/t2i/osp/Open-Sora-Plan/opensora/eval/eval_prompts/DPGbench/dpg_bench.csv',
     )
     parser.add_argument(
         "--res_path",
@@ -58,7 +58,7 @@ def parse_args():
 
 
 class MPLUG(torch.nn.Module):
-    def __init__(self, ckpt='/storage/hxy/t2i/opensora/Open-Sora-Plan/opensora/eval/dpgbench_test/mplug', device='gpu'):
+    def __init__(self, ckpt='/storage/hxy/t2i/weight/dpgbench', device='gpu'):
         super().__init__()
         from modelscope.pipelines import pipeline
         from modelscope.utils.constant import Tasks
@@ -188,7 +188,7 @@ def main():
 
     device = str(accelerator.device)
     if args.vqa_model == 'mplug':
-        vqa_model = MPLUG("/storage/hxy/t2i/opensora/Open-Sora-Plan/opensora/eval/dpgbench/weight", device=device)
+        vqa_model = MPLUG("/storage/hxy/t2i/weight/dpgbench", device=device)
     else:
         raise NotImplementedError
     vqa_model = accelerator.prepare(vqa_model)
