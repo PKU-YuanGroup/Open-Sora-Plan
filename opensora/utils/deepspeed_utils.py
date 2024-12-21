@@ -26,8 +26,31 @@ from torch.nn import functional as F
 
 from deepspeed.runtime.utils import bwc_tensor_model_parallel_rank, is_model_parallel_parameter
 
+def safe_get_weight_norm(module):
+    if module is None:
+        return 0.0
+    else:
+        return get_weight_norm(parameters=module.parameters(), mpu=None)
 
-
+def get_weight_norm_dict(model):
+    weight_norm_dict = {}
+    cnt = 0
+    for m in model.transformer_blocks:
+        for sub_m in m:
+            weight_norm_dict.update({f'block_{cnt}': safe_get_weight_norm(sub_m)})
+            cnt += 1
+    if getattr(model, 'skip_norm_linear', None) is not None:
+        weight_norm_dict.update({f'skip_{i}': safe_get_weight_norm(m) for i, m in enumerate(model.skip_norm_linear)})
+    weight_norm_dict.update({f'norm_final': safe_get_weight_norm(model.norm_final)})
+    weight_norm_dict.update({f'proj_out': safe_get_weight_norm(model.proj_out)})
+    if getattr(model, 'final_conv', None) is not None:
+        weight_norm_dict.update({f'final_conv': safe_get_weight_norm(model.final_conv)})
+    weight_norm_dict.update({f'patch_embed': safe_get_weight_norm(model.patch_embed)})
+    weight_norm_dict.update({f'time_text_embed': safe_get_weight_norm(model.time_text_embed)})
+    weight_norm_dict.update({f'caption_projection': safe_get_weight_norm(model.caption_projection)})
+    if getattr(model, 'caption_projection_2', None) is not None:
+        weight_norm_dict.update({f'caption_projection_2': safe_get_weight_norm(model.caption_projection_2)})
+    return weight_norm_dict
 def deepspeed_zero_init_disabled_context_manager():
     """
     returns either a context list that includes one that will disable zero.Init or an empty context list

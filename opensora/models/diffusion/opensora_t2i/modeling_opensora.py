@@ -661,6 +661,7 @@ if __name__ == '__main__':
     from opensora.models.causalvideovae import ae_stride_config, ae_channel_config
     from opensora.models import CausalVAEModelWrapper
     from opensora.utils.ema_utils import EMAModel
+    from opensora.utils.deepspeed_utils import get_weight_norm_dict
     args = type('args', (), 
     {
         'ae': 'WFVAEModel_D32_8x8x8', 
@@ -713,10 +714,10 @@ if __name__ == '__main__':
     # model_.save_pretrained('12.11_14bmmdit_final384_rms2layer')
     # import sys;sys.exit()
     # import ipdb;ipdb.set_trace()
-    # weight_norm = get_weight_norm(parameters=model.parameters(), mpu=None)
+    weight_norm_dict = get_weight_norm_dict(model)
+    import ipdb;ipdb.set_trace()
     # print(weight_norm)
     # import sys;sys.exit()
-
     total_cnt = len(list(model.named_parameters()))
     # print('total_cnt', total_cnt)
     # print(k, 'total_cnt', total_cnt)

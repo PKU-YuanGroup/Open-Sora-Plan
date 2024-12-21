@@ -68,7 +68,7 @@ from opensora.utils.ema_utils import EMAModel
 from opensora.utils.utils import explicit_uniform_sampling, get_common_weights
 from opensora.sample.pipeline_opensora import OpenSoraPipeline
 from opensora.models.causalvideovae import ae_stride_config, ae_wrapper
-from opensora.utils.deepspeed_utils import backward, deepspeed_zero_init_disabled_context_manager
+from opensora.utils.deepspeed_utils import backward, deepspeed_zero_init_disabled_context_manager, get_weight_norm_dict
 
 # from opensora.utils.utils import monitor_npu_power
 
@@ -723,6 +723,10 @@ def main(args):
         if args.use_ema and (progress_info.global_step - 1) % args.ema_update_freq == 0:
             log_dict.update(dict(cur_decay_value=cur_decay_value))
         accelerator.log(log_dict, step=progress_info.global_step)
+
+        if progress_info.global_step % 10 == 0:
+            weight_norm_dict = get_weight_norm_dict(model)
+            accelerator.log(weight_norm_dict, step=progress_info.global_step)
 
         if torch_npu is not None and npu_config is not None:
             npu_config.print_msg(f"Step: [{progress_info.global_step}], local_loss={loss.detach().item()}, "
