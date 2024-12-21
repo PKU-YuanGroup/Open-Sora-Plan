@@ -33,8 +33,19 @@ Install the MMCV:
 ```
 git clone https://github.com/open-mmlab/mmcv.git
 cd mmcv
-git checkout v1.7.0
+
+git checkout v2.2.0
 pip install -r requirements/optional.txt
+vim setup.py
+# L160
+extra_compile_args = {
+    # 'nvcc': [cuda_args, '-std=c++14'] if cuda_args else ['-std=c++14'],
+    'nvcc': [cuda_args, '-std=c++14', '-arch=sm_90'] if cuda_args else ['-std=c++14'],
+    'cxx': ['-std=c++14'],
+}
+# Revert all changes to setup.py using Ctrl+Z. Then, Ctrl+S to save
+pip install -v -e .
+git checkout v1.7.0
 vim setup.py
 # L217
 extra_compile_args = {
@@ -43,6 +54,7 @@ extra_compile_args = {
     'cxx': ['-std=c++14'],
 }
 pip install -v -e .
+python .dev_scripts/check_installation.py
 cd ..
 ```
 

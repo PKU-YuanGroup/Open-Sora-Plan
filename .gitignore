@@ -128,3 +128,4 @@ efficientvit*
 **/gen_img_for_human_pref*
 hf_cache
 geneval_outputs
+opensora/eval/geneval/results.jsonl

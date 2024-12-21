@@ -1,6 +1,10 @@
 import json
 import argparse
 import torch
+
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
+
 import os
 from PIL import Image
 from tqdm import tqdm
@@ -15,6 +19,7 @@ except:
     pass
 from opensora.utils.sample_utils import init_gpu_env, init_npu_env, prepare_pipeline
 from opensora.eval.gen_samples import run_model_and_return_samples
+
 
 
 def get_args():
