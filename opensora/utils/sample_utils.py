@@ -143,6 +143,16 @@ def prepare_pipeline(args, device):
                 # device_map=None, 
                 torch_dtype=weight_dtype
                 ).eval()
+    elif args.version == 't2i':
+        if args.model_type == 'inpaint' or args.model_type == 'i2v':
+            raise NotImplementedError('Inpainting model is not available in t2i')
+        else:
+            from opensora.models.diffusion.opensora_t2i.modeling_opensora import OpenSoraT2I
+            transformer_model = OpenSoraT2I.from_pretrained(
+                args.model_path, cache_dir=args.cache_dir, 
+                # device_map=None, 
+                torch_dtype=weight_dtype
+                ).eval()
     scheduler = get_scheduler(args)
     pipeline_class = OpenSoraInpaintPipeline if args.model_type == 'inpaint' or args.model_type == 'i2v' else OpenSoraPipeline
 
@@ -488,7 +498,7 @@ def run_model_and_save_samples_npu(args, pipeline, caption_refiner_model=None, e
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_path", type=str, default='LanguageBind/Open-Sora-Plan-v1.0.0')
-    parser.add_argument("--version", type=str, default='v1_3', choices=['v1_3', 'v1_5'])
+    parser.add_argument("--version", type=str, default='v1_3', choices=['v1_3', 'v1_5', 't2i'])
     parser.add_argument("--model_type", type=str, default='t2v', choices=['t2v', 'inpaint', 'i2v'])
     parser.add_argument("--num_frames", type=int, default=1)
     parser.add_argument("--height", type=int, default=512)

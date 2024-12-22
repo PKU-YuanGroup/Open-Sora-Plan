@@ -129,3 +129,4 @@ efficientvit*
 hf_cache
 geneval_outputs
 opensora/eval/geneval/results.jsonl
+t2i_ablation_arch
