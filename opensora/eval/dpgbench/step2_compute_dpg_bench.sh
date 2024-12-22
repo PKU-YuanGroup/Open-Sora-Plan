@@ -3,7 +3,7 @@ RESOLUTION=$2
 PIC_NUM=${PIC_NUM:-4}
 PROCESSES=${PROCESSES:-8}
 PORT=${PORT:-1234}
-RESULTPATH="/storage/hxy/t2i/results/dpgbench/results/result_6B.txt" #保存结果的txt路径
+RESULTPATH="/storage/hxy/t2i/results/dpgbench/results/mmdit_last_results.txt" #保存结果的txt路径
 VQACKPT="/storage/hxy/t2i/weight/dpgbench" #保存vqamodel的本地权重路径
 
 accelerate launch --num_machines 1 --num_processes $PROCESSES --multi_gpu --mixed_precision "fp16" --main_process_port $PORT \

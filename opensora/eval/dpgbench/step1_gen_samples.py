@@ -2,6 +2,7 @@ import os
 import torch
 import argparse
 from PIL import Image
+import json
 import numpy as np
 try:
     import torch_npu
@@ -103,7 +104,7 @@ def get_args():
     parser.add_argument("--prediction_type", type=str, default='epsilon', help="The prediction_type that shall be used for training. Choose between 'epsilon' or 'v_prediction' or leave `None`. If left to `None` the default prediction type of the scheduler: `noise_scheduler.config.prediciton_type` is chosen.")
     parser.add_argument('--rescale_betas_zero_snr', action='store_true')
     parser.add_argument('--result_path', type=str, default='/storage/hxy/t2i/opensora/Open-Sora-Plan/opensora/eval/dpgbench_test/results')
-    parser.add_argument('--prompt_path', type=str, default='/storage/hxy/t2i/opensora/Open-Sora-Plan/opensora/eval/dpgbench_test/ELLA/dpg_bench/prompts')
+    parser.add_argument('--prompt_path', type=str, default='/storage/hxy/t2i/osp/Open-Sora-Plan/opensora/eval/eval_prompts/DPGbench/dpgbench_prompts.json')
     parser.add_argument('--world_size', type=int, default=1, help="number of gpus for eval")
     parser.add_argument('--local_rank', type=int, default=0, help="node rank for distributed training")   
 
@@ -122,26 +123,13 @@ if __name__ == "__main__":
     if not os.path.exists(args.result_path):
         os.makedirs(args.result_path)
 
-    # all_texts = []
     file_names = []
 
-    for filename in os.listdir(args.prompt_path):
-        if filename.endswith('.txt'):  # 只处理txt文件
-            file_path = os.path.join(args.prompt_path, filename)
+    with open(args.prompt_pat, 'r') as f:
+        data = json.load(f)
 
-            # all_texts.append(file_path)
-            file_names.append(file_path)
-
-            # with open(file_path, 'r', encoding='utf-8') as file:
-            #     text_prompt = file.read()  # 读取文件中的文本
-            #     all_texts.append(text_prompt)  # 将文本添加到列表中
             
-    for index, file_path in enumerate(file_names):
-
-        with open(file_path, 'r', encoding='utf-8') as file:
-            text_prompt = file.read()  # 读取文件中的文本
-            # all_texts.append(text_prompt)  # 将文本添加到列表中
-
+    for index, (filename, text_prompt) in enumerate(data.items()):
 
         if not index % args.world_size == args.local_rank:
             continue
@@ -156,7 +144,7 @@ if __name__ == "__main__":
         num_samples_per_prompt=4, 
         )  # b t h w c, [0, 255]
 
-        filename = file_path.split('/')[-1]
+
 
         img_name = filename.replace('.txt', '.png')
 
