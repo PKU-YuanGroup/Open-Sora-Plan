@@ -1,15 +1,10 @@
 from torch import nn
 
-from .ddpm import DDPM
-from .iddpm import IDDPM
-from .rflow import RFlow
-from .diffusers_scheduler import DIFFUSERS_SCHEDULE_MAPPINGS, DiffusersScheduler
-
+from .diffusers_scheduler import DiffusersScheduler
+from .opensoraplanv1_5_scheduler import OpenSoraPlanScheduler
 
 DIFFUSION_MODEL_MAPPINGS = {
-    "ddpm": DDPM,
-    "iddpm": IDDPM,
-    "rflow": RFlow,
+    "OpenSoraPlan": OpenSoraPlanScheduler
 }
 
 

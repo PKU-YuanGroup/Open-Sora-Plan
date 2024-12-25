@@ -40,7 +40,10 @@ def load_checkpoint(model, ckpt_path):
     else:
         raise ValueError(f"Invalid checkpoint path: {ckpt_path}")
 
-    ckpt_dict = ckpt_dict["model"]
+    if "model" in ckpt_dict.keys():
+        ckpt_dict = ckpt_dict["model"]
+    elif "state_dict" in ckpt_dict.keys():
+        ckpt_dict = ckpt_dict["state_dict"]
 
     suffixes_1 = ["attn1.proj_q.weight", "attn1.proj_q.bias",
                   "attn1.proj_k.weight", "attn1.proj_k.bias",

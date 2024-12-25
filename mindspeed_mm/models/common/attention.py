@@ -12,6 +12,7 @@ from megatron.training import get_args
 from megatron.training.arguments import core_transformer_config_from_args
 
 from megatron.legacy.model.rms_norm import RMSNorm
+from megatron.legacy.model.layer_norm import LayerNorm
 
 from mindspeed_mm.utils.utils import video_to_image
 from mindspeed_mm.models.common.normalize import normalize
@@ -54,7 +55,7 @@ class MultiHeadSparseMMAttentionSBH(nn.Module):
         sparse_n: int = None,
         sparse_group: bool = None,
         is_cross_attn: bool = False,
-        context_pre_only:bool = False,
+        context_pre_only:bool = None,
         qk_norm: Optional[str] = None,
         eps: float = 1e-5,
         elementwise_affine: bool = True,
@@ -85,8 +86,8 @@ class MultiHeadSparseMMAttentionSBH(nn.Module):
             self.norm_proj_q = None
             self.norm_proj_k = None
         elif qk_norm == "layer_norm":
-            self.norm_proj_q = nn.LayerNorm(head_dim, eps=eps, elementwise_affine=elementwise_affine)
-            self.norm_proj_k = nn.LayerNorm(head_dim, eps=eps, elementwise_affine=elementwise_affine)
+            self.norm_proj_q = LayerNorm(head_dim, eps=eps, sequence_parallel=True)
+            self.norm_proj_k = LayerNorm(head_dim, eps=eps, sequence_parallel=True)
         elif qk_norm == "rms_norm":
             self.norm_proj_q = RMSNorm(head_dim, eps=eps, sequence_parallel=True)
             self.norm_proj_k = RMSNorm(head_dim, eps=eps, sequence_parallel=True)
@@ -173,8 +174,8 @@ class MultiHeadSparseMMAttentionSBH(nn.Module):
 
         if qk_norm is not None and added_kv_proj_dim is not None:
             if qk_norm == "layer_norm":
-                self.norm_added_proj_q = nn.LayerNorm(head_dim, eps=eps, elementwise_affine=elementwise_affine)
-                self.norm_added_proj_k = nn.LayerNorm(head_dim, eps=eps, elementwise_affine=elementwise_affine)
+                self.norm_added_proj_q = LayerNorm(head_dim, eps=eps, sequence_parallel=True)
+                self.norm_added_proj_k = LayerNorm(head_dim, eps=eps, sequence_parallel=True)
             elif qk_norm == "rms_norm":
                 self.norm_added_proj_q = RMSNorm(head_dim, eps=eps, sequence_parallel=True)
                 self.norm_added_proj_k = RMSNorm(head_dim, eps=eps, sequence_parallel=True)

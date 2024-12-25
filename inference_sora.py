@@ -7,8 +7,8 @@ from megatron.training import get_args
 from megatron.core import mpu
 
 from mindspeed_mm.configs.config import merge_mm_args, mm_extra_args_provider
-from mindspeed_mm.tasks.inference.pipeline import SoraPipeline_dict
-from mindspeed_mm.tasks.inference.pipeline.utils.sora_utils import save_videos, save_one_video, load_prompts, load_conditional_pixel_values_path
+from mindspeed_mm.inference.pipeline import OpenSoraPlanPipeline
+from mindspeed_mm.inference.pipeline.utils.sora_utils import save_videos, save_one_video, load_prompts, load_conditional_pixel_values_path
 from mindspeed_mm.models.predictor import PredictModel
 from mindspeed_mm.models.diffusion import DiffusionModel
 from mindspeed_mm.models.ae import AEModel
@@ -24,15 +24,17 @@ if is_npu_available():
 
 def prepare_pipeline(args, device):
     vae = AEModel(args.ae).get_model().to(device, args.ae.dtype).eval()
-    text_encoder = TextEncoder(args.text_encoder).get_model().to(device).eval()
-    predict_model = PredictModel(args.predictor).get_model().to(device, args.predictor.dtype).eval()
-    scheduler = DiffusionModel(args.diffusion).get_model()
     tokenizer = Tokenizer(args.tokenizer).get_tokenizer()
+    tokenizer_2 = Tokenizer(args.tokenizer_2).get_tokenizer() if args.tokenizer_2 is not None else None
+    text_encoder = TextEncoder(args.text_encoder).get_model().to(device, args.weight_dtype).eval()
+    text_encoder_2 = TextEncoder(args.text_encoder_2).get_model().to(device, args.weight_dtype).eval() if args.text_encoder_2 is not None else None
+    predict_model = PredictModel(args.predictor).get_model().to(device, args.weight_dtype).eval()
+    scheduler = DiffusionModel(args.diffusion).get_model()
     if not hasattr(vae, 'dtype'):
         vae.dtype = args.ae.dtype
     tokenizer.model_max_length = args.model_max_length
-    sora_pipeline_class = SoraPipeline_dict[args.pipeline_class]
-    sora_pipeline = sora_pipeline_class(vae=vae, text_encoder=text_encoder, tokenizer=tokenizer, scheduler=scheduler,
+    sora_pipeline_class = OpenSoraPlanPipeline
+    sora_pipeline = sora_pipeline_class(vae=vae, text_encoder=text_encoder, text_encoder_2=text_encoder_2, tokenizer=tokenizer, tokenizer_2=tokenizer_2, scheduler=scheduler,
                                         predict_model=predict_model, config=args.pipeline_config)
     return sora_pipeline
 

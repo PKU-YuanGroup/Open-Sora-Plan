@@ -7,6 +7,7 @@ from torch import nn
 import torch.nn.functional as F
 from diffusers.utils import is_torch_version
 from megatron.legacy.model.rms_norm import RMSNorm
+from megatron.legacy.model.layer_norm import LayerNorm
 from megatron.core import mpu, tensor_parallel
 from megatron.training import get_args
 from megatron.training.utils import print_rank_0 as print
@@ -29,6 +30,23 @@ def create_custom_forward(module, return_dict=None):
             return module(*inputs)
     return custom_forward
 
+def zero_initialized_skip_connection(module_cls):
+    if not issubclass(module_cls, nn.Linear):
+        raise TypeError(f"Expected module_cls to be nn.Linear, but got {module_cls.__name__}.")
+    def zero_init(*args, **kwargs):
+        module = module_cls(*args, **kwargs)
+        in_features = module.in_features
+        out_features = module.out_features
+        if in_features != 2 * out_features:
+            raise ValueError("Expected in_features to be twice out_features, "
+                             f"but got in_features={in_features} and out_features={out_features}.")
+
+        module.weight.data[:, :out_features] = torch.eye(out_features, dtype=module.weight.dtype)
+        module.weight.data[:, out_features:] = 0.0
+        if module.bias is not None:
+            module.bias.data.fill_(0.0)
+        return module
+    return zero_init
 
 class SparseUMMDiT(MultiModalModule):
     """
@@ -81,6 +99,7 @@ class SparseUMMDiT(MultiModalModule):
         norm_cls: str = 'rms_norm', 
         skip_connection: bool = False,
         explicit_uniform_rope: bool = False, 
+        skip_connection_zero_init: bool = True,
         **kwargs
     ):
         super().__init__(config=None)
@@ -106,12 +125,12 @@ class SparseUMMDiT(MultiModalModule):
         self.patch_size_t = patch_size_t
         self.patch_size = patch_size
         self.skip_connection = skip_connection
+        self.skip_connection_zero_init = skip_connection_zero_init
 
         if norm_cls == 'rms_norm':
             self.norm_cls = RMSNorm
         elif norm_cls == 'layer_norm':
-            self.norm_cls = nn.LayerNorm
-
+            self.norm_cls = LayerNorm
 
         if len(num_layers) != len(sparse_n):
             raise ValueError("num_layers and sparse_n must have the same length")
@@ -156,14 +175,15 @@ class SparseUMMDiT(MultiModalModule):
         for idx, (num_layer, sparse_n) in enumerate(zip(self.num_layers, self.sparse_n)):
             is_last_stage = idx == len(num_layers) - 1
             if self.skip_connection and idx > len(num_layers) // 2:
+                skip_connection_linear = zero_initialized_skip_connection(nn.Linear) if self.skip_connection_zero_init else nn.Linear
                 self.skip_norm_linear.append(
                     nn.Sequential(
                         self.norm_cls(
                             hidden_size * 2,
                             eps=norm_eps,
                             sequence_parallel=self.sequence_parallel,
-                        ), 
-                        nn.Linear(hidden_size * 2, hidden_size), 
+                        ) if not self.skip_connection_zero_init else nn.Identity(), 
+                        skip_connection_linear(hidden_size * 2, hidden_size), 
                     )
                 )
                 self.skip_norm_linear_enc.append(
@@ -172,8 +192,8 @@ class SparseUMMDiT(MultiModalModule):
                             hidden_size * 2,
                             eps=norm_eps,
                             sequence_parallel=self.sequence_parallel,
-                        ), 
-                        nn.Linear(hidden_size * 2, hidden_size), 
+                        ) if not self.skip_connection_zero_init else nn.Identity(), 
+                        skip_connection_linear(hidden_size * 2, hidden_size), 
                     )
                 )
             stage_blocks = nn.ModuleList(
@@ -551,8 +571,7 @@ class SparseMMDiTBlock(nn.Module):
         if norm_cls == 'rms_norm':
             self.norm_cls = RMSNorm
         elif norm_cls == 'layer_norm':
-            self.norm_cls = nn.LayerNorm
-
+            self.norm_cls = LayerNorm
 
         # adanorm-zero1: to introduce timestep and clip condition
         self.norm1 = OpenSoraNormZero(
@@ -570,7 +589,7 @@ class SparseMMDiTBlock(nn.Module):
             proj_qkv_bias=attention_bias,
             proj_out_bias=attention_out_bias,
             context_pre_only=context_pre_only,
-            qk_norm=norm_cls,
+            qk_norm='rms_norm',
             eps=norm_eps,
             sparse1d=sparse1d,
             sparse_n=sparse_n,

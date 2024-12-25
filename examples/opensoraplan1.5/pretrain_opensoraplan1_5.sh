@@ -9,9 +9,9 @@ export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
 export COMBINED_ENABLE=1
 export CPU_AFFINITY_CONF=1
 export HCCL_CONNECT_TIMEOUT=1800
-export GLOO_SOCKET_IFNAME=enp67s0f0
+# export GLOO_SOCKET_IFNAME=enp67s0f0
 
-GPUS_PER_NODE=1
+GPUS_PER_NODE=8
 MASTER_ADDR=localhost
 # MASTER_ADDR=${MAIN_PROCESS_IP_VALUE}
 MASTER_PORT=29504
@@ -21,7 +21,7 @@ NODE_RANK=0
 # NODE_RANK=${MACHINE_RANK}
 WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
 
-TP=1
+TP=8
 PP=1
 CP=1
 MBS=1
@@ -79,6 +79,9 @@ GPT_ARGS="
     --recompute-granularity full \
     --recompute-method block \
     --recompute-num-layers 48 \
+    --normalization RMSNorm \
+    --use-fused-rmsnorm \
+    --qk-layernorm \
     --sequence-parallel \
     --use-ascend-mc2 \
 "

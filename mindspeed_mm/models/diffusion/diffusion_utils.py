@@ -254,3 +254,24 @@ def explicit_uniform_sampling(T, n, rank, bsz, device):
     sampled_timesteps = torch.tensor([round(random.uniform(lower_bound, upper_bound)) for _ in range(bsz)], device=device)
     sampled_timesteps = sampled_timesteps.long()
     return sampled_timesteps
+
+
+def opensora_linear_quadratic_schedule(num_inference_steps, approximate_steps=1000):
+    assert approximate_steps % 2 == 0, "approximate_steps must be even"
+    assert num_inference_steps % 2 == 0, "num_inference_steps must be even"
+    assert num_inference_steps <= approximate_steps, "num_inference_steps must be less than or equal to approximate_steps"
+
+    _num_inference_steps = num_inference_steps // 2
+    _approximate_steps = approximate_steps // 2
+
+    linear_sigmas = [i / (2 * _approximate_steps) for i in range(_num_inference_steps)]
+    # NOTE we define a quadratic schedule that is f(x) = ax^2 + bx + c
+    quadratic_a = (_approximate_steps - _num_inference_steps) / (_approximate_steps * _num_inference_steps ** 2)
+    quadratic_b = (5 * _num_inference_steps - 4 * _approximate_steps) / (2 * _approximate_steps * _num_inference_steps)
+    quadratic_c = (_approximate_steps - _num_inference_steps) / _approximate_steps
+    quadratic_sigmas = [
+        quadratic_a * i ** 2 + quadratic_b * i + quadratic_c for i in range(_num_inference_steps, 2 * _num_inference_steps)
+    ]
+    sigmas = linear_sigmas + quadratic_sigmas + [1.0]
+    sigmas = [1.0 - x for x in sigmas]
+    return sigmas

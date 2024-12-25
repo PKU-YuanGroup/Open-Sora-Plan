@@ -8,6 +8,7 @@ from megatron.training.arguments import core_transformer_config_from_args
 from typing import Any, Dict, Optional, Tuple
 
 from megatron.legacy.model.rms_norm import RMSNorm
+from megatron.legacy.model.layer_norm import LayerNorm
 from diffusers.models.embeddings import PixArtAlphaTextProjection, Timesteps, TimestepEmbedding
 
 
@@ -74,7 +75,7 @@ class AdaNorm(nn.Module):
         if norm_cls == 'rms_norm':
             self.norm_cls = RMSNorm
         elif norm_cls == 'layer_norm':
-            self.norm_cls = nn.LayerNorm
+            self.norm_cls = LayerNorm
         self.norm = self.norm_cls(
             output_dim // 2, eps=norm_eps, sequence_parallel=self.sequence_parallel
         )
@@ -117,7 +118,7 @@ class OpenSoraNormZero(nn.Module):
         if norm_cls == 'rms_norm':
             self.norm_cls = RMSNorm
         elif norm_cls == 'layer_norm':
-            self.norm_cls = nn.LayerNorm
+            self.norm_cls = LayerNorm
 
         self.silu = nn.SiLU()
         self.linear = tensor_parallel.SingleColumnParallelLinear(

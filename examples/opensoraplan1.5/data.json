@@ -2,7 +2,7 @@
 	"dataset_param": {
 		"dataset_type": "t2v",
 		"basic_parameters": {
-			"data_path": "/home/save_dir/projects/gyy/mind/Open-Sora-Plan/examples/opensoraplan1.5/data.txt",
+			"data_path": "/work/share/projects/gyy/mind/Open-Sora-Plan/examples/opensoraplan1.5/data.txt",
 			"data_folder": "",
 			"data_storage_mode": "combine"
 		},
@@ -11,8 +11,8 @@
 			"image_reader_type": "Image",
 			"num_frames": 1,
 			"frame_interval": 1,
-			"max_height": 256,
-			"max_width": 256,
+			"max_height": 768,
+			"max_width": 768,
 			"max_hxw": 65536,
 			"min_hxw": 36864,
 			"force_resolution": true,
@@ -25,7 +25,7 @@
 			"speed_factor": 1.0,
 			"drop_short_ratio": 1.0,
 			"cfg": 0.1,
-			"batch_size": 1,
+			"batch_size": 8,
 			"train_pipeline": {
 				"video": [{
 						"trans_type": "ToTensorVideo"
@@ -33,7 +33,7 @@
 					{
 						"trans_type": "CenterCropResizeVideo",
 						"param": {
-							"size": [256, 256]
+							"size": [768, 768]
 						}
 					},
 					{
@@ -46,7 +46,7 @@
 					{
 						"trans_type": "CenterCropResizeVideo",
 						"param": {
-							"size": [256, 256]
+							"size": [768, 768]
 						}
 					},
 					{
@@ -61,25 +61,25 @@
 		"tokenizer_config": {
 			"hub_backend": "hf",
 			"autotokenizer_name": "AutoTokenizer",
-			"from_pretrained": "/home/save_dir/pretrained/t5/t5-v1_1-xl"
+			"from_pretrained": "/work/share/checkpoint/pretrained/t5/t5-v1_1-xl"
 		},
 		"tokenizer_config_2": {
 		    "hub_backend": "hf",
 			"autotokenizer_name": "AutoTokenizer",
-			"from_pretrained": "/home/save_dir/pretrained/clip/models--laion--CLIP-ViT-bigG-14-laion2B-39B-b160k/snapshots/bc7788f151930d91b58474715fdce5524ad9a189"
+			"from_pretrained": "/work/share/checkpoint/pretrained/clip/models--laion--CLIP-ViT-bigG-14-laion2B-39B-b160k/snapshots/bc7788f151930d91b58474715fdce5524ad9a189"
 		}
 	},
 	"dataloader_param": {
 		"dataloader_mode": "sampler",
         "sampler_type": "LengthGroupedSampler",
-		"batch_size": 1,
+		"batch_size": 8,
 		"num_workers": 10,
 		"shuffle": false,
 		"drop_last": true,
 		"pin_memory": false,
 		"group_data": true,
 		"collate_param": {
-			"batch_size": 1,
+			"batch_size": 8,
 			"num_frames": 1,
 			"group_data": true,
 			"ae_stride": 8,
