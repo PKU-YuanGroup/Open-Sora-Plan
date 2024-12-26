@@ -593,18 +593,36 @@ def OpenSoraT2I_2B_122_Skip(**kwargs):
         attention_head_dim=64, num_attention_heads=24, 
         timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
         caption_channels=4096, pooled_projection_dim=0, 
-        skip_connection=True, **kwargs
+        prenorm_num=0, skip_connection=True, **kwargs
     )
 
-def OpenSoraT2I_2B_122_Norm_Skip(**kwargs):
+def OpenSoraT2I_2B_122_NormSkip(**kwargs):
     return OpenSoraT2I(  # 25 layers
         num_layers=[12, 1, 12], 
         attention_head_dim=64, num_attention_heads=24, 
         timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
         caption_channels=4096, pooled_projection_dim=0, 
-        skip_connection=True, norm_skip=True, **kwargs
+        prenorm_num=0, skip_connection=True, norm_skip=True, **kwargs
     )
 
+
+def OpenSoraT2I_2B_122_MixNorm_Skip(**kwargs):
+    return OpenSoraT2I(  # 25 layers
+        num_layers=[12, 1, 12], 
+        attention_head_dim=64, num_attention_heads=24, 
+        timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
+        caption_channels=4096, pooled_projection_dim=0, 
+        prenorm_num=12, skip_connection=True, **kwargs
+    )
+
+def OpenSoraT2I_2B_122_MixNorm_NormSkip(**kwargs):
+    return OpenSoraT2I(  # 25 layers
+        num_layers=[12, 1, 12], 
+        attention_head_dim=64, num_attention_heads=24, 
+        timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
+        caption_channels=4096, pooled_projection_dim=0, 
+        prenorm_num=12, skip_connection=True, norm_skip=True, **kwargs
+    )
 
 def OpenSoraT2I_2B_122_CLIP(**kwargs):
     return OpenSoraT2I(  # 25 layers
@@ -654,7 +672,9 @@ OpenSora_T2I_models = {
     "OpenSoraT2I-2B/122/SandWichNorm": OpenSoraT2I_2B_122_SandWichNorm, 
     "OpenSoraT2I-2B/122/RMSNorm": OpenSoraT2I_2B_122_RMSNorm, 
     "OpenSoraT2I-2B/122/Skip": OpenSoraT2I_2B_122_Skip, 
-    "OpenSoraT2I-2B/122/Norm_Skip": OpenSoraT2I_2B_122_Norm_Skip, 
+    "OpenSoraT2I-2B/122/NormSkip": OpenSoraT2I_2B_122_NormSkip, 
+    "OpenSoraT2I-2B/122/MixNorm_Skip": OpenSoraT2I_2B_122_MixNorm_Skip, 
+    "OpenSoraT2I-2B/122/MixNorm_NormSkip": OpenSoraT2I_2B_122_MixNorm_NormSkip, 
     "OpenSoraT2I-2B/122/CLIP": OpenSoraT2I_2B_122_CLIP, 
     "OpenSoraT2I-2B/122/TextMLP": OpenSoraT2I_2B_122_TextMLP, 
     "OpenSoraT2I-2B/122/TimeAsX": OpenSoraT2I_2B_122_TimeAsX, 
@@ -673,7 +693,9 @@ OpenSora_T2I_models_class = {
     "OpenSoraT2I-2B/122/SandWichNorm": OpenSoraT2I, 
     "OpenSoraT2I-2B/122/RMSNorm": OpenSoraT2I, 
     "OpenSoraT2I-2B/122/Skip": OpenSoraT2I, 
-    "OpenSoraT2I-2B/122/Norm_Skip": OpenSoraT2I, 
+    "OpenSoraT2I-2B/122/NormSkip": OpenSoraT2I, 
+    "OpenSoraT2I-2B/122/MixNorm_Skip": OpenSoraT2I, 
+    "OpenSoraT2I-2B/122/MixNorm_NormSkip": OpenSoraT2I, 
     "OpenSoraT2I-2B/122/CLIP": OpenSoraT2I, 
     "OpenSoraT2I-2B/122/TextMLP": OpenSoraT2I, 
     "OpenSoraT2I-2B/122/TimeAsX": OpenSoraT2I, 
@@ -726,7 +748,7 @@ if __name__ == '__main__':
     # device = torch.device('cpu')
     device = torch.device('cuda:0')
 
-    model = OpenSoraT2I_2B_122_MixNorm(
+    model = OpenSoraT2I_2B_122_MixNorm_Skip(
         in_channels=c, 
         out_channels=c, 
         sample_size_h=latent_size_h, 

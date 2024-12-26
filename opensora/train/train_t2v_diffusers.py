@@ -229,13 +229,15 @@ def create_ema_model(
         dschf = HfDeepSpeedConfig(ds_config)
     else:
         dschf = None
-            
+    
+    deepcopy_model_to_ema = True
     if checkpoint_path:
         ema_model_path = os.path.join(checkpoint_path, "model_ema")
         if os.path.exists(ema_model_path):
             ema_model = EMAModel.from_pretrained(ema_model_path, model_cls=model_cls)
             logger.info(f'Successully resume EMAModel from {ema_model_path}', main_process_only=True)
-    else:
+            deepcopy_model_to_ema = False
+    if deepcopy_model_to_ema:
         # we load weights from original model instead of deepcopy
         model = model_cls.from_config(model_config)
         model.load_state_dict(ema_model_state_dict, strict=True)

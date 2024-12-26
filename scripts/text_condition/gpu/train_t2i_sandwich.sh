@@ -1,5 +1,6 @@
 export WANDB_API_KEY="953e958793b218efb850fa194e85843e2c3bd88b"
 # export WANDB_MODE="offline"
+export WANDB__SERVICE_WAIT=300
 export HF_DATASETS_OFFLINE=1 
 export TRANSFORMERS_OFFLINE=1
 export PDSH_RCMD_TYPE=ssh
@@ -19,9 +20,7 @@ export NCCL_IB_RETRY_CNT=32
 export TOKENIZERS_PARALLELISM=false
 # export NCCL_ALGO=Tree
 
-
-
-for i in {1..4}
+for i in {4..8}
 do
     accelerate launch \
         --config_file scripts/accelerate_configs/multi_node_example4.yaml \
@@ -31,7 +30,7 @@ do
         --text_encoder_name_1 /storage/ongoing/12.13/t2i/Open-Sora-Plan/cache_dir/google/t5-v1_1-xxl \
         --cache_dir "../../cache_dir/" \
         --dataset t2v \
-        --data /storage/anno_pkl/img_merge_pkl/densecap_1222_512_128part_4txt/part${i}.txt \
+        --data /storage/anno_pkl/img_merge_pkl/densecap_1222_512_128part_8txt/part${i}.txt \
         --ae WFVAE2Model_D32_1x8x8 \
         --ae_path "/storage/lcm/WF-VAE_paper/results/WFVAE2_18832_slim" \
         --sample_rate 1 \
@@ -49,6 +48,7 @@ do
         --mixed_precision="bf16" \
         --report_to="wandb" \
         --checkpointing_steps=2000 \
+        --use_ema \
         --model_max_length 512 \
         --ema_start_step 0 \
         --cfg 0.1 \
@@ -64,8 +64,8 @@ do
         --output_dir="t2i_ablation_arch/sandwich" \
         --vae_fp32 \
         --rf_scheduler \
-        --proj_name sandwich_part${i} \
-        --log_name t2i_ablation_arch \
+        --proj_name t2i_ablation_arch \
+        --log_name sandwich_part${i} \
         --trained_data_global_step 0 \
         --skip_abnorml_step --ema_decay_grad_clipping 0.99 
 

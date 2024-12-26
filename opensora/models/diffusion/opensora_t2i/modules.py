@@ -822,8 +822,8 @@ class BasicTransformerBlock(nn.Module):
 
     def forward(self, *args, **kwargs):
         if self.prenorm:
-            print('prenorm')
+            # print('prenorm')
             return self._prenorm_forward(*args, **kwargs)
         else:
-            print('postnorm')
+            # print('postnorm')
             return self._postnorm_forward(*args, **kwargs)

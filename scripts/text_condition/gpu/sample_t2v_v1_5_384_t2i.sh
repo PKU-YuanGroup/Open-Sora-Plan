@@ -19,7 +19,7 @@ export TOKENIZERS_PARALLELISM=false
 
 CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun --nnodes=1 --nproc_per_node 8 --master_port 29513 \
     -m opensora.sample.sample \
-    --model_path debug_train_log/checkpoint-18000/model \
+    --model_path t2i_ablation_arch/sandwich/checkpoint-162000/model_ema \
     --version t2i \
     --num_frames 1 \
     --height 256 \
@@ -29,10 +29,10 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun --nnodes=1 --nproc_per_node 8 --ma
     --text_prompt examples/prompt.txt \
     --ae WFVAE2Model_D32_1x8x8 \
     --ae_path "/storage/lcm/WF-VAE_paper/results/WFVAE2_18832_slim" \
-    --save_img_path "./256x256_cfg7.0_t2i_test" \
+    --save_img_path "./256x256_cfg7.0_t2i_sandwich_162k_ema" \
     --fps 18 \
     --guidance_scale 7.0 \
-    --guidance_rescale 0.0 \
+    --guidance_rescale 0.7 \
     --num_sampling_steps 100 \
     --max_sequence_length 512 \
     --sample_method OpenSoraFlowMatchEuler \
