@@ -23,12 +23,10 @@ from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.utils import BaseOutput, logging
 from diffusers.schedulers.scheduling_utils import SchedulerMixin
 
-
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
-
 @dataclass
-class OpenSoraFlowMatchEulerSchedulerOutput(BaseOutput):
+class FlowMatchEulerSchedulerOutput(BaseOutput):
     """
     Output class for the scheduler's `step` function output.
 
@@ -37,11 +35,10 @@ class OpenSoraFlowMatchEulerSchedulerOutput(BaseOutput):
             Computed sample `(x_{t-1})` of previous timestep. `prev_sample` should be used as next model input in the
             denoising loop.
     """
-
     prev_sample: torch.FloatTensor
 
 
-class OpenSoraFlowMatchEulerScheduler(SchedulerMixin, ConfigMixin):
+class FlowMatchEulerScheduler(SchedulerMixin, ConfigMixin):
     """
     Euler scheduler.
 
@@ -72,12 +69,11 @@ class OpenSoraFlowMatchEulerScheduler(SchedulerMixin, ConfigMixin):
         max_image_seq_len: Optional[int] = 4096,
         weighting_scheme: str = 'logit_norm',
         sigma_eps: Optional[float] = None,
-        rescale: float = 1000.0
     ):
+
         self.shift = shift
         self.use_dynamic_shifting = use_dynamic_shifting
         self.weighting_scheme = weighting_scheme
-        self.rescale = rescale
 
         if sigma_eps is not None:
             if not (sigma_eps >= 0 and sigma_eps <= 1e-2):
@@ -114,7 +110,7 @@ class OpenSoraFlowMatchEulerScheduler(SchedulerMixin, ConfigMixin):
 
         Args:
             sample (`torch.FloatTensor`):
-                The input sample
+                The input sample.1
             sigma (`float` or `torch.FloatTensor`):
                 sigma value in flow matching.
 
@@ -122,17 +118,15 @@ class OpenSoraFlowMatchEulerScheduler(SchedulerMixin, ConfigMixin):
             `torch.FloatTensor`:
                 A scaled input sample.
         """
-        prev_dtype = sample.dtype
-        
-        # Upcast to avoid precision issues when computing prev_sample
-        sigmas = sigmas.to(torch.float32)
-        noise = noise.to(torch.float32)
-        sample = sample.to(torch.float32)
+        sample_dtype = sample.dtype
+        sigmas = sigmas.float()
+        noise = noise.float()
+        sample = sample.float()
 
         noised_sample = sigmas * noise + (1.0 - sigmas) * sample
 
-        # Cast sample back to model compatible dtype
-        noised_sample = noised_sample.to(prev_dtype)
+        noised_sample = noised_sample.to(sample_dtype)
+
         return noised_sample
     
     def compute_density_for_sigma_sampling(
@@ -140,7 +134,7 @@ class OpenSoraFlowMatchEulerScheduler(SchedulerMixin, ConfigMixin):
         batch_size: int, 
         logit_mean: float = None, 
         logit_std: float = None, 
-        mode_scale: float = None, 
+        mode_scale: float = None,
     ):
         """Compute the density for sampling the sigmas when doing SD3 training.
 
@@ -158,7 +152,7 @@ class OpenSoraFlowMatchEulerScheduler(SchedulerMixin, ConfigMixin):
         else:
             sigmas = torch.rand(size=(batch_size,), device="cpu")
 
-        sigmas = torch.where(sigmas >= self.sigma_eps, sigmas, torch.ones_like(sigmas) * self.sigma_eps)
+        sigmas = torch.where(sigmas > self._sigma_eps, sigmas, torch.ones_like(sigmas) * self._sigma_eps)
 
         return sigmas
     
@@ -223,12 +217,9 @@ class OpenSoraFlowMatchEulerScheduler(SchedulerMixin, ConfigMixin):
             sigmas = np.linspace(self._sigma_max, self._sigma_min, num_inference_steps + 1)
 
         if inversion:
-            sigmas = np.flip(sigmas.cpu().numpy(), axis=0).copy()
+            sigmas = np.copy(np.flip(sigmas))
 
-        if isinstance(sigmas, torch.Tensor):
-            sigmas = sigmas.to(dtype=torch.float32, device=device)
-        else:
-            sigmas = torch.from_numpy(sigmas).to(dtype=torch.float32, device=device)
+        sigmas = torch.from_numpy(sigmas).to(dtype=torch.float32, device=device)
 
         if self.config.use_dynamic_shifting:
             sigmas = self.sigma_shift(sigmas, self.config.shift, dynamic=True, mu=mu)
@@ -250,7 +241,7 @@ class OpenSoraFlowMatchEulerScheduler(SchedulerMixin, ConfigMixin):
         s_noise: float = 1.0,
         generator: Optional[torch.Generator] = None,
         return_dict: bool = True,
-    ) -> Union[OpenSoraFlowMatchEulerSchedulerOutput, Tuple]:
+    ) -> Union[FlowMatchEulerSchedulerOutput, Tuple]:
         """
         Predict the sample from the previous timestep by reversing the SDE. This function propagates the diffusion
         process from the learned model outputs (most often the predicted noise).
@@ -304,4 +295,4 @@ class OpenSoraFlowMatchEulerScheduler(SchedulerMixin, ConfigMixin):
         if not return_dict:
             return (prev_sample,)
 
-        return OpenSoraFlowMatchEulerSchedulerOutput(prev_sample=prev_sample)
+        return FlowMatchEulerSchedulerOutput(prev_sample=prev_sample)
