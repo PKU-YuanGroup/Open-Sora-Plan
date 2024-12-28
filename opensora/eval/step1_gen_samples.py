@@ -20,7 +20,7 @@ def get_args():
     parser.add_argument("--prompt_type", type=str, required=True)
     parser.add_argument("--model_path", type=str, required=True)
     parser.add_argument("--output_dir", type=str, required=True)
-    parser.add_argument("--version", type=str, default='v1_5', choices=['v1_3', 'v1_5'])
+    parser.add_argument("--version", type=str, default='v1_5', choices=['v1_3', 'v1_5', 't2i'])
     parser.add_argument("--model_type", type=str, default='t2v', choices=['t2v', 'inpaint', 'i2v'])
     parser.add_argument("--ae_dtype", type=str, default='fp16')
     parser.add_argument("--weight_dtype", type=str, default='fp16')
@@ -32,6 +32,12 @@ def get_args():
     parser.add_argument("--text_encoder_name_1", type=str, default='DeepFloyd/t5-v1_1-xxl')
     parser.add_argument("--text_encoder_name_2", type=str, default=None)
     parser.add_argument("--text_encoder_name_3", type=str, default=None)
+    parser.add_argument("--height", type=int, default=256)
+    parser.add_argument("--width", type=int, default=256)
+    parser.add_argument("--num_sampling_steps", type=int, default=100)
+    parser.add_argument("--guidance_scale", type=float, default=7.0)
+    parser.add_argument("--guidance_rescale", type=float, default=0.7)
+    parser.add_argument("--num_samples_per_prompt", type=int, default=1)
     parser.add_argument("--sample_method", type=str, default="OpenSoraFlowMatchEuler")
     parser.add_argument('--enable_tiling', action='store_true')
     parser.add_argument('--compile', action='store_true')
@@ -75,11 +81,12 @@ if __name__ == "__main__":
         image = run_model_and_return_samples(
             pipeline, 
             text_prompt, 
-            height=384, 
-            width=384, 
-            num_sampling_steps=100, 
-            guidance_scale=7.0, 
-            num_samples_per_prompt=1, 
+            height=args.height, 
+            width=args.width, 
+            num_sampling_steps=args.num_sampling_steps, 
+            guidance_scale=args.guidance_scale, 
+            guidance_rescale=args.guidance_rescale, 
+            num_samples_per_prompt=args.num_samples_per_prompt, 
             )  # b t h w c, [0, 255]
         image = image[0][0].detach().cpu().numpy()
         Image.fromarray(image).save(save_path)
