@@ -144,22 +144,31 @@ def maybe_clamp_tensor(x, max_value=65504.0, min_value=-65504.0, training=True):
         x.nan_to_num_(posinf=max_value, neginf=min_value)
     return x
 
+
 class CombinedTimestepTextProjEmbeddings(nn.Module):
-    def __init__(self, timestep_embed_dim, embedding_dim, pooled_projection_dim):
+    def __init__(self, timestep_embed_dim, embedding_dim, pooled_projection_dim, time_as_token=False):
         super().__init__()
 
         self.time_proj = Timesteps(num_channels=timestep_embed_dim, flip_sin_to_cos=True, downscale_freq_shift=0)
-        self.timestep_embedder = TimestepEmbedding(in_channels=timestep_embed_dim, time_embed_dim=embedding_dim)
-        self.text_embedder = PixArtAlphaTextProjection(pooled_projection_dim, embedding_dim, act_fn="silu")
+        self.timestep_embedder = None
+        if not time_as_token:
+            self.timestep_embedder = TimestepEmbedding(in_channels=timestep_embed_dim, time_embed_dim=embedding_dim)
+        self.text_embedder = None
+        if pooled_projection_dim > 0:
+            self.text_embedder = PixArtAlphaTextProjection(pooled_projection_dim, embedding_dim, act_fn="silu")
 
-    def forward(self, timestep, pooled_projection):
+    def forward(self, timestep, pooled_projection, dtype):
         timesteps_proj = self.time_proj(timestep)
-        timesteps_emb = self.timestep_embedder(timesteps_proj.to(dtype=pooled_projection.dtype))  # (N, D)
+        if self.timestep_embedder is not None:
+            timesteps_emb = self.timestep_embedder(timesteps_proj.to(dtype=dtype))  # (N, D)
+        else:
+            timesteps_emb = timesteps_proj.to(dtype=dtype)
 
-        pooled_projections = self.text_embedder(pooled_projection)
-
-        conditioning = timesteps_emb + pooled_projections
-
+        if self.text_embedder is not None:
+            pooled_projections = self.text_embedder(pooled_projection) 
+            conditioning = timesteps_emb + pooled_projections
+        else:
+            conditioning = timesteps_emb
         return conditioning
 
 class FP32LayerNorm(nn.LayerNorm):
@@ -174,11 +183,11 @@ class FP32LayerNorm(nn.LayerNorm):
         ).to(origin_dtype)      
       
 class AdaNorm(AdaLayerNorm):
-    def __init__(self, norm_cls='layer_norm',  **kwargs) -> None:
+    def __init__(self, norm_cls='fp32_layer_norm',  **kwargs) -> None:
         super().__init__(**kwargs)
         if norm_cls == 'rms_norm':
             self.norm_cls = RMSNorm
-        elif norm_cls == 'layer_norm':
+        elif norm_cls == 'fp32_layer_norm':
             self.norm_cls = FP32LayerNorm
         self.norm = self.norm_cls(
             self.norm.normalized_shape, eps=self.norm.eps, elementwise_affine=self.norm.elementwise_affine
@@ -193,12 +202,12 @@ class OpenSoraNormZero(nn.Module):
         elementwise_affine: bool = True,
         eps: float = 1e-5,
         bias: bool = True,
-        norm_cls: str = 'layer_norm', 
+        norm_cls: str = 'fp32_layer_norm', 
     ) -> None:
         super().__init__()
         if norm_cls == 'rms_norm':
             self.norm_cls = RMSNorm
-        elif norm_cls == 'layer_norm':
+        elif norm_cls == 'fp32_layer_norm':
             self.norm_cls = FP32LayerNorm
 
         self.silu = nn.SiLU()
@@ -404,7 +413,7 @@ class BasicTransformerBlock(nn.Module):
         sparse1d: bool = False,
         sparse_n: int = 2,
         sparse_group: bool = False,
-        norm_cls: str = 'layer_norm', 
+        norm_cls: str = 'fp32_layer_norm', 
     ):
         super().__init__()
         self.sparse1d = sparse1d
@@ -413,7 +422,7 @@ class BasicTransformerBlock(nn.Module):
         self.attention_head_dim = attention_head_dim
         if norm_cls == 'rms_norm':
             self.norm_cls = RMSNorm
-        elif norm_cls == 'layer_norm':
+        elif norm_cls == 'fp32_layer_norm':
             self.norm_cls = FP32LayerNorm
 
         # 1. Self-Attn

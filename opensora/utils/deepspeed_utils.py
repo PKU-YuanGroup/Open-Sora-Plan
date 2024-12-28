@@ -26,8 +26,37 @@ from torch.nn import functional as F
 
 from deepspeed.runtime.utils import bwc_tensor_model_parallel_rank, is_model_parallel_parameter
 
+def safe_get_weight_norm(module):
+    if module is None:
+        return None
+    else:
+        return get_weight_norm(parameters=module.parameters(), mpu=None)
 
-
+def get_weight_norm_dict(model):
+    weight_norm_dict = {}
+    cnt = 0
+    for m in model.transformer_blocks:
+        for sub_m in m:
+            weight_norm_dict.update({f'weight_norm_block/block_{cnt}': safe_get_weight_norm(sub_m)})
+            cnt += 1
+    weight_norm_dict.update({f'weight_norm_others/norm_final': safe_get_weight_norm(model.norm_final)})
+    weight_norm_dict.update({f'weight_norm_others/proj_out': safe_get_weight_norm(model.proj_out)})
+    weight_norm_dict.update({f'weight_norm_others/patch_embed': safe_get_weight_norm(model.patch_embed)})
+    weight_norm_dict.update({f'weight_norm_others/time_text_embed': safe_get_weight_norm(model.time_text_embed)})
+    weight_norm_dict.update({f'weight_norm_others/caption_projection': safe_get_weight_norm(model.caption_projection)})
+    if getattr(model, 'weight_norm_skip/skip_norm_linear', None) is not None:
+        wn = safe_get_weight_norm(model.skip_norm_linear[0])
+        if wn is not None and wn > 0.0:
+            weight_norm_dict.update({f'skip_{i}': safe_get_weight_norm(m) for i, m in enumerate(model.skip_norm_linear)})
+    if getattr(model, 'weight_norm_others/final_conv', None) is not None:
+        wn = safe_get_weight_norm(model.final_conv)
+        if wn is not None and wn > 0.0:
+            weight_norm_dict.update({f'final_conv': wn})
+    if getattr(model, 'weight_norm_others/caption_projection_2', None) is not None:
+        wn = safe_get_weight_norm(model.caption_projection_2)
+        if wn is not None and wn > 0.0:
+            weight_norm_dict.update({f'weight_norm_others/caption_projection_2': wn})
+    return weight_norm_dict
 def deepspeed_zero_init_disabled_context_manager():
     """
     returns either a context list that includes one that will disable zero.Init or an empty context list
@@ -332,6 +361,7 @@ def zero_grad_abnormal_(parameters, max_norm, norm_type=2, mpu=None, clip=True, 
     Returns:
         Total norm of the parameters (viewed as a single vector).
     """
+    # import ipdb;ipdb.set_trace()
     if isinstance(parameters, torch.Tensor):
         parameters = [parameters]
     parameters = list(filter(lambda p: p.grad is not None, parameters))
@@ -396,13 +426,49 @@ def zero_grad_abnormal_(parameters, max_norm, norm_type=2, mpu=None, clip=True, 
     return total_norm, zero_grad_list, clip_coef
 
 
+def safe_get_grad_norm(module, accelerator):
+    # import ipdb;ipdb.set_trace()
+    params = list(module.parameters())
+    if len(params) == 0 or params[0].grad is None:
+        return 0.0
+    grad_norm = zero_grad_abnormal_(parameters=params, max_norm=None, mpu=None, clip=False)
+    # return grad_norm.mean().item()
+    grad_norm_list = accelerator.gather(grad_norm)
+    return grad_norm_list.mean().item()
+def get_grad_norm_dict(model, accelerator):
+
+    grad_norm_dict = {}
+    cnt = 0
+    for m in model.transformer_blocks:
+        for sub_m in m:
+            grad_norm_dict.update({f'grad_norm_block/block_{cnt}': safe_get_grad_norm(sub_m, accelerator)})
+            cnt += 1
+    # import ipdb;ipdb.set_trace()
+    grad_norm_dict.update({f'grad_norm_others/norm_final': safe_get_grad_norm(model.norm_final, accelerator)})
+    grad_norm_dict.update({f'grad_norm_others/proj_out': safe_get_grad_norm(model.proj_out, accelerator)})
+    grad_norm_dict.update({f'grad_norm_others/patch_embed': safe_get_grad_norm(model.patch_embed, accelerator)})
+    grad_norm_dict.update({f'grad_norm_others/time_text_embed': safe_get_grad_norm(model.time_text_embed, accelerator)})
+    grad_norm_dict.update({f'grad_norm_others/caption_projection': safe_get_grad_norm(model.caption_projection, accelerator)})
+    if getattr(model, 'grad_norm_skip/skip_norm_linear', None) is not None:
+        wn = safe_get_grad_norm(model.skip_norm_linear[0], accelerator)
+        if wn is not None and wn > 0.0:
+            grad_norm_dict.update({f'skip_{i}': safe_get_grad_norm(m, accelerator) for i, m in enumerate(model.skip_norm_linear)})
+    if getattr(model, 'grad_normothers/final_conv', None) is not None:
+        wn = safe_get_grad_norm(model.final_conv, accelerator)
+        if wn is not None and wn > 0.0:
+            grad_norm_dict.update({f'final_conv': wn})
+    if getattr(model, 'grad_norm_others/caption_projection_2', None) is not None:
+        wn = safe_get_grad_norm(model.caption_projection_2, accelerator)
+        if wn is not None and wn > 0.0:
+            grad_norm_dict.update({f'grad_norm_others/caption_projection_2': wn})
+    return grad_norm_dict
 
 
 @instrument_w_nvtx
 def backward(
     self, loss, allreduce_gradients=True, release_loss=False, retain_graph=False, scale_wrt_gas=True, 
     step_=0, moving_avg_max_grad_norm=-1e-6, moving_avg_max_grad_norm_var=0.0, accelerator=None, 
-    ema_decay_grad_clipping=0.99, force_zero_grad_step=-1, 
+    ema_decay_grad_clipping=0.99, force_zero_grad_step=-1, log_detail_norm_freq=10, 
     ):
     r"""Execute backward pass on the loss
     Arguments:
@@ -470,6 +536,10 @@ def backward(
     # ==============================================
     weight_norm = get_weight_norm(parameters=self.module.parameters(), mpu=self.mpu)
 
+    if step_ % log_detail_norm_freq == 0 and step_ >= log_detail_norm_freq:
+        grad_norm_dict = get_grad_norm_dict(self.module, accelerator)
+    else:
+        grad_norm_dict = {}
     grad_norm = zero_grad_abnormal_(parameters=self.module.parameters(), max_norm=None, mpu=self.mpu, clip=False)
     grad_norm_list = accelerator.gather(grad_norm)
 
@@ -539,6 +609,6 @@ def backward(
     see_memory_usage("Engine after backward", force=self.memory_breakdown())
 
     return loss, max_grad_norm, weight_norm, moving_avg_max_grad_norm, max_grad_norm_clip, max_norm, \
-        moving_avg_max_grad_norm_var, max_grad_norm_var, num_zero_grad, detect_nan, clip_coef, zero_grad_list
+        moving_avg_max_grad_norm_var, max_grad_norm_var, num_zero_grad, detect_nan, clip_coef, zero_grad_list, grad_norm_dict
 
 

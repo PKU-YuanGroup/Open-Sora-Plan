@@ -142,6 +142,7 @@ class Encoder(VideoBaseAE):
         h = nonlinearity(h)
         h = self.conv_out(h)
         return h
+    
 class Decoder(VideoBaseAE):
     @register_to_config
     def __init__(

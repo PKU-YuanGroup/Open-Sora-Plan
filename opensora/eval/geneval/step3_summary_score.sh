@@ -1,0 +1,1 @@
+python opensora/eval/geneval/summary_scores.py opensora/eval/geneval/results.jsonl

@@ -21,33 +21,32 @@ export TOKENIZERS_PARALLELISM=false
 
 
 accelerate launch \
-    --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
+    --config_file scripts/accelerate_configs/deepspeed_zero1_config.yaml \
     opensora/train/train_t2v_diffusers.py \
     --ema_deepspeed_config_file scripts/accelerate_configs/zero3.json \
-    --model OpenSoraT2I-2B/122/4k3584 \
+    --model OpenSoraT2V_v1_5-2B/122 \
     --text_encoder_name_1 /storage/ongoing/12.13/t2i/Open-Sora-Plan/cache_dir/google/t5-v1_1-xxl \
-    --text_encoder_name_2 /storage/ongoing/12.13/t2i/Open-Sora-Plan/cache_dir/Qwen2-VL-7B-Instruct \
     --cache_dir "../../cache_dir/" \
     --dataset t2v \
     --data scripts/train_data/image_data_debug.txt \
-    --ae WFVAEModel_D32_8x8x8 \
-    --ae_path "/storage/lcm/WF-VAE/results/Middle888" \
+    --ae WFVAE2Model_D32_1x8x8 \
+    --ae_path "/storage/lcm/WF-VAE_paper/results/WFVAE2_18832_slim" \
     --sample_rate 1 \
     --num_frames 1 \
     --max_height 256 \
     --max_width 256 \
     --force_resolution \
-    --gradient_checkpointing \
     --train_batch_size=32 \
     --train_image_batch_size=1 \
     --dataloader_num_workers 16 \
     --learning_rate=1e-4 \
     --adam_epsilon 1e-15 \
-    --adam_weight_decay 0.1 \
+    --adam_weight_decay 1e-4 \
     --lr_scheduler="constant_with_warmup" \
     --mixed_precision="bf16" \
     --report_to="wandb" \
     --checkpointing_steps=2000 \
+    --gradient_checkpointing \
     --model_max_length 512 \
     --ema_start_step 0 \
     --cfg 0.1 \
@@ -60,10 +59,10 @@ accelerate launch \
     --seed 1234 \
     --group_data \
     --use_decord \
-    --output_dir="debug_train" \
+    --output_dir="debug_train_log_mmdit_all" \
     --vae_fp32 \
     --rf_scheduler \
-    --proj_name "debug_train" \
-    --log_name part1 \
+    --proj_name "debug_train_log" \
+    --log_name mmdit_all \
     --trained_data_global_step 0 \
     --skip_abnorml_step --ema_decay_grad_clipping 0.99 

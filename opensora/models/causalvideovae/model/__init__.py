@@ -1,4 +1,4 @@
 from .registry import ModelRegistry
 from .vae import (
-    CausalVAEModel, WFVAEModel
+    CausalVAEModel, WFVAEModel, WFVAE2Model
 )

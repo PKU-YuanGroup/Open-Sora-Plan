@@ -1,0 +1,10 @@
+open-clip-torch==2.20.0
+clip-benchmark
+openmim==0.3.7
+einops==0.3.0
+diffusers==0.24.0
+transformers==4.36.1
+tomli==2.0.1
+numpy==1.26.4
+platformdirs
+tqdm

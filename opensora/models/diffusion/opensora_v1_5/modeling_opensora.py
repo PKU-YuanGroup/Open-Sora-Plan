@@ -131,7 +131,7 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
         self.gradient_checkpointing = False
         if norm_cls == 'rms_norm':
             self.norm_cls = RMSNorm
-        elif norm_cls == 'layer_norm':
+        elif norm_cls == 'fp32_layer_norm':
             self.norm_cls = FP32LayerNorm
 
         assert len(self.config.num_layers) == len(self.config.sparse_n)
@@ -281,6 +281,8 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
         # this helps to broadcast it as a bias over attention scores, which will be in one of the following shapes:
         #   [batch,  heads, query_tokens, key_tokens] (e.g. torch sdp attn)
         #   [batch * heads, query_tokens, key_tokens] (e.g. xformers or classic attn)
+        if attention_mask is None:
+            attention_mask = torch.ones((batch_size, frame, h, w), device=hidden_states.device, dtype=hidden_states.dtype)
         if attention_mask is not None and attention_mask.ndim == 4:
             # assume that mask is expressed as:
             #   (1 = keep,      0 = discard)
@@ -584,9 +586,10 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
         # print(f'enc encoder_hidden_states, ', 
         #         f'max {encoder_hidden_states.max()}, min {encoder_hidden_states.min()}, mean {encoder_hidden_states.mean()}, std {encoder_hidden_states.std()}')
         hidden_states = self.patch_embed(hidden_states.to(self.dtype))
-        assert pooled_projections.shape[1] == 1
-        pooled_projections = pooled_projections.squeeze(1)  # b 1 1 d -> b 1 d
-        timesteps_emb = self.time_text_embed(timestep, pooled_projections)  # (N, D)
+        assert pooled_projections is None or pooled_projections.shape[1] == 1
+        if pooled_projections is not None:
+            pooled_projections = pooled_projections.squeeze(1)  # b 1 1 d -> b 1 d
+        timesteps_emb = self.time_text_embed(timestep, pooled_projections, hidden_states.dtype)  # (N, D)
             
         encoder_hidden_states = self.caption_projection(encoder_hidden_states)  # b, 1, l, d
         assert encoder_hidden_states.shape[1] == 1
@@ -633,11 +636,11 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
 def OpenSoraT2V_v1_5_2B_122(**kwargs):
     if kwargs.get('sparse_n', None) is not None:
         kwargs.pop('sparse_n')
-    return OpenSoraT2V_v1_5(  # 22 layers
-        num_layers=[2, 2, 4, 6, 4, 2, 2], sparse_n=[1, 2, 4, 8, 4, 2, 1], 
-        attention_head_dim=96, num_attention_heads=24, 
+    return OpenSoraT2V_v1_5(  # 26 layers
+        num_layers=[2, 4, 4, 6, 4, 4, 2], sparse_n=[1, 2, 4, 8, 4, 2, 1], 
+        attention_head_dim=64, num_attention_heads=24, 
         timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
-        caption_channels=2048, pooled_projection_dim=1280, **kwargs
+        caption_channels=4096, pooled_projection_dim=0, **kwargs
     )
 
 def OpenSoraT2V_v1_5_3B_122(**kwargs):
@@ -760,19 +763,19 @@ if __name__ == '__main__':
     
     # device = torch.device('cpu')
     device = torch.device('cuda:0')
-    model = OpenSoraT2V_v1_5_13B_122(
+    model = OpenSoraT2V_v1_5_2B_122(
         in_channels=c, 
         out_channels=c, 
         sample_size_h=latent_size_h, 
         sample_size_w=latent_size_w, 
         sample_size_t=num_frames, 
-        norm_cls='layer_norm', 
+        norm_cls='fp32_layer_norm', 
         interpolation_scale_t=args.interpolation_scale_t, 
         interpolation_scale_h=args.interpolation_scale_h, 
         interpolation_scale_w=args.interpolation_scale_w, 
         sparse1d=args.sparse1d, 
         )
-    # print(model_)
+    print(model)
     # model_.load_state_dict(state_dict, strict=False)
     # model_.save_pretrained('12.11_14bmmdit_final384_rms2layer')
     # import sys;sys.exit()
@@ -784,7 +787,7 @@ if __name__ == '__main__':
     total_cnt = len(list(model.named_parameters()))
     print('total_cnt', total_cnt)
     print(f'{sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e9} B')
-    # import sys;sys.exit()
+    import sys;sys.exit()
     try:
         # path = "/storage/ongoing/9.29/mmdit/1.5/Open-Sora-Plan/debug/checkpoint-10/pytorch_model.bin"
         # ckpt = torch.load(path, map_location="cpu")

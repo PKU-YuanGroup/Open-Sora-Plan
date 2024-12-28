@@ -510,12 +510,14 @@ class BasicTransformerBlock(nn.Module):
         time_as_text_token: bool = False,
         sandwich_norm: bool = False, 
         conv_ffn: bool = False,
+        prenorm: bool = True, 
     ):
         super().__init__()
         self.sandwich_norm = sandwich_norm
         self.time_as_x_token = time_as_x_token
         self.time_as_text_token = time_as_text_token
         self.time_as_token = time_as_x_token or time_as_text_token
+        self.prenorm = prenorm
 
         self.attention_head_dim = attention_head_dim
         self.layerwise_text_mlp = layerwise_text_mlp
@@ -542,7 +544,7 @@ class BasicTransformerBlock(nn.Module):
             added_kv_proj_dim=None, 
             dim_head=attention_head_dim, 
             heads=num_attention_heads,
-            context_pre_only=context_pre_only,
+            context_pre_only=None,
             qk_norm=norm_cls,
             eps=norm_eps,
             dropout=dropout,
@@ -551,7 +553,7 @@ class BasicTransformerBlock(nn.Module):
             processor=OpenSoraAttnProcessor2_0(time_as_x_token=time_as_x_token, time_as_text_token=False),
         )
         if self.sandwich_norm:
-            self.post_norm1 = self.norm_cls(dim, eps=norm_eps, elementwise_affine=norm_elementwise_affine)
+            self.sandwich_norm1 = self.norm_cls(dim, eps=norm_eps, elementwise_affine=norm_elementwise_affine)
         
         # 3. Cross-Attn
         if self.layerwise_text_mlp:
@@ -567,7 +569,7 @@ class BasicTransformerBlock(nn.Module):
             added_kv_proj_dim=None, 
             dim_head=attention_head_dim, 
             heads=num_attention_heads,
-            context_pre_only=context_pre_only,
+            context_pre_only=None,
             qk_norm=norm_cls,
             eps=norm_eps,
             dropout=dropout,
@@ -576,7 +578,7 @@ class BasicTransformerBlock(nn.Module):
             processor=OpenSoraAttnProcessor2_0(time_as_x_token=False, time_as_text_token=False),
         )
         if self.sandwich_norm:
-            self.post_norm2 = self.norm_cls(dim, eps=norm_eps, elementwise_affine=norm_elementwise_affine)
+            self.sandwich_norm2 = self.norm_cls(dim, eps=norm_eps, elementwise_affine=norm_elementwise_affine)
 
         # 3. Feed-forward
         self.norm3 = self.norm_cls(dim, eps=norm_eps, elementwise_affine=norm_elementwise_affine)
@@ -592,10 +594,10 @@ class BasicTransformerBlock(nn.Module):
             bias=ff_bias,
         ) 
         if self.sandwich_norm:
-            self.post_norm3 = self.norm_cls(dim, eps=norm_eps, elementwise_affine=norm_elementwise_affine)
+            self.sandwich_norm3 = self.norm_cls(dim, eps=norm_eps, elementwise_affine=norm_elementwise_affine)
 
     
-    def forward(
+    def _prenorm_forward(
         self,
         hidden_states: torch.FloatTensor,
         attention_mask: Optional[torch.FloatTensor] = None,
@@ -616,7 +618,6 @@ class BasicTransformerBlock(nn.Module):
             shift, scale, gate, crs_shift, crs_scale, crs_gate, ffn_shift, ffn_scale, ffn_gate = \
                 self.linear(self.silu(embedded_timestep)).chunk(9, dim=1)
 
-        # 1. Self-Attention
         if self.time_as_token:
             if self.time_as_x_token:
                 hidden_states = torch.cat([embedded_timestep.unsqueeze(0), hidden_states], dim=0)
@@ -626,7 +627,8 @@ class BasicTransformerBlock(nn.Module):
         else:
             # norm & scale & shift
             norm_hidden_states = self.norm1(hidden_states) * (1 + scale)[None, :, :] + shift[None, :, :]
-        # attn
+
+        # 1. Self-Attention
         attn_hidden_states = self.attn1(
             norm_hidden_states,
             encoder_hidden_states=None,
@@ -636,16 +638,18 @@ class BasicTransformerBlock(nn.Module):
             attention_mask=attention_mask, 
             video_rotary_emb=video_rotary_emb, 
         )
-        if self.sandwich_norm:
-            attn_hidden_states = self.post_norm1(attn_hidden_states)
         if self.time_as_token:
+            if self.sandwich_norm:
+                attn_hidden_states = self.sandwich_norm1(attn_hidden_states)
             hidden_states = hidden_states + attn_hidden_states
         else:
             # residual & gate
-            hidden_states = hidden_states + gate[None, :, :] * attn_hidden_states
+            if self.sandwich_norm:
+                hidden_states = hidden_states + self.sandwich_norm1(gate[None, :, :] * attn_hidden_states)
+            else:
+                hidden_states = hidden_states + gate[None, :, :] * attn_hidden_states
         
 
-        # 2. Cross-Attention
         if self.time_as_token:
             norm_hidden_states = self.norm2(hidden_states)
             if self.time_as_text_token:
@@ -655,7 +659,8 @@ class BasicTransformerBlock(nn.Module):
         else:
             # norm & scale & shift
             norm_hidden_states = self.norm2(hidden_states) * (1 + crs_scale)[None, :, :] + crs_shift[None, :, :]
-        # attn
+
+        # 2. Cross-Attention
         if self.layerwise_text_mlp:
             encoder_hidden_states = self.text_norm_mlp(encoder_hidden_states)
         attn_hidden_states = self.attn2(
@@ -667,16 +672,18 @@ class BasicTransformerBlock(nn.Module):
             attention_mask=encoder_attention_mask, 
             video_rotary_emb=None, 
         )
-        if self.sandwich_norm:
-            attn_hidden_states = self.post_norm2(attn_hidden_states)
         if self.time_as_token:
+            if self.sandwich_norm:
+                attn_hidden_states = self.sandwich_norm2(attn_hidden_states)
             hidden_states = hidden_states + attn_hidden_states
         else:
             # residual & gate
-            hidden_states = hidden_states + crs_gate[None, :, :] * attn_hidden_states
+            if self.sandwich_norm:
+                hidden_states = hidden_states + self.sandwich_norm2(crs_gate[None, :, :] * attn_hidden_states)
+            else:
+                hidden_states = hidden_states + crs_gate[None, :, :] * attn_hidden_states
 
 
-        # 3. Share Feed-Forward
         
         if self.time_as_token:
             if self.time_as_x_token:
@@ -685,14 +692,138 @@ class BasicTransformerBlock(nn.Module):
         else:
             # norm & scale & shift
             norm_hidden_states = self.norm3(hidden_states) * (1 + ffn_scale)[None, :, :] + ffn_shift[None, :, :]
-        # ffn
+
+        # 3. Share Feed-Forward
         ff_output = self.ff(norm_hidden_states, frame=frame, height=height, width=width)
-        if self.sandwich_norm:
-            ff_output = self.post_norm3(ff_output)
         if self.time_as_token:
+            if self.sandwich_norm:
+                ff_output = self.sandwich_norm3(ff_output)
             hidden_states = hidden_states + ff_output
         else:
             # residual & gate
-            hidden_states = hidden_states + ffn_gate[None, :, :] * ff_output
+            if self.sandwich_norm:
+                hidden_states = hidden_states + self.sandwich_norm3(ffn_gate[None, :, :] * ff_output)
+            else:
+                hidden_states = hidden_states + ffn_gate[None, :, :] * ff_output
 
         return hidden_states
+
+
+
+    def _postnorm_forward(
+        self,
+        hidden_states: torch.FloatTensor,
+        attention_mask: Optional[torch.FloatTensor] = None,
+        encoder_hidden_states: Optional[torch.FloatTensor] = None,
+        encoder_attention_mask: Optional[torch.FloatTensor] = None,
+        embedded_timestep: Optional[torch.LongTensor] = None,
+        video_rotary_emb = None,
+        frame: int = None, 
+        height: int = None, 
+        width: int = None, 
+    ) -> torch.FloatTensor:
+        assert not self.sandwich_norm
+        B = embedded_timestep.shape[0]
+        device = hidden_states.device
+        # 0. Prepare module
+        if self.time_as_token:
+            embedded_timestep = self.map_time_to_token(embedded_timestep)
+        else:
+            shift, scale, gate, crs_shift, crs_scale, crs_gate, ffn_shift, ffn_scale, ffn_gate = \
+                self.linear(self.silu(embedded_timestep)).chunk(9, dim=1)
+
+        if self.time_as_token:
+            if self.time_as_x_token:
+                hidden_states = torch.cat([embedded_timestep.unsqueeze(0), hidden_states], dim=0)
+                if attention_mask is not None:
+                    attention_mask = torch.cat([torch.zeros(B, 1, 1, 1, device=device), attention_mask], dim=-1)
+            res = hidden_states
+            
+        else:
+            res = hidden_states
+            # scale & shift
+            hidden_states = hidden_states * (1 + scale)[None, :, :] + shift[None, :, :]
+
+        # 1. Self-Attention
+        attn_hidden_states = self.attn1(
+            hidden_states,
+            encoder_hidden_states=None,
+            frame=frame, 
+            height=height, 
+            width=width, 
+            attention_mask=attention_mask, 
+            video_rotary_emb=video_rotary_emb, 
+        )
+        if self.time_as_token:
+            hidden_states = res + attn_hidden_states
+        else:
+            # residual & gate
+            hidden_states = res + gate[None, :, :] * attn_hidden_states
+        hidden_states = self.norm1(hidden_states)
+        
+
+
+        res = hidden_states
+        if self.time_as_token:
+            if self.time_as_text_token:
+                encoder_hidden_states = torch.cat([embedded_timestep.unsqueeze(0), encoder_hidden_states], dim=0)
+                if encoder_attention_mask is not None:
+                    encoder_attention_mask = torch.cat([torch.zeros(B, 1, 1, 1, device=device), encoder_attention_mask], dim=-1)
+        else:
+            # scale & shift
+            hidden_states = hidden_states * (1 + crs_scale)[None, :, :] + crs_shift[None, :, :]
+
+        # 2. Cross-Attention
+        if self.layerwise_text_mlp:
+            encoder_hidden_states = self.text_norm_mlp(encoder_hidden_states)
+        attn_hidden_states = self.attn2(
+            hidden_states,
+            encoder_hidden_states=encoder_hidden_states,
+            frame=frame, 
+            height=height, 
+            width=width, 
+            attention_mask=encoder_attention_mask, 
+            video_rotary_emb=None, 
+        )
+
+        
+        if self.time_as_token:
+            hidden_states = res + attn_hidden_states
+        else:
+            # residual & gate
+            hidden_states = res + crs_gate[None, :, :] * attn_hidden_states
+        hidden_states = self.norm2(hidden_states)
+
+
+
+
+        if self.time_as_token:
+            if self.time_as_x_token:
+                hidden_states = hidden_states[1:]
+            res = hidden_states
+        else:
+            res = hidden_states
+            # scale & shift
+            hidden_states = hidden_states * (1 + ffn_scale)[None, :, :] + ffn_shift[None, :, :]
+
+
+        # 3. Share Feed-Forward
+        ff_output = self.ff(hidden_states, frame=frame, height=height, width=width)
+
+        if self.time_as_token:
+            hidden_states = res + ff_output
+        else:
+            # residual & gate
+            hidden_states = res + ffn_gate[None, :, :] * ff_output
+        hidden_states = self.norm3(hidden_states)
+        
+        return hidden_states
+
+
+    def forward(self, *args, **kwargs):
+        if self.prenorm:
+            # print('prenorm')
+            return self._prenorm_forward(*args, **kwargs)
+        else:
+            # print('postnorm')
+            return self._postnorm_forward(*args, **kwargs)

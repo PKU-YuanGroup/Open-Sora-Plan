@@ -45,7 +45,7 @@ from transformers.utils import ContextManagers
 from transformers.integrations import HfDeepSpeedConfig
 from accelerate import Accelerator
 from accelerate.logging import get_logger
-from accelerate.utils import DistributedType, ProjectConfiguration, set_seed
+from accelerate.utils import DistributedType, ProjectConfiguration
 
 from packaging import version
 from tqdm.auto import tqdm
@@ -65,10 +65,10 @@ from opensora.dataset import getdataset
 from opensora.models.diffusion import Diffusion_models, Diffusion_models_class
 from opensora.utils.dataset_utils import Collate, LengthGroupedSampler
 from opensora.utils.ema_utils import EMAModel
-from opensora.utils.utils import explicit_uniform_sampling, get_common_weights
+from opensora.utils.utils import explicit_uniform_sampling, get_common_weights, set_seed
 from opensora.sample.pipeline_opensora import OpenSoraPipeline
 from opensora.models.causalvideovae import ae_stride_config, ae_wrapper
-from opensora.utils.deepspeed_utils import backward, deepspeed_zero_init_disabled_context_manager
+from opensora.utils.deepspeed_utils import backward, deepspeed_zero_init_disabled_context_manager, get_weight_norm_dict
 
 # from opensora.utils.utils import monitor_npu_power
 
@@ -156,6 +156,7 @@ class ProgressInfo:
         moving_avg_max_grad_norm=-1e6, moving_avg_max_grad_norm_var=3.0, 
         clip_coef=1.0, max_grad_norm_clip=0.0, max_norm=1.0, max_grad_norm_var=0.0, 
         detect_nan=0.0, max_timesteps=1000.0, min_timesteps=1.0, max_train_loss=0.0, 
+        num_zero_grad=0.0
         ):
         self.global_step = global_step
         self.train_loss = train_loss
@@ -171,6 +172,9 @@ class ProgressInfo:
         self.max_timesteps = max_timesteps
         self.min_timesteps = min_timesteps
         self.max_train_loss = max_train_loss
+        self.num_zero_grad = num_zero_grad
+        self.grad_norm_dict = {}
+        self.weight_norm_dict = {}
 
 
 def param_groups_weight_decay(
@@ -225,13 +229,15 @@ def create_ema_model(
         dschf = HfDeepSpeedConfig(ds_config)
     else:
         dschf = None
-            
+    
+    deepcopy_model_to_ema = True
     if checkpoint_path:
         ema_model_path = os.path.join(checkpoint_path, "model_ema")
         if os.path.exists(ema_model_path):
             ema_model = EMAModel.from_pretrained(ema_model_path, model_cls=model_cls)
             logger.info(f'Successully resume EMAModel from {ema_model_path}', main_process_only=True)
-    else:
+            deepcopy_model_to_ema = False
+    if deepcopy_model_to_ema:
         # we load weights from original model instead of deepcopy
         model = model_cls.from_config(model_config)
         model.load_state_dict(ema_model_state_dict, strict=True)
@@ -299,7 +305,7 @@ def main(args):
 
     # If passed along, set the training seed now.
     if args.seed is not None:
-        set_seed(args.seed, device_specific=True)
+        set_seed(args.seed, accelerator.process_index, device_specific=True)
 
     generator = torch.Generator().manual_seed(args.seed)
 
@@ -618,6 +624,8 @@ def main(args):
     # STEP 10: Prepare everything with our `accelerator`.
     # model.requires_grad_(False)
     # model.patch_embed.requires_grad_(True)
+    # model.proj_out.requires_grad_(True)
+    # model.norm_final.requires_grad_(True)
 
     logger.info(f"Before accelerator.prepare, memory_allocated: {torch.cuda.memory_allocated()/GB:.2f} GB", main_process_only=True)
     model_config = model.config
@@ -714,8 +722,8 @@ def main(args):
                     "num_zero_grad": progress_info.num_zero_grad, 
                     "detect_nan": progress_info.detect_nan, 
                     "clip_coef": progress_info.clip_coef,
-                    "min_timesteps": progress_info.min_timesteps, 
-                    "max_timesteps": progress_info.max_timesteps, 
+                    # "min_timesteps": progress_info.min_timesteps, 
+                    # "max_timesteps": progress_info.max_timesteps, 
                     "max_grad_norm_var": progress_info.max_grad_norm_var, 
                     "max_train_loss": progress_info.max_train_loss, 
                     "lr": lr_scheduler.get_last_lr()[0]
@@ -723,6 +731,14 @@ def main(args):
         if args.use_ema and (progress_info.global_step - 1) % args.ema_update_freq == 0:
             log_dict.update(dict(cur_decay_value=cur_decay_value))
         accelerator.log(log_dict, step=progress_info.global_step)
+        
+        if accelerator.distributed_type == DistributedType.DEEPSPEED:
+            if progress_info.global_step % args.log_detail_norm_freq == 0:
+                weight_norm_dict = get_weight_norm_dict(model)
+                accelerator.log(weight_norm_dict, step=progress_info.global_step)
+            if len(progress_info.grad_norm_dict) > 0:
+                accelerator.log(progress_info.grad_norm_dict, step=progress_info.global_step)
+            
 
         if torch_npu is not None and npu_config is not None:
             npu_config.print_msg(f"Step: [{progress_info.global_step}], local_loss={loss.detach().item()}, "
@@ -937,10 +953,10 @@ def main(args):
                 moving_avg_max_grad_norm=progress_info.moving_avg_max_grad_norm, 
                 ema_decay_grad_clipping=args.ema_decay_grad_clipping, 
                 moving_avg_max_grad_norm_var=progress_info.moving_avg_max_grad_norm_var, accelerator=accelerator,
-                force_zero_grad_step=args.force_zero_grad_step, step_=step_ 
+                force_zero_grad_step=args.force_zero_grad_step, step_=step_, log_detail_norm_freq=args.log_detail_norm_freq
                 )
             _, max_grad_norm, weight_norm, moving_avg_max_grad_norm, max_grad_norm_clip, max_norm, \
-                moving_avg_max_grad_norm_var, max_grad_norm_var, num_zero_grad, detect_nan, clip_coef, zero_grad_list = results
+                moving_avg_max_grad_norm_var, max_grad_norm_var, num_zero_grad, detect_nan, clip_coef, zero_grad_list, grad_norm_dict = results
                 
             # print('rank {} | step {} | max_grad_norm {}'.format(accelerator.process_index, step_, max_grad_norm))
             progress_info.max_grad_norm += max_grad_norm / args.gradient_accumulation_steps
@@ -955,6 +971,7 @@ def main(args):
             progress_info.min_timesteps = min_timesteps
             progress_info.max_grad_norm_clip = max_grad_norm_clip / args.gradient_accumulation_steps
             progress_info.max_grad_norm_var += max_grad_norm_var / args.gradient_accumulation_steps
+            progress_info.grad_norm_dict = grad_norm_dict
             
             accelerator.deepspeed_engine_wrapped.engine.step()
 
@@ -1255,7 +1272,7 @@ if __name__ == "__main__":
     parser.add_argument('--interpolation_scale_h', type=float, default=1.0)
     parser.add_argument('--interpolation_scale_w', type=float, default=1.0)
     parser.add_argument('--interpolation_scale_t', type=float, default=1.0)
-    parser.add_argument("--norm_cls", type=str, default='rms_norm', choices=['rms_norm', 'layer_norm'])
+    parser.add_argument("--norm_cls", type=str, default='fp32_layer_norm', choices=['rms_norm', 'fp32_layer_norm'])
     parser.add_argument("--ae", type=str, default="stabilityai/sd-vae-ft-mse")
     parser.add_argument("--ae_path", type=str, default="stabilityai/sd-vae-ft-mse")
     parser.add_argument("--text_encoder_name_1", type=str, default='DeepFloyd/t5-v1_1-xxl')
@@ -1294,6 +1311,7 @@ if __name__ == "__main__":
     parser.add_argument("--ema_decay_grad_clipping", type=float, default=0.9999)
 
     # validation & logs
+    parser.add_argument("--log_detail_norm_freq", type=int, default=10)
     parser.add_argument("--log_interval", type=int, default=10)
     parser.add_argument("--enable_profiling", action="store_true")
     parser.add_argument("--save_hf_style", action="store_true")

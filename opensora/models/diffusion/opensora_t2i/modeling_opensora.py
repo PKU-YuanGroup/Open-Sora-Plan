@@ -68,7 +68,9 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
         sandwich_norm: bool = False,
         conv_out: bool = False,
         conv_ffn: bool = False,
-    ):
+        use_text_dim: bool = False,
+        prenorm_num: int = 1000,
+    ):  
         super().__init__()
         assert not (time_as_x_token and time_as_text_token), "Cannot have both time_as_token and time_as_text_token"
         # Set some common variables used across the board.
@@ -113,12 +115,14 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
         )
 
         # 3. anthor text embedding
-        text_hidden_size = self.config.caption_channels
+        text_hidden_size = self.config.caption_channels if self.config.use_text_dim else self.config.hidden_size
         self.caption_projection_2 = None
         if self.config.caption_channels_2 is not None and self.config.caption_channels_2 > 0:
-            text_hidden_size = max(text_hidden_size, self.config.caption_channels_2)
-            self.caption_projection_2 = PixArtAlphaTextProjection(self.config.caption_channels_2, text_hidden_size, act_fn="silu_fp32")
-        self.caption_projection = PixArtAlphaTextProjection(self.config.caption_channels, text_hidden_size, act_fn="silu_fp32")
+            text_hidden_size = max(text_hidden_size, self.config.caption_channels_2) if self.config.use_text_dim else self.config.hidden_size
+        #     self.caption_projection_2 = PixArtAlphaTextProjection(self.config.caption_channels_2, text_hidden_size, act_fn="silu_fp32")
+        # self.caption_projection = PixArtAlphaTextProjection(self.config.caption_channels, text_hidden_size, act_fn="silu_fp32")
+            self.caption_projection_2 = nn.Linear(self.config.caption_channels_2, text_hidden_size)
+        self.caption_projection = nn.Linear(self.config.caption_channels, text_hidden_size)
 
         # 4. rope
         self.rope = RoPE3D(interpolation_scale_thw=interpolation_scale_thw)
@@ -163,7 +167,8 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
                         time_as_x_token=self.config.time_as_x_token, 
                         time_as_text_token=self.config.time_as_text_token, 
                         sandwich_norm=self.config.sandwich_norm, 
-                        conv_ffn=self.config.conv_ffn
+                        conv_ffn=self.config.conv_ffn, 
+                        prenorm=sum(self.config.num_layers[:idx]) + i < self.config.prenorm_num
                     )
                     for i in range(num_layer)
                 ]
@@ -497,24 +502,42 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
 
 
 def OpenSoraT2I_2B_111(**kwargs):
-    return OpenSoraT2I(  # 33 layers
-        num_layers=[16, 1, 16], 
+    return OpenSoraT2I(  # 25 layers
+        num_layers=[12, 1, 12], 
         attention_head_dim=64, num_attention_heads=24, 
         timestep_embed_dim=512, patch_size_t=1, patch_size=1, 
         caption_channels=4096, pooled_projection_dim=0, **kwargs
     )
 
 def OpenSoraT2I_2B_122(**kwargs):
-    return OpenSoraT2I(  # 33 layers
-        num_layers=[16, 1, 16], 
+    return OpenSoraT2I(  # 25 layers
+        num_layers=[12, 1, 12], 
         attention_head_dim=64, num_attention_heads=24, 
         timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
         caption_channels=4096, pooled_projection_dim=0, **kwargs
     )
 
+def OpenSoraT2I_2B_122_PostNorm(**kwargs):
+    return OpenSoraT2I(  # 25 layers
+        num_layers=[12, 1, 12], 
+        attention_head_dim=64, num_attention_heads=24, 
+        timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
+        caption_channels=4096, pooled_projection_dim=0, 
+        prenorm_num=0, **kwargs
+    )
+
+def OpenSoraT2I_2B_122_MixNorm(**kwargs):
+    return OpenSoraT2I(  # 25 layers
+        num_layers=[12, 1, 12], 
+        attention_head_dim=64, num_attention_heads=24, 
+        timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
+        caption_channels=4096, pooled_projection_dim=0, 
+        prenorm_num=12, **kwargs
+    )
+
 def OpenSoraT2I_2B_122_4k3584(**kwargs):
-    return OpenSoraT2I(  # 33 layers
-        num_layers=[16, 1, 16], 
+    return OpenSoraT2I(  # 25 layers
+        num_layers=[12, 1, 12], 
         attention_head_dim=64, num_attention_heads=24, 
         timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
         caption_channels=4096, pooled_projection_dim=0, 
@@ -522,8 +545,8 @@ def OpenSoraT2I_2B_122_4k3584(**kwargs):
     )
 
 def OpenSoraT2I_2B_122_4k4k(**kwargs):
-    return OpenSoraT2I(  # 33 layers
-        num_layers=[16, 1, 16], 
+    return OpenSoraT2I(  # 25 layers
+        num_layers=[12, 1, 12], 
         attention_head_dim=64, num_attention_heads=24, 
         timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
         caption_channels=4096, pooled_projection_dim=0, 
@@ -531,8 +554,8 @@ def OpenSoraT2I_2B_122_4k4k(**kwargs):
     )
 
 def OpenSoraT2I_2B_122_SandWichNorm(**kwargs):
-    return OpenSoraT2I(  # 33 layers
-        num_layers=[16, 1, 16], 
+    return OpenSoraT2I(  # 25 layers
+        num_layers=[12, 1, 12], 
         attention_head_dim=64, num_attention_heads=24, 
         timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
         caption_channels=4096, pooled_projection_dim=0, 
@@ -540,60 +563,78 @@ def OpenSoraT2I_2B_122_SandWichNorm(**kwargs):
     )
 
 def OpenSoraT2I_2B_122_ConvFFN(**kwargs):
-    return OpenSoraT2I(  # 33 layers
-        num_layers=[16, 1, 16], 
+    return OpenSoraT2I(  # 25 layers
+        num_layers=[12, 1, 12], 
         attention_head_dim=64, num_attention_heads=24, 
         timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
         caption_channels=4096, pooled_projection_dim=0, 
         conv_ffn=True, **kwargs
     )
-def OpenSoraT2I_2B_122_RMSN(**kwargs):
+def OpenSoraT2I_2B_122_RMSNorm(**kwargs):
     kwargs.pop('norm_cls', None)
-    return OpenSoraT2I(  # 33 layers
-        num_layers=[16, 1, 16], 
+    return OpenSoraT2I(  # 25 layers
+        num_layers=[12, 1, 12], 
         attention_head_dim=64, num_attention_heads=24, 
         timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
         caption_channels=4096, pooled_projection_dim=0, norm_cls='rms_norm', **kwargs
     )
 
 def OpenSoraT2I_2B_122_FinalConv(**kwargs):
-    return OpenSoraT2I(  # 33 layers
-        num_layers=[16, 1, 16], 
+    return OpenSoraT2I(  # 25 layers
+        num_layers=[12, 1, 12], 
         attention_head_dim=64, num_attention_heads=24, 
         timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
         caption_channels=4096, pooled_projection_dim=0, 
         conv_out=True, **kwargs
     )
 def OpenSoraT2I_2B_122_Skip(**kwargs):
-    return OpenSoraT2I(  # 33 layers
-        num_layers=[16, 1, 16], 
+    return OpenSoraT2I(  # 25 layers
+        num_layers=[12, 1, 12], 
         attention_head_dim=64, num_attention_heads=24, 
         timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
         caption_channels=4096, pooled_projection_dim=0, 
-        skip_connection=True, **kwargs
+        prenorm_num=0, skip_connection=True, **kwargs
     )
 
-def OpenSoraT2I_2B_122_Norm_Skip(**kwargs):
-    return OpenSoraT2I(  # 33 layers
-        num_layers=[16, 1, 16], 
+def OpenSoraT2I_2B_122_NormSkip(**kwargs):
+    return OpenSoraT2I(  # 25 layers
+        num_layers=[12, 1, 12], 
         attention_head_dim=64, num_attention_heads=24, 
         timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
         caption_channels=4096, pooled_projection_dim=0, 
-        skip_connection=True, norm_skip=True, **kwargs
+        prenorm_num=0, skip_connection=True, norm_skip=True, **kwargs
     )
 
+
+def OpenSoraT2I_2B_122_MixNorm_Skip(**kwargs):
+    return OpenSoraT2I(  # 25 layers
+        num_layers=[12, 1, 12], 
+        attention_head_dim=64, num_attention_heads=24, 
+        timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
+        caption_channels=4096, pooled_projection_dim=0, 
+        prenorm_num=12, skip_connection=True, **kwargs
+    )
+
+def OpenSoraT2I_2B_122_MixNorm_NormSkip(**kwargs):
+    return OpenSoraT2I(  # 25 layers
+        num_layers=[12, 1, 12], 
+        attention_head_dim=64, num_attention_heads=24, 
+        timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
+        caption_channels=4096, pooled_projection_dim=0, 
+        prenorm_num=12, skip_connection=True, norm_skip=True, **kwargs
+    )
 
 def OpenSoraT2I_2B_122_CLIP(**kwargs):
-    return OpenSoraT2I(  # 33 layers
-        num_layers=[16, 1, 16], 
+    return OpenSoraT2I(  # 25 layers
+        num_layers=[12, 1, 12], 
         attention_head_dim=64, num_attention_heads=24, 
         timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
         caption_channels=4096, pooled_projection_dim=1280, **kwargs
     )
 
 def OpenSoraT2I_2B_122_TextMLP(**kwargs):
-    return OpenSoraT2I(  # 33 layers
-        num_layers=[16, 1, 16], 
+    return OpenSoraT2I(  # 25 layers
+        num_layers=[12, 1, 12], 
         attention_head_dim=64, num_attention_heads=24, 
         timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
         caption_channels=4096, pooled_projection_dim=0, 
@@ -602,8 +643,8 @@ def OpenSoraT2I_2B_122_TextMLP(**kwargs):
 
 
 def OpenSoraT2I_2B_122_TimeAsX(**kwargs):
-    return OpenSoraT2I(  # 33 layers
-        num_layers=[16, 1, 16], 
+    return OpenSoraT2I(  # 25 layers
+        num_layers=[12, 1, 12], 
         attention_head_dim=64, num_attention_heads=24, 
         timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
         caption_channels=4096, pooled_projection_dim=0, 
@@ -611,8 +652,8 @@ def OpenSoraT2I_2B_122_TimeAsX(**kwargs):
     )
 
 def OpenSoraT2I_2B_122_TimeAsT(**kwargs):
-    return OpenSoraT2I(  # 33 layers
-        num_layers=[16, 1, 16], 
+    return OpenSoraT2I(  # 25 layers
+        num_layers=[12, 1, 12], 
         attention_head_dim=64, num_attention_heads=24, 
         timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
         caption_channels=4096, pooled_projection_dim=0, 
@@ -622,14 +663,18 @@ def OpenSoraT2I_2B_122_TimeAsT(**kwargs):
 OpenSora_T2I_models = {
     "OpenSoraT2I-2B/111": OpenSoraT2I_2B_111, 
     "OpenSoraT2I-2B/122": OpenSoraT2I_2B_122, 
+    "OpenSoraT2I-2B/122/PostNorm": OpenSoraT2I_2B_122_PostNorm, 
+    "OpenSoraT2I-2B/122/MixNorm": OpenSoraT2I_2B_122_MixNorm, 
     "OpenSoraT2I-2B/122/4k3584": OpenSoraT2I_2B_122_4k3584, 
     "OpenSoraT2I-2B/122/4k4k": OpenSoraT2I_2B_122_4k4k, 
     "OpenSoraT2I-2B/122/ConvFFN": OpenSoraT2I_2B_122_ConvFFN, 
     "OpenSoraT2I-2B/122/FinalConv": OpenSoraT2I_2B_122_FinalConv, 
     "OpenSoraT2I-2B/122/SandWichNorm": OpenSoraT2I_2B_122_SandWichNorm, 
-    "OpenSoraT2I-2B/122/RMSN": OpenSoraT2I_2B_122_RMSN, 
+    "OpenSoraT2I-2B/122/RMSNorm": OpenSoraT2I_2B_122_RMSNorm, 
     "OpenSoraT2I-2B/122/Skip": OpenSoraT2I_2B_122_Skip, 
-    "OpenSoraT2I-2B/122/Norm_Skip": OpenSoraT2I_2B_122_Norm_Skip, 
+    "OpenSoraT2I-2B/122/NormSkip": OpenSoraT2I_2B_122_NormSkip, 
+    "OpenSoraT2I-2B/122/MixNorm_Skip": OpenSoraT2I_2B_122_MixNorm_Skip, 
+    "OpenSoraT2I-2B/122/MixNorm_NormSkip": OpenSoraT2I_2B_122_MixNorm_NormSkip, 
     "OpenSoraT2I-2B/122/CLIP": OpenSoraT2I_2B_122_CLIP, 
     "OpenSoraT2I-2B/122/TextMLP": OpenSoraT2I_2B_122_TextMLP, 
     "OpenSoraT2I-2B/122/TimeAsX": OpenSoraT2I_2B_122_TimeAsX, 
@@ -639,14 +684,18 @@ OpenSora_T2I_models = {
 OpenSora_T2I_models_class = {
     "OpenSoraT2I-2B/111": OpenSoraT2I,
     "OpenSoraT2I-2B/122": OpenSoraT2I,
+    "OpenSoraT2I-2B/122/PostNorm": OpenSoraT2I,
+    "OpenSoraT2I-2B/122/MixNorm": OpenSoraT2I,
     "OpenSoraT2I-2B/122/4k3584": OpenSoraT2I, 
     "OpenSoraT2I-2B/122/4k4k": OpenSoraT2I, 
     "OpenSoraT2I-2B/122/ConvFFN": OpenSoraT2I, 
     "OpenSoraT2I-2B/122/FinalConv": OpenSoraT2I, 
     "OpenSoraT2I-2B/122/SandWichNorm": OpenSoraT2I, 
-    "OpenSoraT2I-2B/122/RMSN": OpenSoraT2I, 
+    "OpenSoraT2I-2B/122/RMSNorm": OpenSoraT2I, 
     "OpenSoraT2I-2B/122/Skip": OpenSoraT2I, 
-    "OpenSoraT2I-2B/122/Norm_Skip": OpenSoraT2I, 
+    "OpenSoraT2I-2B/122/NormSkip": OpenSoraT2I, 
+    "OpenSoraT2I-2B/122/MixNorm_Skip": OpenSoraT2I, 
+    "OpenSoraT2I-2B/122/MixNorm_NormSkip": OpenSoraT2I, 
     "OpenSoraT2I-2B/122/CLIP": OpenSoraT2I, 
     "OpenSoraT2I-2B/122/TextMLP": OpenSoraT2I, 
     "OpenSoraT2I-2B/122/TimeAsX": OpenSoraT2I, 
@@ -661,6 +710,7 @@ if __name__ == '__main__':
     from opensora.models.causalvideovae import ae_stride_config, ae_channel_config
     from opensora.models import CausalVAEModelWrapper
     from opensora.utils.ema_utils import EMAModel
+    from opensora.utils.deepspeed_utils import get_weight_norm_dict
     args = type('args', (), 
     {
         'ae': 'WFVAEModel_D32_8x8x8', 
@@ -698,7 +748,7 @@ if __name__ == '__main__':
     # device = torch.device('cpu')
     device = torch.device('cuda:0')
 
-    model = OpenSoraT2I_2B_122_ConvFFN(
+    model = OpenSoraT2I_2B_122_MixNorm_Skip(
         in_channels=c, 
         out_channels=c, 
         sample_size_h=latent_size_h, 
@@ -713,15 +763,15 @@ if __name__ == '__main__':
     # model_.save_pretrained('12.11_14bmmdit_final384_rms2layer')
     # import sys;sys.exit()
     # import ipdb;ipdb.set_trace()
-    # weight_norm = get_weight_norm(parameters=model.parameters(), mpu=None)
+    # weight_norm_dict = get_weight_norm_dict(model)
+    # import ipdb;ipdb.set_trace()
     # print(weight_norm)
     # import sys;sys.exit()
-
     total_cnt = len(list(model.named_parameters()))
     # print('total_cnt', total_cnt)
     # print(k, 'total_cnt', total_cnt)
     print(f'{sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e9} B')
-    # import sys;sys.exit()
+    import sys;sys.exit()
     # try:
         # path = "/storage/ongoing/9.29/mmdit/1.5/Open-Sora-Plan/debug/checkpoint-10/pytorch_model.bin"
         # ckpt = torch.load(path, map_location="cpu")
