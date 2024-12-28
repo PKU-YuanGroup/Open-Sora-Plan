@@ -55,7 +55,7 @@ def run_model_and_return_samples(
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_path", type=str, default='LanguageBind/Open-Sora-Plan-v1.0.0')
-    parser.add_argument("--version", type=str, default='v1_5', choices=['v1_3', 'v1_5'])
+    parser.add_argument("--version", type=str, default='v1_5', choices=['v1_3', 'v1_5', 't2i'])
     parser.add_argument("--model_type", type=str, default='t2v', choices=['t2v', 'inpaint', 'i2v'])
     parser.add_argument("--ae_dtype", type=str, default='fp16')
     parser.add_argument("--weight_dtype", type=str, default='fp16')
