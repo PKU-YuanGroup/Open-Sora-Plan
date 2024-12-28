@@ -72,12 +72,23 @@ if __name__ == "__main__":
     pipeline = prepare_pipeline(args, device)
 
     meta_info = get_meta(args.prompt_type)
+    print(f'origin meta_info ({len(meta_info)})')
+    text_and_savepath = [
+        [
+            meta_info[i]['Prompts'], os.path.join(args.output_dir, f"{meta_info[i]['id']}.jpg")
+            ] for i in range(len(meta_info))
+        ]
+
+    text_and_savepath = [
+        [text_prompt, save_path] for text_prompt, save_path in text_and_savepath if not os.path.exists(save_path)
+    ]
+    print(f'need to process ({len(text_and_savepath)})')
+
     meta_info = meta_info[args.local_rank::args.world_size]
     os.makedirs(args.output_dir, exist_ok=True)
-    for i in tqdm(range(len(meta_info))):
-        text_prompt = meta_info[i]['Prompts']
-        id_ = meta_info[i]['id']
-        save_path = os.path.join(args.output_dir, f"{id_}.jpg")
+
+
+    for text_prompt, save_path in tqdm(text_and_savepath):
         image = run_model_and_return_samples(
             pipeline, 
             text_prompt, 
