@@ -791,7 +791,6 @@ class OpenSoraPipeline(DiffusionPipeline):
             # num_warmup_steps = max(len(timesteps) - num_inference_steps * self.scheduler.order, 0)
             # self._num_timesteps = len(timesteps)
             sigmas = self.scheduler.set_sigmas(num_inference_steps=num_inference_steps, device=device, sigmas=sigmas)
-            print(len(sigmas), sigmas)
             timesteps = sigmas.clone() * self.scheduler.rescale  # rescale to [0, 1000.0)
             timesteps = timesteps[:-1]
             num_warmup_steps = max(len(timesteps) - num_inference_steps * self.scheduler.order, 0)
