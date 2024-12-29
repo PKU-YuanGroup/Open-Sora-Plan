@@ -511,6 +511,7 @@ class BasicTransformerBlock(nn.Module):
         sandwich_norm: bool = False, 
         conv_ffn: bool = False,
         prenorm: bool = True, 
+        deepnorm: bool = False, 
     ):
         super().__init__()
         self.sandwich_norm = sandwich_norm
@@ -518,6 +519,10 @@ class BasicTransformerBlock(nn.Module):
         self.time_as_text_token = time_as_text_token
         self.time_as_token = time_as_x_token or time_as_text_token
         self.prenorm = prenorm
+        self.deepnorm = deepnorm
+        if self.deepnorm:
+            self.alpha = self.deepnorm
+            # self.alpha = 1.0
 
         self.attention_head_dim = attention_head_dim
         self.layerwise_text_mlp = layerwise_text_mlp
@@ -755,10 +760,10 @@ class BasicTransformerBlock(nn.Module):
             video_rotary_emb=video_rotary_emb, 
         )
         if self.time_as_token:
-            hidden_states = res + attn_hidden_states
+            hidden_states = ((res * self.alpha) if self.deepnorm else res) + attn_hidden_states
         else:
             # residual & gate
-            hidden_states = res + gate[None, :, :] * attn_hidden_states
+            hidden_states = ((res * self.alpha) if self.deepnorm else res) + gate[None, :, :] * attn_hidden_states
         hidden_states = self.norm1(hidden_states)
         
 
@@ -788,10 +793,10 @@ class BasicTransformerBlock(nn.Module):
 
         
         if self.time_as_token:
-            hidden_states = res + attn_hidden_states
+            hidden_states = ((res * self.alpha) if self.deepnorm else res) + attn_hidden_states
         else:
             # residual & gate
-            hidden_states = res + crs_gate[None, :, :] * attn_hidden_states
+            hidden_states = ((res * self.alpha) if self.deepnorm else res) + crs_gate[None, :, :] * attn_hidden_states
         hidden_states = self.norm2(hidden_states)
 
 
@@ -811,10 +816,10 @@ class BasicTransformerBlock(nn.Module):
         ff_output = self.ff(hidden_states, frame=frame, height=height, width=width)
 
         if self.time_as_token:
-            hidden_states = res + ff_output
+            hidden_states = ((res * self.alpha) if self.deepnorm else res) + ff_output
         else:
             # residual & gate
-            hidden_states = res + ffn_gate[None, :, :] * ff_output
+            hidden_states = ((res * self.alpha) if self.deepnorm else res) + ffn_gate[None, :, :] * ff_output
         hidden_states = self.norm3(hidden_states)
         
         return hidden_states

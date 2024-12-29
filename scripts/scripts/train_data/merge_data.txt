@@ -1,2 +1,0 @@
-/storage/dataset/ideogram/Images_ideogram_v1,/storage/anno_pkl/img_nocn_res160_pkl/ideogram_v1_final_71605.pkl
-/storage/dataset/aiqiyi,/storage/anno_pkl/vid_nocn_res160_pkl/aiqiyi_final_30345.pkl

@@ -70,6 +70,8 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
         conv_ffn: bool = False,
         use_text_dim: bool = False,
         prenorm_num: int = 1000,
+        deepnorm: bool = False,
+        shrink: bool = False, 
     ):  
         super().__init__()
         assert not (time_as_x_token and time_as_text_token), "Cannot have both time_as_token and time_as_text_token"
@@ -77,6 +79,7 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
         self.out_channels = in_channels if out_channels is None else out_channels
         self.config.hidden_size = self.config.num_attention_heads * self.config.attention_head_dim
         self.gradient_checkpointing = False
+        self.shrink = shrink
         if norm_cls == 'rms_norm':
             self.norm_cls = RMSNorm
         elif norm_cls == 'fp32_layer_norm':
@@ -86,6 +89,27 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
 
         self._init_patched_inputs()
 
+        if self.config.deepnorm:
+            self._deepnorm_init()
+    def _deepnorm_init(self):
+        beta = (8 * sum(self.config.num_layers)) ** -0.25
+        module_name_match_list = ['.ff.', '.to_v', '.to_out']
+        for name, m in self.named_modules():
+            needs_beta_gain = any(map(lambda substr: substr in name, module_name_match_list))
+            gain = beta if needs_beta_gain else 1.0
+            if isinstance(m, nn.Linear):
+                # print(f'{name}, gain {gain}')
+                nn.init.xavier_normal_(m.weight, gain=gain)
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+            elif isinstance(m, nn.Conv2d):
+                # print(f'{name}, gain {gain}')
+                w = m.weight.data
+                nn.init.xavier_normal_(w.view([w.shape[0], -1]), gain=1.0)
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+            # else:
+            #     print(f'Unknown module ({name}) to custom init')
     def _set_gradient_checkpointing(self, module, value=False):
         if hasattr(module, "gradient_checkpointing"):
             module.gradient_checkpointing = value
@@ -116,12 +140,14 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
 
         # 3. anthor text embedding
         text_hidden_size = self.config.caption_channels if self.config.use_text_dim else self.config.hidden_size
-        self.caption_projection_2 = None
+        
         if self.config.caption_channels_2 is not None and self.config.caption_channels_2 > 0:
             text_hidden_size = max(text_hidden_size, self.config.caption_channels_2) if self.config.use_text_dim else self.config.hidden_size
         #     self.caption_projection_2 = PixArtAlphaTextProjection(self.config.caption_channels_2, text_hidden_size, act_fn="silu_fp32")
         # self.caption_projection = PixArtAlphaTextProjection(self.config.caption_channels, text_hidden_size, act_fn="silu_fp32")
             self.caption_projection_2 = nn.Linear(self.config.caption_channels_2, text_hidden_size)
+        else:
+            self.caption_projection_2 = nn.Identity()
         self.caption_projection = nn.Linear(self.config.caption_channels, text_hidden_size)
 
         # 4. rope
@@ -146,6 +172,8 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
                     nn.Linear(self.config.hidden_size*2, self.config.hidden_size), 
                 ) for _ in range(self.config.num_layers[0])
             ]
+        else:
+            self.skip_norm_linear = nn.Identity()
 
         for idx, num_layer in enumerate(self.config.num_layers):
             stage_blocks = nn.ModuleList(
@@ -168,7 +196,8 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
                         time_as_text_token=self.config.time_as_text_token, 
                         sandwich_norm=self.config.sandwich_norm, 
                         conv_ffn=self.config.conv_ffn, 
-                        prenorm=sum(self.config.num_layers[:idx]) + i < self.config.prenorm_num
+                        prenorm=sum(self.config.num_layers[:idx]) + i < self.config.prenorm_num, 
+                        deepnorm=(2 * sum(self.config.num_layers)) ** -0.25 if self.config.deepnorm else False, 
                     )
                     for i in range(num_layer)
                 ]
@@ -186,7 +215,7 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
         self.proj_out = nn.Linear(
             self.config.hidden_size, self.config.patch_size_t * self.config.patch_size * self.config.patch_size * self.out_channels
         )
-        self.final_conv = nn.Conv2d(self.out_channels, self.out_channels, 3, padding=1) if self.config.conv_out else None
+        self.final_conv = nn.Conv2d(self.out_channels, self.out_channels, 3, padding=1) if self.config.conv_out else nn.Identity()
 
     def forward(
         self,
@@ -239,7 +268,7 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
             encoder_attention_mask = (1 - encoder_attention_mask.to(self.dtype)) * -10000.0
             encoder_attention_mask = encoder_attention_mask.unsqueeze(1)
 
-        if encoder_attention_mask_2 is not None and encoder_attention_mask_2.ndim == 3 and self.caption_projection_2 is not None:  
+        if encoder_attention_mask_2 is not None and encoder_attention_mask_2.ndim == 3 and not isinstance(self.caption_projection_2, nn.Identity):  
             # b, 1, l -> only images
             encoder_attention_mask_2 = (1 - encoder_attention_mask_2.to(self.dtype)) * -10000.0
             encoder_attention_mask_2 = encoder_attention_mask_2.unsqueeze(1)
@@ -301,6 +330,7 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
         ):
         
         skip_connections = []
+        cnt = 0
         for idx, stage_block in enumerate(self.transformer_blocks[:len(self.config.num_layers)//2]):
             for idx_, block in enumerate(stage_block):
                 if self.training and self.gradient_checkpointing:
@@ -339,6 +369,10 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
                         height=height, 
                         width=width, 
                     )
+                if self.shrink and cnt < 2:
+                    # print('shrink', cnt)
+                    hidden_states = hidden_states * 0.1 + hidden_states.detach() * 0.9
+                    cnt += 1
                 if self.config.skip_connection:
                     skip_connections.append(hidden_states)
         # import sys;sys.exit()
@@ -395,6 +429,8 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
             embedded_timestep, video_rotary_emb, frame, height, width
         ):
         
+        total_cnt = sum(self.config.num_layers[-(len(self.config.num_layers)//2):])
+        cnt = 0
         for idx, stage_block in enumerate(self.transformer_blocks[-(len(self.config.num_layers)//2):]):
             for idx_, block in enumerate(stage_block):
                 if self.config.skip_connection:
@@ -440,6 +476,10 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
                         height=height, 
                         width=width, 
                     )
+                cnt += 1
+                if self.shrink and cnt > total_cnt - 2:
+                    # print('shrink', cnt)
+                    hidden_states = hidden_states * 0.1 + hidden_states.detach() * 0.9
         return hidden_states
 
 
@@ -460,7 +500,7 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
         assert encoder_hidden_states.shape[1] == 1  # b, 1, l, d
         encoder_hidden_states = encoder_hidden_states.squeeze(1)
 
-        if encoder_hidden_states_2 is not None and self.caption_projection_2 is not None:
+        if encoder_hidden_states_2 is not None and not isinstance(self.caption_projection_2, nn.Identity):
             encoder_hidden_states_2 = self.caption_projection_2(encoder_hidden_states_2)  # b, 1, l, d
             assert encoder_hidden_states_2 is None or encoder_hidden_states_2.shape[1] == 1  # b, 1, l, d
             encoder_hidden_states_2 = encoder_hidden_states_2.squeeze(1)
@@ -494,7 +534,7 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
             height * self.config.patch_size, 
             width * self.config.patch_size
         )
-        if self.final_conv is not None:
+        if not isinstance(self.final_conv, nn.Identity):
             output = rearrange(output, "b c t h w -> (b t) c h w", t=num_frames * self.config.patch_size_t)
             output = self.final_conv(output)
             output = rearrange(output, "(b t) c h w -> b c t h w", t=num_frames * self.config.patch_size_t)
@@ -517,6 +557,14 @@ def OpenSoraT2I_2B_122(**kwargs):
         caption_channels=4096, pooled_projection_dim=0, **kwargs
     )
 
+def OpenSoraT2I_2B_122_DeepNorm_Shrink(**kwargs):
+    return OpenSoraT2I(  # 25 layers
+        num_layers=[12, 1, 12], 
+        attention_head_dim=64, num_attention_heads=24, 
+        timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
+        caption_channels=4096, pooled_projection_dim=0, 
+        prenorm_num=0, deepnorm=True, shrink=True, **kwargs
+    )
 def OpenSoraT2I_2B_122_PostNorm(**kwargs):
     return OpenSoraT2I(  # 25 layers
         num_layers=[12, 1, 12], 
@@ -524,6 +572,15 @@ def OpenSoraT2I_2B_122_PostNorm(**kwargs):
         timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
         caption_channels=4096, pooled_projection_dim=0, 
         prenorm_num=0, **kwargs
+    )
+
+def OpenSoraT2I_2B_122_DeepNorm(**kwargs):
+    return OpenSoraT2I(  # 25 layers
+        num_layers=[12, 1, 12], 
+        attention_head_dim=64, num_attention_heads=24, 
+        timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
+        caption_channels=4096, pooled_projection_dim=0, 
+        prenorm_num=0, deepnorm=True, **kwargs
     )
 
 def OpenSoraT2I_2B_122_MixNorm(**kwargs):
@@ -587,7 +644,30 @@ def OpenSoraT2I_2B_122_FinalConv(**kwargs):
         caption_channels=4096, pooled_projection_dim=0, 
         conv_out=True, **kwargs
     )
+
+
+def OpenSoraT2I_2B_122_DeepNorm_Skip(**kwargs):
+    kwargs.pop('skip_connection', None)
+    return OpenSoraT2I(  # 25 layers
+        num_layers=[12, 1, 12], 
+        attention_head_dim=64, num_attention_heads=24, 
+        timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
+        caption_channels=4096, pooled_projection_dim=0, 
+        prenorm_num=0, deepnorm=True, skip_connection=True, **kwargs
+    )
+    
+def OpenSoraT2I_2B_122_PostNorm_Skip(**kwargs):
+    kwargs.pop('skip_connection', None)
+    return OpenSoraT2I(  # 25 layers
+        num_layers=[12, 1, 12], 
+        attention_head_dim=64, num_attention_heads=24, 
+        timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
+        caption_channels=4096, pooled_projection_dim=0, 
+        prenorm_num=0, skip_connection=True, **kwargs
+    )
+
 def OpenSoraT2I_2B_122_Skip(**kwargs):
+    kwargs.pop('skip_connection', None)
     return OpenSoraT2I(  # 25 layers
         num_layers=[12, 1, 12], 
         attention_head_dim=64, num_attention_heads=24, 
@@ -597,6 +677,7 @@ def OpenSoraT2I_2B_122_Skip(**kwargs):
     )
 
 def OpenSoraT2I_2B_122_NormSkip(**kwargs):
+    kwargs.pop('skip_connection', None)
     return OpenSoraT2I(  # 25 layers
         num_layers=[12, 1, 12], 
         attention_head_dim=64, num_attention_heads=24, 
@@ -607,6 +688,7 @@ def OpenSoraT2I_2B_122_NormSkip(**kwargs):
 
 
 def OpenSoraT2I_2B_122_MixNorm_Skip(**kwargs):
+    kwargs.pop('skip_connection', None)
     return OpenSoraT2I(  # 25 layers
         num_layers=[12, 1, 12], 
         attention_head_dim=64, num_attention_heads=24, 
@@ -616,6 +698,7 @@ def OpenSoraT2I_2B_122_MixNorm_Skip(**kwargs):
     )
 
 def OpenSoraT2I_2B_122_MixNorm_NormSkip(**kwargs):
+    kwargs.pop('skip_connection', None)
     return OpenSoraT2I(  # 25 layers
         num_layers=[12, 1, 12], 
         attention_head_dim=64, num_attention_heads=24, 
@@ -663,7 +746,9 @@ def OpenSoraT2I_2B_122_TimeAsT(**kwargs):
 OpenSora_T2I_models = {
     "OpenSoraT2I-2B/111": OpenSoraT2I_2B_111, 
     "OpenSoraT2I-2B/122": OpenSoraT2I_2B_122, 
+    "OpenSoraT2I-2B/122/DeepNorm_Shrink": OpenSoraT2I_2B_122_DeepNorm_Shrink, 
     "OpenSoraT2I-2B/122/PostNorm": OpenSoraT2I_2B_122_PostNorm, 
+    "OpenSoraT2I-2B/122/DeepNorm": OpenSoraT2I_2B_122_DeepNorm, 
     "OpenSoraT2I-2B/122/MixNorm": OpenSoraT2I_2B_122_MixNorm, 
     "OpenSoraT2I-2B/122/4k3584": OpenSoraT2I_2B_122_4k3584, 
     "OpenSoraT2I-2B/122/4k4k": OpenSoraT2I_2B_122_4k4k, 
@@ -674,6 +759,8 @@ OpenSora_T2I_models = {
     "OpenSoraT2I-2B/122/Skip": OpenSoraT2I_2B_122_Skip, 
     "OpenSoraT2I-2B/122/NormSkip": OpenSoraT2I_2B_122_NormSkip, 
     "OpenSoraT2I-2B/122/MixNorm_Skip": OpenSoraT2I_2B_122_MixNorm_Skip, 
+    "OpenSoraT2I-2B/122/DeepNorm_Skip": OpenSoraT2I_2B_122_DeepNorm_Skip, 
+    "OpenSoraT2I-2B/122/PostNorm_Skip": OpenSoraT2I_2B_122_PostNorm_Skip, 
     "OpenSoraT2I-2B/122/MixNorm_NormSkip": OpenSoraT2I_2B_122_MixNorm_NormSkip, 
     "OpenSoraT2I-2B/122/CLIP": OpenSoraT2I_2B_122_CLIP, 
     "OpenSoraT2I-2B/122/TextMLP": OpenSoraT2I_2B_122_TextMLP, 
@@ -684,7 +771,9 @@ OpenSora_T2I_models = {
 OpenSora_T2I_models_class = {
     "OpenSoraT2I-2B/111": OpenSoraT2I,
     "OpenSoraT2I-2B/122": OpenSoraT2I,
+    "OpenSoraT2I-2B/122/DeepNorm_Shrink": OpenSoraT2I,
     "OpenSoraT2I-2B/122/PostNorm": OpenSoraT2I,
+    "OpenSoraT2I-2B/122/DeepNorm": OpenSoraT2I,
     "OpenSoraT2I-2B/122/MixNorm": OpenSoraT2I,
     "OpenSoraT2I-2B/122/4k3584": OpenSoraT2I, 
     "OpenSoraT2I-2B/122/4k4k": OpenSoraT2I, 
@@ -694,6 +783,8 @@ OpenSora_T2I_models_class = {
     "OpenSoraT2I-2B/122/RMSNorm": OpenSoraT2I, 
     "OpenSoraT2I-2B/122/Skip": OpenSoraT2I, 
     "OpenSoraT2I-2B/122/NormSkip": OpenSoraT2I, 
+    "OpenSoraT2I-2B/122/DeepNorm_Skip": OpenSoraT2I, 
+    "OpenSoraT2I-2B/122/PostNorm_Skip": OpenSoraT2I, 
     "OpenSoraT2I-2B/122/MixNorm_Skip": OpenSoraT2I, 
     "OpenSoraT2I-2B/122/MixNorm_NormSkip": OpenSoraT2I, 
     "OpenSoraT2I-2B/122/CLIP": OpenSoraT2I, 
@@ -748,7 +839,7 @@ if __name__ == '__main__':
     # device = torch.device('cpu')
     device = torch.device('cuda:0')
 
-    model = OpenSoraT2I_2B_122_MixNorm_Skip(
+    model = OpenSoraT2I_2B_122_DeepNorm_Shrink(
         in_channels=c, 
         out_channels=c, 
         sample_size_h=latent_size_h, 
@@ -771,7 +862,7 @@ if __name__ == '__main__':
     # print('total_cnt', total_cnt)
     # print(k, 'total_cnt', total_cnt)
     print(f'{sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e9} B')
-    import sys;sys.exit()
+    # import sys;sys.exit()
     # try:
         # path = "/storage/ongoing/9.29/mmdit/1.5/Open-Sora-Plan/debug/checkpoint-10/pytorch_model.bin"
         # ckpt = torch.load(path, map_location="cpu")
