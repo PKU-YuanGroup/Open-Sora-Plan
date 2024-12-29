@@ -34,6 +34,7 @@ def run_model_and_return_samples(
         width=384, 
         num_sampling_steps=100, 
         guidance_scale=7.0, 
+        guidance_rescale=0.7,
         num_samples_per_prompt=1, 
         max_sequence_length=512, 
         use_pos_neg_prompt=True, 
@@ -59,6 +60,7 @@ def run_model_and_return_samples(
         width=width,
         num_inference_steps=num_sampling_steps,
         guidance_scale=guidance_scale,
+        guidance_rescale=guidance_rescale,
         num_samples_per_prompt=num_samples_per_prompt,
         max_sequence_length=max_sequence_length,
         use_linear_quadratic_schedule=True, 
@@ -71,7 +73,7 @@ def concat_image(tensor_images, save_path):
     images_np = tensor_images.detach().cpu().numpy().astype(np.uint8)
 
     # 创建一个新的空白图像，宽度和高度是单张图像的两倍（假设单张图像尺寸是384x384）
-    new_image = Image.new('RGB', (384 * 2, 384 * 2))
+    new_image = Image.new('RGB', (256 * 2, 256 * 2))
 
     # 将四张图像粘贴到新图像的相应位置
     for index in range(4):
@@ -79,14 +81,14 @@ def concat_image(tensor_images, save_path):
         col = index % 2
         img_np = images_np[index]
         img = Image.fromarray(img_np)
-        new_image.paste(img, (col * 384, row * 384))
+        new_image.paste(img, (col * 256, row * 256))
 
     # 保存拼接后的图像
     new_image.save(save_path)
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_path", type=str, default='LanguageBind/Open-Sora-Plan-v1.0.0')
-    parser.add_argument("--version", type=str, default='v1_5', choices=['v1_3', 'v1_5'])
+    parser.add_argument("--version", type=str, default='v1_5', choices=['v1_3', 'v1_5', 't2i'])
     parser.add_argument("--model_type", type=str, default='t2v', choices=['t2v', 'inpaint', 'i2v'])
     parser.add_argument("--ae_dtype", type=str, default='fp16')
     parser.add_argument("--weight_dtype", type=str, default='fp16')
@@ -125,7 +127,7 @@ if __name__ == "__main__":
 
     file_names = []
 
-    with open(args.prompt_pat, 'r') as f:
+    with open(args.prompt_path, 'r') as f:
         data = json.load(f)
 
             
@@ -137,10 +139,11 @@ if __name__ == "__main__":
         image = run_model_and_return_samples(
         pipeline, 
         text_prompt, 
-        height=384, 
-        width=384, 
+        height=256, 
+        width=256, 
         num_sampling_steps=100, 
         guidance_scale=7.0, 
+        guidance_rescale=0.7,
         num_samples_per_prompt=4, 
         )  # b t h w c, [0, 255]
 
