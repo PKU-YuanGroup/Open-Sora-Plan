@@ -20,6 +20,7 @@ def run_model_and_return_samples(
         width=384, 
         num_sampling_steps=100, 
         guidance_scale=7.0, 
+        guidance_rescale=0.7, 
         num_samples_per_prompt=1, 
         max_sequence_length=512, 
         use_pos_neg_prompt=True, 
@@ -45,6 +46,7 @@ def run_model_and_return_samples(
         width=width,
         num_inference_steps=num_sampling_steps,
         guidance_scale=guidance_scale,
+        guidance_rescale=guidance_rescale,
         num_samples_per_prompt=num_samples_per_prompt,
         max_sequence_length=max_sequence_length,
         use_linear_quadratic_schedule=True, 
@@ -55,7 +57,7 @@ def run_model_and_return_samples(
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_path", type=str, default='LanguageBind/Open-Sora-Plan-v1.0.0')
-    parser.add_argument("--version", type=str, default='v1_5', choices=['v1_3', 'v1_5'])
+    parser.add_argument("--version", type=str, default='v1_5', choices=['v1_3', 'v1_5', 't2i'])
     parser.add_argument("--model_type", type=str, default='t2v', choices=['t2v', 'inpaint', 'i2v'])
     parser.add_argument("--ae_dtype", type=str, default='fp16')
     parser.add_argument("--weight_dtype", type=str, default='fp16')

@@ -130,3 +130,7 @@ hf_cache
 geneval_outputs
 opensora/eval/geneval/results.jsonl
 t2i_ablation_arch
+get_data_from_wandb*
+t2i_ablation_arch*
+t2i_ablation_del*
+run*
