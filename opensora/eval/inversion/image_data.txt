@@ -1,1 +1,0 @@
-/storage/dataset/ideogram/Images_ideogram_v1,/storage/anno_jsons/ideogram_v1_71637_resolution.json

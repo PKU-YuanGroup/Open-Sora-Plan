@@ -134,3 +134,5 @@ get_data_from_wandb*
 t2i_ablation_arch*
 t2i_ablation_del*
 run*
+lines_data_rows*
+get_graddata_from_wandb*

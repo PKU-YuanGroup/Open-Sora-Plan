@@ -223,7 +223,7 @@ class OpenSoraFlowMatchEulerScheduler(SchedulerMixin, ConfigMixin):
             sigmas = np.linspace(self._sigma_max, self._sigma_min, num_inference_steps + 1)
 
         if inversion:
-            sigmas = np.flip(sigmas.cpu().numpy(), axis=0).copy()
+            sigmas = np.flip(sigmas, axis=0).copy()
 
         if isinstance(sigmas, torch.Tensor):
             sigmas = sigmas.to(dtype=torch.float32, device=device)

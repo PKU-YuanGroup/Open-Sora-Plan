@@ -4,25 +4,22 @@ import torch
 from torch.utils.data import DataLoader, Subset
 import torch.nn.functional as F
 from einops import rearrange
-import sys
-import numpy as np
-
-sys.path.append(".")
-
+from tqdm import tqdm
+from torchvision.utils import save_image
+import os
+import math
 from accelerate import Accelerator
 from accelerate.utils import set_seed
 from opensora.eval.inversion.pipeline_inversion import OpenSoraInversionPipeline
 from opensora.eval.inversion.inversion_dataset import InversionValidImageDataset
-from opensora.eval.inversion.scheduling_flow_match_euler import FlowMatchEulerScheduler
+from opensora.utils.sample_utils import OpenSoraFlowMatchEulerScheduler
 from opensora.models.causalvideovae import (
     WFVAEModelWrapper,
     ae_stride_config,
     ae_wrapper,
 )
 from opensora.models.text_encoder import get_text_tokenizer, get_text_cls
-from opensora.models.diffusion.opensora_v1_5.modeling_opensora import (
-    OpenSoraT2V_v1_5,
-)
+from opensora.models.diffusion.opensora_v1_5.modeling_opensora import OpenSoraT2V_v1_5
 
 
 def main(args):
@@ -37,11 +34,12 @@ def main(args):
         weight_dtype = torch.bfloat16
     else:
         weight_dtype = torch.float32
+    os.makedirs(args.save_img_path, exist_ok=True)
 
     # Load VAE
-    vae = ae_wrapper[args.ae_name](args.ae_path)
+    vae = ae_wrapper[args.ae](args.ae_path)
     vae.vae = vae.vae.to(device=device, dtype=weight_dtype).eval()
-    vae.vae_scale_factor = ae_stride_config[args.ae_name]
+    vae.vae_scale_factor = ae_stride_config[args.ae]
     if args.enable_tiling:
         vae.vae.enable_tiling()
 
@@ -90,20 +88,33 @@ def main(args):
         text_encoder_3, tokenizer_3 = None, None
 
     # Load diffusion model
-    try:
-        transformer_model = OpenSoraT2V_v1_5.from_pretrained(
-            args.model_path, torch_dtype=weight_dtype
-        ).eval()
-    except:
-        import traceback
-
-        traceback.print_exc()
+    if args.version == 'v1_5':
+        if args.model_type == 'inpaint' or args.model_type == 'i2v':
+            raise NotImplementedError('Inpainting model is not available in v1_5')
+        else:
+            from opensora.models.diffusion.opensora_v1_5.modeling_opensora import OpenSoraT2V_v1_5
+            transformer_model = OpenSoraT2V_v1_5.from_pretrained(
+                args.model_path, cache_dir=args.cache_dir, 
+                # device_map=None, 
+                torch_dtype=weight_dtype
+                ).eval()
+    elif args.version == 't2i':
+        if args.model_type == 'inpaint' or args.model_type == 'i2v':
+            raise NotImplementedError('Inpainting model is not available in t2i')
+        else:
+            from opensora.models.diffusion.opensora_t2i.modeling_opensora import OpenSoraT2I
+            transformer_model = OpenSoraT2I.from_pretrained(
+                args.model_path, cache_dir=args.cache_dir, 
+                # device_map=None, 
+                torch_dtype=weight_dtype
+                ).eval()
+    else:
         raise Exception(
             "Failed to load diffusion model. Please check your model version, inversion validation is now only supported for OpenSoraT2V_v1_5."
         )
 
     # Load scheduler
-    scheduler = FlowMatchEulerScheduler()
+    scheduler = OpenSoraFlowMatchEulerScheduler()
 
     # Prepare pipeline
     pipeline = OpenSoraInversionPipeline(
@@ -119,68 +130,98 @@ def main(args):
     ).to(device=device)
 
     # Prepare dataset
-    dataset = InversionValidImageDataset(args.data_txt, args.resolution)
-    subset = Subset(dataset, indices=list(range(args.num_samples)))
+    dataset = InversionValidImageDataset(args)
     dataloader = DataLoader(
-        subset, batch_size=1, shuffle=False, num_workers=args.num_workers
+        dataset, batch_size=1, shuffle=False, num_workers=args.num_workers, drop_last=False
     )
 
     # Prepare accelerator
     dataloader = accelerator.prepare(dataloader)
-
     # Run pipeline
-    final_inversion_loss = {
-        num_inverse_steps: [] for num_inverse_steps in args.num_inverse_steps
-    }
-    for batch in dataloader:
+    # final_inversion_loss = {
+    #     num_inverse_steps: [] for num_inverse_steps in args.num_inverse_steps
+    # }
+    for batch in tqdm(dataloader):
         cache_dict = {}
         for num_inverse_steps in args.num_inverse_steps:
             videos = pipeline(
-                image=rearrange(batch["image"], "b c h w -> b c 1 h w"),
+                image=batch["image"], # b c 1 h w
                 prompt=batch["caption"],
                 num_frames=args.num_frames,
-                height=args.resolution,
-                width=args.resolution,
+                height=args.height,
+                width=args.width,
                 num_inference_steps=args.num_inference_steps,
                 num_inverse_steps=num_inverse_steps,
                 guidance_scale=args.guidance_scale,
+                guidance_rescale=args.guidance_rescale,
                 num_samples_per_prompt=args.num_samples_per_prompt,
                 max_sequence_length=args.max_sequence_length,
                 use_linear_quadratic_schedule=False,
                 inverse_cache_dict=cache_dict
             ).videos
             videos = rearrange(videos, "b t h w c -> (b t) c h w")
-            final_inversion_loss[num_inverse_steps].append(
-                F.mse_loss(videos.cpu() / 255.0, batch["image"].cpu() / 2 + 0.5)
-            )
 
-    accelerator.wait_for_everyone()
-    final_inversion_loss = (
-        accelerator.gather_for_metrics(final_inversion_loss)
-    )
-    if accelerator.is_main_process:
-        print("=" * 50)
-        print("Inversion Loss Results")
-        print("=" * 50)
-        print("Steps | Mean Loss")
-        print("-" * 50)
-        for num_inverse_steps in args.num_inverse_steps:
-            mean_loss = np.mean(final_inversion_loss[num_inverse_steps])
-            print(f"{num_inverse_steps:5d} | {mean_loss:.6f}")
-        print("=" * 50)
+            for v, rela_path in zip(videos, batch["rela_path"]):
+                rela_path = rela_path.replace('.jpg', f'_{num_inverse_steps}.png')
+                save_path = os.path.join(args.save_img_path, rela_path)
+                directory_path = os.path.dirname(save_path)
+                os.makedirs(directory_path, exist_ok=True)
+                save_image(
+                    v / 255.0,
+                    save_path,
+                    nrow=math.ceil(math.sqrt(v.shape[0])),
+                    normalize=True,
+                    value_range=(0, 1),
+                )  # b c h w
+            
+            # mse = F.mse_loss(videos.cpu().float() / 255.0, (batch["image"].cpu().float() / 2 + 0.5))
+            # print(num_inverse_steps, mse)
+            # final_inversion_loss[num_inverse_steps].append(mse)
+        
+        batch["image"] = rearrange(batch["image"], "b c t h w -> (b t) c h w")
+        for v, rela_path in zip(batch["image"], batch["rela_path"]):
+            rela_path = rela_path.replace('.jpg', f'_gt.png')
+            save_path = os.path.join(args.save_img_path, rela_path)
+            # directory_path = os.path.dirname(save_path)
+            # os.makedirs(directory_path, exist_ok=True)
+            save_image(
+                v.cpu() / 2 + 0.5,
+                save_path,
+                nrow=math.ceil(math.sqrt(v.shape[0])),
+                normalize=True,
+                value_range=(0, 1),
+            )  # b c h w
+
+    # accelerator.wait_for_everyone()
+    # final_inversion_loss = (
+    #     accelerator.gather_for_metrics(final_inversion_loss)
+    # )
+    # print(final_inversion_loss)
+    # if accelerator.is_main_process:
+    #     print("=" * 50)
+    #     print("Inversion Loss Results")
+    #     print("=" * 50)
+    #     print("Steps | Mean Loss")
+    #     print("-" * 50)
+    #     for num_inverse_steps in args.num_inverse_steps:
+    #         mean_loss = np.mean(final_inversion_loss[num_inverse_steps])
+    #         print(f"{num_inverse_steps:5d} | {mean_loss:.6f}")
+    #     print("=" * 50)
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_path", type=str, default="", help="model path")
+    parser.add_argument("--model_type", type=str, default='t2v', choices=['t2v', 'inpaint', 'i2v'])
+    parser.add_argument("--version", type=str, default='t2i', choices=['v1_5', 't2i'])
     parser.add_argument(
-        "--ae_name", type=str, default="WFVAEModel_D32_8x8x8", help="ae name"
+        "--ae", type=str, default="WFVAEModel_D32_8x8x8", help="ae name"
     )
     parser.add_argument("--ae_path", type=str, default="", help="ae path")
     parser.add_argument(
         "--text_encoder_name_1",
         type=str,
-        default="/storage/cache_dir/t5-v1_1-xl",
+        default="",
         help="text encoder name 1",
     )
     parser.add_argument(
@@ -189,12 +230,14 @@ def parse_args():
     parser.add_argument(
         "--text_encoder_name_3",
         type=str,
-        default="/storage/cache_dir/CLIP-ViT-bigG-14-laion2B-39B-b160k",
+        default="",
         help="text encoder name 3",
     )
+    parser.add_argument("--no_condition", action="store_true", help="enable tiling")
     parser.add_argument("--enable_tiling", action="store_true", help="enable tiling")
-    parser.add_argument("--data_txt", type=str, default="", help="data txt path")
-    parser.add_argument("--num_samples", type=int, default=10, help="num samples")
+    parser.add_argument("--data_root", type=str, default="", help="data root")
+    parser.add_argument("--data_path", type=str, default="", help="data path")
+    parser.add_argument("--num_samples", type=int, default=-1, help="num samples")
     parser.add_argument("--save_path", type=str, default="", help="save path")
     parser.add_argument(
         "--num_inference_steps", type=int, default=100, help="num inference steps"
@@ -206,10 +249,14 @@ def parse_args():
         default=[10, 30, 50, 70],
         help="num inverse steps",
     )
-    parser.add_argument("--resolution", type=int, default=256, help="resolution")
+    parser.add_argument("--height", type=int, default=256, help="resolution")
+    parser.add_argument("--width", type=int, default=256, help="resolution")
     parser.add_argument("--num_frames", type=int, default=1, help="num frames")
     parser.add_argument(
         "--guidance_scale", type=float, default=7.0, help="guidance scale"
+    )
+    parser.add_argument(
+        "--guidance_rescale", type=float, default=0.7, help="guidance scale"
     )
     parser.add_argument(
         "--num_samples_per_prompt", type=int, default=1, help="num samples per prompt"
