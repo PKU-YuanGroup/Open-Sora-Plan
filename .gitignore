@@ -136,3 +136,5 @@ t2i_ablation_del*
 run*
 lines_data_rows*
 get_graddata_from_wandb*
+flower_inv_psnr*
+flower_inv*
