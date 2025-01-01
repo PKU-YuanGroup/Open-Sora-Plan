@@ -17,6 +17,7 @@
         "l2_upsample_block": "Spatial2xTime2x3DUpsample",
         "l2_upsample_wavelet": "InverseHaarWaveletTransform3D",
         "latent_dim": 32,
+        "vae_scale_factor": [8, 8, 8],
         "norm_type": "layernorm",
         "scale": [0.7031, 0.7109, 1.5391, 1.2969, 0.7109, 1.4141, 1.3828, 2.1719, 1.7266,
         1.8281, 1.9141, 1.2031, 0.6875, 0.9609, 1.6484, 1.1875, 1.5312, 1.1328,
@@ -69,6 +70,7 @@
         "caption_channels": 2048,
         "pooled_projection_dim": 1280,
         "skip_connection": true,
+        "skip_connection_zero_init": true,
         "dropout": 0.0,
         "attention_bias": true,
         "patch_size": 2,
@@ -87,7 +89,7 @@
     "pipeline_config": {
         "use_attention_mask": true,
         "input_size": [1, 288, 512],
-        "version": "v1_5",
+        "version": "v1.5",
         "model_type": "t2v"
     },
     "micro_batch_size": 1,
@@ -95,8 +97,8 @@
     "model_max_length": 512,
     "save_path":"./opensora_samples/samples/",
     "fps":18,
-    "prompt":"examples/opensoraplan1.3/prompts.txt",
+    "prompt":"/work/share/projects/gyy/mind/Open-Sora-Plan/examples/opensoraplan1.5/sora.txt",
     "device":"npu",
-    "dtype": "bf16"
+    "weight_dtype": "fp32"
 }
 

@@ -14,14 +14,15 @@
 
 import math
 from dataclasses import dataclass
-from typing import List, Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union, Callable
+import logging
+from tqdm import tqdm
 
 import numpy as np
 import torch
 
 from .diffusion_utils import opensora_linear_quadratic_schedule
-
-logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
+from mindspeed_mm.utils.utils import get_device
 
 # Copied from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion.rescale_noise_cfg
 def rescale_noise_cfg(noise_cfg, noise_pred_text, guidance_rescale=0.0):
@@ -183,7 +184,7 @@ class OpenSoraPlanScheduler:
         **kwargs,
     ):
 
-        if self.config.use_dynamic_shifting and mu is None:
+        if self.use_dynamic_shifting and mu is None:
             raise ValueError(" you have a pass a value for `mu` when `use_dynamic_shifting` is set to be `True`")
 
         if sigmas is None:
@@ -194,10 +195,10 @@ class OpenSoraPlanScheduler:
 
         sigmas = torch.from_numpy(sigmas).to(dtype=torch.float32, device=device)
 
-        if self.config.use_dynamic_shifting:
-            sigmas = self.sigma_shift(sigmas, self.config.shift, dynamic=True, mu=mu)
+        if self.use_dynamic_shifting:
+            sigmas = self.sigma_shift(sigmas, self.shift, dynamic=True, mu=mu)
         else:
-            sigmas = self.sigma_shift(sigmas, self.config.shift)
+            sigmas = self.sigma_shift(sigmas, self.shift)
 
         self.sigmas = sigmas
 
@@ -240,11 +241,11 @@ class OpenSoraPlanScheduler:
         
     def training_losses(
         self,
-        model_output: Tensor,
-        x_start: Tensor,
-        noise: Tensor = None,
-        mask: Tensor = None,
-        sigmas: Tensor = None,
+        model_output: torch.Tensor,
+        x_start: torch.Tensor,
+        noise: torch.Tensor = None,
+        mask: torch.Tensor = None,
+        sigmas: torch.Tensor = None,
         **kwargs
     ):
         if torch.all(mask.bool()):
@@ -274,11 +275,11 @@ class OpenSoraPlanScheduler:
 
     def q_sample(
         self,
-        x_start: Tensor,
-        sigmas: Tensor = None,
-        noise: Tensor = None,
+        x_start: torch.Tensor,
+        sigmas: torch.Tensor = None,
+        noise: torch.Tensor = None,
         **kwargs
-    ) -> Tensor:
+    ) -> torch.Tensor:
         """
         Diffuse the data for a given number of diffusion steps.
         In other words, sample from q(x_t | x_0).
@@ -307,7 +308,7 @@ class OpenSoraPlanScheduler:
         self,
         model: Callable,
         shape: Union[List, Tuple],
-        latents: Tensor,
+        latents: torch.Tensor,
         model_kwargs: dict = None,
         added_cond_kwargs: dict = None,
         extra_step_kwargs: dict = None,
@@ -333,6 +334,10 @@ class OpenSoraPlanScheduler:
 
         do_classifier_free_guidance = self.guidance_scale > 1.0
 
+        encoder_hidden_states = model_kwargs.pop("prompt_embeds")
+        encoder_attention_mask = model_kwargs.pop("prompt_attention_mask")
+        pooled_projections = model_kwargs.pop("prompt_embeds_2")
+
         with tqdm(total=self.num_inference_steps) as progress_bar:
             for i, t in enumerate(timesteps):
                 latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
@@ -342,10 +347,10 @@ class OpenSoraPlanScheduler:
                 noise_pred = model(
                     latent_model_input,
                     attention_mask=attention_mask,
-                    encoder_hidden_states=model_kwargs.pop("prompt_embeds"),
-                    encoder_attention_mask=model_kwargs.pop("prompt_mask"),
+                    encoder_hidden_states=encoder_hidden_states,
+                    encoder_attention_mask=encoder_attention_mask,
                     timestep=timestep,
-                    pooled_projections=model_kwargs.pop("prompt_embeds_2"),
+                    pooled_projections=pooled_projections,
                 )
                 if torch.any(torch.isnan(noise_pred)):
                     raise ValueError("noise_pred contains nan values")
@@ -361,7 +366,7 @@ class OpenSoraPlanScheduler:
                 latents = self.step(noise_pred, i, latents, **extra_step_kwargs)
 
                 # call the callback, if provided
-                if i == len(self.timesteps) - 1 or (i + 1) % self.diffusion.order == 0:
+                if i == len(timesteps) - 1 or (i + 1) % self.order == 0:
                     progress_bar.update()
         
         return latents

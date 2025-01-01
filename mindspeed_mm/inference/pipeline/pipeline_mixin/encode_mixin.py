@@ -16,7 +16,8 @@ class MMEncoderMixin:
         text_encoder,
         prompt,
         device,
-        do_classifier_free_guidance=False,
+        num_samples_per_prompt:int = 1,
+        do_classifier_free_guidance:bool = False,
         negative_prompt=None,
         prompt_embeds: Optional[torch.FloatTensor] = None,
         negative_prompt_embeds: Optional[torch.FloatTensor] = None,
@@ -74,7 +75,7 @@ class MMEncoderMixin:
             if clip_skip is None:
                 prompt_embeds = text_encoder(text_input_ids.to(device), attention_mask=attention_mask)
                 if isinstance(prompt_embeds, transformers.utils.ModelOutput):
-                    prompt_embeds = prompt_embeds[0]
+                    prompt_embeds = prompt_embeds[0]                
             else:
                 prompt_embeds = text_encoder(
                     text_input_ids.to(device), attention_mask=attention_mask, output_hidden_states=True
@@ -103,7 +104,16 @@ class MMEncoderMixin:
 
         prompt_embeds = prompt_embeds.to(dtype=prompt_embeds_dtype, device=device)
 
+        if prompt_embeds.ndim == 2: # CLIP-generated embeddings
+            prompt_embeds = prompt_embeds.unsqueeze(1) # B D -> B 1 D
+
         bs_embed, seq_len, _ = prompt_embeds.shape
+        # duplicate text embeddings for each generation per prompt, using mps friendly method
+        prompt_embeds = prompt_embeds.repeat(1, num_samples_per_prompt, 1)
+        prompt_embeds = prompt_embeds.view(bs_embed * num_samples_per_prompt, seq_len, -1)
+        if prompt_embeds_attention_mask is not None:
+            prompt_embeds_attention_mask = prompt_embeds_attention_mask.repeat(1, num_samples_per_prompt)
+            prompt_embeds_attention_mask = prompt_embeds_attention_mask.view(bs_embed * num_samples_per_prompt, seq_len)
 
         # get unconditional embeddings for classifier free guidance
         if do_classifier_free_guidance and negative_prompt_embeds is None:
@@ -124,7 +134,6 @@ class MMEncoderMixin:
             if use_prompt_preprocess and isinstance(self, InputsCheckMixin):
                 uncond_tokens = self.preprocess_text(uncond_tokens, clean_caption)
 
-            max_length = prompt_embeds.shape[1]
             uncond_input = tokenizer(
                 uncond_tokens,
                 padding="max_length",
@@ -147,6 +156,7 @@ class MMEncoderMixin:
             )
             if isinstance(negative_prompt_embeds, transformers.utils.ModelOutput):
                 negative_prompt_embeds = negative_prompt_embeds[0]
+            print(f"negative_prompt_embeds: {negative_prompt_embeds.shape}")
         else:
             if hasattr(text_encoder,
                        "use_attention_mask") and text_encoder.use_attention_mask and negative_prompt_embeds is not None:
@@ -157,6 +167,16 @@ class MMEncoderMixin:
         if do_classifier_free_guidance and negative_prompt_embeds is not None:
             # duplicate unconditional embeddings for each generation per prompt, using mps friendly method
             negative_prompt_embeds = negative_prompt_embeds.to(dtype=prompt_embeds_dtype, device=device)
+
+            if negative_prompt_embeds.ndim == 2: # CLIP-generated embeddings
+                negative_prompt_embeds = negative_prompt_embeds.unsqueeze(1) # B D -> B 1 D
+                
+            bs_embed, seq_len, _ = negative_prompt_embeds.shape
+            negative_prompt_embeds = negative_prompt_embeds.repeat(1, num_samples_per_prompt, 1)
+            negative_prompt_embeds = negative_prompt_embeds.view(bs_embed * num_samples_per_prompt, seq_len, -1)
+            if negative_prompt_attention_mask is not None:
+                negative_prompt_attention_mask = negative_prompt_attention_mask.repeat(1, num_samples_per_prompt)
+                negative_prompt_attention_mask = negative_prompt_attention_mask.view(bs_embed * num_samples_per_prompt, seq_len)
         else:
             negative_prompt_embeds = None
             negative_prompt_attention_mask = None

@@ -96,7 +96,7 @@ class SparseUMMDiT(MultiModalModule):
         sparse1d: bool = False,
         pooled_projection_dim: int = 1024, 
         timestep_embed_dim: int = 512,
-        norm_cls: str = 'rms_norm', 
+        norm_cls: str = 'layer_norm', 
         skip_connection: bool = False,
         explicit_uniform_rope: bool = False, 
         skip_connection_zero_init: bool = True,
@@ -552,14 +552,14 @@ class SparseMMDiTBlock(nn.Module):
         norm_eps: float = 1e-5,
         final_dropout: bool = False,
         ff_inner_dim: Optional[int] = None,
-        ff_bias: bool = True,
+        ff_bias: bool = False,
         context_pre_only: bool = False,
         interpolation_scale_thw: Tuple[int] = (1, 1, 1),
         double_ff: bool = False,
         sparse1d: bool = False,
         sparse_n: int = 2,
         sparse_group: bool = False,
-        norm_cls: str = 'rms_norm',         
+        norm_cls: str = 'layer_norm',         
     ):
         super().__init__()
 

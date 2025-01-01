@@ -5,8 +5,7 @@ import torch
 import numpy as np
 from diffusers.utils import load_image
 from PIL import Image
-from torchvision.io import write_video
-from torchvision.io import write_png
+from torchvision.utils import save_image
 from einops import rearrange
 import imageio
 
@@ -22,36 +21,27 @@ from mindspeed_mm.data.data_utils.data_transform import CenterCropResizeVideo, S
 from mindspeed_mm.utils.mask_utils import STR_TO_TYPE, TYPE_TO_STR, MaskType
 
 
-def save_videos(videos, start_index, save_path, fps):
+def save_image_or_videos(videos, save_path, start_idx, fps, value_range=(0, 1), normalize=True):
     os.makedirs(save_path, exist_ok=True)
-    if isinstance(videos, (list, tuple)) or videos.ndim == 5:  # [b, t, h, w, c]
-        for i, video in enumerate(videos):
-            save_path_i = os.path.join(save_path, f"video_{start_index + i}.mp4")
-            imageio.mimwrite(save_path_i, video, fps=fps, quality=6)
-    elif videos.ndim == 4:
-        save_path = os.path.join(save_path, f"video_{start_index}.mp4")
-        imageio.mimwrite(save_path, video, fps=fps, quality=6)
-    else:
-        raise ValueError("The video must be in either [b, t, h, w, c] or [t, h, w, c] format.")
-
-
-def save_image_or_videos(videos, save_path, start_idx, fps, value_range=(-1, 1), normalize=True):
-    os.makedirs(save_path, exist_ok=True)
-    if isinstance(videos, (list, tuple)) or videos.ndim == 5:  # b,c,t,h,w
-        for i, video in enumerate(videos):
-            if video.shape[1] == 1:
-                save_path_i = os.path.join(save_path, str(i + start_idx) + ".png")
-                imageio.imwrite(save_path_i, video[:, 0])
+    if videos.ndim == 5:
+        if videos.shape[1] == 1: # image
+            videos = rearrange(videos, 'b t h w c -> (b t) c h w')
+            if videos.shape[0] == 1:
+                save_image(videos / 255.0, os.path.join(save_path, f'image_{start_idx:06d}.png'), nrow=math.ceil(math.sqrt(videos.shape[0])), normalize=normalize, value_range=value_range)
             else:
-                save_path_i = os.path.join(save_path, str(i + start_idx) + ".mp4")
-                imageio.mimwrite(save_path_i, video, fps=fps, quality=6)
-    elif videos.ndim == 4:
-        _save_video(videos, os.path.join(save_path, "0" + ".mp4"), fps, value_range, normalize)
+                for i in range(videos.shape[0]):
+                    save_image(videos[i] / 255.0, os.path.join(save_path, f'image_{start_idx:06d}_i{i:06d}.png'), nrow=math.ceil(math.sqrt(videos.shape[0])), normalize=normalize, value_range=value_range)
+        else: # video
+            if videos.shape[0] == 1:
+                imageio.mimwrite(os.path.join(save_path, f'video_{start_idx:06d}.video'), videos[0].cpu().numpy(), fps=fps, quality=6)
+            else:
+                for i in range(videos.shape[0]):
+                    imageio.mimwrite(os.path.join(save_path, f'video_{start_idx:06d}_i{i:06d}.mp4'), videos[i].cpu().numpy(), fps=fps, quality=6)
     else:
-        raise ValueError("The video must be in either [b,c,t,h,w] or [c,t,h,w] format.")
+        raise ValueError("The video must be in either [b,c,t,h,w] format.")
 
 
-def save_video_grid(videos, save_path, fps, nrow=None):
+def save_video_grid(videos):
     b, t, h, w, c = videos.shape
     if nrow is None:
         nrow = math.ceil(math.sqrt(b))
@@ -74,8 +64,15 @@ def save_video_grid(videos, save_path, fps, nrow=None):
         start_c = (padding + w) * c
         video_grid[:, start_r: start_r + h, start_c: start_c + w] = videos[i]
 
-    imageio.mimwrite(os.path.join(save_path, "video_grid.mp4"), video_grid, fps=fps, quality=6)
+    return video_grid
 
+def save_image_or_video_grid(videos, save_path, fps, normalize=True, value_range=(0, 1)):
+    # videos: [b, t, h, w, c]
+    if videos.shape[1] == 1:
+        save_image(rearrange(videos, 'b t h w c -> (b t) c h w') / 255.0, os.path.join(save_path, "image_grid.png"), nrow=math.ceil(math.sqrt(videos.shape[0])), normalize=normalize, value_range=value_range)
+    else:
+        video_grid = save_video_grid(videos)
+        imageio.mimwrite(os.path.join(save_path, "video_grid.mp4"), video_grid, fps=fps, quality=6)
 
 def load_prompts(prompt):
     if os.path.exists(prompt):

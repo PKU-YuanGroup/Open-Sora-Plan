@@ -9,7 +9,6 @@ from mindspeed_mm.inference.pipeline.pipeline_mixin.encode_mixin import MMEncode
 from mindspeed_mm.inference.pipeline.pipeline_mixin.inputs_checks_mixin import InputsCheckMixin
 from mindspeed_mm.inference.pipeline.patchs.sora_patchs import replace_with_fp32_forwards
 from mindspeed_mm.utils.mask_utils import MaskProcessor, MaskCompressor, TYPE_TO_STR
-from mindspeed_mm.data.data_utils.constants import INPUT_MASK, MASKED_VIDEO
 from mindspeed_mm.inference.pipeline.utils.sora_utils import get_pixel_values, get_mask_type_cond_indices, get_video_transform, get_resize_transform
 
 
@@ -65,7 +64,7 @@ class OpenSoraPlanPipeline(MMPipeline, InputsCheckMixin, MMEncoderMixin):
         negative_prompt_embeds_2: Optional[torch.Tensor] = None,
         use_linear_quadratic_schedule: bool = True,
         eta: float = 0.0,
-        num_images_per_prompt: Optional[int] = 1,
+        num_samples_per_prompt: Optional[int] = 1,
         guidance_scale: float = 4.5,
         guidance_rescale: float = 0.7,
         generator: Optional[Union[torch.Generator, List[torch.Generator]]] = None,
@@ -136,12 +135,13 @@ class OpenSoraPlanPipeline(MMPipeline, InputsCheckMixin, MMEncoderMixin):
             prompt=prompt,
             negative_prompt=negative_prompt,
             device=device,
+            num_samples_per_prompt=num_samples_per_prompt,
             do_classifier_free_guidance=self.do_classifier_free_guidance,
             max_length=512,
             clean_caption=clean_caption,
             use_prompt_preprocess=use_prompt_preprocess
         )
-
+        print(f"prompt_embeds: {prompt_embeds.shape}, negative_prompt_embeds: {negative_prompt_embeds.shape}, prompt_embeds_attention_mask: {prompt_embeds_attention_mask.shape}, negative_prompt_attention_mask: {negative_prompt_attention_mask.shape}")
         if self.tokenizer_2 is not None:
             prompt_embeds_2, prompt_embeds_attention_mask_2, negative_prompt_embeds_2, negative_prompt_attention_mask_2 = self.encode_texts(
                 tokenizer=self.tokenizer_2,
@@ -149,6 +149,7 @@ class OpenSoraPlanPipeline(MMPipeline, InputsCheckMixin, MMEncoderMixin):
                 prompt=prompt,
                 negative_prompt=negative_prompt,
                 device=device,
+                num_samples_per_prompt=num_samples_per_prompt,
                 do_classifier_free_guidance=self.do_classifier_free_guidance,
                 max_length=77,
                 clean_caption=clean_caption,
@@ -157,12 +158,12 @@ class OpenSoraPlanPipeline(MMPipeline, InputsCheckMixin, MMEncoderMixin):
         else:
             prompt_embeds_2, prompt_embeds_attention_mask_2, negative_prompt_embeds_2, negative_prompt_attention_mask_2 = None, None, None, None
 
+
         if self.do_classifier_free_guidance:
             prompt_embeds = torch.cat([negative_prompt_embeds, prompt_embeds], dim=0)
             prompt_embeds_attention_mask = torch.cat([negative_prompt_attention_mask, prompt_embeds_attention_mask], dim=0)
             if prompt_embeds_2 is not None:
                 prompt_embeds_2 = torch.cat([negative_prompt_embeds_2, prompt_embeds_2], dim=0)
-                prompt_embeds_attention_mask_2 = torch.cat([negative_prompt_attention_mask_2, prompt_embeds_attention_mask_2], dim=0)
         if self.model_type == "i2v":
             masked_pixel_values, mask = self.get_masked_pixel_values_mask(
                 pixel_values,
@@ -182,7 +183,7 @@ class OpenSoraPlanPipeline(MMPipeline, InputsCheckMixin, MMEncoderMixin):
 
         # 5. Prepare latents
         latent_channels = self.predict_model.in_channels
-        batch_size = batch_size * num_images_per_prompt
+        batch_size = batch_size * num_samples_per_prompt
         shape = (
             batch_size,
             latent_channels,
@@ -209,7 +210,6 @@ class OpenSoraPlanPipeline(MMPipeline, InputsCheckMixin, MMEncoderMixin):
                         "prompt_embeds_2": prompt_embeds_2,
                         "added_cond_kwargs": added_cond_kwargs,
                         "prompt_attention_mask": prompt_embeds_attention_mask,
-                        "prompt_attention_mask_2": prompt_embeds_attention_mask_2,
                         "use_linear_quadratic_schedule": use_linear_quadratic_schedule,
                         "return_dict": False}
         if self.model_type == "i2v":
@@ -257,16 +257,19 @@ class OpenSoraPlanPipeline(MMPipeline, InputsCheckMixin, MMEncoderMixin):
             low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry.
             """
         elif self.version == "v1.5":
-            positive_prompt = """
+            positive_template = """
             high quality, {}
             """
 
-            negative_prompt = """
+            negative_template = """
             Worst quality, Normal quality, Low quality, Low res, Blurry, Jpeg artifacts, Grainy, watermark, banner, 
             Cropped, Out of frame, Out of focus, Bad anatomy, Bad proportions, Deformed, Disconnected limbs, Disfigured, 
             username, error, sketch, duplicate, ugly, monochrome, horror, geometry, mutation, disgusting, overexposed, underexposed.
             """
-
+        else:
+            positive_template = "{}"
+            negative_template = ""
+            
         if isinstance(positive_prompt, (list, tuple)):
             for positive_prompt_i in positive_prompt:
                 positive_template_i = positive_template.format(positive_prompt_i)

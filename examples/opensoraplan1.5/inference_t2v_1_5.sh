@@ -1,22 +1,20 @@
 source /usr/local/Ascend/ascend-toolkit/set_env.sh
-export ASCEND_RT_VISIBLE_DEVICES="0,1,2,3,4,5,6,7"
-export TASK_QUEUE_ENABLE=0
 export CUDA_DEVICE_MAX_CONNECTIONS=1
-export PYTHONPATH=/home/image_data/yancen/MindSpeed-MM:$PYTHONPATH
+
 MASTER_ADDR=localhost
-MASTER_PORT=12872
+MASTER_PORT=12875
 NNODES=1
 NODE_RANK=0
-NPUS_PER_NODE=8
+NPUS_PER_NODE=1
 WORLD_SIZE=$(($NPUS_PER_NODE * $NNODES))
 
-export use_debug=0
 
 TP=1
 PP=1
 CP=1
 MBS=1
-GBS=1
+GBS=$(($WORLD_SIZE*$MBS/$CP/$TP))
+
 MM_MODEL="examples/opensoraplan1.5/inference_t2v_model1_5.json"
 
 DISTRIBUTED_ARGS="
@@ -36,9 +34,9 @@ SORA_ARGS="
     --context-parallel-size ${CP} \
     --micro-batch-size ${MBS} \
     --global-batch-size ${GBS} \
-    --num-layers 32 \
-    --hidden-size 2304 \
-    --num-attention-heads 24 \
+    --num-layers 28 \
+    --hidden-size 1152 \
+    --num-attention-heads 16 \
     --seq-length 1024\
     --max-position-embeddings 1024 \
     --attention-dropout 0.0 \
@@ -61,7 +59,8 @@ SORA_ARGS="
     --no-load-rng \
     --no-save-optim \
     --no-save-rng \
-    --bf16 \
+    --fp16 \
+    --distributed-timeout-minutes 20 \
 "
 
-torchrun $DISTRIBUTED_ARGS  inference_sora.py  $MM_ARGS $SORA_ARGS
+torchrun $DISTRIBUTED_ARGS  inference_sora.py  $MM_ARGS $SORA_ARGS 2>&1 | tee logs/inference_test.log

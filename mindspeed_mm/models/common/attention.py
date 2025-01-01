@@ -83,39 +83,39 @@ class MultiHeadSparseMMAttentionSBH(nn.Module):
                                                                           self.sp_size)
         
         if qk_norm is None:
-            self.norm_proj_q = None
-            self.norm_proj_k = None
+            self.norm_q = None
+            self.norm_k = None
         elif qk_norm == "layer_norm":
-            self.norm_proj_q = LayerNorm(head_dim, eps=eps, sequence_parallel=True)
-            self.norm_proj_k = LayerNorm(head_dim, eps=eps, sequence_parallel=True)
+            self.norm_q = LayerNorm(head_dim, eps=eps, sequence_parallel=True)
+            self.norm_k = LayerNorm(head_dim, eps=eps, sequence_parallel=True)
         elif qk_norm == "rms_norm":
-            self.norm_proj_q = RMSNorm(head_dim, eps=eps, sequence_parallel=True)
-            self.norm_proj_k = RMSNorm(head_dim, eps=eps, sequence_parallel=True)
+            self.norm_q = RMSNorm(head_dim, eps=eps, sequence_parallel=True)
+            self.norm_k = RMSNorm(head_dim, eps=eps, sequence_parallel=True)
         else:
             raise ValueError(f"Unsupported qk_norm: {qk_norm}")
 
         key_dim = key_dim if key_dim is not None else query_dim
 
-        self.proj_q = tensor_parallel.ColumnParallelLinear(
-            self.inner_dim,
+        self.to_q = tensor_parallel.ColumnParallelLinear(
             query_dim,
+            self.inner_dim,
             config=config,
             init_method=config.init_method,
             bias=proj_qkv_bias,
             gather_output=False
         )
-        self.proj_k = tensor_parallel.ColumnParallelLinear(
-            self.inner_dim,
+        self.to_k = tensor_parallel.ColumnParallelLinear(
             key_dim,
+            self.inner_dim,
             config=config,
             init_method=config.init_method,
             bias=proj_qkv_bias,
             gather_output=False
         )
 
-        self.proj_v = tensor_parallel.ColumnParallelLinear(
-            self.inner_dim,
+        self.to_v = tensor_parallel.ColumnParallelLinear(
             key_dim,
+            self.inner_dim,
             config=config,
             init_method=config.init_method,
             bias=proj_qkv_bias,
@@ -123,45 +123,51 @@ class MultiHeadSparseMMAttentionSBH(nn.Module):
         )
 
         if self.added_kv_proj_dim is not None:
-            self.added_proj_k = tensor_parallel.ColumnParallelLinear(
-                self.inner_dim,
+            self.add_k_proj = tensor_parallel.ColumnParallelLinear(
                 self.added_kv_proj_dim,
+                self.inner_dim,
                 config=config,
                 init_method=config.init_method,
                 bias=proj_qkv_bias,
                 gather_output=False
             )
-            self.added_proj_v = tensor_parallel.ColumnParallelLinear(
-                self.inner_dim,
+            self.add_v_proj = tensor_parallel.ColumnParallelLinear(
                 self.added_kv_proj_dim,
+                self.inner_dim,
                 config=config,
                 init_method=config.init_method,
                 bias=proj_qkv_bias,
                 gather_output=False
             )
             if self.context_pre_only is not None:
-                self.added_proj_q = tensor_parallel.ColumnParallelLinear(
-                    self.inner_dim,
+                self.add_q_proj = tensor_parallel.ColumnParallelLinear(
                     self.added_kv_proj_dim,
+                    self.inner_dim,
                     config=config,
                     init_method=config.init_method,
                     bias=proj_qkv_bias,
                     gather_output=False
                 )
 
-        self.proj_out = tensor_parallel.RowParallelLinear(
-            query_dim,
-            self.inner_dim,
-            config=config,
-            init_method=config.init_method,
-            bias=proj_out_bias,
-            input_is_parallel=True,
-            skip_bias_add=False
+        self.to_out = nn.ModuleList(
+            [
+                tensor_parallel.RowParallelLinear(
+                    query_dim,
+                    self.inner_dim,
+                    config=config,
+                    init_method=config.init_method,
+                    bias=proj_out_bias,
+                    input_is_parallel=True,
+                    skip_bias_add=False
+                ),
+                nn.Dropout(dropout)
+            ]
         )
+        
 
-        if self.context_pre_only is not None:
-            self.added_proj_out = tensor_parallel.RowParallelLinear(
-                added_kv_proj_dim,
+        if self.context_pre_only is not None and not self.context_pre_only:
+            self.to_add_out = tensor_parallel.RowParallelLinear(
+                self.added_kv_proj_dim,
                 self.inner_dim,
                 config=config,
                 init_method=config.init_method,
@@ -170,15 +176,15 @@ class MultiHeadSparseMMAttentionSBH(nn.Module):
                 skip_bias_add=False
             )
         
-        self.dropout = nn.Dropout(dropout)
+        
 
         if qk_norm is not None and added_kv_proj_dim is not None:
             if qk_norm == "layer_norm":
-                self.norm_added_proj_q = LayerNorm(head_dim, eps=eps, sequence_parallel=True)
-                self.norm_added_proj_k = LayerNorm(head_dim, eps=eps, sequence_parallel=True)
+                self.norm_added_q = LayerNorm(head_dim, eps=eps, sequence_parallel=True)
+                self.norm_added_k = LayerNorm(head_dim, eps=eps, sequence_parallel=True)
             elif qk_norm == "rms_norm":
-                self.norm_added_proj_q = RMSNorm(head_dim, eps=eps, sequence_parallel=True)
-                self.norm_added_proj_k = RMSNorm(head_dim, eps=eps, sequence_parallel=True)
+                self.norm_added_q = RMSNorm(head_dim, eps=eps, sequence_parallel=True)
+                self.norm_added_k = RMSNorm(head_dim, eps=eps, sequence_parallel=True)
             else:
                 raise ValueError(f"Unsupported qk_norm: {qk_norm}")
 
@@ -253,12 +259,12 @@ class MultiHeadSparseMMAttentionSBH(nn.Module):
         text_sequence_length_length, batch_size, _  = encoder_hidden_states.shape
 
         # Step 1: Project the hidden states and encoder hidden states
-        q, _ = self.proj_q(hidden_states)
-        k, _ = self.proj_k(hidden_states)
-        v, _ = self.proj_v(hidden_states)
-        added_q, _ = self.added_proj_q(encoder_hidden_states)
-        added_k, _ = self.added_proj_k(encoder_hidden_states)
-        added_v, _ = self.added_proj_v(encoder_hidden_states)
+        q, _ = self.to_q(hidden_states)
+        k, _ = self.to_k(hidden_states)
+        v, _ = self.to_v(hidden_states)
+        added_q, _ = self.add_q_proj(encoder_hidden_states)
+        added_k, _ = self.add_k_proj(encoder_hidden_states)
+        added_v, _ = self.add_v_proj(encoder_hidden_states)
 
         visual_sequence_length, batch_size, _ = q.shape
         text_sequence_length_length, batch_size, _ = added_q.shape
@@ -288,13 +294,13 @@ class MultiHeadSparseMMAttentionSBH(nn.Module):
         # Step 2: QK Norm
         q = q.view(-1, batch_size, self.num_attention_heads_per_partition_per_cp, self.head_dim)
         k = k.view(-1, batch_size, self.num_attention_heads_per_partition_per_cp, self.head_dim)
-        q = self.norm_proj_q(q)
-        k = self.norm_proj_k(k)
+        q = self.norm_q(q)
+        k = self.norm_k(k)
 
         added_q = added_q.view(-1, batch_size, self.num_attention_heads_per_partition_per_cp, self.head_dim)
         added_k = added_k.view(-1, batch_size, self.num_attention_heads_per_partition_per_cp, self.head_dim)
-        added_q = self.norm_added_proj_q(added_q)
-        added_k = self.norm_added_proj_k(added_k)
+        added_q = self.norm_added_q(added_q)
+        added_k = self.norm_added_k(added_k)
 
         # Step 3: Apply rope
         q = apply_rotary_emb(q, video_rotary_emb)
@@ -355,11 +361,11 @@ class MultiHeadSparseMMAttentionSBH(nn.Module):
             encoder_hidden_states = encoder_hidden_states.view(text_sequence_length_length, batch_size, -1)
         
         # Step 7: Project out
-        hidden_states, _ = self.proj_out(hidden_states)
-        hidden_states = self.dropout(hidden_states)
+        hidden_states, _ = self.to_out[0](hidden_states)
+        hidden_states = self.to_out[1](hidden_states)
 
-        if self.context_pre_only is not None:
-            encoder_hidden_states, _ = self.added_proj_out(encoder_hidden_states)
+        if self.context_pre_only is not None and not self.context_pre_only:
+            encoder_hidden_states, _ = self.to_add_out(encoder_hidden_states)
 
         return hidden_states, encoder_hidden_states
 

@@ -8,7 +8,7 @@ class LayerNorm(nn.Module):
                 dim: int,
                 eps: float = 1e-6,
                 sequence_parallel: bool = False):
-        
+        super().__init__()
         self.dim = (dim,)
         self.eps = eps
         self.weight = nn.Parameter(torch.ones(self.dim))

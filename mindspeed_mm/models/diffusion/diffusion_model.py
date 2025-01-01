@@ -24,7 +24,7 @@ class DiffusionModel:
     def __init__(self, config):
         if config.model_id in DIFFUSION_MODEL_MAPPINGS:
             model_cls = DIFFUSION_MODEL_MAPPINGS[config.model_id]
-            self.diffusion = model_cls(**config.to_dict())
+            self.diffusion = model_cls(config.to_dict())
         else:
             self.diffusion = DiffusersScheduler(config.to_dict())
 
