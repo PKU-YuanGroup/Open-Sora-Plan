@@ -99,6 +99,6 @@
     "fps":18,
     "prompt":"/work/share/projects/gyy/mind/Open-Sora-Plan/examples/opensoraplan1.5/sora.txt",
     "device":"npu",
-    "weight_dtype": "fp32"
+    "weight_dtype": "fp16"
 }
 

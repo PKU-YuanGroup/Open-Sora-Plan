@@ -7,7 +7,7 @@ import torch.nn.functional as F
 class PositionGetter3D:
     """return positions of patches"""
 
-    def __init__(self, max_t, max_h, max_w, explicit_uniform_rope=False, atten_layout="BSH"):
+    def __init__(self, max_t, max_h, max_w, explicit_uniform_rope=False, atten_layout="SBH"):
         self.cache_positions = {}
         self.max_t = max_t
         self.max_h = max_h
@@ -65,18 +65,18 @@ class RoPE3D(torch.nn.Module):
         self.interpolation_scale_w = interpolation_scale_thw[2]
         self.cache = {}
 
-    def get_cos_sin(self, D, seq_start, seq_end, device, dtype, interpolation_scale=1):
-        if (D, seq_start, seq_start, seq_end, device, dtype) not in self.cache:
+    def get_cos_sin(self, D, seq_start, seq_end, device, interpolation_scale=1):
+        if (D, seq_start, seq_start, seq_end) not in self.cache:
             inv_freq = 1.0 / (self.base ** (torch.arange(0, D, 2).float().to(device) / D))
-            t = torch.arange(seq_start, seq_end, device=device, dtype=inv_freq.dtype) / interpolation_scale
-            freqs = torch.einsum("i,j->ij", t, inv_freq).to(dtype)
+            t = torch.arange(seq_start, seq_end, device=device, dtype=torch.float32) / interpolation_scale
+            freqs = torch.einsum("i,j->ij", t, inv_freq)
             freqs = torch.cat((freqs, freqs), dim=-1)
             cos = freqs.cos()  # (Seq, Dim)
             sin = freqs.sin()
-            self.cache[D, seq_start, seq_start, seq_end, device, dtype] = (cos, sin)
-        return self.cache[D, seq_start, seq_start, seq_end, device, dtype]
+            self.cache[D, seq_start, seq_start, seq_end] = (cos, sin)
+        return self.cache[D, seq_start, seq_start, seq_end]
 
-    def forward(self, dim, positions, device, dtype):
+    def forward(self, dim, positions, device):
         """
         input:
             * dim: head_dim
@@ -89,9 +89,9 @@ class RoPE3D(torch.nn.Module):
         D = dim // 16 * 6
         poses, min_poses, max_poses = positions
         assert len(poses) == 3 and poses[0].ndim == 2 # Batch, Seq, 3
-        cos_t, sin_t = self.get_cos_sin(D_t, min_poses[0], max_poses[0], device, dtype, self.interpolation_scale_t)
-        cos_y, sin_y = self.get_cos_sin(D, min_poses[1], max_poses[1], device, dtype, self.interpolation_scale_h)
-        cos_x, sin_x = self.get_cos_sin(D, min_poses[2], max_poses[2], device, dtype, self.interpolation_scale_w)
+        cos_t, sin_t = self.get_cos_sin(D_t, min_poses[0], max_poses[0], device, self.interpolation_scale_t)
+        cos_y, sin_y = self.get_cos_sin(D, min_poses[1], max_poses[1], device, self.interpolation_scale_h)
+        cos_x, sin_x = self.get_cos_sin(D, min_poses[2], max_poses[2], device,  self.interpolation_scale_w)
 
         cos_t, sin_t = compute_rope1d(poses[0], cos_t, sin_t)
         cos_y, sin_y = compute_rope1d(poses[1], cos_y, sin_y)
@@ -125,10 +125,11 @@ def apply_rotary_emb(tokens, video_rotary_emb):
     dim = tokens.shape[-1]
     D_t = dim // 16 * 4
     D = dim // 16 * 6
-    t, y, x = torch.split(tokens, [D_t, D, D], dim=-1)
+    origin_dtype = tokens.dtype
+    t, y, x = torch.split(tokens.float(), [D_t, D, D], dim=-1)
     t = apply_rope1d(t, cos_t, sin_t)
     y = apply_rope1d(y, cos_y, sin_y)
     x = apply_rope1d(x, cos_x, sin_x)
-    tokens = torch.cat((t, y, x), dim=-1)
+    tokens = torch.cat((t, y, x), dim=-1).to(origin_dtype)
     return tokens
     

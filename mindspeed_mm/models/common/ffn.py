@@ -105,7 +105,7 @@ class GELU(nn.Module):
         self.approximate = approximate
 
     def gelu(self, gate: torch.Tensor) -> torch.Tensor:
-        return F.gelu(gate, approximate=self.approximate)
+        return F.gelu(gate.to(dtype=torch.float32), approximate=self.approximate).to(dtype=gate.dtype)
 
     def forward(self, hidden_states):
         hidden_states, _ = self.proj(hidden_states)

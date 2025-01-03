@@ -48,6 +48,11 @@ def zero_initialized_skip_connection(module_cls):
         return module
     return zero_init
 
+def maybe_clamp_tensor(x, max_value=65504.0, min_value=-65504.0, training=True):
+    if not training and x.dtype == torch.float16:
+        x.nan_to_num_(posinf=max_value, neginf=min_value)
+    return x
+
 class SparseUMMDiT(MultiModalModule):
     """
     A video dit model for video generation. can process both standard continuous images of shape
@@ -307,6 +312,15 @@ class SparseUMMDiT(MultiModalModule):
     ) -> torch.Tensor:
         batch_size, c, frames, height, width = hidden_states.shape
 
+        hidden_states = torch.ones_like(hidden_states, dtype=hidden_states.dtype) * 0.01
+        timestep = torch.ones(1, dtype=torch.long, device=timestep.device)
+        pooled_projections = torch.ones_like(pooled_projections, dtype=pooled_projections.dtype) * 0.01
+        encoder_hidden_states = torch.ones_like(encoder_hidden_states, dtype=encoder_hidden_states.dtype) * 0.01
+        attention_mask = torch.ones_like(attention_mask, dtype=attention_mask.dtype)
+        encoder_attention_mask = torch.ones_like(encoder_attention_mask, dtype=encoder_attention_mask.dtype)
+
+        import ipdb; ipdb.set_trace()
+
         # print(f"model forward, hidden_states: {hidden_states.shape}, timestep: {timestep.shape}, pooled_projections: {pooled_projections.shape}, encoder_hidden_states: {encoder_hidden_states.shape}, attention_mask: {attention_mask.shape}, encoder_attention_mask: {encoder_attention_mask.shape}")
         encoder_attention_mask = encoder_attention_mask.view(batch_size, -1, encoder_attention_mask.shape[-1])
         if self.training and mpu.get_context_parallel_world_size() > 1:
@@ -353,7 +367,7 @@ class SparseUMMDiT(MultiModalModule):
             batch_size, t=frames * mpu.get_context_parallel_world_size(), h=height, w=width,
             device=hidden_states.device, training=self.training
         )
-        video_rotary_emb = self.rope(self.head_dim, pos_thw, hidden_states.device, hidden_states.dtype)
+        video_rotary_emb = self.rope(self.head_dim, pos_thw, hidden_states.device)
 
         if self.sequence_parallel:
             hidden_states = tensor_parallel.scatter_to_sequence_parallel_region(hidden_states)
@@ -379,6 +393,8 @@ class SparseUMMDiT(MultiModalModule):
         if self.training and mpu.get_context_parallel_world_size() > 1:
             output = gather_forward_split_backward(output, mpu.get_context_parallel_group(), dim=2,
                                                         grad_scale='up')
+
+        import ipdb; ipdb.set_trace()
 
         return output
 
@@ -439,7 +455,7 @@ class SparseUMMDiT(MultiModalModule):
         self, hidden_states, skip_connections, encoder_hidden_states,
         embedded_timestep, frames, height, width, video_rotary_emb
     ):
-        for idx, stage_block in enumerate(self.transformer_blocks[len(self.num_layers) // 2 + 1:]):
+        for idx, stage_block in enumerate(self.transformer_blocks[-(len(self.num_layers) // 2):]):
             if self.skip_connection:
                 skip_hidden_states, skip_encoder_hidden_states = skip_connections.pop()
                 hidden_states = torch.cat([hidden_states, skip_hidden_states], dim=-1)
@@ -635,11 +651,15 @@ class SparseMMDiTBlock(nn.Module):
         video_rotary_emb: Optional[torch.FloatTensor] = None,
     ) -> torch.FloatTensor:
         
+        import ipdb; ipdb.set_trace()
+
         # print(f'hidden_states: {hidden_states.shape}, encoder_hidden_states: {encoder_hidden_states.shape}, embedded_timestep: {embedded_timestep.shape}, frames: {frames}, height: {height}, width: {width}')
         # 0. Prepare rope embedding
         vis_seq_length, batch_size = hidden_states.shape[:2]
 
         # 1. norm & scale & shift
+        hidden_states = maybe_clamp_tensor(hidden_states, training=self.training)
+        encoder_hidden_states = maybe_clamp_tensor(encoder_hidden_states, training=self.training)
         norm_hidden_states, norm_encoder_hidden_states, gate_msa, enc_gate_msa = self.norm1(
             hidden_states, encoder_hidden_states, embedded_timestep
         )        
@@ -663,6 +683,8 @@ class SparseMMDiTBlock(nn.Module):
         encoder_hidden_states = encoder_hidden_states + enc_gate_msa * attn_encoder_hidden_states
 
         # 4. norm & scale & shift
+        hidden_states = maybe_clamp_tensor(hidden_states, training=self.training)
+        encoder_hidden_states = maybe_clamp_tensor(encoder_hidden_states, training=self.training)
         norm_hidden_states, norm_encoder_hidden_states, gate_ff, enc_gate_ff = self.norm2(
             hidden_states, encoder_hidden_states, embedded_timestep
         )

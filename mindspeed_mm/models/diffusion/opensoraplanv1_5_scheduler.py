@@ -325,12 +325,16 @@ class OpenSoraPlanScheduler:
         sigmas = None
         use_linear_quadratic_schedule = model_kwargs.pop("use_linear_quadratic_schedule", False)
         if use_linear_quadratic_schedule:
+            print("use OpenSoraPlanScheduler and linear quadratic schedule")
             approximate_steps = min(max(self.num_inference_steps * 10, 250), 1000)
             sigmas = opensora_linear_quadratic_schedule(self.num_inference_steps, approximate_steps=approximate_steps)
             sigmas = np.array(sigmas)
         sigmas = self.set_sigmas(device=self.device, sigmas=sigmas)
         timesteps = sigmas.clone() * 1000
         timesteps = timesteps[:-1]
+
+        print(f"sigmas: {sigmas}")
+        print(f"timesteps: {timesteps}")
 
         do_classifier_free_guidance = self.guidance_scale > 1.0
 

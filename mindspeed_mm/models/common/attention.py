@@ -259,15 +259,12 @@ class MultiHeadSparseMMAttentionSBH(nn.Module):
         text_sequence_length_length, batch_size, _  = encoder_hidden_states.shape
 
         # Step 1: Project the hidden states and encoder hidden states
-        q, _ = self.to_q(hidden_states)
-        k, _ = self.to_k(hidden_states)
-        v, _ = self.to_v(hidden_states)
-        added_q, _ = self.add_q_proj(encoder_hidden_states)
-        added_k, _ = self.add_k_proj(encoder_hidden_states)
-        added_v, _ = self.add_v_proj(encoder_hidden_states)
-
-        visual_sequence_length, batch_size, _ = q.shape
-        text_sequence_length_length, batch_size, _ = added_q.shape
+        q = self.to_q(hidden_states)[0]
+        k = self.to_k(hidden_states)[0]
+        v = self.to_v(hidden_states)[0]
+        added_q = self.add_q_proj(encoder_hidden_states)[0]
+        added_k = self.add_k_proj(encoder_hidden_states)[0]
+        added_v = self.add_v_proj(encoder_hidden_states)[0]
 
         total_frames = frames
 
@@ -361,11 +358,11 @@ class MultiHeadSparseMMAttentionSBH(nn.Module):
             encoder_hidden_states = encoder_hidden_states.view(text_sequence_length_length, batch_size, -1)
         
         # Step 7: Project out
-        hidden_states, _ = self.to_out[0](hidden_states)
+        hidden_states = self.to_out[0](hidden_states)[0]
         hidden_states = self.to_out[1](hidden_states)
 
         if self.context_pre_only is not None and not self.context_pre_only:
-            encoder_hidden_states, _ = self.to_add_out(encoder_hidden_states)
+            encoder_hidden_states = self.to_add_out(encoder_hidden_states)[0]
 
         return hidden_states, encoder_hidden_states
 

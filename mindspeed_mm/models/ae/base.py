@@ -55,3 +55,7 @@ class AEModel(nn.Module):
 
     def forward(self, x):
         raise NotImplementedError("forward function is not implemented")
+
+    @property
+    def vae_scale_factor(self):
+        return self.model.vae_scale_factor

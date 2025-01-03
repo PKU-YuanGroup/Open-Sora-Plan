@@ -521,7 +521,7 @@ class WFVAE(MultiModalModule):
         return torch.cat(result, dim=2)
 
     def forward(self, x):
-        z = self.encode(x)
+        z = self.encode(x).sample()
         dec = self.decode(z)
         return dec
 

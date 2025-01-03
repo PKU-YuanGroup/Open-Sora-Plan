@@ -31,7 +31,7 @@ if is_npu_available():
 
 def prepare_pipeline(args, dtype, ae_dtype, device):
     ori_args = get_args()
-    vae = AEModel(args.ae).get_model().to(device=device, dtype=ae_dtype).eval()
+    vae = AEModel(args.ae).to(device=device, dtype=ae_dtype).eval()
     text_encoder = TextEncoder(args.text_encoder).get_model().to(device=device, dtype=dtype).eval()
     text_encoder_2 = TextEncoder(args.text_encoder_2).get_model().to(device=device, dtype=dtype).eval() if args.text_encoder_2 is not None else None
     predict_model = PredictModel(args.predictor).get_model()
@@ -41,8 +41,6 @@ def prepare_pipeline(args, dtype, ae_dtype, device):
     scheduler = DiffusionModel(args.diffusion).get_model()
     tokenizer = Tokenizer(args.tokenizer).get_tokenizer()
     tokenizer_2 = Tokenizer(args.tokenizer_2).get_tokenizer() if args.tokenizer_2 is not None else None
-    if not hasattr(vae, 'dtype'):
-        vae.dtype = args.ae.dtype
     sora_pipeline_class = OpenSoraPlanPipeline
     sora_pipeline = sora_pipeline_class(vae=vae, text_encoder=text_encoder, text_encoder_2=text_encoder_2, tokenizer=tokenizer, tokenizer_2=tokenizer_2, scheduler=scheduler, predict_model=predict_model, config=args.pipeline_config)
     return sora_pipeline
@@ -110,7 +108,7 @@ def main():
                                **kwargs
                                )
         if mpu.get_context_parallel_rank() == 0 and mpu.get_tensor_model_parallel_rank() == 0:
-            save_image_or_videos(videos, args.save_path, start_idx, save_fps)
+            save_image_or_videos(videos, args.save_path, start_idx + rank, save_fps)
             start_idx += len(batch_prompts) * world_size
             video_grids.append(videos)
     if len(video_grids) > 0:
