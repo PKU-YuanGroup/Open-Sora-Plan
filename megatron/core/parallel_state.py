@@ -71,6 +71,9 @@ _DATA_PARALLEL_GROUP_WITH_CP = None
 _DATA_PARALLEL_GROUP_WITH_CP_GLOO = None
 _DATA_PARALLEL_GLOBAL_RANKS_WITH_CP = None
 
+# combined parallel group of TP and CP
+_TENSOR_AND_CONTEXT_PARALLEL_GROUP = None
+
 # combined parallel group of TP, DP, and CP used for fp8
 _TENSOR_AND_DATA_PARALLEL_GROUP_WITH_CP = None
 
@@ -469,6 +472,22 @@ def initialize_model_parallel(
             if rank in ranks:
                 _TENSOR_AND_DATA_PARALLEL_GROUP = group
 
+    global _TENSOR_AND_CONTEXT_PARALLEL_GROUP
+    assert (
+            _TENSOR_AND_CONTEXT_PARALLEL_GROUP is None
+    ), 'Tensor + context parallel group is already initialized'
+    tensor_and_context_group_size: int = tensor_model_parallel_size * context_parallel_size
+    num_tensor_and_context_groups: int = world_size // tensor_and_context_group_size
+    for i in range(num_tensor_and_context_groups):
+        start_rank = i * tensor_and_context_group_size
+        end_rank = start_rank + tensor_and_context_group_size
+        ranks = range(start_rank, end_rank)
+        group = torch.distributed.new_group(
+            ranks, timeout=timeout, pg_options=get_nccl_options('tp_cp', nccl_comm_cfgs)
+        )
+        if rank in ranks:
+            _TENSOR_AND_CONTEXT_PARALLEL_GROUP = group
+
     # Build the tensor + expert parallel groups
     global _EXPERT_MODEL_PARALLEL_GROUP
     assert _EXPERT_MODEL_PARALLEL_GROUP is None, 'Expert parallel group is already initialized'
@@ -656,6 +675,12 @@ def get_tensor_and_data_parallel_group(with_context_parallel=False):
         ), 'tensor and data parallel group is not initialized'
         return _TENSOR_AND_DATA_PARALLEL_GROUP
 
+def get_tensor_and_context_parallel_group():
+    """Get the tensor- and context-parallel group the caller rank belongs to."""
+    assert (
+        _TENSOR_AND_CONTEXT_PARALLEL_GROUP is not None
+    ), 'tensor and context parallel group is not initialized'
+    return _TENSOR_AND_CONTEXT_PARALLEL_GROUP
 
 def get_expert_model_parallel_group():
     assert (
@@ -960,6 +985,20 @@ def get_context_parallel_rank():
     else:
         return 0
 
+def get_tensor_and_context_parallel_world_size():
+    """Return world size for the tensor and context-parallel group."""
+    if torch.distributed.is_available() and torch.distributed.is_initialized():
+        return torch.distributed.get_world_size(group=get_tensor_and_context_parallel_group())
+    else:
+        return 0
+
+
+def get_tensor_and_context_parallel_rank():
+    """Return caller's rank in the joint tensor-model-parallel and context-parallel group."""
+    if torch.distributed.is_available() and torch.distributed.is_initialized():
+        return torch.distributed.get_rank(group=get_tensor_and_context_parallel_group())
+    else:
+        return 0
 
 def get_expert_model_parallel_world_size():
     """Return world size for the expert model parallel group"""
@@ -1051,6 +1090,8 @@ def destroy_model_parallel():
     _TENSOR_AND_DATA_PARALLEL_GROUP = None
     global _TENSOR_AND_DATA_PARALLEL_GROUP_WITH_CP
     _TENSOR_AND_DATA_PARALLEL_GROUP_WITH_CP = None
+    global _TENSOR_AND_CONTEXT_PARALLEL_GROUP
+    _TENSOR_AND_CONTEXT_PARALLEL_GROUP = None
     global _EXPERT_MODEL_PARALLEL_GROUP
     _EXPERT_MODEL_PARALLEL_GROUP = None
     global _TENSOR_AND_EXPERT_PARALLEL_GROUP

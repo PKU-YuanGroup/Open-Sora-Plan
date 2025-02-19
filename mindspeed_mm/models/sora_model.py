@@ -20,11 +20,13 @@ import torch
 from torch import nn
 from megatron.training.arguments import core_transformer_config_from_args
 from megatron.training import get_args
+from megatron.core import mpu
 
 from mindspeed_mm.models.predictor import PredictModel
 from mindspeed_mm.models.diffusion import DiffusionModel
 from mindspeed_mm.models.ae import AEModel
 from mindspeed_mm.models.text_encoder import TextEncoder
+from mindspeed_mm.models.common.communications import collect_tensors_across_ranks
 from mindspeed_mm.utils.utils import get_dtype
 
 logger = getLogger(__name__)
@@ -53,18 +55,20 @@ class SoRAModel(nn.Module):
         self.weight_dtype = get_dtype(config.weight_dtype)
         self.load_video_features = config.load_video_features
         self.load_text_features = config.load_text_features
+        self.enable_encoder_dp = config.enable_encoder_dp if hasattr(config, "enable_encoder_dp") else False
+        if self.enable_encoder_dp and mpu.get_pipeline_model_parallel_world_size() > 1:
+            raise AssertionError("Encoder DP cannot be used with PP")
+        # Track the current index to save or fetch the encoder cache when encoder dp is enabled
+        self.cache = {}
+        self.index = 0
         if not self.load_video_features:
             self.ae = AEModel(config.ae).eval()
             self.ae.requires_grad_(False)
         if not self.load_text_features:
-            self.text_encoder = TextEncoder(config.text_encoder).eval()
-            self.text_encoder.to(self.weight_dtype)
+            self.text_encoder = TextEncoder(config.text_encoder, self.weight_dtype).eval()
             self.text_encoder.requires_grad_(False)
-            self.text_encoder_2 = None
-            if config.get("text_encoder_2", None) is not None:
-                self.text_encoder_2 = TextEncoder(config.text_encoder_2).eval()
-                self.text_encoder_2.to(self.weight_dtype)
-                self.text_encoder_2.requires_grad_(False)
+            self.text_encoder_2 = TextEncoder(config.text_encoder_2, self.weight_dtype).eval()
+            self.text_encoder_2.requires_grad_(False)
 
         self.predictor = PredictModel(config.predictor).get_model().to(self.weight_dtype)
         self.diffusion = DiffusionModel(config.diffusion).get_model()
@@ -89,36 +93,44 @@ class SoRAModel(nn.Module):
         prompt_mask: mask for prompt(text)
         """
         with torch.no_grad():
-            # Visual Encode
-            if self.load_video_features:
-                latents = video
-            else:
-                latents = self.ae.encode(video)
-            # Text Encode
-            if self.load_text_features:
-                prompt = prompt_ids
-                prompt_2 = prompt_ids_2
-            else:
-                B, N, L = prompt_ids.shape
-                prompt_ids = prompt_ids.view(-1, L)
-                prompt_mask = prompt_mask.view(-1, L)
-                prompt = self.text_encoder.encode(prompt_ids, prompt_mask)
-                prompt = prompt.view(B, N, L, -1)
-                prompt_mask = prompt_mask.view(B, 1, L)
+            if video is not None:
+                self.index = 0
+                # Visual Encode
+                if self.load_video_features:
+                    latents = video
+                else:
+                    latents = self.ae.encode(video)
+                    latents = latents.to(self.weight_dtype)
+                # Text Encode
+                if self.load_text_features:
+                    prompt = prompt_ids
+                    prompt_2 = prompt_ids_2
+                else:
+                    B, N, L = prompt_ids.shape
+                    prompt_ids = prompt_ids.view(-1, L)
+                    prompt_mask = prompt_mask.view(-1, L)
+                    prompt = self.text_encoder.encode(prompt_ids, prompt_mask)
+                    prompt = prompt.view(B, N, L, -1)
+                    prompt_mask = prompt_mask.view(B, 1, L)
 
-                if self.text_encoder_2 is not None and prompt_ids_2 is not None:
-                    B_, N_, L_ = prompt_ids_2.shape
-                    prompt_ids_2 = prompt_ids_2.view(-1, L_)
-                    prompt_mask_2 = prompt_mask_2.view(-1, L_)
-                    prompt_2 = self.text_encoder_2.encode(prompt_ids_2, prompt_mask_2)
-                    prompt_2 = prompt_2.view(B_, N_, -1)
+                    if self.text_encoder_2 is not None and prompt_ids_2 is not None:
+                        B_, N_, L_ = prompt_ids_2.shape
+                        prompt_ids_2 = prompt_ids_2.view(-1, L_)
+                        prompt_mask_2 = prompt_mask_2.view(-1, L_)
+                        prompt_2 = self.text_encoder_2.encode(prompt_ids_2, prompt_mask_2)
+                        prompt_2 = prompt_2.view(B_, N_, -1)
         # print("--------------------------shape--------------------------")
         # print(f"latent: {latents.shape}, prompt: {prompt.shape}, prompt_2: {prompt_2.shape}, video_mask: {video_mask.shape}, prompt_mask: {prompt_mask.shape}, prompt_mask_2: {prompt_mask_2.shape}")
         # print("--------------------------dtype--------------------------")
         # print(f"latent: {latents.dtype}, prompt: {prompt.dtype}, prompt_2: {prompt_2.dtype}, video_mask: {video_mask.dtype}, prompt_mask: {prompt_mask.dtype}, prompt_mask_2: {prompt_mask_2.dtype}")
         # print("--------------------------device--------------------------")
         # print(f"latent: {latents.device}, prompt: {prompt.device}, prompt_2: {prompt_2.device}, video_mask: {video_mask.device}, prompt_mask: {prompt_mask.device}, prompt_mask_2: {prompt_mask_2.device}")
-        latents = latents.to(self.weight_dtype)
+
+        # Gather the results after encoding of ae and text_encoder
+        if self.enable_encoder_dp:
+            if self.index == 0:
+                self.init_cache(latents, video_mask, prompt, prompt_mask, prompt_2)
+            latents, video_mask, prompt, prompt_mask, prompt_2 = self.get_feature_from_cache()
 
         noised_latents, noise, timesteps = self.diffusion.q_sample(latents, model_kwargs=kwargs, mask=video_mask)
 
@@ -165,3 +177,27 @@ class SoRAModel(nn.Module):
             logger.info(f"Missing keys in state_dict: {missing_keys}.")
         if unexpected_keys is not None:
             logger.info(f"Unexpected key(s) in state_dict: {unexpected_keys}.")
+
+    def init_cache(self, latents, video_mask, prompt, prompt_mask, prompt_2):
+        """Initialize cache in the first step."""
+        self.cache = {}
+        group = mpu.get_tensor_and_context_parallel_group()
+        # gather as list
+        self.cache = {
+            "LATENTS": collect_tensors_across_ranks(latents, group=group),
+            "VIDEO_MASK": collect_tensors_across_ranks(video_mask, group=group),
+            "PROMPT": collect_tensors_across_ranks(prompt, group=group),
+            "PROMPT_MASK": collect_tensors_across_ranks(prompt_mask, group=group),
+            "PROMPT2": collect_tensors_across_ranks(prompt_2, group=group),
+        }
+
+    def get_feature_from_cache(self):
+        """Get from the cache"""
+        latents = self.cache["LATENTS"][self.index]
+        video_mask = self.cache["VIDEO_MASK"][self.index]
+        prompt = self.cache["PROMPT"][self.index]
+        prompt_mask = self.cache["PROMPT_MASK"][self.index]
+        prompt_2 = self.cache["PROMPT2"][self.index]
+
+        self.index += 1
+        return latents, video_mask, prompt, prompt_mask, prompt_2

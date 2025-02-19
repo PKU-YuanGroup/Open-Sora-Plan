@@ -4,6 +4,7 @@
     "allow_internal_format": false,
     "load_video_features": false,
     "load_text_features": false,
+    "enable_encoder_dp": true,
     "weight_dtype": "bf16",
     "ae": {
         "model_id": "wfvae",
@@ -34,32 +35,32 @@
          1.1250, -0.2578, -2.1094,  1.0391,  1.1797, -1.2422, -0.2988, -0.9570],
         "t_interpolation": "trilinear",
         "use_attention": true,
-        "from_pretrained": "/home/save_dir/lzj/Middle888/merged.ckpt",
+        "from_pretrained": "/work/share/checkpoint/pretrained/vae/Middle888/merged.ckpt",
         "dtype": "fp32"
       },
     "text_encoder": {
         "hub_backend": "hf",
         "model_id": "T5",
-        "from_pretrained": "/home/save_dir/pretrained/t5/t5-v1_1-xl",
+        "from_pretrained": "/work/share/checkpoint/pretrained/t5/t5-v1_1-xl",
         "low_cpu_mem_usage": false
     },
     "text_encoder_2":{
         "hub_backend": "hf",
-        "model_id": "CLIPWithProjection", 
-        "from_pretrained": "/home/save_dir/pretrained/clip/models--laion--CLIP-ViT-bigG-14-laion2B-39B-b160k/snapshots/bc7788f151930d91b58474715fdce5524ad9a189",
+        "model_id": "CLIPWithProjection",
+        "from_pretrained": "/work/share/checkpoint/pretrained/clip/models--laion--CLIP-ViT-bigG-14-laion2B-39B-b160k/snapshots/bc7788f151930d91b58474715fdce5524ad9a189",
         "low_cpu_mem_usage": false
     },
     "predictor": {
         "model_id": "SparseUMMDiT",
-        "num_layers": [2, 4, 4, 8, 4, 4, 2],
+        "num_layers": [2, 4, 6, 8, 6, 4, 2],
         "sparse_n": [1, 2, 4, 8, 4, 2, 1],
         "double_ff": true,
         "sparse1d": true,
-        "num_heads": 16,
+        "num_heads": 24,
         "head_dim": 128,
         "in_channels": 32,
         "out_channels": 32,
-        "timestep_embed_dim": 768,
+        "timestep_embed_dim": 1024,
         "caption_channels": 2048,
         "pooled_projection_dim": 1280,
         "skip_connection": true,
