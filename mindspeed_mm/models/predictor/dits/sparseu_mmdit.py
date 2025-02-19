@@ -21,6 +21,8 @@ from mindspeed_mm.models.common.communications import split_forward_gather_backw
 
 from mindspeed_mm.models.predictor.dits.modules import CombinedTimestepTextProjEmbeddings, AdaNorm, OpenSoraNormZero
 
+selective_recom = True
+recom_ffn_layers = 32
 
 def create_custom_forward(module, return_dict=None):
     def custom_forward(*inputs):
@@ -523,7 +525,7 @@ class SparseUMMDiT(MultiModalModule):
         return output
     
     def block_forward(self, block, hidden_states, attention_mask, encoder_hidden_states, embedded_timestep, frames, height, width, video_rotary_emb, layer_idx):
-        if self.training and layer_idx <= self.recompute_num_layers:
+        if self.training and layer_idx <= self.recompute_num_layers and not selective_recom:
             ckpt_kwargs: Dict[str, Any] = {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
             hidden_states, encoder_hidden_states = torch.utils.checkpoint.checkpoint(
                 create_custom_forward(block),
@@ -546,7 +548,8 @@ class SparseUMMDiT(MultiModalModule):
                 frames=frames,
                 height=height,
                 width=width,
-                video_rotary_emb=video_rotary_emb
+                video_rotary_emb=video_rotary_emb,
+                recom_ffn=layer_idx <= recom_ffn_layers
             )
         return hidden_states, encoder_hidden_states
 
@@ -636,6 +639,31 @@ class SparseMMDiTBlock(nn.Module):
                 bias=ff_bias,
             )
 
+    def ffn(self, hidden_states, encoder_hidden_states, embedded_timestep):
+        vis_seq_length, batch_size = hidden_states.shape[:2]
+         # 4. norm & scale & shift
+        hidden_states = maybe_clamp_tensor(hidden_states, training=self.training)
+        encoder_hidden_states = maybe_clamp_tensor(encoder_hidden_states, training=self.training)
+        norm_hidden_states, norm_encoder_hidden_states, gate_ff, enc_gate_ff = self.norm2(
+            hidden_states, encoder_hidden_states, embedded_timestep
+        )
+        # import ipdb; ipdb.set_trace()
+        if self.double_ff:
+            # 5. FFN
+            vis_ff_output = self.ff(norm_hidden_states)
+            enc_ff_output = self.ff_enc(norm_encoder_hidden_states)
+            # 6. residual & gate
+            hidden_states = hidden_states + gate_ff * vis_ff_output
+            encoder_hidden_states = encoder_hidden_states + enc_gate_ff * enc_ff_output
+        else:
+            # 5. FFN
+            norm_hidden_states = torch.cat([norm_hidden_states, norm_encoder_hidden_states], dim=0)
+            ff_output = self.ff(norm_hidden_states)
+            # 6. residual & gate
+            hidden_states = hidden_states + gate_ff * ff_output[:vis_seq_length]
+            encoder_hidden_states = encoder_hidden_states + enc_gate_ff * ff_output[vis_seq_length:]
+        return hidden_states, encoder_hidden_states
+
     def forward(
         self,
         hidden_states: torch.FloatTensor,
@@ -646,12 +674,8 @@ class SparseMMDiTBlock(nn.Module):
         height: int = None, 
         width: int = None,
         video_rotary_emb: Optional[torch.FloatTensor] = None,
+        recom_ffn = False,
     ) -> torch.FloatTensor:
-        
-        # print(f'hidden_states: {hidden_states.shape}, encoder_hidden_states: {encoder_hidden_states.shape}, embedded_timestep: {embedded_timestep.shape}, frames: {frames}, height: {height}, width: {width}')
-        # 0. Prepare rope embedding
-        vis_seq_length, batch_size = hidden_states.shape[:2]
-
         # 1. norm & scale & shift
         hidden_states = maybe_clamp_tensor(hidden_states, training=self.training)
         encoder_hidden_states = maybe_clamp_tensor(encoder_hidden_states, training=self.training)
@@ -677,26 +701,20 @@ class SparseMMDiTBlock(nn.Module):
         hidden_states = hidden_states + gate_msa * attn_hidden_states
         encoder_hidden_states = encoder_hidden_states + enc_gate_msa * attn_encoder_hidden_states
 
-        # 4. norm & scale & shift
-        hidden_states = maybe_clamp_tensor(hidden_states, training=self.training)
-        encoder_hidden_states = maybe_clamp_tensor(encoder_hidden_states, training=self.training)
-        norm_hidden_states, norm_encoder_hidden_states, gate_ff, enc_gate_ff = self.norm2(
-            hidden_states, encoder_hidden_states, embedded_timestep
-        )
-        if self.double_ff:
-            # 5. FFN
-            vis_ff_output = self.ff(norm_hidden_states)
-            enc_ff_output = self.ff_enc(norm_encoder_hidden_states)
-            # 6. residual & gate
-            hidden_states = hidden_states + gate_ff * vis_ff_output
-            encoder_hidden_states = encoder_hidden_states + enc_gate_ff * enc_ff_output
+        # import ipdb; ipdb.set_trace()
+        if self.training and recom_ffn:
+            ckpt_kwargs: Dict[str, Any] = {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
+            hidden_states, encoder_hidden_states = torch.utils.checkpoint.checkpoint(
+                create_custom_forward(self.ffn),
+                hidden_states, encoder_hidden_states, embedded_timestep,
+                **ckpt_kwargs
+            )
         else:
-            # 5. FFN
-            norm_hidden_states = torch.cat([norm_hidden_states, norm_encoder_hidden_states], dim=0)
-            ff_output = self.ff(norm_hidden_states)
-            # 6. residual & gate
-            hidden_states = hidden_states + gate_ff * ff_output[:vis_seq_length]
-            encoder_hidden_states = encoder_hidden_states + enc_gate_ff * ff_output[vis_seq_length:]
+            hidden_states, encoder_hidden_states = self.ffn(
+                hidden_states, encoder_hidden_states, embedded_timestep
+            )
+
+        # import ipdb; ipdb.set_trace()
 
         return hidden_states, encoder_hidden_states
 

@@ -14,20 +14,21 @@ export HCCL_OP_BASE_FFTS_MODE_ENABLE=TRUE
 # export GLOO_SOCKET_IFNAME=enp67s0f0
 
 
- NNODES=${PET_NNODES}
- NODE_RANK=${PET_NODE_RANK}
- MASTER_ADDR=${PET_MASTER_ADDR}
+NNODES=${PET_NNODES}
+NODE_RANK=${PET_NODE_RANK}
+MASTER_ADDR=${PET_MASTER_ADDR}
 
 MASTER_NODE_ID=0
 GPUS_PER_NODE=8
 MASTER_PORT=12345
 WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
 
-TP=8
+TP=4
 PP=1
 CP=1
 MBS=1
-GBS=$(($WORLD_SIZE*$MBS/$CP/$TP))
+GRAD_ACC_STEP=4
+GBS=$(($WORLD_SIZE*$GRAD_ACC_STEP*$MBS/$CP/$TP))
 
 MM_DATA="./examples/opensoraplan1.5/data.json"
 MM_MODEL="./examples/opensoraplan1.5/model_opensoraplan1_5.json"
@@ -80,7 +81,7 @@ GPT_ARGS="
     --use-distributed-optimizer \
     --recompute-granularity full \
     --recompute-method block \
-    --recompute-num-layers 32 \
+    --recompute-num-layers 0 \
     --normalization RMSNorm \
     --use-fused-rmsnorm \
     --qk-layernorm \
