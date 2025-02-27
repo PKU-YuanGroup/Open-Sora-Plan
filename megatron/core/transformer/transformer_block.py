@@ -1,9 +1,10 @@
 # Copyright (c) 2024, NVIDIA CORPORATION. All rights reserved.
 
 import re
+import warnings
 from contextlib import nullcontext
 from dataclasses import dataclass
-from typing import List, Tuple, Union
+from typing import List, Optional, Tuple, Union
 
 import torch
 from torch import Tensor
@@ -13,10 +14,6 @@ from megatron.core.dist_checkpointing.mapping import ShardedStateDict
 from megatron.core.dist_checkpointing.utils import replace_prefix_for_sharding
 from megatron.core.fusions.fused_layer_norm import FusedLayerNorm
 from megatron.core.packed_seq_params import PackedSeqParams
-from megatron.core.transformer.custom_layers.transformer_engine import (
-    TENorm,
-    get_cpu_offload_context,
-)
 from megatron.core.transformer.enums import AttnMaskType
 from megatron.core.transformer.module import MegatronModule
 from megatron.core.transformer.spec_utils import ModuleSpec, build_module
@@ -24,6 +21,28 @@ from megatron.core.transformer.transformer_config import TransformerConfig
 from megatron.core.transformer.transformer_layer import BaseTransformerLayer, TransformerLayer
 from megatron.core.transformer.utils import sharded_state_dict_default
 from megatron.core.utils import make_sharded_tensor_for_checkpoint, make_viewless_tensor
+
+try:
+    from megatron.core.transformer.custom_layers.transformer_engine import (
+        TEDelayedScaling,
+        TENorm,
+        get_cpu_offload_context,
+        te_checkpoint,
+    )
+
+    HAVE_TE = True
+    LayerNormImpl = TENorm
+except ImportError:
+    HAVE_TE = False
+    get_cpu_offload_context = None
+    try:
+        import apex
+
+        LayerNormImpl = FusedLayerNorm
+    except ModuleNotFoundError:
+        from megatron.core.transformer.torch_layer_norm import WrappedTorchLayerNorm
+
+        LayerNormImpl = WrappedTorchLayerNorm
 
 
 def get_num_layers_to_build(config: TransformerConfig) -> int:
@@ -63,10 +82,12 @@ def get_num_layers_to_build(config: TransformerConfig) -> int:
 @dataclass
 class TransformerBlockSubmodules:
     layer_specs: List[ModuleSpec] = None
+    layer_norm: Optional[Union[ModuleSpec, torch.nn.Module]] = None
 
 
 def _get_block_submodules(
-    config: TransformerConfig, spec: Union[TransformerBlockSubmodules, ModuleSpec],
+    config: TransformerConfig,
+    spec: Union[TransformerBlockSubmodules, ModuleSpec],
 ) -> TransformerBlockSubmodules:
 
     # Transformer block submodules.
@@ -81,7 +102,10 @@ def _get_block_submodules(
             return spec.submodules
         elif issubclass(spec.module, BaseTransformerLayer):
             num_layers = get_num_layers_to_build(config)
-            return TransformerBlockSubmodules(layer_specs=[spec] * num_layers)
+            return TransformerBlockSubmodules(
+                layer_specs=[spec] * num_layers,
+                layer_norm=LayerNormImpl,
+            )
         else:
             raise Exception(f"specialize for {spec.module.__name__}.")
     else:
@@ -105,6 +129,12 @@ class TransformerBlock(MegatronModule):
         self.post_layer_norm = post_layer_norm
         self.pre_process = pre_process
         self.post_process = post_process
+        # Dictionary to store CUDA graphs. Number of items in the dictionary = len(self.layers).
+        # Item `i` in the dictionary is a list of `N` CUDA graphs for layer 'i' where N is the
+        # number of microbatches. Multiple CUDA graphs per layer is required to support
+        # pipelining which requires running FWD graph of multiple microbatches before BWD graph.
+        self.cuda_graphs = {}
+        self.current_microbatch = -1
 
         # required for pipeline parallel schedules
         self.input_tensor = None
@@ -143,7 +173,11 @@ class TransformerBlock(MegatronModule):
         #     coeff = self.layer_number
         #     self.norm_factor *= coeff
         def build_layer(layer_spec, layer_number):
-            return build_module(layer_spec, config=self.config, layer_number=layer_number,)
+            return build_module(
+                layer_spec,
+                config=self.config,
+                layer_number=layer_number,
+            )
 
         # offset is implicit in TransformerLayer
         self.layers = torch.nn.ModuleList(
@@ -168,13 +202,17 @@ class TransformerBlock(MegatronModule):
         # else:
         #     self.layers = torch.nn.ModuleList([build_layer(i + 1 + offset) for i in range(self.num_layers)])
 
-        if self.post_process and self.post_layer_norm:
-            # Final layer norm before output.
-            self.final_layernorm = TENorm(
+        # In pipeline parallelism, we want to add this LN only to the last stage of the pipeline
+        # self.post_process and self.post_layer_norm guide this behavior
+        if self.submodules.layer_norm and self.post_process and self.post_layer_norm:
+            self.final_layernorm = build_module(
+                self.submodules.layer_norm,
                 config=self.config,
                 hidden_size=self.config.hidden_size,
                 eps=self.config.layernorm_epsilon,
             )
+        else:
+            self.final_layernorm = None  # Either this or nn.Identity
 
     def _get_layer(self, layer_number: int):
         return self.layers[layer_number]
@@ -197,7 +235,6 @@ class TransformerBlock(MegatronModule):
                 context,
                 context_mask,
                 rotary_pos_emb,
-                packed_seq_params,
             ):
                 for index in range(start, end):
                     layer = self._get_layer(index)
@@ -216,8 +253,6 @@ class TransformerBlock(MegatronModule):
 
         def checkpoint_handler(forward_func):
             if self.config.fp8:
-                from transformer_engine.pytorch.distributed import checkpoint as te_checkpoint
-
                 return te_checkpoint(
                     forward_func,
                     self.config.distribute_saved_activations,
@@ -228,7 +263,6 @@ class TransformerBlock(MegatronModule):
                     context,
                     context_mask,
                     rotary_pos_emb,
-                    packed_seq_params,
                 )
             else:
                 return tensor_parallel.checkpoint(
@@ -239,7 +273,6 @@ class TransformerBlock(MegatronModule):
                     context,
                     context_mask,
                     rotary_pos_emb,
-                    packed_seq_params,
                 )
 
         if self.config.recompute_method == 'uniform':
@@ -258,8 +291,17 @@ class TransformerBlock(MegatronModule):
             # Checkpoint the input activation of only a set number of individual
             # Transformer layers and skip the rest.
             # A method fully use the device memory removing redundant re-computation.
+            recompute_skip_num_layers = 0
             for l in range(self.num_layers_per_pipeline_rank):
-                if l < self.config.recompute_num_layers:
+                # Skip recomputation when input grad computation is not needed.
+                # Need to have at least one input tensor with gradient computation
+                # for re-enterant autograd engine.
+                if self.config.fp8 and not hidden_states.requires_grad:
+                    recompute_skip_num_layers += 1
+                if (
+                    l >= recompute_skip_num_layers
+                    and l < self.config.recompute_num_layers + recompute_skip_num_layers
+                ):
                     hidden_states, context = checkpoint_handler(custom(l, l + 1))
                 else:
                     hidden_states, context = custom(l, l + 1)(
@@ -268,7 +310,6 @@ class TransformerBlock(MegatronModule):
                         context,
                         context_mask,
                         rotary_pos_emb,
-                        packed_seq_params,
                     )
         else:
             raise ValueError("Invalid activation recompute method.")
@@ -318,7 +359,9 @@ class TransformerBlock(MegatronModule):
         #   already creates viewless tensors. That said, make_viewless_tensor()
         #   is called here to be future-proof and corner-case-proof.
         hidden_states = make_viewless_tensor(
-            inp=hidden_states, requires_grad=True, keep_graph=True,
+            inp=hidden_states,
+            requires_grad=True,
+            keep_graph=True,
         )
 
         if self.config.sequence_parallel:
@@ -336,12 +379,9 @@ class TransformerBlock(MegatronModule):
             else:
                 raise ValueError("E4M3 and HYBRID are the only supported FP8 formats.")
 
-            fp8_recipe = transformer_engine.common.recipe.DelayedScaling(
-                margin=self.config.fp8_margin,
-                interval=self.config.fp8_interval,
+            fp8_recipe = TEDelayedScaling(
+                config=self.config,
                 fp8_format=fp8_format,
-                amax_compute_algo=self.config.fp8_amax_compute_algo,
-                amax_history_len=self.config.fp8_amax_history_len,
                 override_linear_precision=(False, False, not self.config.fp8_wgrad),
             )
             fp8_group = None
@@ -365,17 +405,36 @@ class TransformerBlock(MegatronModule):
                     packed_seq_params=packed_seq_params,
                 )
             else:
-                for layer in self.layers:
+                for l_no, layer in enumerate(self.layers):
                     with self.offload_context:
-                        hidden_states, context = layer(
-                            hidden_states=hidden_states,
-                            attention_mask=attention_mask,
-                            context=context,
-                            context_mask=context_mask,
-                            rotary_pos_emb=rotary_pos_emb,
-                            inference_params=inference_params,
-                            packed_seq_params=packed_seq_params,
-                        )
+                        if (len(self.cuda_graphs) == 0) or (not self.training):
+                            hidden_states, context = layer(
+                                hidden_states=hidden_states,
+                                attention_mask=attention_mask,
+                                context=context,
+                                context_mask=context_mask,
+                                rotary_pos_emb=rotary_pos_emb,
+                                inference_params=inference_params,
+                                packed_seq_params=packed_seq_params,
+                            )
+                            # CUDA graph doesn't output context and is expected to be None
+                            assert (
+                                (context is None)
+                                or (not self.config.enable_cuda_graph)
+                                or (not self.training)
+                            )
+                        else:
+                            # CUDA graph replay for layer `l_no` and microbatch `self.current_microbatch`
+                            # CUDA graph requires positional arguments with the exception of is_first_microbatch.
+                            # Also CUDA graph accepts only Tensor inputs and outputs. Hence, the arg list and
+                            # returned list is limited to `hidden_states`.
+                            assert (len(self.cuda_graphs) > l_no) and (
+                                self.current_microbatch < len(self.cuda_graphs[l_no])
+                            )
+                            hidden_states = self.cuda_graphs[l_no][self.current_microbatch](
+                                hidden_states,
+                                is_first_microbatch=(self.current_microbatch == 0),
+                            )
 
                     if (
                         torch.is_grad_enabled()
@@ -385,7 +444,7 @@ class TransformerBlock(MegatronModule):
                         hidden_states = self.group_prefetch_offload_commit_async(hidden_states)
 
         # Final layer norm.
-        if self.post_process and self.post_layer_norm:
+        if self.final_layernorm is not None:
             hidden_states = self.final_layernorm(hidden_states)
 
         return hidden_states

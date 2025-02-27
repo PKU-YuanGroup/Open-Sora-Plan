@@ -17,7 +17,6 @@ from megatron.core.parallel_state import (
     get_tensor_model_parallel_rank,
     get_tensor_model_parallel_world_size,
 )
-from megatron.core.transformer.custom_layers.transformer_engine import SplitAlongDim
 from megatron.core.transformer.enums import AttnMaskType
 from megatron.core.transformer.identity_op import IdentityFuncOp, IdentityOp
 from megatron.core.transformer.module import MegatronModule
@@ -27,6 +26,18 @@ from megatron.core.utils import divide
 
 from .enums import AttnMaskType
 from .transformer_config import TransformerConfig
+
+try:
+    import transformer_engine
+
+    HAVE_TE = True
+except ImportError:
+    HAVE_TE = False
+
+if HAVE_TE:
+    from megatron.core.transformer.custom_layers.transformer_engine import SplitAlongDim
+else:
+    SplitAlongDim = None
 
 
 @dataclass
@@ -287,10 +298,16 @@ class Attention(MegatronModule, ABC):
             else:
                 cu_seqlens_q = cu_seqlens_kv = None
             query = apply_rotary_pos_emb(
-                query, q_pos_emb, config=self.config, cu_seqlens=cu_seqlens_q,
+                query,
+                q_pos_emb,
+                config=self.config,
+                cu_seqlens=cu_seqlens_q,
             )
             key = apply_rotary_pos_emb(
-                key, k_pos_emb, config=self.config, cu_seqlens=cu_seqlens_kv,
+                key,
+                k_pos_emb,
+                config=self.config,
+                cu_seqlens=cu_seqlens_kv,
             )
 
             # TODO, can apply positional embedding to value_layer so it has
@@ -403,63 +420,63 @@ class SelfAttention(Attention):
         checked every X iterations. This is left for future work. Equality of tensors is probably not
         required; transmitting hashes is sufficient."""
 
-        if self.config.qk_layernorm:
-            # check that all tensor parallel and data parallel ranks have the same
-            # Q & K layernorm parameters.
-            rank = get_data_parallel_rank()
-            inputs = torch.stack(
+        if not self.config.qk_layernorm:
+            return
+
+        # check that all tensor parallel and data parallel ranks have the same
+        # Q & K layernorm parameters.
+        rank = get_data_parallel_rank()
+        inputs = torch.stack(
+            [
+                self.q_layernorm.weight.data,
+                self.q_layernorm.bias.data,
+                self.k_layernorm.weight.data,
+                self.k_layernorm.bias.data,
+            ]
+        )
+        dp_list = [torch.empty_like(inputs) for _ in range(get_data_parallel_world_size())]
+        dp_list[rank] = inputs
+        torch.distributed.all_gather(dp_list, inputs, group=get_data_parallel_group())
+
+        def _compare(srcs, tgts, names, parallelism):
+            assert len(srcs) == len(tgts) == len(names)
+            for src, tgt, name in zip(srcs, tgts, names):
+                assert torch.all(
+                    src == tgt
+                ), f"Discrepancy between {name} in {parallelism} ranks {i} and {rank}. Diff: {torch.norm(src - tgt)}"
+
+        for i, dp in enumerate(dp_list):
+            q_w, q_b, k_w, k_b = torch.unbind(dp)
+            _compare(
+                [q_w, q_b, k_w, k_b],
                 [
                     self.q_layernorm.weight.data,
                     self.q_layernorm.bias.data,
                     self.k_layernorm.weight.data,
                     self.k_layernorm.bias.data,
-                ]
+                ],
+                ["q_w", "q_b", "k_w", "k_b"],
+                "DP",
             )
-            dp_list = [torch.empty_like(inputs) for _ in range(get_data_parallel_world_size())]
-            dp_list[rank] = inputs
-            torch.distributed.all_gather(dp_list, inputs, group=get_data_parallel_group())
 
-            def _compare(srcs, tgts, names, parallelism):
-                assert len(srcs) == len(tgts) == len(names)
-                for src, tgt, name in zip(srcs, tgts, names):
-                    assert torch.all(
-                        src == tgt
-                    ), f"Discrepancy between {name} in {parallelism} ranks {i} and {rank}. Diff: {torch.norm(src - tgt)}"
+        rank = get_tensor_model_parallel_rank()
+        tp_list = [torch.empty_like(inputs) for _ in range(get_tensor_model_parallel_world_size())]
+        tp_list[rank] = inputs
+        torch.distributed.all_gather(tp_list, inputs, group=get_tensor_model_parallel_group())
 
-            for i, dp in enumerate(dp_list):
-                q_w, q_b, k_w, k_b = torch.unbind(dp)
-                _compare(
-                    [q_w, q_b, k_w, k_b],
-                    [
-                        self.q_layernorm.weight.data,
-                        self.q_layernorm.bias.data,
-                        self.k_layernorm.weight.data,
-                        self.k_layernorm.bias.data,
-                    ],
-                    ["q_w", "q_b", "k_w", "k_b"],
-                    "DP",
-                )
-
-            rank = get_tensor_model_parallel_rank()
-            tp_list = [
-                torch.empty_like(inputs) for _ in range(get_tensor_model_parallel_world_size())
-            ]
-            tp_list[rank] = inputs
-            torch.distributed.all_gather(tp_list, inputs, group=get_tensor_model_parallel_group())
-
-            for i, tp in enumerate(tp_list):
-                q_w, q_b, k_w, k_b = torch.unbind(tp)
-                _compare(
-                    [q_w, q_b, k_w, k_b],
-                    [
-                        self.q_layernorm.weight.data,
-                        self.q_layernorm.bias.data,
-                        self.k_layernorm.weight.data,
-                        self.k_layernorm.bias.data,
-                    ],
-                    ["q_w", "q_b", "k_w", "k_b"],
-                    "TP",
-                )
+        for i, tp in enumerate(tp_list):
+            q_w, q_b, k_w, k_b = torch.unbind(tp)
+            _compare(
+                [q_w, q_b, k_w, k_b],
+                [
+                    self.q_layernorm.weight.data,
+                    self.q_layernorm.bias.data,
+                    self.k_layernorm.weight.data,
+                    self.k_layernorm.bias.data,
+                ],
+                ["q_w", "q_b", "k_w", "k_b"],
+                "TP",
+            )
 
     def get_query_key_value_tensors(self, hidden_states, key_value_states=None):
         """
@@ -491,11 +508,19 @@ class SelfAttention(Attention):
         if SplitAlongDim is not None:
 
             # [sq, b, ng, (np/ng + 2) * hn] --> [sq, b, ng, np/ng * hn], [sq, b, ng, hn], [sq, b, ng, hn]
-            (query, key, value) = SplitAlongDim(mixed_qkv, 3, split_arg_list,)
+            (query, key, value) = SplitAlongDim(
+                mixed_qkv,
+                3,
+                split_arg_list,
+            )
         else:
 
             # [sq, b, ng, (np/ng + 2) * hn] --> [sq, b, ng, np/ng * hn], [sq, b, ng, hn], [sq, b, ng, hn]
-            (query, key, value) = torch.split(mixed_qkv, split_arg_list, dim=3,)
+            (query, key, value) = torch.split(
+                mixed_qkv,
+                split_arg_list,
+                dim=3,
+            )
 
         # [sq, b, ng, np/ng * hn] -> [sq, b, np, hn]
         query = query.reshape(query.size(0), query.size(1), -1, self.hidden_size_per_attention_head)

@@ -1,20 +1,34 @@
 # Copyright (c) 2022, NVIDIA CORPORATION. All rights reserved.
 
 """General utilities."""
-
+import os
 import sys
+from datetime import datetime
 
 import torch
 
 try:
-    from apex.multi_tensor_apply import multi_tensor_applier
+    from transformer_engine.pytorch.optimizers import multi_tensor_applier, multi_tensor_l2norm
 except ImportError:
-    multi_tensor_applier = None
+    try:
+        from apex.multi_tensor_apply import multi_tensor_applier
+    except ImportError:
+        multi_tensor_applier = None
 
-try:
-    import amp_C
-except ImportError:
-    amp_C = None
+    try:
+        from amp_C import multi_tensor_l2norm
+    except ImportError:
+        import warnings
+        warnings.warn(
+            f'Transformer Engine and Apex are not installed. '
+            'Falling back to local implementations of '
+            'multi_tensor_applier and multi_tensor_l2norm'
+        )
+
+        from megatron.core.utils import (
+            local_multi_tensor_l2_norm as multi_tensor_l2norm,
+            local_multi_tensor_applier as multi_tensor_applier,
+        )
 
 from megatron.training import (
     get_args,
@@ -64,14 +78,10 @@ def calc_params_l2_norm(model):
                 if is_not_shared and is_not_tp_duplicate:
                     params_data.append(param.data.float() if args.bf16 else param.data)
 
-    # Check the availability of apex
-    assert multi_tensor_applier is not None and amp_C is not None, \
-        "apex is not available, please install it from https://github.com/NVIDIA/apex"
-
     # Calculate norm
     dummy_overflow_buf = torch.tensor([0], dtype=torch.int, device='cuda')
     norm, _ = multi_tensor_applier(
-        amp_C.multi_tensor_l2norm,
+        multi_tensor_l2norm,
         dummy_overflow_buf,
         [params_data],
         False # no per-parameter norm
@@ -271,6 +281,22 @@ def print_rank_last(message):
             print(message, flush=True)
     else:
         print(message, flush=True)
+
+
+def append_to_progress_log(string, barrier=True):
+    """ Append given string to progress log. """
+    args = get_args()
+    if args.save is None:
+        return
+    progress_log_filename = os.path.join(args.save, "progress.txt")
+    if barrier:
+        torch.distributed.barrier()
+    if torch.distributed.get_rank() == 0:
+        with open(progress_log_filename, 'a') as f:
+            job_id = os.getenv('SLURM_JOB_ID', '')
+            num_gpus = args.world_size
+            f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\tJob ID: {job_id}\t"
+                    f"# GPUs: {num_gpus}\t{string}\n")
 
 
 def get_batch_on_this_tp_rank(data_iterator):

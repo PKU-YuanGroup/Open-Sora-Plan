@@ -5,58 +5,75 @@
 import os
 from typing import List, Optional, Union
 
-import amp_C
 import torch
-from apex.multi_tensor_apply import multi_tensor_applier
 from torch import inf
+
+try:
+    from transformer_engine.pytorch.optimizers import (
+        multi_tensor_applier,
+        multi_tensor_l2norm,
+        multi_tensor_scale,
+    )
+
+    l2_norm_impl = multi_tensor_l2norm
+    multi_tensor_scale_impl = multi_tensor_scale
+except ImportError:
+    try:
+        import amp_C
+        from apex.multi_tensor_apply import multi_tensor_applier
+
+        l2_norm_impl = amp_C.multi_tensor_l2norm
+        multi_tensor_scale_impl = amp_C.multi_tensor_scale
+    except ImportError:
+        import warnings
+
+        warnings.warn(
+            f'Transformer Engine and Apex are not installed. '
+            'Falling back to local implementations of multi_tensor_applier, '
+            'multi_tensor_l2norm, and multi_tensor_scale'
+        )
+
+        from megatron.core.utils import (
+            local_multi_tensor_applier,
+            local_multi_tensor_l2_norm,
+            local_multi_tensor_scale,
+        )
+
+        multi_tensor_applier = local_multi_tensor_applier
+        l2_norm_impl = local_multi_tensor_l2_norm
+        multi_tensor_scale_impl = local_multi_tensor_scale
+
 
 from ..tensor_parallel import param_is_not_tensor_parallel_duplicate
 from ..transformer.module import param_is_not_shared
 
 
-def clip_grad_norm_fp32(
-    parameters: Union[List[torch.Tensor], torch.Tensor],
+def get_grad_norm_fp32(
     grads_for_norm: Union[List[torch.Tensor], torch.Tensor],
-    max_norm: Union[int, float],
     norm_type: Union[int, float] = 2,
     model_parallel_group: Optional[torch.distributed.ProcessGroup] = None,
 ) -> float:
-    """Clips gradient norm of an iterable of parameters whose gradients
-       are in fp32.
+    """Calculate the norm of gradients in fp32.
 
     This is adapted from torch.nn.utils.clip_grad.clip_grad_norm_ and
-    added functionality to handle model parallel parameters. Note that
-    the gradients are modified in place.
+    added functionality to handle model parallel parameters.
 
-    Args:
-        parameters (Iterable[Tensor] or Tensor): an iterable of Tensors or a
-            single Tensor that will have gradients normalized.
-        grads_for_norm (Iterable[Tensor]): an iterable of Tensors or a single
+    Arguments:
+        grads_for_norm (Iterable[Tensor] or Tensor): an iterable of Tensors or a single
             Tensor that will be used for calculating the grad norm.
-        max_norm (float or int): max norm of the gradients.
         norm_type (float or int): type of the used p-norm. Can be ``'inf'`` for
             infinity norm.
-        model_parallel_group (torch.distributed.ProcessGroup, optional): model-parallel
-            group over which grad norm needs to be aggregated.
+        model_parallel_group (group): given the nature of the distributed
+            optimizer, this is passed as an argument.
 
     Returns:
         Total norm of the parameters (viewed as a single vector).
     """
 
-    if isinstance(parameters, torch.Tensor):
-        parameters = [parameters]
     if isinstance(grads_for_norm, torch.Tensor):
         grads_for_norm = [grads_for_norm]
 
-    # Grads.
-    grads = []
-    for param in parameters:
-        if param.grad is not None:
-            assert param.grad.type() == 'torch.cuda.FloatTensor'
-            grads.append(param.grad.detach())
-
     # Norm parameters.
-    max_norm = float(max_norm)
     norm_type = float(norm_type)
     total_norm = 0.0
 
@@ -78,7 +95,7 @@ def clip_grad_norm_fp32(
             # and performs the operation on that list all in one kernel.
             if grads_for_norm:
                 grad_norm, _ = multi_tensor_applier(
-                    amp_C.multi_tensor_l2norm,
+                    l2_norm_impl,
                     dummy_overflow_buf,
                     [grads_for_norm],
                     False,  # no per-parameter norm
@@ -87,12 +104,12 @@ def clip_grad_norm_fp32(
                 grad_norm = torch.tensor([0], dtype=torch.float, device='cuda')
             # Since we will be summing across data parallel groups,
             # we need the pow(norm-type).
-            total_norm = grad_norm ** norm_type
+            total_norm = grad_norm**norm_type
 
         else:
             for grad in grads_for_norm:
                 grad_norm = torch.norm(grad, norm_type)
-                total_norm += grad_norm ** norm_type
+                total_norm += grad_norm**norm_type
 
         # Sum across all model-parallel GPUs.
         torch.distributed.all_reduce(
@@ -100,15 +117,38 @@ def clip_grad_norm_fp32(
         )
         total_norm = total_norm.item() ** (1.0 / norm_type)
 
+    return total_norm
+
+
+def clip_grad_by_total_norm_fp32(
+    parameters: Union[List[torch.Tensor], torch.Tensor],
+    max_norm: Union[int, float],
+    total_norm: float,
+):
+    """Clips gradient of an iterable of parameters in fp32 by total norm.
+
+    Note that the gradients are modified in place.
+
+    Args:
+        parameters (Iterable[Tensor] or Tensor): an iterable of Tensors or a
+            single Tensor that will have gradients normalized.
+        max_norm (float or int): max norm of the gradients.
+        total_norm (float): total norm of the gradients.
+    """
+    # Grads.
+    grads = []
+    for param in parameters:
+        if param.grad is not None:
+            assert param.grad.type() == 'torch.cuda.FloatTensor'
+            grads.append(param.grad.detach())
+
     # Scale.
     clip_coeff = max_norm / (total_norm + 1.0e-6)
     if clip_coeff < 1.0:
         dummy_overflow_buf = torch.tensor([0], dtype=torch.int, device='cuda')
         multi_tensor_applier(
-            amp_C.multi_tensor_scale, dummy_overflow_buf, [grads, grads], clip_coeff
+            multi_tensor_scale_impl, dummy_overflow_buf, [grads, grads], clip_coeff
         )
-
-    return total_norm
 
 
 def count_zeros_fp32(
