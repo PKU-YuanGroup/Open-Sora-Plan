@@ -59,7 +59,6 @@ SORA_ARGS="
     --no-load-rng \
     --no-save-optim \
     --no-save-rng \
-    --fp16 \
     --distributed-timeout-minutes 20 \
 "
 

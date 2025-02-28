@@ -68,7 +68,7 @@ def load_checkpoint(model, ckpt_path):
         else:
             # print(f"Key: {key}, Type: {type(value)}")
             pass
-
     missing_keys, unexpected_keys = model.load_state_dict(ckpt_dict, strict=False)
     print(f"Missing keys: {missing_keys}")
     print(f"Unexpected keys: {unexpected_keys}")
+    del ckpt_dict

@@ -134,8 +134,6 @@ class OpenSoraNormZero(nn.Module):
     def forward(
         self, hidden_states: torch.Tensor, encoder_hidden_states: torch.Tensor, temb: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        import ipdb; ipdb.set_trace()
-        print('something')
         temb = self.linear(self.silu(temb))[0]
         if self.sequence_parallel:
             temb = tensor_parallel.mappings.all_gather_last_dim_from_tensor_parallel_region(temb)
