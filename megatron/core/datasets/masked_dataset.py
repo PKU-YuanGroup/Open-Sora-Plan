@@ -13,7 +13,8 @@ import torch
 from megatron.core.datasets.blended_megatron_dataset_config import BlendedMegatronDatasetConfig
 from megatron.core.datasets.indexed_dataset import IndexedDataset
 from megatron.core.datasets.megatron_dataset import MegatronDataset
-from megatron.core.datasets.utils import Split, log_single_rank
+from megatron.core.datasets.utils import Split
+from megatron.core.utils import log_single_rank
 
 logger = logging.getLogger(__name__)
 
@@ -46,8 +47,7 @@ class MaskedWordPieceDatasetConfig(BlendedMegatronDatasetConfig):
     """
 
     def __post_init__(self) -> None:
-        """Do asserts and set fields post init
-        """
+        """Do asserts and set fields post init"""
         super().__post_init__()
 
         assert self.tokenizer is not None
@@ -83,14 +83,14 @@ class MaskedWordPieceDataset(MegatronDataset):
     NB: WordPiece tokenization prepends a double hash "##" to all tokens/pieces in a word, save the
     first token/piece.
 
-    Args:    
+    Args:
         indexed_dataset (IndexedDataset): The IndexedDataset around which to build the MegatronDataset
 
         dataset_path (str): The real path on disk to the dataset, for bookkeeping
 
         indexed_indices (numpy.ndarray): The set of the documents indices to expose
 
-        num_samples (int): The number of samples to draw from the indexed dataset
+        num_samples (Optional[int]): The number of samples to draw from the indexed dataset. When None, build as many samples as correspond to one epoch.
 
         index_split (Split): The indexed_indices Split
 
@@ -102,7 +102,7 @@ class MaskedWordPieceDataset(MegatronDataset):
         indexed_dataset: IndexedDataset,
         dataset_path: str,
         indexed_indices: numpy.ndarray,
-        num_samples: int,
+        num_samples: Optional[int],
         index_split: Split,
         config: MaskedWordPieceDatasetConfig,
     ) -> None:
@@ -154,9 +154,20 @@ class MaskedWordPieceDataset(MegatronDataset):
         )
         path_to_description = get_path_to("description.txt")
         path_to_sample_index = get_path_to("sample_index.npy")
-        cache_hit = all(map(os.path.isfile, [path_to_description, path_to_sample_index,],))
+        cache_hit = all(
+            map(
+                os.path.isfile,
+                [
+                    path_to_description,
+                    path_to_sample_index,
+                ],
+            )
+        )
 
-        num_epochs = numpy.iinfo(numpy.int32).max - 1
+        if self.num_samples is not None:
+            num_epochs = numpy.iinfo(numpy.int32).max - 1
+        else:
+            num_epochs = 1
 
         if not cache_hit and torch.distributed.get_rank() == 0:
             log_single_rank(
@@ -164,6 +175,7 @@ class MaskedWordPieceDataset(MegatronDataset):
                 logging.INFO,
                 f"Build and save the {type(self).__name__} {self.index_split.name} indices",
             )
+            self.built_anew_on_cache_miss = True
 
             os.makedirs(path_to_cache, exist_ok=True)
 

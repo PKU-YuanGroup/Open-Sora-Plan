@@ -255,9 +255,6 @@ class MultiHeadSparseMMAttentionSBH(nn.Module):
             attention_mask: The attention mask to use.
             video_rotary_emb: The rotary embeddings for the video
         """
-        visual_sequence_length, batch_size, _ = hidden_states.shape
-        text_sequence_length_length, batch_size, _  = encoder_hidden_states.shape
-
         # Step 1: Project the hidden states and encoder hidden states
         q = self.to_q(hidden_states)[0]
         k = self.to_k(hidden_states)[0]

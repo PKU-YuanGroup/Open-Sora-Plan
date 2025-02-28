@@ -63,10 +63,23 @@ def loss_func(output_tensor):
     loss = loss.unsqueeze(0)
     return loss, {"loss": averaged_loss[0]}
 
+def get_batch_for_step(data_iterator):
+    args = get_args()
+    args.curr_forward_iteration += 1
+    enable_encoder_dp = args.mm.model.enable_encoder_dp if hasattr(args.mm.model, "enable_encoder_dp") else False
+    tp_cp_group_size = torch.distributed.get_world_size(mpu.get_tensor_and_context_parallel_group())
+
+    if not enable_encoder_dp or tp_cp_group_size <= 1:
+        return get_batch(data_iterator)
+
+    # Only the first step of a round needs to get batch when enable encoder dp
+    batch = get_batch(data_iterator) if args.curr_forward_iteration % tp_cp_group_size == 1 else {}
+
+    return batch
 
 def forward_step(data_iterator, model):
     """Forward step."""
-    batch = get_batch(data_iterator)
+    batch = get_batch_for_step(data_iterator)
     video = batch.pop(VIDEO, None)
     prompt_ids = batch.pop(PROMPT_IDS, None)
     video_mask = batch.pop(VIDEO_MASK, None)
@@ -90,10 +103,17 @@ def train_valid_test_datasets_provider(train_val_test_num_samples):
     """Build train, valid, and test datasets."""
     args = get_args()
     train_dataset = build_mm_dataset(args.mm.data.dataset_param)
+
+    enable_encoder_dp = args.mm.model.enable_encoder_dp if hasattr(args.mm.model, "enable_encoder_dp") else False
+    if enable_encoder_dp:
+        process_group = torch.distributed.group.WORLD
+    else:
+        process_group = mpu.get_data_parallel_group()
+
     train_dataloader = build_mm_dataloader(
         train_dataset,
         args.mm.data.dataloader_param,
-        process_group=mpu.get_data_parallel_group(),
+        process_group=process_group,
     )
     data_iterator, _, _ = build_iterations(train_dl=train_dataloader)
     return data_iterator, None, None

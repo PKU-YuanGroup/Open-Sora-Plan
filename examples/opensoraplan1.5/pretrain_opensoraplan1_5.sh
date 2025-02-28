@@ -1,5 +1,6 @@
 #!/bin/bash
 source /usr/local/Ascend/ascend-toolkit/set_env.sh
+source /usr/local/Ascend/nnal/atb/set_env.sh
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 export ASCEND_SLOG_PRINT_TO_STDOUT=0
 export ASCEND_GLOBAL_LOG_LEVEL=3
@@ -9,23 +10,25 @@ export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
 export COMBINED_ENABLE=1
 export CPU_AFFINITY_CONF=1
 export HCCL_CONNECT_TIMEOUT=1800
+export HCCL_OP_BASE_FFTS_MODE_ENABLE=TRUE
 # export GLOO_SOCKET_IFNAME=enp67s0f0
 
+
+NNODES=${PET_NNODES}
+NODE_RANK=${PET_NODE_RANK}
+MASTER_ADDR=${PET_MASTER_ADDR}
+
+MASTER_NODE_ID=0
 GPUS_PER_NODE=8
-MASTER_ADDR=localhost
-# MASTER_ADDR=${MAIN_PROCESS_IP_VALUE}
-MASTER_PORT=29504
-NNODES=1
-NODE_RANK=0
-# NNODES=${NUM_MACHINE}
-# NODE_RANK=${MACHINE_RANK}
+MASTER_PORT=12345
 WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
 
 TP=8
 PP=1
 CP=1
 MBS=1
-GBS=$(($WORLD_SIZE*$MBS/$CP/$TP))
+GRAD_ACC_STEP=4
+GBS=$(($WORLD_SIZE*$GRAD_ACC_STEP*$MBS/$CP/$TP))
 
 MM_DATA="./examples/opensoraplan1.5/data.json"
 MM_MODEL="./examples/opensoraplan1.5/model_opensoraplan1_5.json"
@@ -69,7 +72,7 @@ GPT_ARGS="
     --lr-warmup-init 1e-5 \
     --lr-warmup-iters 0 \
     --clip-grad 1.0 \
-    --train-iters 5000 \
+    --train-iters 100 \
     --no-gradient-accumulation-fusion \
     --no-load-optim \
     --no-load-rng \
@@ -84,6 +87,7 @@ GPT_ARGS="
     --qk-layernorm \
     --sequence-parallel \
     --use-ascend-mc2 \
+    --optimizer-selection fused_ema_adamw \
 "
 
 MM_ARGS="
@@ -94,6 +98,7 @@ MM_ARGS="
 "
 
 OUTPUT_ARGS="
+    --save ./fused_ema_adamw
     --log-interval 1 \
     --save-interval 10000 \
     --eval-interval 10000 \

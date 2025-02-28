@@ -1,15 +1,32 @@
 # Copyright (c) 2024, NVIDIA CORPORATION. All rights reserved.
-from logging import getLogger
+import logging
 from typing import Callable, Dict, List, Optional
 
 import torch
-from apex.optimizers import FusedAdam as Adam
-from apex.optimizers import FusedSGD as SGD
+
+try:
+    from transformer_engine.pytorch.optimizers import FusedAdam as Adam
+    from transformer_engine.pytorch.optimizers import FusedSGD as SGD
+except ImportError:
+    try:
+        from apex.optimizers import FusedAdam as Adam
+        from apex.optimizers import FusedSGD as SGD
+    except ImportError:
+        import warnings
+
+        warnings.warn(
+            f'Transformer Engine and Apex are not installed. Falling back to Torch optimizers.'
+        )
+
+        ## apex's FusedAdam is a drop-in replacement for torch's AdamW
+        ## see https://github.com/NVIDIA/apex/blob/7b73b12361068a10b0f44844534613f252a5ea75/apex/optimizers/fused_adam.py#L16
+        from torch.optim import AdamW as Adam, SGD
 
 from megatron.core import mpu
 
 from ..distributed import ParamAndGradBuffer
 from ..transformer.module import MegatronModule
+from ..utils import log_single_rank
 from .distrib_optimizer import DistributedOptimizer
 from .grad_scaler import ConstantGradScaler, DynamicGradScaler
 from .optimizer import (
@@ -20,7 +37,7 @@ from .optimizer import (
 )
 from .optimizer_config import OptimizerConfig
 
-logger = getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 def _get_param_groups(
@@ -73,13 +90,13 @@ def _get_param_groups(
                 scale_lr = False
 
             if not no_wd and not scale_lr:
-                wd_mult, lr_mult = 1.0, 1.0
+                wd_mult, _lr_mult = 1.0, 1.0
             elif not no_wd and scale_lr:
-                wd_mult, lr_mult = 1.0, lr_mult
+                wd_mult, _lr_mult = 1.0, lr_mult
             elif no_wd and not scale_lr:
-                wd_mult, lr_mult = 0.0, 1.0
+                wd_mult, _lr_mult = 0.0, 1.0
             else:
-                wd_mult, lr_mult = 0.0, lr_mult
+                wd_mult, _lr_mult = 0.0, lr_mult
 
             is_decoupled_lr = False
             # For input/embedding and output layer: embedding.word_embeddings.weight / output_layer.weight.
@@ -88,19 +105,19 @@ def _get_param_groups(
             ):
                 is_decoupled_lr = True
 
-            key = (wd_mult, lr_mult, is_expert_parallel, is_decoupled_lr)
+            key = (wd_mult, _lr_mult, is_expert_parallel, is_decoupled_lr)
             if key not in params_map:
                 params_map[key] = []
             params_map[key].append(param)
 
     param_groups = []
-    for (wd_mult, lr_mult, is_expert_parallel, is_decoupled_lr), params in params_map.items():
+    for (wd_mult, _lr_mult, is_expert_parallel, is_decoupled_lr), params in params_map.items():
         assert len(params) > 0
         param_groups.append(
             {
                 'params': params,
                 'wd_mult': wd_mult,
-                'lr_mult': lr_mult,
+                'lr_mult': _lr_mult,
                 'is_expert_parallel': is_expert_parallel,
                 'is_decoupled_lr': is_decoupled_lr,
             }
@@ -152,6 +169,7 @@ def _get_megatron_optimizer_based_on_param_groups(
     config: OptimizerConfig,
     param_groups: List,
     per_model_buffers: Optional[Dict[int, List[ParamAndGradBuffer]]] = None,
+    model_parallel_group: Optional[torch.distributed.ProcessGroup] = None,
     data_parallel_group: Optional[torch.distributed.ProcessGroup] = None,
     data_parallel_group_gloo: Optional[torch.distributed.ProcessGroup] = None,
     data_parallel_group_idx: Optional[int] = None,
@@ -277,8 +295,7 @@ def get_megatron_optimizer(
         Instance of MegatronOptimizer.
     """
 
-    if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
-        logger.info(f'Setting up optimizer with {config}')
+    log_single_rank(logger, logging.INFO, f'Setting up optimizer with config {config}')
 
     # Collect param groups.
     param_groups = _get_param_groups(
@@ -316,6 +333,7 @@ def get_megatron_optimizer(
             config,
             param_groups=dense_param_groups,
             per_model_buffers=per_model_buffers,
+            model_parallel_group=mpu.get_model_parallel_group(),
             data_parallel_group=mpu.get_data_parallel_group(with_context_parallel=True),
             data_parallel_group_gloo=mpu.get_data_parallel_group_gloo(with_context_parallel=True),
             data_parallel_group_idx=model_parallel_rank,
@@ -329,8 +347,13 @@ def get_megatron_optimizer(
                 config,
                 param_groups=moe_param_groups,
                 per_model_buffers=per_model_ep_buffers,
-                data_parallel_group=mpu.get_data_modulo_expert_parallel_group(),
-                data_parallel_group_gloo=mpu.get_data_modulo_expert_parallel_group_gloo(),
+                model_parallel_group=mpu.get_model_parallel_group(with_expert_parallel=True),
+                data_parallel_group=mpu.get_data_modulo_expert_parallel_group(
+                    with_context_parallel=True
+                ),
+                data_parallel_group_gloo=mpu.get_data_modulo_expert_parallel_group_gloo(
+                    with_context_parallel=True
+                ),
                 data_parallel_group_idx=expert_parallel_rank * model_parallel_world_size
                 + model_parallel_rank,
             )

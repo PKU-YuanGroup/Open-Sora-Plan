@@ -92,4 +92,5 @@ def merge_mm_args(args):
     setattr(args, "mm", object)
     json_files = {"model": args.mm_model, "data": args.mm_data, "tool": args.mm_tool}
     args.mm = MMConfig(json_files)
+    args.curr_forward_iteration = 0
     

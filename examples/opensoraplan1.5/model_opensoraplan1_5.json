@@ -4,6 +4,7 @@
     "allow_internal_format": false,
     "load_video_features": false,
     "load_text_features": false,
+    "enable_encoder_dp": true,
     "weight_dtype": "bf16",
     "ae": {
         "model_id": "wfvae",
@@ -51,7 +52,7 @@
     },
     "predictor": {
         "model_id": "SparseUMMDiT",
-        "num_layers": [2, 4, 4, 8, 4, 4, 2],
+        "num_layers": [2, 4, 6, 8, 6, 4, 2],
         "sparse_n": [1, 2, 4, 8, 4, 2, 1],
         "double_ff": true,
         "sparse1d": true,

@@ -30,7 +30,7 @@ class TextEncoder(nn.Module):
             ...
         }
     """
-    def __init__(self, config):
+    def __init__(self, config, dtype):
         super().__init__()
         config = config.to_dict()
         self.backend = config.pop("hub_backend")
@@ -44,7 +44,7 @@ class TextEncoder(nn.Module):
         # Only huggingface backend is supported, OpenMind backend will be supported soon.
         module = importlib.import_module("transformers")
         automodel = getattr(module, self.automodel_name)
-        self.model = automodel.from_pretrained(**config)
+        self.model = automodel.from_pretrained(**config, torch_dtype=dtype)
 
     def get_model(self):
         return self.model
@@ -60,6 +60,6 @@ class TextEncoder(nn.Module):
         else:
             output = self.model(
                 input_ids=input_ids,
-                output_hidden_states=True
+                attention_mask=attention_mask,
             )[0]
         return output

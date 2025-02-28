@@ -20,6 +20,8 @@ from megatron.training.global_vars import (
     get_tensorboard_writer,
     get_wandb_writer,
     get_one_logger,
+)
+from megatron.core.num_microbatches_calculator import (
     get_num_microbatches,
     update_num_microbatches,
 )
@@ -49,13 +51,13 @@ _TRAIN_START_TIME = time.time()
 
 
 def pretrain(
-    train_valid_test_dataset_provider,
-    model_provider,
-    model_type,
-    forward_step_func,
-    process_non_loss_data_func=None,
-    extra_args_provider=None,
-    args_defaults={},
+        train_valid_test_dataset_provider,
+        model_provider,
+        model_type,
+        forward_step_func,
+        process_non_loss_data_func=None,
+        extra_args_provider=None,
+        args_defaults={},
 ):
     """
     Main training program.
@@ -102,7 +104,7 @@ def pretrain(
 
     if args.log_progress:
         append_to_progress_log("Starting job")
-    
+
     torch.backends.cuda.matmul.allow_tf32 = getattr(args.mm.model, "allow_tf32", False)
     torch.npu.config.allow_internal_format = getattr(args.mm.model, "allow_internal_format", False)
 
@@ -237,14 +239,14 @@ def pretrain(
 
 
 def train(
-    forward_step_func,
-    model,
-    optimizer,
-    opt_param_scheduler,
-    train_data_iterator,
-    valid_data_iterator,
-    process_non_loss_data_func,
-    config,
+        forward_step_func,
+        model,
+        optimizer,
+        opt_param_scheduler,
+        train_data_iterator,
+        valid_data_iterator,
+        process_non_loss_data_func,
+        config,
 ):
     """Train the model function."""
     args = get_args()
@@ -340,8 +342,8 @@ def train(
             )
             if eval_iterations > 0:
                 validation_iterations_time_msecs_avg = (
-                    eval_duration * 1000.0
-                ) / eval_iterations
+                                                               eval_duration * 1000.0
+                                                       ) / eval_iterations
             else:
                 validation_iterations_time_msecs_avg = None
 
@@ -391,9 +393,9 @@ def train(
         )
         iteration += 1
         batch_size = (
-            mpu.get_data_parallel_world_size()
-            * args.micro_batch_size
-            * get_num_microbatches()
+                mpu.get_data_parallel_world_size()
+                * args.micro_batch_size
+                * get_num_microbatches()
         )
         args.consumed_train_samples += batch_size
         num_floating_point_operations_so_far += num_floating_point_operations(
@@ -561,7 +563,7 @@ def train(
 
 
 def train_step(
-    forward_step_func, data_iterator, model, optimizer, opt_param_scheduler, config
+        forward_step_func, data_iterator, model, optimizer, opt_param_scheduler, config
 ):
     """Single training step."""
     args = get_args()
@@ -591,8 +593,8 @@ def train_step(
 
     # Vision gradients.
     if (
-        getattr(args, "vision_pretraining", False)
-        and args.vision_pretraining_type == "dino"
+            getattr(args, "vision_pretraining", False)
+            and args.vision_pretraining_type == "dino"
     ):
         unwrapped_model = unwrap_model(model[0])
         unwrapped_model.cancel_gradients_last_layer(args.curr_iteration)
@@ -604,8 +606,8 @@ def train_step(
 
     # Vision momentum.
     if (
-        getattr(args, "vision_pretraining", False)
-        and args.vision_pretraining_type == "dino"
+            getattr(args, "vision_pretraining", False)
+            and args.vision_pretraining_type == "dino"
     ):
         unwrapped_model = unwrap_model(model[0])
         unwrapped_model.update_momentum(args.curr_iteration)
@@ -613,7 +615,7 @@ def train_step(
     # Update learning rate.
     if update_successful:
         increment = (
-            get_num_microbatches() * args.micro_batch_size * args.data_parallel_size
+                get_num_microbatches() * args.micro_batch_size * args.data_parallel_size
         )
         opt_param_scheduler.step(increment=increment)
         skipped_iter = 0

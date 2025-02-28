@@ -42,6 +42,13 @@ class ModelParallelConfig:
     expert_model_parallel_size: int = 1
     """Distributes Moe Experts across sub data parallel dimension."""
 
+    moe_extended_tp: bool = False
+    """Alternative parallelization strategy for expert parallelism. Instead of distributing experts
+       across expert_model_parallel_size, each expert is sharded along extendended tensor parallel
+       domain (tensor_model_paralle_size * expert_model_parallel_size). It avoids the load balancing
+       problem with MOE training. 
+    """
+
     ###################
     # Initialization
     ###################
@@ -100,6 +107,10 @@ class ModelParallelConfig:
        be synchronized.
     """
 
+    deterministic_mode: bool = False
+    """If true, code that has deterministic execution will be chosen. This usually
+       means slower execution, but is good for debugging and testing. Defaults to False."""
+
     enable_autocast: bool = False
     """If true runs the forward step function inside torch.autocast context."""
 
@@ -126,9 +137,12 @@ class ModelParallelConfig:
     """
 
     async_tensor_model_parallel_allreduce: bool = False
-    """If true, enables asynchronous execution of tensor-model-parallel all-reduce with weight
-       gradient compuation of a column-linear layer.
+    """NOTE: Deprecated. This flag is ignored."""
+
+    use_te_rng_tracker: bool = False
+    """If true, uses RNG state tracker in TransformerEngine if exists.
     """
+
     tp_comm_overlap: bool = False
     """If true, allows overlapping of Linear layer execution with tensor parallel communication
        collectives like AllGather/ReduceScatter. Overlapping is done for the linear layers wherever
@@ -155,6 +169,11 @@ class ModelParallelConfig:
        Don't care if tp_comm_overlap is False.
     """
 
+    tp_comm_overlap_rs_dgrad: bool = False
+    """If true, allows Reduce-Scatter overlap with DGRAD GEMM by pipelining the
+       GEMM and Reduce-Scatter splits. Don't care if tp_comm_overlap is False.
+    """
+
     tp_comm_split_ag: bool = True
     """Deprecated from TransformerEngine v1.6.0.
        If true, allows All-Gather overlap with Fprop GEMM by pipelining the GEMM and All-Gather
@@ -177,6 +196,11 @@ class ModelParallelConfig:
     """Deprecated from TransformerEngine v1.6.0.
        If true, allows Reduce-Scatter overlap with Fprop GEMM by pipelining the GEMM and
        Reduce-Scatter both done atomically. Don't care if tp_comm_overlap is False.
+    """
+
+    cross_entropy_loss_fusion: bool = False
+    """If this is enabled, the fused cross entropy implementation would be used.
+       Defaults to False.
     """
 
     ###################
@@ -217,8 +241,14 @@ class ModelParallelConfig:
     """
 
     defer_embedding_wgrad_compute: bool = False
-    """If true, defers the embedding WGRAD GEMMs while pipeline flush is 
+    """If true, defers the embedding WGRAD GEMMs while pipeline flush is
        taking place enabling us to hide pipeline flush latency. Defaults to False.
+    """
+
+    wgrad_deferral_limit: int = 0
+    """This value tunes the number of micro-batches for which the embedding weight gradient compute
+       needs to be deferred to pipeline flush, this argument is invalid if `defer_embedding_wgrad_compute` is False. 
+       Defaults to 0, which means all micro-batches are deferred.
     """
 
     pipeline_model_parallel_split_rank: Optional[int] = None
@@ -235,7 +265,9 @@ class ModelParallelConfig:
     cpu_offloading_num_layers: int = 0
     """Tells the number of transformer layers for which activations has to be offloaded."""
 
-    _cpu_offloading_context: ContextManager = None  # Used for internal use only, not to be set by the user. TODO: Need to move to the 'right' place when possible.
+    _cpu_offloading_context: ContextManager = (
+        None  # Used for internal use only, not to be set by the user. TODO: Need to move to the 'right' place when possible.
+    )
     """For internal use only, do not set."""
 
     cpu_offloading_activations: bool = True
@@ -254,15 +286,12 @@ class ModelParallelConfig:
     """
 
     def __post_init__(self):
-        """ Python dataclass method that is used to modify attributes after initialization.
-            See https://docs.python.org/3/library/dataclasses.html#post-init-processing for more details.
+        """Python dataclass method that is used to modify attributes after initialization.
+        See https://docs.python.org/3/library/dataclasses.html#post-init-processing for more details.
         """
         if self.sequence_parallel:
             if self.tensor_model_parallel_size <= 1:
                 raise ValueError("Can not use sequence paralllelism without tensor parallelism")
-            if self.async_tensor_model_parallel_allreduce:
-                # sequence_parallelism already does this async
-                self.async_tensor_model_parallel_allreduce = False
 
         if self.pipeline_model_parallel_size > 1:
             if self.pipeline_dtype is None:
@@ -281,6 +310,11 @@ class ModelParallelConfig:
         if self.defer_embedding_wgrad_compute and not self.gradient_accumulation_fusion:
             raise ValueError(
                 "Cannot defer embedding wgrad compute when gradient accumulation fusion is not used"
+            )
+
+        if self.defer_embedding_wgrad_compute and self.wgrad_deferral_limit < 0:
+            raise ValueError(
+                "Wgrad deferral limit should be greater than or equal to 0 when this optimization is enabled!"
             )
 
         if self.expert_model_parallel_size > 1 and self.tensor_model_parallel_size > 1:

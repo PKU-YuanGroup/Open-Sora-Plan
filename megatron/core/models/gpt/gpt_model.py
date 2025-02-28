@@ -49,7 +49,7 @@ class GPTModel(LanguageModule):
         fp16_lm_cross_entropy: bool = False,
         parallel_output: bool = True,
         share_embeddings_and_output_weights: bool = False,
-        position_embedding_type: Literal['learned_absolute', 'rope'] = 'learned_absolute',
+        position_embedding_type: Literal['learned_absolute', 'rope', 'none'] = 'learned_absolute',
         rotary_percent: float = 1.0,
         rotary_base: int = 10000,
         seq_len_interpolation_factor: Optional[float] = None,
@@ -89,6 +89,7 @@ class GPTModel(LanguageModule):
                 rotary_interleaved=self.config.rotary_interleaved,
                 seq_len_interpolation_factor=seq_len_interpolation_factor,
                 rotary_base=rotary_base,
+                use_cpu_initialization=self.config.use_cpu_initialization,
             )
 
         # Transformer.
@@ -216,7 +217,7 @@ class GPTModel(LanguageModule):
     def sharded_state_dict(
         self, prefix: str = '', sharded_offsets: tuple = (), metadata: Optional[Dict] = None
     ) -> ShardedStateDict:
-        """ Sharded state dict implementation for GPTModel backward-compatibility (removing extra state).
+        """Sharded state dict implementation for GPTModel backward-compatibility (removing extra state).
 
         Args:
             prefix (str): Module name prefix.

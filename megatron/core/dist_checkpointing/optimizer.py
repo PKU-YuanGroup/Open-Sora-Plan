@@ -14,7 +14,7 @@ import torch
 
 from .dict_utils import nested_values
 from .mapping import (
-    LocalNonpersitentObject,
+    LocalNonpersistentObject,
     ShardedStateDict,
     ShardedTensor,
     ShardedTensorFactory,
@@ -34,7 +34,7 @@ def get_optim_param_to_id_map(optim_params_iter: Iterable[torch.nn.Parameter]) -
 def get_param_id_to_sharded_param_map(
     model_sharded_state_dict: ShardedStateDict, optim_params_iter: Iterable[torch.nn.Parameter]
 ) -> Dict[int, Union[ShardedTensor, ShardedTensorFactory]]:
-    """ Generate mapping from optimizer state ids to model sharded parameters.
+    """Generate mapping from optimizer state ids to model sharded parameters.
 
     Args:
         model_sharded_state_dict: sharded state dict with all model sharded tensors (can have any structure)
@@ -66,7 +66,7 @@ def get_param_id_to_sharded_param_map(
 def make_sharded_optimizer_tensor(
     model_param: Union[ShardedTensor, ShardedTensorFactory], optim_param: torch.Tensor, prefix: str
 ) -> Union[ShardedTensor, ShardedTensorFactory]:
-    """ Build a ShardedTensor or ShardedTensorFactory for optimizer param based on model param
+    """Build a ShardedTensor or ShardedTensorFactory for optimizer param based on model param
 
     Args:
         model_param (Union[ShardedTensor, ShardedTensorFactory]): model param
@@ -82,9 +82,11 @@ def make_sharded_optimizer_tensor(
     assert (
         tuple(optim_param.shape) == model_param.local_shape
     ), f'Optimizer shape ({tuple(optim_param.shape)} does not match model shape ({model_param.local_shape})'
-    return replace(
+    sh_ten = replace(
         model_param, key=f'{prefix}.{model_param.key}', data=optim_param, dtype=optim_param.dtype
     )
+    sh_ten.validate_metadata_integrity()
+    return sh_ten
 
 
 def optim_state_to_sharding_state(
@@ -92,7 +94,7 @@ def optim_state_to_sharding_state(
     id_to_sharded_param_map: Dict[int, ShardedTensor],
     exclude_keys: Tuple[str] = (),
 ):
-    """ Turn optimizer state dict to sharded state dict based on model state dict *in-place*.
+    """Turn optimizer state dict to sharded state dict based on model state dict *in-place*.
 
     Can be used to add sharding information to most common optimizer state dict.
     Creates separate ShardedTensors for each key in `optim_state_dict['state']`
@@ -123,5 +125,5 @@ def optim_state_to_sharding_state(
 
     optim_state_dict['param_groups'] = deepcopy(optim_state_dict['param_groups'])
     for group in optim_state_dict['param_groups']:
-        group['params'] = LocalNonpersitentObject(group['params'])
+        group['params'] = LocalNonpersistentObject(group['params'])
     optim_state_dict['state'] = sharded_state

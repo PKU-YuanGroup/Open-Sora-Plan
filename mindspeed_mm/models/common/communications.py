@@ -317,3 +317,12 @@ def split_forward_gather_backward(input_, process_group, dim, grad_scale=1.0, sp
 
 def gather_forward_split_backward(input_, process_group, dim, grad_scale=None, gather_sizes=None):
     return _GatherForwardSplitBackward.apply(input_, process_group, dim, grad_scale, gather_sizes)
+
+
+def collect_tensors_across_ranks(tensor, group):
+    world_size = dist.get_world_size(group)
+    shape = tensor.shape
+    recv_tensors = [torch.empty(shape, dtype=tensor.dtype).to(tensor.device) for _ in range(world_size)]
+    dist.all_gather(recv_tensors, tensor, group=group)
+
+    return recv_tensors
