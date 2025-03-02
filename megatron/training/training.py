@@ -437,9 +437,9 @@ def get_model(model_provider_func, model_type=ModelType.encoder_or_decoder, wrap
     for model_module in model:
         model_module.cuda(torch.cuda.current_device())
 
-    # # Fp16 conversion.
-    # if args.fp16 or args.bf16:
-    #     model = [Float16Module(model_module, args) for model_module in model]
+    # Fp16 conversion.
+    if not args.model_custom_precision and (args.fp16 or args.bf16):
+        model = [Float16Module(model_module, args) for model_module in model]
 
     if wrap_with_ddp:
         config = get_model_config(model[0])

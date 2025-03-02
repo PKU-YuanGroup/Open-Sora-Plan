@@ -103,7 +103,7 @@ class SparseUMMDiT(MultiModalModule):
         sparse1d: bool = False,
         pooled_projection_dim: int = 1024, 
         timestep_embed_dim: int = 512,
-        norm_cls: str = 'layer_norm', 
+        norm_cls: str = 'layer_norm',
         skip_connection: bool = False,
         explicit_uniform_rope: bool = False, 
         skip_connection_zero_init: bool = True,
@@ -114,6 +114,7 @@ class SparseUMMDiT(MultiModalModule):
         self.num_heads = num_heads
         self.head_dim = head_dim
         self.sequence_parallel = args.sequence_parallel
+        print(f'sequence_parallel: {args.sequence_parallel}')
         self.recompute_num_layers = args.recompute_num_layers
         self.recompute_granularity = args.recompute_granularity
         self.distribute_saved_activations = args.distribute_saved_activations
@@ -188,8 +189,8 @@ class SparseUMMDiT(MultiModalModule):
                             hidden_size * 2,
                             eps=norm_eps,
                             sequence_parallel=self.sequence_parallel,
-                        ) if not self.skip_connection_zero_init else nn.Identity(), 
-                        skip_connection_linear(hidden_size * 2, hidden_size), 
+                        ) if not self.skip_connection_zero_init else nn.Identity(),
+                        skip_connection_linear(hidden_size * 2, hidden_size),
                     )
                 )
                 self.skip_norm_linear_enc.append(
@@ -198,8 +199,8 @@ class SparseUMMDiT(MultiModalModule):
                             hidden_size * 2,
                             eps=norm_eps,
                             sequence_parallel=self.sequence_parallel,
-                        ) if not self.skip_connection_zero_init else nn.Identity(), 
-                        skip_connection_linear(hidden_size * 2, hidden_size), 
+                        ) if not self.skip_connection_zero_init else nn.Identity(),
+                        skip_connection_linear(hidden_size * 2, hidden_size),
                     )
                 )
             stage_blocks = nn.ModuleList(
@@ -313,7 +314,6 @@ class SparseUMMDiT(MultiModalModule):
     ) -> torch.Tensor:
         batch_size, c, frames, height, width = hidden_states.shape
 
-
         # print(f"model forward, hidden_states: {hidden_states.shape}, timestep: {timestep.shape}, pooled_projections: {pooled_projections.shape}, encoder_hidden_states: {encoder_hidden_states.shape}, attention_mask: {attention_mask.shape}, encoder_attention_mask: {encoder_attention_mask.shape}")
         encoder_attention_mask = encoder_attention_mask.view(batch_size, -1, encoder_attention_mask.shape[-1])
         if self.training and mpu.get_context_parallel_world_size() > 1:
@@ -378,7 +378,6 @@ class SparseUMMDiT(MultiModalModule):
             hidden_states, skip_connections, encoder_hidden_states, embedded_timestep, frames, height, width, video_rotary_emb
         )
 
-
         # 3. Output
         output = self._get_output_for_patched_inputs(
             hidden_states, embedded_timestep, frames, height, width
@@ -387,7 +386,6 @@ class SparseUMMDiT(MultiModalModule):
         if self.training and mpu.get_context_parallel_world_size() > 1:
             output = gather_forward_split_backward(output, mpu.get_context_parallel_group(), dim=2,
                                                         grad_scale='up')
-
 
         return output
 
@@ -420,7 +418,8 @@ class SparseUMMDiT(MultiModalModule):
                     frames=frames,
                     height=height,
                     width=width,
-                    video_rotary_emb=video_rotary_emb
+                    video_rotary_emb=video_rotary_emb,
+                    layer_idx=layer_idx
                 )
             if self.skip_connection:
                 skip_connections.append([hidden_states, encoder_hidden_states])
@@ -452,6 +451,7 @@ class SparseUMMDiT(MultiModalModule):
         self, hidden_states, skip_connections, encoder_hidden_states,
         embedded_timestep, frames, height, width, video_rotary_emb
     ):
+        layer_idx = sum([len(stage_block) for stage_block in self.transformer_blocks[:len(self.num_layers) // 2 + 1]])
         for idx, stage_block in enumerate(self.transformer_blocks[-(len(self.num_layers) // 2):]):
             if self.skip_connection:
                 skip_hidden_states, skip_encoder_hidden_states = skip_connections.pop()
@@ -575,7 +575,7 @@ class SparseMMDiTBlock(nn.Module):
         sparse1d: bool = False,
         sparse_n: int = 2,
         sparse_group: bool = False,
-        norm_cls: str = 'layer_norm',         
+        norm_cls: str = 'layer_norm',
     ):
         super().__init__()
 
@@ -676,7 +676,6 @@ class SparseMMDiTBlock(nn.Module):
         video_rotary_emb: Optional[torch.FloatTensor] = None,
         recom_ffn = False,
     ) -> torch.FloatTensor:
-        
         # 1. norm & scale & shift
         hidden_states = maybe_clamp_tensor(hidden_states, training=self.training)
         encoder_hidden_states = maybe_clamp_tensor(encoder_hidden_states, training=self.training)
@@ -687,7 +686,6 @@ class SparseMMDiTBlock(nn.Module):
         # print('norm1')
         # print(f'norm_hidden_states: {norm_hidden_states.shape}, norm_encoder_hidden_states: {norm_encoder_hidden_states.shape}, gate_msa: {gate_msa.shape}, enc_gate_msa: {enc_gate_msa.shape}')
         # 2. MM Attention
-        # import ipdb; ipdb.set_trace()
         attn_hidden_states, attn_encoder_hidden_states = self.attn1(
             norm_hidden_states,
             encoder_hidden_states=norm_encoder_hidden_states,
@@ -703,7 +701,6 @@ class SparseMMDiTBlock(nn.Module):
         hidden_states = hidden_states + gate_msa * attn_hidden_states
         encoder_hidden_states = encoder_hidden_states + enc_gate_msa * attn_encoder_hidden_states
 
-        # 4. norm & scale & shift
         # import ipdb; ipdb.set_trace()
         if self.training and recom_ffn:
             ckpt_kwargs: Dict[str, Any] = {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
@@ -719,5 +716,4 @@ class SparseMMDiTBlock(nn.Module):
 
 
         return hidden_states, encoder_hidden_states
-
 

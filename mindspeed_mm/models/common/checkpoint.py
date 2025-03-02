@@ -45,15 +45,15 @@ def load_checkpoint(model, ckpt_path):
     elif "state_dict" in ckpt_dict.keys():
         ckpt_dict = ckpt_dict["state_dict"]
 
-    suffixes_1 = ["attn1.proj_q.weight", "attn1.proj_q.bias",
-                  "attn1.proj_k.weight", "attn1.proj_k.bias",
-                  "attn1.proj_v.weight", "attn1.proj_v.bias",
-                  "attn1.added_proj_q.weight", "attn1.added_proj_q.bias",
-                  "attn1.added_proj_k.weight", "attn1.added_proj_k.bias",
-                  "attn1.added_proj_v.weight", "attn1.added_proj_v.bias",
+    suffixes_1 = ["attn1.to_q.weight", "attn1.to_q.bias",
+                  "attn1.to_k.weight", "attn1.to_k.bias",
+                  "attn1.to_v.weight", "attn1.to_v.bias",
+                  "attn1.add_q_proj.weight", "attn1.add_q_proj.bias",
+                  "attn1.add_k_proj.weight", "attn1.add_k_proj.bias",
+                  "attn1.add_v_proj.weight", "attn1.add_v_proj.bias",
                   "net.0.proj.weight", "net.0.proj.bias",
                   "linear.weight", "linear.bias"]
-    suffixes_2 = ["attn1.proj_out.weight", "attn1.added_proj_out.weight", "net.2.weight"]
+    suffixes_2 = ["attn1.to_out.0.weight", "attn1.to_add_out.weight", "net.2.weight"]
     for key, value in ckpt_dict.items():
         if isinstance(value, torch.Tensor):
             if any(key.endswith(suffix) for suffix in suffixes_1):
@@ -69,6 +69,6 @@ def load_checkpoint(model, ckpt_path):
             # print(f"Key: {key}, Type: {type(value)}")
             pass
     missing_keys, unexpected_keys = model.load_state_dict(ckpt_dict, strict=False)
-    print(f"Missing keys: {missing_keys}")
-    print(f"Unexpected keys: {unexpected_keys}")
+    print(f"Missing keys: {missing_keys}, and")
+    print(f"Unexpected keys: {unexpected_keys}, that's all.")
     del ckpt_dict

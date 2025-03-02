@@ -32,10 +32,10 @@ GPUS_PER_NODE=8
 MASTER_PORT=12345
 WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
 
-TP=2
+TP=4
 PP=1
 CP=1
-MBS=1
+MBS=2
 GRAD_ACC_STEP=1
 GBS=$(($WORLD_SIZE*$GRAD_ACC_STEP*$MBS/$CP/$TP))
 
@@ -81,7 +81,7 @@ GPT_ARGS="
     --lr-warmup-init 1e-5 \
     --lr-warmup-iters 0 \
     --clip-grad 1.0 \
-    --train-iters 100 \
+    --train-iters 100000000 \
     --no-gradient-accumulation-fusion \
     --use-distributed-optimizer \
     --recompute-granularity full \

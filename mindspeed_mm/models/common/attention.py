@@ -163,9 +163,9 @@ class MultiHeadSparseMMAttentionSBH(nn.Module):
                 nn.Dropout(dropout)
             ]
         )
-        
 
-        if self.context_pre_only is not None and not self.context_pre_only:
+
+        if self.context_pre_only is not None:
             self.to_add_out = tensor_parallel.RowParallelLinear(
                 self.added_kv_proj_dim,
                 self.inner_dim,
@@ -176,7 +176,7 @@ class MultiHeadSparseMMAttentionSBH(nn.Module):
                 skip_bias_add=False
             )
         
-        
+
 
         if qk_norm is not None and added_kv_proj_dim is not None:
             if qk_norm == "layer_norm":
@@ -262,6 +262,8 @@ class MultiHeadSparseMMAttentionSBH(nn.Module):
         added_q = self.add_q_proj(encoder_hidden_states)[0]
         added_k = self.add_k_proj(encoder_hidden_states)[0]
         added_v = self.add_v_proj(encoder_hidden_states)[0]
+        visual_sequence_length, batch_size, _ = q.shape
+        text_sequence_length_length, batch_size, _ = added_q.shape
 
         total_frames = frames
 
@@ -358,7 +360,7 @@ class MultiHeadSparseMMAttentionSBH(nn.Module):
         hidden_states = self.to_out[0](hidden_states)[0]
         hidden_states = self.to_out[1](hidden_states)
 
-        if self.context_pre_only is not None and not self.context_pre_only:
+        if self.context_pre_only is not None:
             encoder_hidden_states = self.to_add_out(encoder_hidden_states)[0]
 
         return hidden_states, encoder_hidden_states
@@ -1290,4 +1292,3 @@ class WhisperAttention(nn.Module):
         if input_ndim == 4:
             out = out.transpose(-1, -2).reshape(b, c, h, w)
         return out
-
