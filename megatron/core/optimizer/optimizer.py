@@ -40,7 +40,7 @@ from ..dist_checkpointing.optimizer import (
 )
 from ..dist_checkpointing.utils import add_prefix_for_sharding
 from ..transformer.module import param_is_not_shared
-from .clip_grads import clip_grad_by_total_norm_fp32, count_zeros_fp32, get_grad_norm_fp32
+from .clip_grads import clip_grad_norm_fp32, adaptive_clip_grad_norm_fp32, count_zeros_fp32
 from .grad_scaler import MegatronGradScaler
 from .optimizer_config import OptimizerConfig
 
@@ -134,6 +134,25 @@ class MegatronOptimizer(ABC):
                 grads_for_norm.append(grad)
 
         return grads_for_norm
+    
+    def get_unlocked_main_params_for_norm(self) -> List[torch.Tensor]:
+        """
+        Get main parameters that should be taken into account to compute the norm.
+        Filter parameters based on:
+          - parameter should not be shared
+          - should not be a replica due to tensor model parallelism.
+        """
+        params = self.get_parameters()
+        params_for_norm = []
+        for param in params:
+            grad = param.grad
+            grad_not_none = grad is not None
+            is_not_shared = param_is_not_shared(param)
+            is_not_tp_duplicate = tensor_parallel.param_is_not_tensor_parallel_duplicate(param)
+            if grad_not_none and is_not_shared and is_not_tp_duplicate:
+                params_for_norm.append(param)
+
+        return params_for_norm
 
     def get_model_parallel_group(self) -> torch.distributed.ProcessGroup:
         """Default returned here, but the distributed optimizer overrides this."""
@@ -164,11 +183,15 @@ class MegatronOptimizer(ABC):
         """Compute grad norm."""
         params = self.get_parameters()
         grads_for_norm = self.get_main_grads_for_grad_norm()
-        grad_norm = get_grad_norm_fp32(
-            grads_for_norm, model_parallel_group=self.get_model_parallel_group()
+        if self.config.clip_grad_ema_decay > 0.0:
+            params_for_norm = self.get_unlocked_main_params_for_norm()
+            return adaptive_clip_grad_norm_fp32(
+                params, grads_for_norm, params_for_norm, model_parallel_group=self.get_model_parallel_group(),
+                clip_grad_ema_decay=self.config.clip_grad_ema_decay
+            )
+        return clip_grad_norm_fp32(
+            params, grads_for_norm, clip_grad, model_parallel_group=self.get_model_parallel_group(),
         )
-        clip_grad_by_total_norm_fp32(params, clip_grad, grad_norm)
-        return grad_norm
 
     def count_zeros(self) -> float:
         """Count number of zeros in model's gradients."""

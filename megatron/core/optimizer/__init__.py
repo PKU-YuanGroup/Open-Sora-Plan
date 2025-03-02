@@ -221,6 +221,7 @@ def _get_megatron_optimizer_based_on_param_groups(
     # - Note: both the Float16Optimizer and the DistributedOptimizer inherit
     #   from the MixedPrecisionOptimizer, which manages any optimizer where
     #   the model params and main params are distinct.
+    print(f'config.fp16: {config.fp16}, config.bf16: {config.bf16}, config.use_distributed_optimizer: {config.use_distributed_optimizer}')
     if config.fp16 or config.bf16 or config.use_distributed_optimizer:
 
         # Grad scaler:
@@ -263,17 +264,10 @@ def _get_megatron_optimizer_based_on_param_groups(
             )
         else:
             optimizer = Float16OptimizerWithFloat16Params(*optimizer_args)
-            setattr(optimizer, 'model_parallel_group', model_parallel_group)
-    else:
-        # FP32 optimizer.
-        optimizer = FP32Optimizer(
-            optimizer,
-            config,
-            init_state_fn,
-        )
-        setattr(optimizer, 'model_parallel_group', model_parallel_group)
+        return optimizer
 
-    return optimizer
+    # FP32.
+    return FP32Optimizer(optimizer, config, init_state_fn,)
 
 
 def get_megatron_optimizer(

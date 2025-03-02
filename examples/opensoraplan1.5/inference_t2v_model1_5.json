@@ -1,11 +1,4 @@
 {
-    "frames": 105,
-    "allow_tf32": false,
-    "allow_internal_format": false,
-    "load_video_features": false,
-    "load_text_features": false,
-    "enable_encoder_dp": true,
-    "weight_dtype": "bf16",
     "ae": {
         "model_id": "wfvae",
         "base_channels": 160,
@@ -24,6 +17,7 @@
         "l2_upsample_block": "Spatial2xTime2x3DUpsample",
         "l2_upsample_wavelet": "InverseHaarWaveletTransform3D",
         "latent_dim": 32,
+        "vae_scale_factor": [8, 8, 8],
         "norm_type": "layernorm",
         "scale": [0.7031, 0.7109, 1.5391, 1.2969, 0.7109, 1.4141, 1.3828, 2.1719, 1.7266,
         1.8281, 1.9141, 1.2031, 0.6875, 0.9609, 1.6484, 1.1875, 1.5312, 1.1328,
@@ -50,6 +44,18 @@
         "from_pretrained": "/work/share/checkpoint/pretrained/clip/models--laion--CLIP-ViT-bigG-14-laion2B-39B-b160k/snapshots/bc7788f151930d91b58474715fdce5524ad9a189",
         "low_cpu_mem_usage": false
     },
+    "tokenizer":{
+        "hub_backend": "hf",
+        "autotokenizer_name": "AutoTokenizer",
+        "from_pretrained": "/work/share/checkpoint/pretrained/t5/t5-v1_1-xl",
+        "low_cpu_mem_usage": false
+    },
+    "tokenizer_2":{
+        "hub_backend": "hf",
+        "autotokenizer_name": "AutoTokenizer",
+        "from_pretrained": "/work/share/checkpoint/pretrained/clip/models--laion--CLIP-ViT-bigG-14-laion2B-39B-b160k/snapshots/bc7788f151930d91b58474715fdce5524ad9a189",
+        "low_cpu_mem_usage": false
+    },
     "predictor": {
         "model_id": "SparseUMMDiT",
         "num_layers": [2, 4, 6, 8, 6, 4, 2],
@@ -64,17 +70,35 @@
         "caption_channels": 2048,
         "pooled_projection_dim": 1280,
         "skip_connection": true,
+        "skip_connection_zero_init": true,
         "dropout": 0.0,
         "attention_bias": true,
         "patch_size": 2,
         "patch_size_t": 1,
         "activation_fn": "gelu-approximate",
-        "norm_elementwise_affine": false,
+        "norm_elementwise_affine": true,
         "norm_eps": 1e-06,
         "from_pretrained": "/work/share/checkpoint/gyy/suv_test_ckpt/diffusion_pytorch_model.safetensors"
     },
     "diffusion": {
         "model_id": "OpenSoraPlan",
-        "weighting_scheme": "logit_normal"
-    }
+        "num_inference_steps":100,
+        "guidance_scale":7.5,
+        "guidance_rescale": 0.7
+    },
+    "pipeline_config": {
+        "use_attention_mask": true,
+        "input_size": [1, 288, 512],
+        "version": "v1.5",
+        "model_type": "t2v"
+    },
+    "micro_batch_size": 1,
+    "frame_interval":1,
+    "model_max_length": 512,
+    "save_path":"./opensora_samples/samples/",
+    "fps":18,
+    "prompt":"/work/share/projects/gyy/mind/Open-Sora-Plan/examples/opensoraplan1.5/sora.txt",
+    "device":"npu",
+    "weight_dtype": "fp32"
 }
+

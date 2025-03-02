@@ -15,10 +15,10 @@
 # limitations under the License.
 import importlib
 from functools import lru_cache
-from typing import Union
 from einops import rearrange
 
 import torch
+import torch.distributed
 
 
 @lru_cache
@@ -101,3 +101,73 @@ def cast_tuple(t, length=1):
 
 def quick_gelu(x: torch.Tensor) -> torch.Tensor:
     return x * torch.sigmoid(1.702 * x)
+
+
+_CONTEXT_PARALLEL_GROUP = None
+_CONTEXT_PARALLEL_SIZE = None
+
+
+def is_context_parallel_initialized():
+    if _CONTEXT_PARALLEL_GROUP is None:
+        return False
+    else:
+        return True
+
+
+def set_context_parallel_group(size, group):
+    global _CONTEXT_PARALLEL_GROUP
+    global _CONTEXT_PARALLEL_SIZE
+    _CONTEXT_PARALLEL_GROUP = group
+    _CONTEXT_PARALLEL_SIZE = size
+
+
+def initialize_context_parallel(context_parallel_size):
+    global _CONTEXT_PARALLEL_GROUP
+    global _CONTEXT_PARALLEL_SIZE
+
+    if _CONTEXT_PARALLEL_GROUP is not None:
+        raise AssertionError("Context parallel group is already initialized")
+    _CONTEXT_PARALLEL_SIZE = context_parallel_size
+
+    rank = torch.distributed.get_rank()
+    world_size = torch.distributed.get_world_size()
+
+    for i in range(0, world_size, context_parallel_size):
+        ranks = range(i, i + context_parallel_size)
+        group = torch.distributed.new_group(ranks)
+        if rank in ranks:
+            _CONTEXT_PARALLEL_GROUP = group
+            break
+
+
+def get_context_parallel_group():
+    if _CONTEXT_PARALLEL_GROUP is None:
+        raise AssertionError("Context parallel group is not initialized")
+
+    return _CONTEXT_PARALLEL_GROUP
+
+
+def get_context_parallel_world_size():
+    if _CONTEXT_PARALLEL_SIZE is None:
+        raise AssertionError("Context parallel size is not initialized")
+
+    return _CONTEXT_PARALLEL_SIZE
+
+
+def get_context_parallel_rank():
+    if _CONTEXT_PARALLEL_SIZE is None:
+        raise AssertionError("Context parallel size is not initialized")
+
+    rank = torch.distributed.get_rank()
+    cp_rank = rank % _CONTEXT_PARALLEL_SIZE
+    return cp_rank
+
+
+def get_context_parallel_group_rank():
+    if _CONTEXT_PARALLEL_SIZE is None:
+        raise AssertionError("Context parallel size is not initialized")
+
+    rank = torch.distributed.get_rank()
+    cp_group_rank = rank // _CONTEXT_PARALLEL_SIZE
+
+    return cp_group_rank

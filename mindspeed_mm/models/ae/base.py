@@ -51,8 +51,11 @@ class AEModel(nn.Module):
     def decode(self, x):
         x = x / self.scale.to(x.device, dtype=x.dtype) + self.shift.to(x.device, dtype=x.dtype)
         x = self.model.decode(x)
-        x = rearrange(x, 'b c t h w -> b t c h w').contiguous()
         return x
 
     def forward(self, x):
         raise NotImplementedError("forward function is not implemented")
+
+    @property
+    def vae_scale_factor(self):
+        return self.model.vae_scale_factor

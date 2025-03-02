@@ -6,28 +6,31 @@ import logging as logger
 import torch
 import transformers
 
-from mindspeed_mm.tasks.inference.pipeline.utils.llava_utils import expand2square, process_anyres_image
-from mindspeed_mm.tasks.inference.pipeline.pipeline_mixin.inputs_checks_mixin import InputsCheckMixin
+from mindspeed_mm.inference.pipeline.pipeline_mixin.inputs_checks_mixin import InputsCheckMixin
 
 
 class MMEncoderMixin:
-
-    def encode_texts(self,
-                     prompt,
-                     device,
-                     do_classifier_free_guidance=False,
-                     negative_prompt=None,
-                     prompt_embeds: Optional[torch.FloatTensor] = None,
-                     negative_prompt_embeds: Optional[torch.FloatTensor] = None,
-                     clip_skip: Optional[int] = None,
-                     clean_caption=True,
-                     max_length: Optional[int] = None,
-                     prompt_to_lower=True
-                     ):
-        max_length = max_length if max_length else self.tokenizer.model_max_length
+    def encode_texts(
+        self,
+        tokenizer,
+        text_encoder,
+        prompt,
+        device,
+        num_samples_per_prompt:int = 1,
+        do_classifier_free_guidance:bool = False,
+        negative_prompt=None,
+        prompt_embeds: Optional[torch.FloatTensor] = None,
+        negative_prompt_embeds: Optional[torch.FloatTensor] = None,
+        clip_skip: Optional[int] = None,
+        clean_caption=True,
+        max_length: Optional[int] = None,
+        prompt_to_lower=True,
+        use_prompt_preprocess=True
+    ):
+        max_length = max_length if max_length else 512
 
         if device is None:
-            device = self.text_encoder.device
+            device = text_encoder.device
 
         if prompt is not None and isinstance(prompt, str):
             batch_size = 1
@@ -38,10 +41,10 @@ class MMEncoderMixin:
 
         if prompt_embeds is None:
             # textual inversion: process multi-vector tokens if necessary
-            if isinstance(self, InputsCheckMixin):
+            if use_prompt_preprocess and isinstance(self, InputsCheckMixin):
                 prompt = self.preprocess_text(prompt, clean_caption, prompt_to_lower)
 
-            text_inputs = self.tokenizer(
+            text_inputs = tokenizer(
                 prompt,
                 padding="max_length",
                 max_length=max_length,
@@ -51,30 +54,30 @@ class MMEncoderMixin:
                 return_tensors="pt",
             )
             text_input_ids = text_inputs.input_ids
-            untruncated_ids = self.tokenizer(prompt, padding="longest", return_tensors="pt").input_ids
+            untruncated_ids = tokenizer(prompt, padding="longest", return_tensors="pt").input_ids
 
             if untruncated_ids.shape[-1] >= text_input_ids.shape[-1] and not torch.equal(
                     text_input_ids, untruncated_ids
             ):
-                removed_text = self.tokenizer.batch_decode(
+                removed_text = tokenizer.batch_decode(
                     untruncated_ids[:, max_length - 1: -1]
                 )
                 logger.warning(
                     "The following part of your input was truncated because CLIP can only handle sequences up to"
                     f" {max_length} tokens: {removed_text}"
                 )
-            if hasattr(self.text_encoder,
-                       "use_attention_mask") and self.text_encoder.use_attention_mask:
+            if hasattr(text_encoder,
+                       "use_attention_mask") and text_encoder.use_attention_mask:
                 attention_mask = text_inputs.attention_mask.to(device)
             else:
                 attention_mask = None
             prompt_embeds_attention_mask = attention_mask
             if clip_skip is None:
-                prompt_embeds = self.text_encoder(text_input_ids.to(device), attention_mask=attention_mask)
+                prompt_embeds = text_encoder(text_input_ids.to(device), attention_mask=attention_mask)
                 if isinstance(prompt_embeds, transformers.utils.ModelOutput):
-                    prompt_embeds = prompt_embeds[0]
+                    prompt_embeds = prompt_embeds[0]                
             else:
-                prompt_embeds = self.text_encoder(
+                prompt_embeds = text_encoder(
                     text_input_ids.to(device), attention_mask=attention_mask, output_hidden_states=True
                 )
                 # Access the `hidden_states` first, that contains a tuple of
@@ -85,23 +88,32 @@ class MMEncoderMixin:
                 # representations. The `last_hidden_states` that we typically use for
                 # obtaining the final prompt representations passes through the LayerNorm
                 # layer.
-                prompt_embeds = self.text_encoder.text_model.final_layer_norm(prompt_embeds)
+                prompt_embeds = text_encoder.text_model.final_layer_norm(prompt_embeds)
         else:
-            if hasattr(self.text_encoder, "use_attention_mask") and self.text_encoder.use_attention_mask:
+            if hasattr(text_encoder, "use_attention_mask") and text_encoder.use_attention_mask:
                 prompt_embeds_attention_mask = torch.ones_like(prompt_embeds)
             else:
                 prompt_embeds_attention_mask = None
 
-        if self.text_encoder is not None:
-            prompt_embeds_dtype = self.text_encoder.dtype
-        elif self.transformer is not None:
-            prompt_embeds_dtype = self.transformer.dtype
+        if text_encoder is not None:
+            prompt_embeds_dtype = text_encoder.dtype
+        elif self.predict_model is not None:
+            prompt_embeds_dtype = self.predict_model.dtype
         else:
             prompt_embeds_dtype = prompt_embeds.dtype
 
         prompt_embeds = prompt_embeds.to(dtype=prompt_embeds_dtype, device=device)
 
+        if prompt_embeds.ndim == 2: # CLIP-generated embeddings
+            prompt_embeds = prompt_embeds.unsqueeze(1) # B D -> B 1 D
+
         bs_embed, seq_len, _ = prompt_embeds.shape
+        # duplicate text embeddings for each generation per prompt, using mps friendly method
+        prompt_embeds = prompt_embeds.repeat(1, num_samples_per_prompt, 1)
+        prompt_embeds = prompt_embeds.view(bs_embed * num_samples_per_prompt, seq_len, -1)
+        if prompt_embeds_attention_mask is not None:
+            prompt_embeds_attention_mask = prompt_embeds_attention_mask.repeat(1, num_samples_per_prompt)
+            prompt_embeds_attention_mask = prompt_embeds_attention_mask.view(bs_embed * num_samples_per_prompt, seq_len)
 
         # get unconditional embeddings for classifier free guidance
         if do_classifier_free_guidance and negative_prompt_embeds is None:
@@ -119,11 +131,10 @@ class MMEncoderMixin:
             else:
                 uncond_tokens = negative_prompt
 
-            if isinstance(self, InputsCheckMixin):
+            if use_prompt_preprocess and isinstance(self, InputsCheckMixin):
                 uncond_tokens = self.preprocess_text(uncond_tokens, clean_caption)
 
-            max_length = prompt_embeds.shape[1]
-            uncond_input = self.tokenizer(
+            uncond_input = tokenizer(
                 uncond_tokens,
                 padding="max_length",
                 max_length=max_length,
@@ -133,21 +144,22 @@ class MMEncoderMixin:
                 return_tensors="pt",
             )
             #  参数控制
-            if hasattr(self.text_encoder,
-                       "use_attention_mask") and self.text_encoder.use_attention_mask:
+            if hasattr(text_encoder,
+                       "use_attention_mask") and text_encoder.use_attention_mask:
                 attention_mask = uncond_input.attention_mask.to(device)
             else:
                 attention_mask = None
             negative_prompt_attention_mask = attention_mask
-            negative_prompt_embeds = self.text_encoder(
+            negative_prompt_embeds = text_encoder(
                 uncond_input.input_ids.to(device),
                 attention_mask=attention_mask,
             )
             if isinstance(negative_prompt_embeds, transformers.utils.ModelOutput):
                 negative_prompt_embeds = negative_prompt_embeds[0]
+            print(f"negative_prompt_embeds: {negative_prompt_embeds.shape}")
         else:
-            if hasattr(self.text_encoder,
-                       "use_attention_mask") and self.text_encoder.use_attention_mask and negative_prompt_embeds is not None:
+            if hasattr(text_encoder,
+                       "use_attention_mask") and text_encoder.use_attention_mask and negative_prompt_embeds is not None:
                 negative_prompt_attention_mask = torch.ones_like(negative_prompt_embeds)
             else:
                 negative_prompt_attention_mask = None
@@ -155,6 +167,16 @@ class MMEncoderMixin:
         if do_classifier_free_guidance and negative_prompt_embeds is not None:
             # duplicate unconditional embeddings for each generation per prompt, using mps friendly method
             negative_prompt_embeds = negative_prompt_embeds.to(dtype=prompt_embeds_dtype, device=device)
+
+            if negative_prompt_embeds.ndim == 2: # CLIP-generated embeddings
+                negative_prompt_embeds = negative_prompt_embeds.unsqueeze(1) # B D -> B 1 D
+                
+            bs_embed, seq_len, _ = negative_prompt_embeds.shape
+            negative_prompt_embeds = negative_prompt_embeds.repeat(1, num_samples_per_prompt, 1)
+            negative_prompt_embeds = negative_prompt_embeds.view(bs_embed * num_samples_per_prompt, seq_len, -1)
+            if negative_prompt_attention_mask is not None:
+                negative_prompt_attention_mask = negative_prompt_attention_mask.repeat(1, num_samples_per_prompt)
+                negative_prompt_attention_mask = negative_prompt_attention_mask.view(bs_embed * num_samples_per_prompt, seq_len)
         else:
             negative_prompt_embeds = None
             negative_prompt_attention_mask = None
@@ -183,7 +205,7 @@ class MMEncoderMixin:
         prompt_attention_mask = prompt_attention_mask.repeat(num_images_per_prompt, 1)
         return prompt_attention_mask
 
-    def process_images(self, images: List, image_aspect_ratio: float = None, image_grid_pinpoints: Optional = None):
+    def process_images(self, images: List, image_aspect_ratio: str = None, image_grid_pinpoints: Optional = None):
         new_images = []
         if image_aspect_ratio == "pad":
             for image in images:

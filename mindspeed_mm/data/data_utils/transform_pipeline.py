@@ -61,7 +61,7 @@ INTERPOLATIONMODE_LIST = [
 
 
 
-def get_transforms(is_video=True, train_pipeline=None, image_size=None):
+def get_transforms(is_video=True, train_pipeline=None):
     if train_pipeline is None:
         return None
     train_pipeline_info = (
