@@ -1,6 +1,6 @@
 {
-    "frames": 1,
-    "allow_tf32": true,
+    "frames": 105,
+    "allow_tf32": false,
     "allow_internal_format": false,
     "load_video_features": false,
     "load_text_features": false,
@@ -71,17 +71,10 @@
         "activation_fn": "gelu-approximate",
         "norm_elementwise_affine": false,
         "norm_eps": 1e-06,
-        "from_pretrained": null
+        "from_pretrained": "/work/share/checkpoint/gyy/suv_test_ckpt/diffusion_pytorch_model.safetensors"
     },
     "diffusion": {
-        "model_id": "DDPM",
-        "num_train_steps":1000,
-        "guidance_scale":7.5,
-        "prediction_type": "v_prediction",
-        "rescale_betas_zero_snr": true,
-        "timestep_spacing": "leading",
-        "device":"npu",
-        "snr_gamma": 5.0,
-        "t_sample_method": "explicit_uniform"
+        "model_id": "OpenSoraPlan",
+        "weighting_scheme": "logit_normal"
     }
 }

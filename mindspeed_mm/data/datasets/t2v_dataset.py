@@ -96,17 +96,17 @@ class T2VDataset(MMBaseDataset):
         self.image_processer_type = vid_img_process.get(
             "image_processer_type", "image2image"
         )
-        self.hw_stride = vid_img_process.get("hw_stride", 32)
-        self.ae_stride_t = vid_img_process.get("ae_stride_t", 32)
+        self.hw_stride = vid_img_process.get("hw_stride", 16)
+        self.ae_stride_t = vid_img_process.get("ae_stride_t", 8)
         self.force_resolution = vid_img_process.get("force_resolution", True)
-        self.force_5_ratio = vid_img_process.get("force_5_ratio", True)
+        self.force_5_ratio = vid_img_process.get("force_5_ratio", False)
         self.sp_size = vid_img_process.get("sp_size", 1)
         self.train_sp_batch_size = vid_img_process.get("train_sp_batch_size", 1)
         self.gradient_accumulation_size = vid_img_process.get("gradient_accumulation_size", 1)
         self.batch_size = vid_img_process.get("batch_size", 1)
         self.seed = vid_img_process.get("seed", 42)
         self.max_h_div_w_ratio = vid_img_process.get("max_h_div_w_ratio", 2.0)
-        self.min_h_div_w_ratio = vid_img_process.get("min_h_div_w_ratio", None)
+        self.min_h_div_w_ratio = vid_img_process.get("min_h_div_w_ratio", 0.5)
         self.min_num_frames = vid_img_process.get("min_num_frames", 29)
         self.use_aesthetic = vid_img_process.get("use_aesthetic", False) 
 
@@ -117,8 +117,8 @@ class T2VDataset(MMBaseDataset):
         if self.max_hxw is not None and self.min_hxw is None:
             self.min_hxw = self.max_hxw // 4
         self.train_pipeline = vid_img_process.get("train_pipeline", None)
-        self.video_reader_type = vid_img_process.get("video_reader_type", "torchvision")
-        self.image_reader_type = vid_img_process.get("image_reader_type", "torchvision")
+        self.video_reader_type = vid_img_process.get("video_reader_type", "decoder")
+        self.image_reader_type = vid_img_process.get("image_reader_type", "Image")
         self.video_reader = VideoReader(video_reader_type=self.video_reader_type)
         self.video_processer = VideoProcesser(
             num_frames=self.num_frames,

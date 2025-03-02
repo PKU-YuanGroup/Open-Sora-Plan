@@ -95,7 +95,7 @@ class DiffusersScheduler:
         x_start: Tensor,
         noise: Tensor = None,
         mask: Tensor = None,
-        t: Tensor = None,
+        timesteps: Tensor = None,
         **kwargs
         ) -> Tensor:
         if self.prediction_type == "epsilon":
@@ -179,7 +179,7 @@ class DiffusersScheduler:
             # https://www.crosslabs.org//blog/diffusion-with-offset-noise
             noise += self.noise_offset * torch.randn((b, c, 1, 1, 1), device=x_start.device)
         x_t = self.diffusion.add_noise(x_start, noise, t)
-        return x_t, noise, t
+        return dict(x_t=x_t, noise=noise, timesteps=t)
 
     def sample(
         self,

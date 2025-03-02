@@ -204,7 +204,7 @@ class VideoProcesser:
     ):
         self.num_frames = num_frames
         self.train_pipeline = train_pipeline
-        self.video_transforms = None
+        self.video_transforms = get_transforms(is_video=True, train_pipeline=self.train_pipeline)
         self.temporal_sample = TemporalRandomCrop(num_frames * frame_interval)
         self.data_storage_mode = data_storage_mode
 
@@ -240,15 +240,9 @@ class VideoProcesser:
         clip_total_frames,
         predefine_frame_indice=None,
         fps=16,
-        image_size=None, 
         is_decord_read=False, 
         crop=[None, None, None, None]
     ):
-        if image_size:
-            self.video_transforms = get_transforms(is_video=True, train_pipeline=self.train_pipeline,
-                                                   image_size=image_size)
-        else:
-            self.video_transforms = get_transforms(is_video=True, train_pipeline=self.train_pipeline)
         
         if self.data_storage_mode == "combine":
             video = self.combine_data_video_process(
@@ -742,8 +736,8 @@ class ImageProcesser:
             **kwargs,
     ):
         self.num_frames = num_frames
-        self.video_transforms = get_transforms(
-            is_video=True, train_pipeline=train_pipeline
+        self.image_transforms = get_transforms(
+            is_video=False, train_pipeline=train_pipeline
         )
         self.train_pipeline = train_pipeline
         self.image_reader_type = image_reader_type
@@ -763,7 +757,7 @@ class ImageProcesser:
         image = torch.from_numpy(np.array(image))  # [h, w, c]
         image = rearrange(image, "h w c -> c h w").unsqueeze(0)  # [1 c h w]
         # [1 C H W] -> num_img [1 C H W]
-        image = self.video_transforms(image)
+        image = self.image_transforms(image)
         # [1 C H W] -> [C 1 H W]
         image = image.permute(1, 0, 2, 3)
         return image
@@ -844,7 +838,7 @@ class TextProcesser:
             text_tokens_and_mask_2 = self.tokenizer_2(
                 texts_info,
                 max_length=self.tokenizer_2.model_max_length,
-                padding='max_length',
+                padding=self.padding,
                 truncation=True,
                 return_attention_mask=True,
                 add_special_tokens=True,

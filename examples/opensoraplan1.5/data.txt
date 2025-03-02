@@ -1,1 +1,1 @@
-/work/share/data/imgdata/recap1,/work/share/data/captions/test_exist/part0_241592.pkl
+/work/share/dataset/istock/videos,/work/share1/video_final/final_istock_v1/istock_v1_final_321725.pkl

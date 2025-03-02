@@ -119,7 +119,7 @@ class Collate:
             raise AssertionError("batch_input_size and batch_size are not equal.")
         
         is_grouped = self.group_data or self.batch_size == 1
-        if is_grouped:  #
+        if is_grouped:  
             len_each_batch = batch_input_size
             idx_length_dict = dict([*zip(list(range(self.batch_size)), len_each_batch)])
             count_dict = Counter(len_each_batch)

@@ -21,7 +21,7 @@ from mindspeed_mm.models.common.communications import split_forward_gather_backw
 
 from mindspeed_mm.models.predictor.dits.modules import CombinedTimestepTextProjEmbeddings, AdaNorm, OpenSoraNormZero
 
-selective_recom = True
+selective_recom = False
 recom_ffn_layers = 32
 
 def create_custom_forward(module, return_dict=None):
@@ -118,7 +118,6 @@ class SparseUMMDiT(MultiModalModule):
         self.recompute_granularity = args.recompute_granularity
         self.distribute_saved_activations = args.distribute_saved_activations
         self.recompute_method = args.recompute_method
-        self.recompute_num_layers = args.recompute_num_layers
         if self.recompute_granularity == "selective":
             raise ValueError("recompute_granularity does not support selective mode in VideoDiT")
         if self.distribute_saved_activations:
@@ -678,12 +677,6 @@ class SparseMMDiTBlock(nn.Module):
         recom_ffn = False,
     ) -> torch.FloatTensor:
         
-
-        # print(f'hidden_states: {hidden_states.shape}, encoder_hidden_states: {encoder_hidden_states.shape}, embedded_timestep: {embedded_timestep.shape}, frames: {frames}, height: {height}, width: {width}')
-        # 0. Prepare rope embedding
-        vis_seq_length, batch_size = hidden_states.shape[:2]
-        # import ipdb; ipdb.set_trace()
-
         # 1. norm & scale & shift
         hidden_states = maybe_clamp_tensor(hidden_states, training=self.training)
         encoder_hidden_states = maybe_clamp_tensor(encoder_hidden_states, training=self.training)
@@ -711,22 +704,19 @@ class SparseMMDiTBlock(nn.Module):
         encoder_hidden_states = encoder_hidden_states + enc_gate_msa * attn_encoder_hidden_states
 
         # 4. norm & scale & shift
-        hidden_states = maybe_clamp_tensor(hidden_states, training=self.training)
-        encoder_hidden_states = maybe_clamp_tensor(encoder_hidden_states, training=self.training)
-        norm_hidden_states, norm_encoder_hidden_states, gate_ff, enc_gate_ff = self.norm2(
-            hidden_states, encoder_hidden_states, embedded_timestep
-        )
-        if self.double_ff:
-            # 5. FFN
-            vis_ff_output = self.ff(norm_hidden_states)
-            enc_ff_output = self.ff_enc(norm_encoder_hidden_states)
-            # 6. residual & gate
-            hidden_states = hidden_states + gate_ff * vis_ff_output
-            encoder_hidden_states = encoder_hidden_states + enc_gate_ff * enc_ff_output
+        # import ipdb; ipdb.set_trace()
+        if self.training and recom_ffn:
+            ckpt_kwargs: Dict[str, Any] = {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
+            hidden_states, encoder_hidden_states = torch.utils.checkpoint.checkpoint(
+                create_custom_forward(self.ffn),
+                hidden_states, encoder_hidden_states, embedded_timestep,
+                **ckpt_kwargs
+            )
         else:
             hidden_states, encoder_hidden_states = self.ffn(
                 hidden_states, encoder_hidden_states, embedded_timestep
             )
+
 
         return hidden_states, encoder_hidden_states
 

@@ -11,23 +11,32 @@ export COMBINED_ENABLE=1
 export CPU_AFFINITY_CONF=1
 export HCCL_CONNECT_TIMEOUT=1800
 export HCCL_OP_BASE_FFTS_MODE_ENABLE=TRUE
+
+MINDSPEED_PATH="./MindSpeed/"
+export PYTHONPATH=${MINDSPEED_PATH}:$PYTHONPATH
+
+export LD_PRELOAD=/lib/aarch64-linux-gnu/libGLdispatch.so.0
+export LD_PRELOAD=/lib/aarch64-linux-gnu/libgomp.so.1:$LD_PRELOAD
 # export GLOO_SOCKET_IFNAME=enp67s0f0
 
+# NNODES=${PET_NNODES}
+# NODE_RANK=${PET_NODE_RANK}
+# MASTER_ADDR=${PET_MASTER_ADDR}
 
-NNODES=${PET_NNODES}
-NODE_RANK=${PET_NODE_RANK}
-MASTER_ADDR=${PET_MASTER_ADDR}
+NNODES=1
+NODE_RANK=0
+MASTER_ADDR=localhost
 
 MASTER_NODE_ID=0
 GPUS_PER_NODE=8
 MASTER_PORT=12345
 WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
 
-TP=8
+TP=2
 PP=1
 CP=1
 MBS=1
-GRAD_ACC_STEP=4
+GRAD_ACC_STEP=1
 GBS=$(($WORLD_SIZE*$GRAD_ACC_STEP*$MBS/$CP/$TP))
 
 MM_DATA="./examples/opensoraplan1.5/data.json"
@@ -48,8 +57,8 @@ GPT_ARGS="
     --context-parallel-size ${CP} \
     --micro-batch-size ${MBS} \
     --global-batch-size ${GBS} \
-    --num-layers 28 \
-    --hidden-size 2048 \
+    --num-layers 32 \
+    --hidden-size 3072 \
     --num-attention-heads 16 \
     --seq-length 1024 \
     --max-position-embeddings 1024 \
@@ -68,20 +77,16 @@ GPT_ARGS="
     --adam-beta2 0.999 \
     --adam-eps 1e-15 \
     --lr-decay-style constant \
-    --weight-decay 1e-2 \
+    --weight-decay 1e-4 \
     --lr-warmup-init 1e-5 \
     --lr-warmup-iters 0 \
     --clip-grad 1.0 \
     --train-iters 100 \
     --no-gradient-accumulation-fusion \
-    --no-load-optim \
-    --no-load-rng \
-    --no-save-optim \
-    --no-save-rng \
     --use-distributed-optimizer \
     --recompute-granularity full \
     --recompute-method block \
-    --recompute-num-layers 48 \
+    --recompute-num-layers 32 \
     --normalization RMSNorm \
     --use-fused-rmsnorm \
     --qk-layernorm \
@@ -90,11 +95,18 @@ GPT_ARGS="
     --optimizer-selection fused_ema_adamw \
 "
 
+    # --no-load-optim \
+    # --no-load-rng \
+    # --no-save-optim \
+    # --no-save-rng \
+
+
 MM_ARGS="
     --mm-data $MM_DATA \
     --mm-model $MM_MODEL \
     --mm-tool $MM_TOOL \
-    --model_custom_precision
+    --model_custom_precision \
+    --clip_grad_ema_decay 0.99
 "
 
 OUTPUT_ARGS="

@@ -302,7 +302,7 @@ class OpenSoraPlanScheduler:
             self.broadcast_timesteps(timesteps)
 
         x_t = self.add_noise(x_start, sigmas, noise)
-        return x_t, noise, timesteps
+        return dict(x_t=x_t, noise=noise, timesteps=timesteps, sigmas=sigmas)
 
     def sample(
         self,
