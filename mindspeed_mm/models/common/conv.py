@@ -150,14 +150,14 @@ class WfCausalConv3d(nn.Module):
         if self.enable_cached and self.time_kernel_size != 1:
             if (self.time_kernel_size - 1) // self.stride[0] != 0:
                 if self.cache_offset == 0:
-                    self.causal_cached.append(x[:, :, -(self.time_kernel_size - 1) // self.stride[0]:])
+                    self.causal_cached.append(x[:, :, -(self.time_kernel_size - 1) // self.stride[0]:].clone())
                 else:
                     self.causal_cached.append(
-                        x[:, :, :-self.cache_offset][:, :, -(self.time_kernel_size - 1) // self.stride[0]:])
+                        x[:, :, :-self.cache_offset][:, :, -(self.time_kernel_size - 1) // self.stride[0]:].clone())
             else:
-                self.causal_cached.append(x[:, :, 0:0, :, :])
+                self.causal_cached.append(x[:, :, 0:0, :, :].clone())
         else:
-            self.causal_cached.append(x[:, :, 0:0, :, :])
+            self.causal_cached.append(x[:, :, 0:0, :, :].clone())
 
         if x.dtype not in [torch.float16, torch.bfloat16]:
             dtype = x.dtype
