@@ -18,8 +18,11 @@ from typing import List, Optional, Tuple, Union, Callable
 import logging
 from tqdm import tqdm
 
+from megatron.core import mpu
+
 import numpy as np
 import torch
+import torch.distributed as dist
 
 from .diffusion_utils import opensora_linear_quadratic_schedule
 from mindspeed_mm.utils.utils import get_device
@@ -296,7 +299,7 @@ class OpenSoraPlanScheduler:
         if sigmas is None:
             sigmas = self.compute_density_for_sigma_sampling(b).to(x_start.device)
             timesteps = sigmas.clone() * 1000
-            while sigmas.ndim < model_input.ndim:
+            while sigmas.ndim < x_start.ndim:
                 sigmas = sigmas.unsqueeze(-1)
             self.broadcast_timesteps(sigmas)
             self.broadcast_timesteps(timesteps)
