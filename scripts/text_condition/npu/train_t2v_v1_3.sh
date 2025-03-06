@@ -17,6 +17,8 @@ export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
 accelerate launch \
     --config_file scripts/accelerate_configs/deepspeed_zero2_config.yaml \
     opensora/train/train_t2v_diffusers.py \
+    --train_deepspeed_config_file scripts/accelerate_configs/zero2.json \
+    --eval_deepspeed_config_file scripts/accelerate_configs/zero3.json \
     --model OpenSoraT2V_v1_3-2B/122 \
     --text_encoder_name_1 google/mt5-xxl \
     --cache_dir "../../cache_dir/" \
