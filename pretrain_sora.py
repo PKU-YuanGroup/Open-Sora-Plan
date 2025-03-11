@@ -12,6 +12,7 @@ from megatron.training.utils import (
     average_losses_across_data_parallel_group,
     unwrap_model,
 )
+from megatron.training.global_vars import get_wandb_writer
 
 from mindspeed_mm.configs.config import mm_extra_args_provider
 from mindspeed_mm.training import pretrain

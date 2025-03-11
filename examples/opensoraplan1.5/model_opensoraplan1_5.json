@@ -4,7 +4,7 @@
     "allow_internal_format": false,
     "load_video_features": false,
     "load_text_features": false,
-    "enable_encoder_dp": true,
+    "enable_encoder_dp": false,
     "weight_dtype": "bf16",
     "ae": {
         "model_id": "wfvae",

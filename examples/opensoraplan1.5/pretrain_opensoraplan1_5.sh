@@ -1,4 +1,5 @@
 #!/bin/bash
+wandb login 720d886d8c437c2142c88056a1eab8ef78d64a1f
 source /usr/local/Ascend/ascend-toolkit/set_env.sh
 source /usr/local/Ascend/nnal/atb/set_env.sh
 export CUDA_DEVICE_MAX_CONNECTIONS=1
@@ -35,7 +36,7 @@ WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
 TP=4
 PP=1
 CP=1
-MBS=4
+MBS=2
 GRAD_ACC_STEP=1
 GBS=$(($WORLD_SIZE*$GRAD_ACC_STEP*$MBS/$CP/$TP))
 
@@ -93,6 +94,9 @@ GPT_ARGS="
     --sequence-parallel \
     --use-ascend-mc2 \
     --optimizer-selection fused_ema_adamw \
+    --seed 1024 \
+    --data-parallel-random-init \
+    --use-ema \
 "
 
     # --no-load-optim \
@@ -110,11 +114,18 @@ MM_ARGS="
 "
 
 OUTPUT_ARGS="
-    --save ./fused_ema_adamw
+    --save ./test_ckpt/test1
     --log-interval 1 \
-    --save-interval 10000 \
-    --eval-interval 10000 \
+    --save-interval 1000 \
+    --eval-interval 10 \
     --eval-iters 10 \
+"
+
+WANDB_ARGS="
+    --wandb-project test_in_tianyi \
+    --wandb-exp-name test \
+    --wandb-save-dir . \
+    --tensorboard-log-interval 1 \
 "
 
 logfile=$(date +%Y%m%d)_$(date +%H%M%S)
@@ -123,6 +134,7 @@ torchrun $DISTRIBUTED_ARGS pretrain_sora.py \
     $GPT_ARGS \
     $MM_ARGS \
     $OUTPUT_ARGS \
+    $WANDB_ARGS \
     --distributed-backend nccl 2>&1 | tee logs/train_${logfile}.log
 
 chmod 440 logs/train_${logfile}.log

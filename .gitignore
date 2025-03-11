@@ -167,3 +167,5 @@ ge_check_op.json
 
 # multi-node script
 SoraClusterScripts/
+
+wandb/

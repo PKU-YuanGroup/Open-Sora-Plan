@@ -119,6 +119,8 @@ class SoRAModel(nn.Module):
                         prompt_mask_2 = prompt_mask_2.view(-1, L_)
                         prompt_2 = self.text_encoder_2.encode(prompt_ids_2, prompt_mask_2)
                         prompt_2 = prompt_2.view(B_, 1, -1)
+        # print("--------------------------data--------------------------")
+        # print(f"prompt_ids: {prompt_ids}, prompt_ids_2: {prompt_ids_2}")
         # print("--------------------------shape--------------------------")
         # print(f"latent: {latents.shape}, prompt: {prompt.shape}, prompt_2: {prompt_2.shape}, video_mask: {video_mask.shape}, prompt_mask: {prompt_mask.shape}, prompt_mask_2: {prompt_mask_2.shape}")
         # print("--------------------------dtype--------------------------")

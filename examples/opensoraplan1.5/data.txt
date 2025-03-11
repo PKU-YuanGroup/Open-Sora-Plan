@@ -1,1 +1,1 @@
-/work/share/dataset/sucai_video/istock_v4,/work/share1/video_final/final_istock_v4/istock_v4_final_1609738.pkl
+/work/share/dataset/sucai_video/istock_v4,/work/share1/video_final/final_istock_v4/istock_v4_final_1609738.json

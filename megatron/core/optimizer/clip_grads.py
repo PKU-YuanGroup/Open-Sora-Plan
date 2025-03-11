@@ -16,6 +16,8 @@ from logging import getLogger
 from megatron.training.global_vars import get_wandb_writer
 import time
 
+from .. import parallel_state, tensor_parallel
+
 logger = getLogger()
 
 class AdaptiveGradClipInfo:
@@ -146,11 +148,13 @@ def get_grad_norm(grads_for_norm, norm_type=2.0, model_parallel_group=None):
             for grad in grads_for_norm:
                 grad_norm = torch.norm(grad, norm_type)
                 total_norm += grad_norm ** norm_type
-
+        # print("---------------------------get_grad_norm-----------------------")
+        # print(f"before all_reduce, total_norm: {total_norm}")
         # Sum across all model-parallel GPUs.
         torch.distributed.all_reduce(
             total_norm, op=torch.distributed.ReduceOp.SUM, group=model_parallel_group
         )
+        # print(f"after all_reduce, total_norm: {total_norm}")
         total_norm = total_norm ** (1.0 / norm_type)
 
     return total_norm
@@ -197,14 +201,16 @@ def adaptive_clip_grad_norm_fp32(
             assert param.grad.type() == 'torch.cuda.FloatTensor'
             grads.append(param.grad.detach())
 
+    if model_parallel_group is None and parallel_state.get_model_parallel_group() is not None:
+        model_parallel_group = parallel_state.get_model_parallel_group()
+
     # Norm parameters.
     norm_type = float(norm_type)
-    
     weight_norm = get_unlocked_params_weight_norm_fp32(params_for_norm, norm_type, model_parallel_group)
 
     grad_norm_before_clip = get_grad_norm(grads_for_norm, norm_type, model_parallel_group)
     grad_norm_before_clip_list = gather_info_from_all_processes(grad_norm_before_clip, dtype=torch.float)
-    print(f"grad_norm_before_clip: {grad_norm_before_clip}, gathered_grad_norm_before_clip: {grad_norm_before_clip_list}")
+    # print(f"grad_norm_before_clip: {grad_norm_before_clip}, gathered_grad_norm_before_clip: {grad_norm_before_clip_list}")
 
     nan_norm_flag = 0
     if torch.isnan(grad_norm_before_clip_list).any() or torch.isinf(grad_norm_before_clip_list).any():
@@ -236,9 +242,9 @@ def adaptive_clip_grad_norm_fp32(
         # out of 3 sigma mean abnormal step.
         max_norm = moving_avg_max_grad_norm + 3.0 * (moving_avg_max_grad_norm_var ** 0.5)
         zero_grad_flag = torch.isnan(grad_norm_before_clip).any() or torch.isinf(grad_norm_before_clip).any() or grad_norm_before_clip > max_norm
-        print(f"zero_grad_flag: {zero_grad_flag}")
+        # print(f"zero_grad_flag: {zero_grad_flag}")
         zero_grad_flag_list = gather_info_from_all_processes(zero_grad_flag, dtype=torch.int)
-        print(f"zero_grad_flag_list: {zero_grad_flag_list}")
+        # print(f"zero_grad_flag_list: {zero_grad_flag_list}")
         clip_coef = torch.mean((~zero_grad_flag_list).float(), dim=-1, keepdim=True)
         zero_and_clip_grad_(grads, clip_coef=clip_coef, zero_grad_flag=zero_grad_flag)
         num_zero_grad = zero_grad_flag_list.sum().item()
@@ -250,7 +256,8 @@ def adaptive_clip_grad_norm_fp32(
             print(grad_norm_after_clip_list)
             raise ValueError("Detected NaN or Inf in gathered clipping gradient norms.")
         # 用裁过的max grad norm作为ema统计量，裁过的一定是之前认为合理的最大范围
-        if num_zero_grad < 2:
+        clip_threshold = 2 * (model_parallel_group.size() if model_parallel_group is not None else 1)
+        if num_zero_grad < clip_threshold:
             moving_avg_max_grad_norm = ema_decay * moving_avg_max_grad_norm + (1 - ema_decay) * max_grad_norm_after_clip
             max_grad_norm_var = (moving_avg_max_grad_norm - max_grad_norm_after_clip) ** 2
             moving_avg_max_grad_norm_var = ema_decay * moving_avg_max_grad_norm_var + (1 - ema_decay) * max_grad_norm_var
@@ -269,7 +276,7 @@ def adaptive_clip_grad_norm_fp32(
     AdaptiveGradClipInfo.zero_grad_flag_list = zero_grad_flag_list
     AdaptiveGradClipInfo.nan_norm_flag = nan_norm_flag
 
-    if torch.distributed.get_rank() == 0:
+    if torch.distributed.get_rank() == (torch.distributed.get_world_size() - 1):
         wandb_writer = get_wandb_writer()
         if wandb_writer is not None:
             wandb_writer.log({
