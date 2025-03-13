@@ -8,6 +8,7 @@ from PIL import Image
 from torchvision.utils import save_image
 from einops import rearrange
 import imageio
+import cv2
 
 try:
     import decord
@@ -20,6 +21,34 @@ from mindspeed_mm.data.data_utils.data_transform import CenterCropResizeVideo, S
     ToTensorAfterResize, maxhwresize
 from mindspeed_mm.utils.mask_utils import STR_TO_TYPE, TYPE_TO_STR, MaskType
 
+# video: (T H W C)
+def save_video_with_opencv(video, save_path, fps=18, quality="medium"):
+    frame_size = (video.shape[2], video.shape[1])  # (宽, 高)
+    if save_path.endswith(".mp4"):
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # 适用于 .mp4
+    else:
+        fourcc = cv2.VideoWriter_fourcc(*'XVID')  # 适用于 .avi
+    out = cv2.VideoWriter(save_path, fourcc, fps, frame_size)
+    for frame in video:
+        frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)  # OpenCV 需要 BGR 格式
+        out.write(frame_bgr)
+    out.release()
+    print(f"✅ 视频已保存至: {save_path}")
+    optimize_video(save_path, quality)
+
+def optimize_video(save_path, quality):
+    quality_settings = {
+        "low": ["-crf", "28", "-b:v", "1000k"],  # 低质量，较小文件大小
+        "medium": ["-crf", "23", "-b:v", "3000k"],  # 平衡质量
+        "high": ["-crf", "18", "-b:v", "5000k"]  # 高质量
+    }
+    if quality not in quality_settings:
+        print("⚠️ 质量设置无效，默认使用 high")
+        quality = "high"
+    optimized_path = save_path.replace(".mp4", "_optimized.mp4")
+    ffmpeg_cmd = f"ffmpeg -i {save_path} -c:v libx264 {' '.join(quality_settings[quality])} -preset slow -pix_fmt yuv420p {optimized_path} -y"
+    os.system(ffmpeg_cmd)
+    print(f"✅ 优化后视频已保存至: {optimized_path}")
 
 def save_image_or_videos(videos, save_path, start_idx, fps, value_range=(0, 1), normalize=True):
     os.makedirs(save_path, exist_ok=True)
@@ -33,10 +62,12 @@ def save_image_or_videos(videos, save_path, start_idx, fps, value_range=(0, 1), 
                     save_image(videos[i] / 255.0, os.path.join(save_path, f'image_{start_idx:06d}_i{i:06d}.png'), nrow=math.ceil(math.sqrt(videos.shape[0])), normalize=normalize, value_range=value_range)
         else: # video
             if videos.shape[0] == 1:
-                imageio.mimwrite(os.path.join(save_path, f'video_{start_idx:06d}.video'), videos[0].cpu().numpy(), fps=fps, quality=6)
+                # imageio.mimwrite(os.path.join(save_path, f'video_{start_idx:06d}.mp4'), videos[0].cpu().numpy(), codec='libx264', fps=fps)
+                save_video_with_opencv(videos[0].cpu().numpy(), os.path.join(save_path, f'video_{start_idx:06d}.mp4'), fps=fps)
             else:
                 for i in range(videos.shape[0]):
-                    imageio.mimwrite(os.path.join(save_path, f'video_{start_idx:06d}_i{i:06d}.mp4'), videos[i].cpu().numpy(), fps=fps, quality=6)
+                    # imageio.mimwrite(os.path.join(save_path, f'video_{start_idx:06d}_i{i:06d}.mp4'), videos[i].cpu().numpy(), codec='libx264', fps=fps)
+                    save_video_with_opencv(videos[i].cpu().numpy(), os.path.join(save_path, f'video_{start_idx:06d}_i{i:06d}.mp4'), fps=fps)
     else:
         raise ValueError("The video must be in either [b,c,t,h,w] format.")
 
@@ -72,7 +103,8 @@ def save_image_or_video_grid(videos, save_path, fps, normalize=True, value_range
         save_image(rearrange(videos, 'b t h w c -> (b t) c h w') / 255.0, os.path.join(save_path, "image_grid.png"), nrow=math.ceil(math.sqrt(videos.shape[0])), normalize=normalize, value_range=value_range)
     else:
         video_grid = save_video_grid(videos)
-        imageio.mimwrite(os.path.join(save_path, "video_grid.mp4"), video_grid, fps=fps, quality=6)
+        # imageio.mimwrite(os.path.join(save_path, "video_grid.mp4"), video_grid, codec='libx264', fps=fps, quality=6)
+        save_video_with_opencv(video_grid, os.path.join(save_path, "video_grid.mp4"), fps=fps)
 
 def load_prompts(prompt):
     if os.path.exists(prompt):

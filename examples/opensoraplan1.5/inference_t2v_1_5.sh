@@ -5,11 +5,16 @@ MASTER_ADDR=localhost
 MASTER_PORT=12875
 NNODES=1
 NODE_RANK=0
-NPUS_PER_NODE=1
+NPUS_PER_NODE=4
 WORLD_SIZE=$(($NPUS_PER_NODE * $NNODES))
 
+MINDSPEED_PATH="./MindSpeed/"
+export PYTHONPATH=${MINDSPEED_PATH}:$PYTHONPATH
 
-TP=1
+export LD_PRELOAD=/lib/aarch64-linux-gnu/libGLdispatch.so.0
+export LD_PRELOAD=/lib/aarch64-linux-gnu/libgomp.so.1:$LD_PRELOAD
+
+TP=4
 PP=1
 CP=1
 MBS=1
@@ -34,8 +39,8 @@ SORA_ARGS="
     --context-parallel-size ${CP} \
     --micro-batch-size ${MBS} \
     --global-batch-size ${GBS} \
-    --num-layers 28 \
-    --hidden-size 1152 \
+    --num-layers 32 \
+    --hidden-size 3072 \
     --num-attention-heads 16 \
     --seq-length 1024\
     --max-position-embeddings 1024 \
@@ -59,7 +64,10 @@ SORA_ARGS="
     --no-load-rng \
     --no-save-optim \
     --no-save-rng \
+    --sequence-parallel \
     --distributed-timeout-minutes 20 \
+    --optimizer-selection fused_torch_adamw \
+    --load /work/share/projects/gyy/mindspeed/Open-Sora-Plan/test_ckpt/test1
 "
 
 torchrun $DISTRIBUTED_ARGS  inference_sora.py  $MM_ARGS $SORA_ARGS 2>&1 | tee logs/inference_test.log

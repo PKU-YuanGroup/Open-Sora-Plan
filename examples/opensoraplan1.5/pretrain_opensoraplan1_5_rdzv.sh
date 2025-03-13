@@ -1,4 +1,5 @@
 #!/bin/bash
+
 wandb login 720d886d8c437c2142c88056a1eab8ef78d64a1f
 source /usr/local/Ascend/ascend-toolkit/set_env.sh
 source /usr/local/Ascend/nnal/atb/set_env.sh
@@ -13,6 +14,32 @@ export CPU_AFFINITY_CONF=1
 export HCCL_CONNECT_TIMEOUT=1800
 export HCCL_OP_BASE_FFTS_MODE_ENABLE=TRUE
 
+# 平台断点续训，增加pipe fail捕获退出码
+set -o pipefail
+
+# 平台参数解析，使用冒号作为分隔符分割字符串
+IFS=':' read -r -a array <<< "${PET_RDZV_ENDPOINT}"
+main_process_ip=${array[0]} # 主节点ip
+main_process_port=${array[1]} # 主节点端口
+
+IFS=':' read -r first_value second_value <<< "$PET_NNODES"
+NNODE=${first_value//[^0-9]/} # 节点总数目
+NUM_NPUS=$(($NNODE * $GPU_NUM_PER_NODE)) # 总卡数
+
+# 使用正则表达式提取最后一个-后面的数字
+if [[ $o$POD_NAME =~ -([0-9]+)$ ]]; then
+    RANK=${BASH_REMATCH[1]}
+    # 将提取的数字转换为整数
+    RANK=${RANK//[^0-9]/}
+    echo "The rank is: $rank"
+else
+    echo "No match found"
+fi
+echo "----------------"
+echo $NUM_NPUS
+echo $NNODE
+
+
 MINDSPEED_PATH="./MindSpeed/"
 export PYTHONPATH=${MINDSPEED_PATH}:$PYTHONPATH
 
@@ -20,17 +47,10 @@ export LD_PRELOAD=/lib/aarch64-linux-gnu/libGLdispatch.so.0
 export LD_PRELOAD=/lib/aarch64-linux-gnu/libgomp.so.1:$LD_PRELOAD
 # export GLOO_SOCKET_IFNAME=enp67s0f0
 
-# NNODES=${PET_NNODES}
-# NODE_RANK=${PET_NODE_RANK}
-# MASTER_ADDR=${PET_MASTER_ADDR}
+NNODES=${PET_NNODES}
+NODE_RANK=${PET_NODE_RANK}
 
-NNODES=1
-NODE_RANK=0
-MASTER_ADDR=localhost
-
-MASTER_NODE_ID=0
 GPUS_PER_NODE=8
-MASTER_PORT=12345
 WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
 
 TP=4
@@ -44,14 +64,14 @@ MM_DATA="./examples/opensoraplan1.5/data.json"
 MM_MODEL="./examples/opensoraplan1.5/model_opensoraplan1_5.json"
 MM_TOOL="./mindspeed_mm/tools/tools.json"
 
-PROJECT_DIR="./test_ckpt/test1"
-
 DISTRIBUTED_ARGS="
     --nproc_per_node $GPUS_PER_NODE \
     --nnodes $NNODES \
-    --node_rank $NODE_RANK \
-    --master_addr $MASTER_ADDR \
-    --master_port $MASTER_PORT
+    --rdzv_backend=${PET_RDZV_BACKEND} \
+    --rdzv_endpoint=${PET_RDZV_ENDPOINT} \
+    --rdzv_id=${PET_RDZV_ID} \
+    --max_restarts=3 \
+    --rdzv_conf=timeout=1800,read_timeout=1800 \
 "
 
 GPT_ARGS="
@@ -99,7 +119,6 @@ GPT_ARGS="
     --seed 1024 \
     --data-parallel-random-init \
     --use-ema \
-    --load $PROJECT_DIR \
 "
 
     # --no-load-optim \
@@ -119,7 +138,7 @@ MM_ARGS="
 OUTPUT_ARGS="
     --save ./test_ckpt/test1
     --log-interval 1 \
-    --save-interval 10 \
+    --save-interval 1000 \
     --eval-interval 10 \
     --eval-iters 10 \
 "

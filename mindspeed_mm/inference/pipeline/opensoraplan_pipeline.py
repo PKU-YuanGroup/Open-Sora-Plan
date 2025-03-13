@@ -81,6 +81,8 @@ class OpenSoraPlanPipeline(MMPipeline, InputsCheckMixin, MMEncoderMixin):
         # text prompt checks
         if use_prompt_template:
             prompt, negative_prompt = self.prompt_template(positive_prompt=prompt, negative_prompt=negative_prompt)
+
+        print("prompt: ", prompt, "negative_prompt: ", negative_prompt)
         self.text_prompt_checks(prompt, negative_prompt, prompt_embeds, negative_prompt_embeds)
         self.generate_params_checks(self.height, self.width)
         if self.model_type == "i2v":
@@ -141,7 +143,7 @@ class OpenSoraPlanPipeline(MMPipeline, InputsCheckMixin, MMEncoderMixin):
             clean_caption=clean_caption,
             use_prompt_preprocess=use_prompt_preprocess
         )
-        print(f"prompt_embeds: {prompt_embeds.shape}, negative_prompt_embeds: {negative_prompt_embeds.shape}, prompt_embeds_attention_mask: {prompt_embeds_attention_mask.shape}, negative_prompt_attention_mask: {negative_prompt_attention_mask.shape}")
+        # print(f"prompt_embeds: {prompt_embeds.shape}, negative_prompt_embeds: {negative_prompt_embeds.shape}, prompt_embeds_attention_mask: {prompt_embeds_attention_mask.shape}, negative_prompt_attention_mask: {negative_prompt_attention_mask.shape}")
         if self.tokenizer_2 is not None:
             prompt_embeds_2, prompt_embeds_attention_mask_2, negative_prompt_embeds_2, negative_prompt_attention_mask_2 = self.encode_texts(
                 tokenizer=self.tokenizer_2,

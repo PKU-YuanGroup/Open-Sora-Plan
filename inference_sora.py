@@ -31,9 +31,9 @@ if is_npu_available():
 
 def prepare_pipeline(args, dtype, ae_dtype, device):
     ori_args = get_args()
-    vae = AEModel(args.ae).to(device=device, dtype=ae_dtype).eval()
-    text_encoder = TextEncoder(args.text_encoder).get_model().to(device=device, dtype=dtype).eval()
-    text_encoder_2 = TextEncoder(args.text_encoder_2).get_model().to(device=device, dtype=dtype).eval() if args.text_encoder_2 is not None else None
+    vae = AEModel(args.ae).to(device=device).eval()
+    text_encoder = TextEncoder(args.text_encoder, dtype=dtype).get_model().to(device=device).eval()
+    text_encoder_2 = TextEncoder(args.text_encoder_2, dtype=dtype).get_model().to(device=device).eval() if args.text_encoder_2 is not None else None
     predict_model = PredictModel(args.predictor).get_model()
     if ori_args.load is not None:
         load_checkpoint([predict_model], None, None, strict=False)

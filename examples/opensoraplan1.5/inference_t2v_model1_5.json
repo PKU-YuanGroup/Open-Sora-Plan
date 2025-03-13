@@ -78,7 +78,7 @@
         "activation_fn": "gelu-approximate",
         "norm_elementwise_affine": true,
         "norm_eps": 1e-06,
-        "from_pretrained": "/work/share/checkpoint/gyy/suv_test_ckpt/diffusion_pytorch_model.safetensors"
+        "from_pretrained": null
     },
     "diffusion": {
         "model_id": "OpenSoraPlan",
@@ -88,17 +88,17 @@
     },
     "pipeline_config": {
         "use_attention_mask": true,
-        "input_size": [1, 288, 512],
+        "input_size": [105, 288, 512],
         "version": "v1.5",
         "model_type": "t2v"
     },
     "micro_batch_size": 1,
     "frame_interval":1,
     "model_max_length": 512,
-    "save_path":"./opensora_samples/samples/",
+    "save_path":"./opensora_samples_tp/samples/",
     "fps":18,
-    "prompt":"/work/share/projects/gyy/mind/Open-Sora-Plan/examples/opensoraplan1.5/sora.txt",
+    "prompt":"/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/sora.txt",
     "device":"npu",
-    "weight_dtype": "fp32"
+    "weight_dtype": "fp16"
 }
 
