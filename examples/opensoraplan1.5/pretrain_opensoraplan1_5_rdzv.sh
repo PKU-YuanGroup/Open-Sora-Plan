@@ -1,5 +1,4 @@
 #!/bin/bash
-
 wandb login 720d886d8c437c2142c88056a1eab8ef78d64a1f
 source /usr/local/Ascend/ascend-toolkit/set_env.sh
 source /usr/local/Ascend/nnal/atb/set_env.sh
@@ -13,6 +12,14 @@ export COMBINED_ENABLE=1
 export CPU_AFFINITY_CONF=1
 export HCCL_CONNECT_TIMEOUT=1800
 export HCCL_OP_BASE_FFTS_MODE_ENABLE=TRUE
+export GPU_NUM_PER_NODE=8
+
+MINDSPEED_PATH="./MindSpeed/"
+export PYTHONPATH=${MINDSPEED_PATH}:$PYTHONPATH
+
+export LD_PRELOAD=/lib/aarch64-linux-gnu/libGLdispatch.so.0
+export LD_PRELOAD=/lib/aarch64-linux-gnu/libgomp.so.1:$LD_PRELOAD
+# export GLOO_SOCKET_IFNAME=enp67s0f0
 
 # 平台断点续训，增加pipe fail捕获退出码
 set -o pipefail
@@ -39,40 +46,34 @@ echo "----------------"
 echo $NUM_NPUS
 echo $NNODE
 
-
-MINDSPEED_PATH="./MindSpeed/"
-export PYTHONPATH=${MINDSPEED_PATH}:$PYTHONPATH
-
-export LD_PRELOAD=/lib/aarch64-linux-gnu/libGLdispatch.so.0
-export LD_PRELOAD=/lib/aarch64-linux-gnu/libgomp.so.1:$LD_PRELOAD
-# export GLOO_SOCKET_IFNAME=enp67s0f0
-
-NNODES=${PET_NNODES}
-NODE_RANK=${PET_NODE_RANK}
-
-GPUS_PER_NODE=8
-WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
-
 TP=4
 PP=1
 CP=1
-MBS=2
+MBS=4
 GRAD_ACC_STEP=1
-GBS=$(($WORLD_SIZE*$GRAD_ACC_STEP*$MBS/$CP/$TP))
+GBS=$(($NUM_NPUS*$GRAD_ACC_STEP*$MBS/$CP/$TP))
 
 MM_DATA="./examples/opensoraplan1.5/data.json"
 MM_MODEL="./examples/opensoraplan1.5/model_opensoraplan1_5.json"
 MM_TOOL="./mindspeed_mm/tools/tools.json"
 
-DISTRIBUTED_ARGS="
-    --nproc_per_node $GPUS_PER_NODE \
-    --nnodes $NNODES \
-    --rdzv_backend=${PET_RDZV_BACKEND} \
-    --rdzv_endpoint=${PET_RDZV_ENDPOINT} \
-    --rdzv_id=${PET_RDZV_ID} \
-    --max_restarts=3 \
-    --rdzv_conf=timeout=1800,read_timeout=1800 \
-"
+# DISTRIBUTED_ARGS="
+#     --nproc_per_node $GPU_NUM_PER_NODE \
+#     --nnodes ${PET_NNODES} \
+#     --rdzv_backend=${PET_RDZV_BACKEND} \
+#     --rdzv_endpoint=${PET_RDZV_ENDPOINT} \
+#     --rdzv_id=${PET_RDZV_ID} \
+#     --max_restarts=3 \
+#     --rdzv_conf=timeout=1800,read_timeout=1800 \
+# "
+
+ DISTRIBUTED_ARGS="
+            --nproc_per_node $GPU_NUM_PER_NODE \
+            --nnodes $PET_NNODES \
+            --node_rank $PET_NODE_RANK \
+            --master_addr $PET_MASTER_ADDR \
+            --master_port $PET_MASTER_PORT
+        "
 
 GPT_ARGS="
     --tensor-model-parallel-size ${TP} \
@@ -94,8 +95,8 @@ GPT_ARGS="
     --swiglu \
     --no-masked-softmax-fusion \
     --bf16 \
-    --lr 1e-5 \
-    --min-lr 1e-5 \
+    --lr 1e-4 \
+    --min-lr 1e-4 \
     --adam-beta1 0.9 \
     --adam-beta2 0.999 \
     --adam-eps 1e-15 \
@@ -109,7 +110,7 @@ GPT_ARGS="
     --use-distributed-optimizer \
     --recompute-granularity full \
     --recompute-method block \
-    --recompute-num-layers 32 \
+    --recompute-num-layers 0 \
     --normalization RMSNorm \
     --use-fused-rmsnorm \
     --qk-layernorm \
@@ -119,6 +120,7 @@ GPT_ARGS="
     --seed 1024 \
     --data-parallel-random-init \
     --use-ema \
+    --load $PROJECT_DIR \
 "
 
     # --no-load-optim \
@@ -136,7 +138,7 @@ MM_ARGS="
 "
 
 OUTPUT_ARGS="
-    --save ./test_ckpt/test1
+    --save $PROJECT_DIR \
     --log-interval 1 \
     --save-interval 1000 \
     --eval-interval 10 \
@@ -144,22 +146,22 @@ OUTPUT_ARGS="
 "
 
 WANDB_ARGS="
-    --wandb-project test_in_tianyi \
-    --wandb-exp-name test \
-    --wandb-save-dir . \
+    --wandb-project $PROJECT_NAME \
+    --wandb-exp-name $PROJECT_EXP_NAME \
+    --wandb-save-dir $PROJECT_DIR \
     --tensorboard-log-interval 1 \
 "
 
-logfile=$(date +%Y%m%d)_$(date +%H%M%S)
-mkdir -p logs
+logfile=${PROJECT_EXP_NAME}_node${RANK}_$(date +%Y%m%d)_$(date +%H%M%S)
+mkdir -p logs/$PROJECT_NAME
 torchrun $DISTRIBUTED_ARGS pretrain_sora.py \
     $GPT_ARGS \
     $MM_ARGS \
     $OUTPUT_ARGS \
     $WANDB_ARGS \
-    --distributed-backend nccl 2>&1 | tee logs/train_${logfile}.log
+    --distributed-backend nccl 2>&1 | tee logs/$PROJECT_NAME/train_${logfile}.log
 
-chmod 440 logs/train_${logfile}.log
-STEP_TIME=`grep "elapsed time per iteration" logs/train_${logfile}.log | awk -F ':' '{print$5}' | awk -F '|' '{print$1}' | head -n 200 | tail -n 100 | awk '{sum+=$1} END {if (NR != 0) printf("%.1f",sum/NR)}'`
+chmod 440 logs/$PROJECT_NAME/train_${logfile}.log
+STEP_TIME=`grep "elapsed time per iteration" logs/$PROJECT_NAME/train_${logfile}.log | awk -F ':' '{print$5}' | awk -F '|' '{print$1}' | head -n 200 | tail -n 100 | awk '{sum+=$1} END {if (NR != 0) printf("%.1f",sum/NR)}'`
 FPS=`awk 'BEGIN{printf "%.3f\n", '${GBS}'*1000/'${STEP_TIME}'}'`
 echo "Elapsed Time Per iteration: $STEP_TIME, Average FPS: $FPS"

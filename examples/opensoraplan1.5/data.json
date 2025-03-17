@@ -86,7 +86,7 @@
 		"pin_memory": false,
 		"group_data": true,
 		"initial_global_step_for_sampler": 0, 
-		"gradient_accumulation_size": 1,
+		"gradient_accumulation_size": 4,
 		"collate_param": {
 			"batch_size": 2,
 			"num_frames": 105,

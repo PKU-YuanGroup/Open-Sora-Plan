@@ -67,7 +67,6 @@ SORA_ARGS="
     --sequence-parallel \
     --distributed-timeout-minutes 20 \
     --optimizer-selection fused_torch_adamw \
-    --load /work/share/projects/gyy/mindspeed/Open-Sora-Plan/test_ckpt/test1
 "
 
 torchrun $DISTRIBUTED_ARGS  inference_sora.py  $MM_ARGS $SORA_ARGS 2>&1 | tee logs/inference_test.log

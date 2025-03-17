@@ -14,6 +14,7 @@ from ..tensor_parallel import param_is_not_tensor_parallel_duplicate
 from ..transformer.module import param_is_not_shared
 from logging import getLogger
 from megatron.training.global_vars import get_wandb_writer
+from megatron.training.utils import gather_info_from_all_processes
 import time
 
 from .. import parallel_state, tensor_parallel
@@ -43,20 +44,6 @@ def get_adaptive_grad_clip_info(key):
                 "max_grad_norm_var, num_zero_grad, clip_coef, zero_grad_flag_list, nan_norm_flag,"
                 "but {key} is not in the list.")
     return None
-
-
-def gather_info_from_all_processes(info: Union[float, torch.Tensor], dtype=torch.int):
-    if not torch.distributed.is_initialized():
-        raise ValueError("torch.distributed is not initialized.")
-    if not isinstance(info, torch.Tensor):
-        info = torch.tensor([info], dtype=dtype).cuda()
-    gathered_infos = [torch.zeros_like(info) for _ in range(torch.distributed.get_world_size())]
-    torch.distributed.all_gather(gathered_infos, info)
-    if info.ndim == 0:
-        gathered_infos = torch.stack(gathered_infos)
-    else:
-        gathered_infos = torch.cat(gathered_infos)
-    return gathered_infos
 
 
 def get_unlocked_params_weight_norm_fp32(params_for_norm, norm_type=2.0, model_parallel_group=None):

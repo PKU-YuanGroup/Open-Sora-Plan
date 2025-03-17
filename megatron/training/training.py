@@ -50,6 +50,7 @@ from .utils import (
     report_memory,
     unwrap_model,
     append_to_progress_log,
+    gather_info_from_all_processes
 )
 from .global_vars import (
     get_args,
@@ -59,6 +60,8 @@ from .global_vars import (
     get_wandb_writer,
     get_one_logger)
 from . import one_logger_utils
+
+from megatron.core.optimizer.clip_grads import AdaptiveGradClipInfo
 
 
 stimer = StragglerDetector()
@@ -735,6 +738,19 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
        (iteration % args.tensorboard_log_interval == 0):
         timers.write(timers_to_log, writer, iteration,
                      normalizer=total_iterations)
+
+    max_loss_dict = {}
+    avg_loss_dict = {}
+    for key in loss_dict:
+        loss = loss_dict[key]
+        print(f'loss: {key} = {loss}')
+        loss_list = gather_info_from_all_processes(loss, torch.float)
+        max_loss = loss.max().item()
+        loss_list = (1.0 - AdaptiveGradClipInfo.zero_grad_flag_list.float()) * loss_list
+        avg_loss = (loss_list / (AdaptiveGradClipInfo.clip_coef + 1e-9)).mean().item()
+        max_loss_dict[key] = max_loss
+        avg_loss_dict[key] = avg_loss
+
     # We only need wandb writer
     if (writer is not None or wandb_writer is not None) and (iteration % args.tensorboard_log_interval == 0):
         if wandb_writer:
@@ -763,6 +779,8 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
                                 args.consumed_train_samples)
             if wandb_writer:
                 wandb_writer.log({key: loss_dict[key]}, iteration)
+                wandb_writer.log({f'{key}_max': max_loss_dict[key]}, iteration)
+                wandb_writer.log({f'{key}_avg': avg_loss_dict[key]}, iteration)
         if args.log_loss_scale_to_tensorboard:
             if writer:
                 writer.add_scalar('loss-scale', loss_scale, iteration)

@@ -37,14 +37,14 @@ TP=4
 PP=1
 CP=1
 MBS=2
-GRAD_ACC_STEP=1
+GRAD_ACC_STEP=8
 GBS=$(($WORLD_SIZE*$GRAD_ACC_STEP*$MBS/$CP/$TP))
 
 MM_DATA="./examples/opensoraplan1.5/data.json"
 MM_MODEL="./examples/opensoraplan1.5/model_opensoraplan1_5.json"
 MM_TOOL="./mindspeed_mm/tools/tools.json"
 
-PROJECT_DIR="./test_ckpt/test1"
+PROJECT_DIR="./test_ckpt/test_1_node"
 
 DISTRIBUTED_ARGS="
     --nproc_per_node $GPUS_PER_NODE \
@@ -117,16 +117,16 @@ MM_ARGS="
 "
 
 OUTPUT_ARGS="
-    --save ./test_ckpt/test1
+    --save $PROJECT_DIR
     --log-interval 1 \
-    --save-interval 10 \
+    --save-interval 1000 \
     --eval-interval 10 \
     --eval-iters 10 \
 "
 
 WANDB_ARGS="
     --wandb-project test_in_tianyi \
-    --wandb-exp-name test \
+    --wandb-exp-name test_1_node \
     --wandb-save-dir . \
     --tensorboard-log-interval 1 \
 "

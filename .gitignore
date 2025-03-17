@@ -163,7 +163,7 @@ fusion_result.json
 ge_check_op.json
 
 # sample dir
-/opensora_samples/
+/opensora_samples*/
 
 # multi-node script
 SoraClusterScripts/

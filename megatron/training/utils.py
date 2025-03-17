@@ -3,6 +3,7 @@
 """General utilities."""
 import os
 import sys
+from typing import Union
 from datetime import datetime
 
 import torch
@@ -384,3 +385,17 @@ def get_batch_on_this_tp_rank(data_iterator):
        }
 
     return batch
+
+
+def gather_info_from_all_processes(info: Union[float, torch.Tensor], dtype=torch.int):
+    if not torch.distributed.is_initialized():
+        raise ValueError("torch.distributed is not initialized.")
+    if not isinstance(info, torch.Tensor):
+        info = torch.tensor([info], dtype=dtype).cuda()
+    gathered_infos = [torch.zeros_like(info) for _ in range(torch.distributed.get_world_size())]
+    torch.distributed.all_gather(gathered_infos, info)
+    if info.ndim == 0:
+        gathered_infos = torch.stack(gathered_infos)
+    else:
+        gathered_infos = torch.cat(gathered_infos)
+    return gathered_infos.detach()
