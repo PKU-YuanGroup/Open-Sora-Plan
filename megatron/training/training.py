@@ -658,7 +658,7 @@ def train_step(forward_step_func, data_iterator,
 
 def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_rate, iteration,
                  loss_scale, report_memory_flag, skipped_iter,
-                 grad_norm, params_norm, num_zeros_in_grad):
+                 grad_norm, params_norm, num_zeros_in_grad, extreme_error_flag):
     """Log training information such as losses, timing, ...."""
     args = get_args()
     timers = get_timers()
@@ -739,18 +739,6 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
         timers.write(timers_to_log, writer, iteration,
                      normalizer=total_iterations)
 
-    max_loss_dict = {}
-    avg_loss_dict = {}
-    for key in loss_dict:
-        loss = loss_dict[key]
-        print(f'loss: {key} = {loss}')
-        loss_list = gather_info_from_all_processes(loss, torch.float)
-        max_loss = loss.max().item()
-        loss_list = (1.0 - AdaptiveGradClipInfo.zero_grad_flag_list.float()) * loss_list
-        avg_loss = (loss_list / (AdaptiveGradClipInfo.clip_coef + 1e-9)).mean().item()
-        max_loss_dict[key] = max_loss
-        avg_loss_dict[key] = avg_loss
-
     # We only need wandb writer
     if (writer is not None or wandb_writer is not None) and (iteration % args.tensorboard_log_interval == 0):
         if wandb_writer:
@@ -779,8 +767,6 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
                                 args.consumed_train_samples)
             if wandb_writer:
                 wandb_writer.log({key: loss_dict[key]}, iteration)
-                wandb_writer.log({f'{key}_max': max_loss_dict[key]}, iteration)
-                wandb_writer.log({f'{key}_avg': avg_loss_dict[key]}, iteration)
         if args.log_loss_scale_to_tensorboard:
             if writer:
                 writer.add_scalar('loss-scale', loss_scale, iteration)
@@ -834,6 +820,22 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
                     mem_stats["allocation.all.current"],
                     iteration,
                 )
+        # we use adaptive clip grad, so we should log extreme error situation.
+        if wandb_writer:
+            wandb_writer.log({'extreme-error': int(extreme_error_flag)}, iteration)
+            wandb_writer.log({
+                'weight_norm': AdaptiveGradClipInfo.weight_norm,
+                'moving_avg_max_grad_norm': AdaptiveGradClipInfo.moving_avg_max_grad_norm,
+                'moving_avg_max_grad_norm_var': AdaptiveGradClipInfo.moving_avg_max_grad_norm_var,
+                'max_grad_norm': AdaptiveGradClipInfo.max_grad_norm,
+                'max_grad_norm_after_clip': AdaptiveGradClipInfo.max_grad_norm_after_clip,
+                'max_norm': AdaptiveGradClipInfo.max_norm,
+                'max_grad_norm_var': AdaptiveGradClipInfo.max_grad_norm_var,
+                'num_zero_grad': AdaptiveGradClipInfo.num_zero_grad,
+                'clip_coef': AdaptiveGradClipInfo.clip_coef,
+                'nan_norm_flag': AdaptiveGradClipInfo.nan_norm_flag,
+            }, iteration)
+
     if args.num_experts is not None:
         moe_loss_scale = 1 / get_num_microbatches()
         track_moe_metrics(moe_loss_scale, iteration, writer, wandb_writer, total_loss_dict, args.moe_per_layer_logging)

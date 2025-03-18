@@ -22,7 +22,7 @@ from .. import parallel_state, tensor_parallel
 logger = getLogger()
 
 class AdaptiveGradClipInfo:
-    weight_norm = -1.0
+    weight_norm = 0.0
     moving_avg_max_grad_norm = -1e6
     moving_avg_max_grad_norm_var = 0.0
     max_grad_norm = 0.0
@@ -31,6 +31,7 @@ class AdaptiveGradClipInfo:
     max_grad_norm_var = 0.0
     num_zero_grad = 0.0
     clip_coef = 1.0
+    zero_grad_flag = 0
     zero_grad_flag_list = None
     nan_norm_flag = 0
 
@@ -98,7 +99,7 @@ def zero_and_clip_grad_(grads, clip_coef=1.0, zero_grad_flag=True):
     elif clip_coef != 1.0:
         dummy_overflow_buf = torch.tensor([0], dtype=torch.int, device='cuda')
         multi_tensor_applier(
-            amp_C.multi_tensor_scale, dummy_overflow_buf, [grads, grads], 1 / (clip_coef + 1.0e-6)
+            amp_C.multi_tensor_scale, dummy_overflow_buf, [grads, grads], 1 / (clip_coef + 1.0e-15)
         )
 
 def get_grad_norm(grads_for_norm, norm_type=2.0, model_parallel_group=None):
@@ -222,6 +223,7 @@ def adaptive_clip_grad_norm_fp32(
         max_norm = 1.0
         num_zero_grad = 0.0
         clip_coef = 1.0
+        zero_grad_flag = 0
         zero_grad_flag_list = torch.zeros_like(grad_norm_before_clip_list, device=grad_norm_before_clip_list.device)
         max_grad_norm_after_clip = 1.0  
         grad_norm_after_clip = grad_norm_before_clip
@@ -260,24 +262,9 @@ def adaptive_clip_grad_norm_fp32(
     AdaptiveGradClipInfo.max_grad_norm_var = max_grad_norm_var
     AdaptiveGradClipInfo.num_zero_grad = num_zero_grad
     AdaptiveGradClipInfo.clip_coef = clip_coef
+    AdaptiveGradClipInfo.zero_grad_flag = zero_grad_flag
     AdaptiveGradClipInfo.zero_grad_flag_list = zero_grad_flag_list
     AdaptiveGradClipInfo.nan_norm_flag = nan_norm_flag
-
-    if torch.distributed.get_rank() == (torch.distributed.get_world_size() - 1):
-        wandb_writer = get_wandb_writer()
-        if wandb_writer is not None:
-            wandb_writer.log({
-                'weight_norm': weight_norm,
-                'moving_avg_max_grad_norm': AdaptiveGradClipInfo.moving_avg_max_grad_norm,
-                'moving_avg_max_grad_norm_var': AdaptiveGradClipInfo.moving_avg_max_grad_norm_var,
-                'max_grad_norm': AdaptiveGradClipInfo.max_grad_norm,
-                'max_grad_norm_after_clip': AdaptiveGradClipInfo.max_grad_norm_after_clip,
-                'max_norm': AdaptiveGradClipInfo.max_norm,
-                'max_grad_norm_var': AdaptiveGradClipInfo.max_grad_norm_var,
-                'num_zero_grad': AdaptiveGradClipInfo.num_zero_grad,
-                'clip_coef': AdaptiveGradClipInfo.clip_coef,
-                'nan_norm_flag': AdaptiveGradClipInfo.nan_norm_flag,
-            }, commit=False)
 
     return grad_norm_after_clip
 

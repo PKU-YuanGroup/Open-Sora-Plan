@@ -67,6 +67,7 @@ SORA_ARGS="
     --sequence-parallel \
     --distributed-timeout-minutes 20 \
     --optimizer-selection fused_torch_adamw \
+    --load /work/share/checkpoint/gyy/osp/test_4_node_on_istock/iter_0002000 
 "
 
 torchrun $DISTRIBUTED_ARGS  inference_sora.py  $MM_ARGS $SORA_ARGS 2>&1 | tee logs/inference_test.log

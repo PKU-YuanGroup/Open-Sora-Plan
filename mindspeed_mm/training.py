@@ -6,6 +6,8 @@ import time
 import torch
 import torch_npu
 
+from megatron.core.optimizer.clip_grads import AdaptiveGradClipInfo
+
 from megatron.core import mpu
 from megatron.core.utils import get_model_config
 from megatron.core.distributed import DistributedDataParallel as DDP
@@ -203,8 +205,9 @@ def pretrain(
             print_rank_0("retro cyclic train iters : %d" % args.train_iters)
 
         iteration = 0
+        extreme_error_flag = False
         if args.do_train and args.train_iters > 0:
-            iteration, num_floating_point_operations_so_far = train(
+            iteration, num_floating_point_operations_so_far, extreme_error_flag = train(
                 forward_step_func,
                 model,
                 optimizer,
@@ -229,7 +232,7 @@ def pretrain(
         # NOTE For group data, we need to save the global step for sampler.
         group_data = getattr(args.mm.data.dataloader_param, 'group_data', False)
 
-        if group_data:
+        if group_data and not extreme_error_flag:
             # group sampler
             timers("global-step-for-sampler-txt-delete-setup", log_level=0).start(barrier=True)
             global_step_for_sampler_txt = os.path.join(args.save, 'global_step_for_sampler.txt')
@@ -458,6 +461,12 @@ def train(
                 decoupled_learning_rate = param_group["lr"]
             else:
                 learning_rate = param_group["lr"]
+
+        extreme_error_flag = False
+        if AdaptiveGradClipInfo.num_zero_grad > torch.distributed.get_world_size() // 2:
+            print_rank_0("Too many zeros in gradients, stop training!")
+            extreme_error_flag = True
+            
         report_memory_flag = training_log(
             loss_dict,
             total_loss_dict,
@@ -470,7 +479,23 @@ def train(
             grad_norm,
             params_norm,
             num_zeros_in_grad,
+            extreme_error_flag,
         )
+
+        if extreme_error_flag: 
+            if group_data:
+                # group sampler
+                timers("global-step-for-sampler-txt-save-setup", log_level=0).start(barrier=True)
+                print_rank_0("save global_step_for_sampler.txt")
+                initial_global_step_for_sampler = getattr(args.mm.data.dataloader_param, 'initial_global_step_for_sampler', 0)
+                global_step_for_sampler_txt = os.path.join(args.save, 'global_step_for_sampler.txt')
+                global_step_for_sampler = initial_global_step_for_sampler + iteration - initial_iteration
+                print_rank_0(f"initial_global_step_for_sampler: {initial_global_step_for_sampler}")
+                print_rank_0(f"current_global_step_for_sampler: {global_step_for_sampler}")
+                with open(global_step_for_sampler_txt, 'w') as f:
+                    f.write(str(global_step_for_sampler))
+                timers("global-step-for-sampler-txt-save-setup").stop()
+            break
 
         # Autoresume
         if args.adlr_autoresume and (iteration % args.adlr_autoresume_interval == 0):
@@ -617,7 +642,7 @@ def train(
     if exit_flag:
         sys.exit()
 
-    return iteration, num_floating_point_operations_so_far
+    return iteration, num_floating_point_operations_so_far, extreme_error_flag
 
 
 def train_step(

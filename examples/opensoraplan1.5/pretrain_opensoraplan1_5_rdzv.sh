@@ -50,30 +50,29 @@ TP=4
 PP=1
 CP=1
 MBS=4
-GRAD_ACC_STEP=1
+GRAD_ACC_STEP=2
 GBS=$(($NUM_NPUS*$GRAD_ACC_STEP*$MBS/$CP/$TP))
 
-MM_DATA="./examples/opensoraplan1.5/data.json"
 MM_MODEL="./examples/opensoraplan1.5/model_opensoraplan1_5.json"
 MM_TOOL="./mindspeed_mm/tools/tools.json"
 
-# DISTRIBUTED_ARGS="
-#     --nproc_per_node $GPU_NUM_PER_NODE \
-#     --nnodes ${PET_NNODES} \
-#     --rdzv_backend=${PET_RDZV_BACKEND} \
-#     --rdzv_endpoint=${PET_RDZV_ENDPOINT} \
-#     --rdzv_id=${PET_RDZV_ID} \
-#     --max_restarts=3 \
-#     --rdzv_conf=timeout=1800,read_timeout=1800 \
-# "
+DISTRIBUTED_ARGS="
+    --nproc_per_node $GPU_NUM_PER_NODE \
+    --nnodes ${PET_NNODES} \
+    --rdzv_backend=${PET_RDZV_BACKEND} \
+    --rdzv_endpoint=${PET_RDZV_ENDPOINT} \
+    --rdzv_id=${PET_RDZV_ID} \
+    --max_restarts=3 \
+    --rdzv_conf=timeout=1800,read_timeout=1800 \
+"
 
- DISTRIBUTED_ARGS="
-            --nproc_per_node $GPU_NUM_PER_NODE \
-            --nnodes $PET_NNODES \
-            --node_rank $PET_NODE_RANK \
-            --master_addr $PET_MASTER_ADDR \
-            --master_port $PET_MASTER_PORT
-        "
+#  DISTRIBUTED_ARGS="
+#             --nproc_per_node $GPU_NUM_PER_NODE \
+#             --nnodes $PET_NNODES \
+#             --node_rank $PET_NODE_RANK \
+#             --master_addr $PET_MASTER_ADDR \
+#             --master_port $PET_MASTER_PORT
+#         "
 
 GPT_ARGS="
     --tensor-model-parallel-size ${TP} \

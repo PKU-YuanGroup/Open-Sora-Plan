@@ -245,7 +245,7 @@ def convert(load_dir, save_dir, ema=False):
 
     
 if __name__ == "__main__":
-    load_dir = '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/test_ckpt/test_1_node/iter_0003000'
-    save_dir = '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/test_ckpt/test1/test_merge_bash_test_1_node'
+    load_dir = '/work/share/checkpoint/gyy/osp/test_4_node_on_istock/iter_0002000'
+    save_dir = '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/test_ckpt/test1/test_merge_bash_test_4_node'
     ema = False
     convert(load_dir, save_dir, ema=ema)
