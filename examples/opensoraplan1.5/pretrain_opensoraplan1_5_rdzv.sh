@@ -101,7 +101,7 @@ GPT_ARGS="
     --adam-eps 1e-15 \
     --lr-decay-style constant \
     --weight-decay 1e-4 \
-    --lr-warmup-init 1e-5 \
+    --lr-warmup-init 1e-4 \
     --lr-warmup-iters 0 \
     --clip-grad 1.0 \
     --train-iters 100000000 \

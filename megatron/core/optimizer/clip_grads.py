@@ -17,7 +17,7 @@ from megatron.training.global_vars import get_wandb_writer
 from megatron.training.utils import gather_info_from_all_processes
 import time
 
-from .. import parallel_state, tensor_parallel
+from .. import mpu
 
 logger = getLogger()
 
@@ -34,6 +34,7 @@ class AdaptiveGradClipInfo:
     zero_grad_flag = 0
     zero_grad_flag_list = None
     nan_norm_flag = 0
+    extreme_error_flag = 0
 
 
 def get_adaptive_grad_clip_info(key):
@@ -88,6 +89,8 @@ def get_unlocked_params_weight_norm_fp32(params_for_norm, norm_type=2.0, model_p
         )
         total_norm = total_norm ** (1.0 / norm_type)
 
+        total_norm = total_norm.item()
+
     return total_norm
 
 def zero_and_clip_grad_(grads, clip_coef=1.0, zero_grad_flag=True):
@@ -99,7 +102,7 @@ def zero_and_clip_grad_(grads, clip_coef=1.0, zero_grad_flag=True):
     elif clip_coef != 1.0:
         dummy_overflow_buf = torch.tensor([0], dtype=torch.int, device='cuda')
         multi_tensor_applier(
-            amp_C.multi_tensor_scale, dummy_overflow_buf, [grads, grads], 1 / (clip_coef + 1.0e-15)
+            amp_C.multi_tensor_scale, dummy_overflow_buf, [grads, grads], 1 / (clip_coef + 1.0e-6)
         )
 
 def get_grad_norm(grads_for_norm, norm_type=2.0, model_parallel_group=None):
@@ -136,8 +139,6 @@ def get_grad_norm(grads_for_norm, norm_type=2.0, model_parallel_group=None):
             for grad in grads_for_norm:
                 grad_norm = torch.norm(grad, norm_type)
                 total_norm += grad_norm ** norm_type
-        # print("---------------------------get_grad_norm-----------------------")
-        # print(f"before all_reduce, total_norm: {total_norm}")
         # Sum across all model-parallel GPUs.
         torch.distributed.all_reduce(
             total_norm, op=torch.distributed.ReduceOp.SUM, group=model_parallel_group
@@ -189,9 +190,6 @@ def adaptive_clip_grad_norm_fp32(
             assert param.grad.type() == 'torch.cuda.FloatTensor'
             grads.append(param.grad.detach())
 
-    if model_parallel_group is None and parallel_state.get_model_parallel_group() is not None:
-        model_parallel_group = parallel_state.get_model_parallel_group()
-
     # Norm parameters.
     norm_type = float(norm_type)
     weight_norm = get_unlocked_params_weight_norm_fp32(params_for_norm, norm_type, model_parallel_group)
@@ -215,6 +213,9 @@ def adaptive_clip_grad_norm_fp32(
     moving_avg_max_grad_norm_var = AdaptiveGradClipInfo.moving_avg_max_grad_norm_var
     ema_decay = clip_grad_ema_decay
     is_first_step = True if moving_avg_max_grad_norm < 0.0 else False # the value of init is -1e6, before first step
+
+    # initailize
+    grad_norm_after_clip = grad_norm_before_clip
 
     if is_first_step:  
         moving_avg_max_grad_norm = 1.0
@@ -242,16 +243,22 @@ def adaptive_clip_grad_norm_fp32(
         max_grad_norm_after_clip = grad_norm_after_clip_list.max().item() * clip_coef
         # only communication bug can cause this situation
         if torch.isnan(grad_norm_after_clip_list).any() or torch.isinf(grad_norm_after_clip_list).any():
+            nan_norm_flag = 1
             print(grad_norm_after_clip_list)
-            raise ValueError("Detected NaN or Inf in gathered clipping gradient norms.")
+            
         # 用裁过的max grad norm作为ema统计量，裁过的一定是之前认为合理的最大范围
-        clip_threshold = 2 * (model_parallel_group.size() if model_parallel_group is not None else 1)
-        if num_zero_grad < clip_threshold:
+        clip_threshold = 2 * model_parallel_group.size()
+        extreme_error_threshold = max(torch.distributed.get_world_size() // 2, clip_threshold * 2)
+        if num_zero_grad <= clip_threshold:
             moving_avg_max_grad_norm = ema_decay * moving_avg_max_grad_norm + (1 - ema_decay) * max_grad_norm_after_clip
             max_grad_norm_var = (moving_avg_max_grad_norm - max_grad_norm_after_clip) ** 2
             moving_avg_max_grad_norm_var = ema_decay * moving_avg_max_grad_norm_var + (1 - ema_decay) * max_grad_norm_var
-        else:
+        elif num_zero_grad <= extreme_error_threshold:
             max_grad_norm_var = (moving_avg_max_grad_norm - max_grad_norm) ** 2
+        
+        if nan_norm_flag or num_zero_grad > extreme_error_threshold:
+            print('Extreme error! The training process will be interrupted!')
+            AdaptiveGradClipInfo.extreme_error_flag = 1
 
     AdaptiveGradClipInfo.weight_norm = weight_norm
     AdaptiveGradClipInfo.moving_avg_max_grad_norm = moving_avg_max_grad_norm
@@ -265,6 +272,132 @@ def adaptive_clip_grad_norm_fp32(
     AdaptiveGradClipInfo.zero_grad_flag = zero_grad_flag
     AdaptiveGradClipInfo.zero_grad_flag_list = zero_grad_flag_list
     AdaptiveGradClipInfo.nan_norm_flag = nan_norm_flag
+
+    if isinstance(grad_norm_after_clip, torch.Tensor):
+        grad_norm_after_clip = grad_norm_after_clip.item()
+
+    return grad_norm_after_clip
+
+def adaptive_clip_grad_norm_fp32_with_distributed_optimizer(
+    parameters: Union[List[torch.Tensor], torch.Tensor],
+    grads_for_norm: Union[List[torch.Tensor], torch.Tensor],
+    params_for_norm: Union[List[torch.Tensor], torch.Tensor] = None,
+    norm_type: Union[int, float] = 2,
+    clip_grad_ema_decay: float = 0.99,
+    model_parallel_group: Optional[torch.distributed.ProcessGroup] = None,
+) -> float:
+    """Clips gradient norm of an iterable of parameters whose gradients
+       are in fp32.
+
+    This is adapted from torch.nn.utils.clip_grad.clip_grad_norm_ and
+    added functionality to handle model parallel parameters. Note that
+    the gradients are modified in place.
+
+    Args:
+        parameters (Iterable[Tensor] or Tensor): an iterable of Tensors or a
+            single Tensor that will have gradients normalized.
+        grads_for_norm (Iterable[Tensor]): an iterable of Tensors or a single
+            Tensor that will be used for calculating the grad norm.
+        max_norm (float or int): max norm of the gradients.
+        norm_type (float or int): type of the used p-norm. Can be ``'inf'`` for
+            infinity norm.
+        model_parallel_group (torch.distributed.ProcessGroup, optional): model-parallel
+            group over which grad norm needs to be aggregated.
+
+    Returns:
+        Total norm of the parameters (viewed as a single vector).
+    """
+
+    if isinstance(parameters, torch.Tensor):
+        parameters = [parameters]
+    if isinstance(grads_for_norm, torch.Tensor):
+        grads_for_norm = [grads_for_norm]
+
+    # Grads.
+    grads = []
+    for param in parameters:
+        if param.grad is not None:
+            assert param.grad.type() == 'torch.cuda.FloatTensor'
+            grads.append(param.grad.detach())
+
+    if model_parallel_group is not None:
+        raise ValueError("When using distributed optimizer, model_parallel_group should not be None (all ranks).")
+
+    # Norm parameters.
+    norm_type = float(norm_type)
+    AdaptiveGradClipInfo.weight_norm = weight_norm = get_unlocked_params_weight_norm_fp32(params_for_norm, norm_type, model_parallel_group=None)
+
+    grad_norm_before_clip = get_grad_norm(grads_for_norm, norm_type, model_parallel_group=None)
+
+    nan_norm_flag = 0
+    if torch.isnan(grad_norm_before_clip) or torch.isinf(grad_norm_before_clip):
+        nan_norm_flag = 1
+        
+    moving_avg_max_grad_norm = AdaptiveGradClipInfo.moving_avg_max_grad_norm
+    moving_avg_max_grad_norm_var = AdaptiveGradClipInfo.moving_avg_max_grad_norm_var
+    ema_decay = clip_grad_ema_decay
+    is_first_step = True if moving_avg_max_grad_norm < 0.0 else False # the value of init is -1e6, before first step
+
+    # initailize
+    grad_norm_after_clip = grad_norm_before_clip
+
+    if is_first_step:  
+        moving_avg_max_grad_norm = min(3 * grad_norm_before_clip, 1.0)
+        moving_avg_max_grad_norm_var = 0.0
+        max_grad_norm_var = moving_avg_max_grad_norm_var
+        max_norm = moving_avg_max_grad_norm + 3.0 * (moving_avg_max_grad_norm_var ** 0.5)
+        clip_coef = 1.0
+        max_grad_norm_after_clip = grad_norm_after_clip = grad_norm_before_clip
+
+        AdaptiveGradClipInfo.moving_avg_max_grad_norm = moving_avg_max_grad_norm
+        AdaptiveGradClipInfo.moving_avg_max_grad_norm_var = moving_avg_max_grad_norm_var
+        AdaptiveGradClipInfo.max_grad_norm_var = max_grad_norm_var
+        AdaptiveGradClipInfo.max_norm = max_norm
+        AdaptiveGradClipInfo.clip_coef = clip_coef
+        AdaptiveGradClipInfo.max_grad_norm = grad_norm_before_clip
+        AdaptiveGradClipInfo.max_grad_norm_after_clip = max_grad_norm_after_clip
+        
+    else:
+        clip_threshold = moving_avg_max_grad_norm + 3.0 * (moving_avg_max_grad_norm_var ** 0.5)
+        # For grads that are too large, we believe that the data at this point is extremely abnormal and not suitable for further training, so it is forced to terminate
+        extreme_error_threshold = max(moving_avg_max_grad_norm + 5.0 * (moving_avg_max_grad_norm_var ** 0.5), 5.0)
+
+        AdaptiveGradClipInfo.max_norm = clip_threshold
+        AdaptiveGradClipInfo.max_grad_norm = grad_norm_before_clip
+
+        if grad_norm_before_clip <= clip_threshold:
+            moving_avg_max_grad_norm = ema_decay * moving_avg_max_grad_norm + (1 - ema_decay) * grad_norm_before_clip
+            max_grad_norm_var = (moving_avg_max_grad_norm - grad_norm_before_clip) ** 2
+            moving_avg_max_grad_norm_var = ema_decay * moving_avg_max_grad_norm_var + (1 - ema_decay) * max_grad_norm_var
+            max_grad_norm_after_clip = grad_norm_after_clip = grad_norm_before_clip
+            AdaptiveGradClipInfo.moving_avg_max_grad_norm = moving_avg_max_grad_norm
+            AdaptiveGradClipInfo.max_grad_norm_var = max_grad_norm_var
+            AdaptiveGradClipInfo.moving_avg_max_grad_norm_var = moving_avg_max_grad_norm_var
+            AdaptiveGradClipInfo.max_grad_norm_after_clip = max_grad_norm_after_clip
+
+            AdaptiveGradClipInfo.clip_coef = 1.0 # clip_coef = 1.0 means no clipping
+        # out of 3 sigma mean abnormal step.
+        elif grad_norm_before_clip <= extreme_error_threshold:
+            clip_coef = grad_norm_before_clip / clip_threshold
+            zero_and_clip_grad_(grads, clip_coef, zero_grad_flag=False)
+            grad_norm_after_clip = get_grad_norm(grads_for_norm, norm_type, model_parallel_group=None)
+            max_grad_norm_after_clip = grad_norm_after_clip
+            # only communication bug can cause this situation
+            if torch.isnan(grad_norm_after_clip) or torch.isinf(grad_norm_after_clip):
+                print(grad_norm_after_clip)
+                nan_norm_flag = 1
+
+            AdaptiveGradClipInfo.max_grad_norm_after_clip = max_grad_norm_after_clip
+            AdaptiveGradClipInfo.clip_coef = clip_coef
+
+        if nan_norm_flag or grad_norm_before_clip > extreme_error_threshold:
+            print('Extreme error, the training process will be interrupted!')
+            AdaptiveGradClipInfo.extreme_error_flag = 1
+
+    AdaptiveGradClipInfo.nan_norm_flag = nan_norm_flag
+
+    if isinstance(grad_norm_after_clip, torch.Tensor):
+        grad_norm_after_clip = grad_norm_after_clip.item()
 
     return grad_norm_after_clip
 

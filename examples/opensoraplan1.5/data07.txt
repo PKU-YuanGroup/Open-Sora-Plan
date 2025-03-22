@@ -1,1 +1,2 @@
-/work/share/dataset/sucai_video/istock_v4,/work/share1/video_final/final_istock_v4/istock_v4_final_1609738.json
+/work,/work/share1/caption/osp/0319/random_video_final_15_1906616.json
+/work,/work/share1/caption/osp/0319/random_video_final_16_1906616.json

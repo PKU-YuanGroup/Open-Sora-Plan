@@ -175,3 +175,4 @@ test_ckpt*/
 *.pt
 *.safetensors
 *.pth
+*.mp4

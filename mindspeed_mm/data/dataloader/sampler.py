@@ -96,8 +96,9 @@ def get_length_grouped_data_indices(
         lengths, 
         batch_size, 
         world_size, 
-        gradient_accumulation_size, 
-        initial_global_step, 
+        gradient_accumulation_size=1, 
+        encoder_dp_size=1,
+        initial_global_step=0, 
         generator=None, 
         group_data=False, 
         seed=42
@@ -124,7 +125,8 @@ def get_length_grouped_data_indices(
     if group_data:
         shuffled_megabatches = last_group_frame_fun(shuffled_megabatches, lengths)
     
-    initial_global_step = initial_global_step * gradient_accumulation_size
+    initial_global_step = initial_global_step * gradient_accumulation_size // encoder_dp_size
+    print(f"initial_global_step: {initial_global_step}, gradient_accumulation_size: {gradient_accumulation_size}, encoder_dp_size: {encoder_dp_size}")
     shuffled_megabatches = shuffled_megabatches[initial_global_step:]
 
     out_list = []
@@ -183,11 +185,12 @@ class LengthGroupedSampler(DistributedSampler):
             self.batch_size,
             self.world_size,
             self.gradient_accumulation_size,
+            self.encoder_dp_size,
             self.initial_global_step,
             group_data=self.group_data,
             generator=self.generator,
         )
-        indices = indices[self.rank:self.total_size:self.num_replicas]
+        indices = indices[self.rank:len(indices):self.num_replicas]
         return iter(indices)
 
 class StatefulDistributedSampler(DistributedSampler):

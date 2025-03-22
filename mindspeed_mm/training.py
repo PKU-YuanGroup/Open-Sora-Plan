@@ -463,8 +463,8 @@ def train(
                 learning_rate = param_group["lr"]
 
         extreme_error_flag = False
-        if AdaptiveGradClipInfo.num_zero_grad > torch.distributed.get_world_size() // 2:
-            print_rank_0("Too many zeros in gradients, stop training!")
+        if AdaptiveGradClipInfo.extreme_error_flag:
+            print_rank_0("Extreme error, stop training!")
             extreme_error_flag = True
             
         report_memory_flag = training_log(
@@ -479,10 +479,11 @@ def train(
             grad_norm,
             params_norm,
             num_zeros_in_grad,
-            extreme_error_flag,
         )
 
         if extreme_error_flag: 
+            # NOTE For group data, we need to save the global step for sampler.
+            group_data = getattr(args.mm.data.dataloader_param, 'group_data', False)
             if group_data:
                 # group sampler
                 timers("global-step-for-sampler-txt-save-setup", log_level=0).start(barrier=True)

@@ -40,7 +40,7 @@ MBS=4
 GRAD_ACC_STEP=2
 GBS=$(($WORLD_SIZE*$GRAD_ACC_STEP*$MBS/$CP/$TP))
 
-MM_DATA="./examples/opensoraplan1.5/data.json"
+MM_DATA="./examples/opensoraplan1.5/data00.json"
 MM_MODEL="./examples/opensoraplan1.5/model_opensoraplan1_5.json"
 MM_TOOL="./mindspeed_mm/tools/tools.json"
 

@@ -21,7 +21,7 @@
 			"min_h_div_w_ratio": 0.42,
 			"hw_stride": 16,
 			"ae_stride_t": 8,
-			"train_fps": 16,
+			"train_fps": 24,
 			"speed_factor": 1.0,
 			"drop_short_ratio": 1.0,
 			"min_num_frames": 29,

@@ -658,7 +658,7 @@ def train_step(forward_step_func, data_iterator,
 
 def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_rate, iteration,
                  loss_scale, report_memory_flag, skipped_iter,
-                 grad_norm, params_norm, num_zeros_in_grad, extreme_error_flag):
+                 grad_norm, params_norm, num_zeros_in_grad):
     """Log training information such as losses, timing, ...."""
     args = get_args()
     timers = get_timers()
@@ -822,7 +822,7 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
                 )
         # we use adaptive clip grad, so we should log extreme error situation.
         if wandb_writer:
-            wandb_writer.log({'extreme-error': int(extreme_error_flag)}, iteration)
+            wandb_writer.log({'extreme-error': AdaptiveGradClipInfo.extreme_error_flag}, iteration)
             wandb_writer.log({
                 'weight_norm': AdaptiveGradClipInfo.weight_norm,
                 'moving_avg_max_grad_norm': AdaptiveGradClipInfo.moving_avg_max_grad_norm,

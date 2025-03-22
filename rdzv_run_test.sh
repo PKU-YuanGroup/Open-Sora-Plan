@@ -1,5 +1,5 @@
-export PROJECT_NAME="105x288x512_node48_tp4_bs4_gc2_lr1e-4_wd1e-4"
-# export PROJECT_NAME="test_4node_final"
+# export PROJECT_NAME="105x288x512_node48_tp4_bs4_gc2_lr1e-4_wd1e-4"
+export PROJECT_NAME="test_4node_grad_clip"
 export PROJECT_EXP_NAME="part1"
 export PROJECT_DIR="/work/share/checkpoint/gyy/osp/$PROJECT_NAME"
 

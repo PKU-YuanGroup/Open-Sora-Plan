@@ -72,7 +72,7 @@ def save_image_or_videos(videos, save_path, start_idx, fps, value_range=(0, 1), 
         raise ValueError("The video must be in either [b,c,t,h,w] format.")
 
 
-def save_video_grid(videos):
+def save_video_grid(videos, nrow=None):
     b, t, h, w, c = videos.shape
     if nrow is None:
         nrow = math.ceil(math.sqrt(b))

@@ -57,41 +57,27 @@ class HaarWaveletTransform3D(nn.Module):
         self.gh_v_conv.requires_grad_(False)
 
     def forward(self, x):
-        if x.dim() != 5:
-            raise ValueError("x.dim() must be 5.")
+        assert x.dim() == 5
         b = x.shape[0]
-        x = rearrange(x, "b c t h w -> (b c) 1 t h w")
-        low_low_low = self.h_conv(x)
-        low_low_low = rearrange(low_low_low, "(b c) 1 t h w -> b c t h w", b=b)
-        low_low_high = self.g_conv(x)
-        low_low_high = rearrange(low_low_high, "(b c) 1 t h w -> b c t h w", b=b)
-        low_high_low = self.hh_conv(x)
-        low_high_low = rearrange(low_high_low, "(b c) 1 t h w -> b c t h w", b=b)
-        low_high_high = self.gh_conv(x)
-        low_high_high = rearrange(low_high_high, "(b c) 1 t h w -> b c t h w", b=b)
-        high_low_low = self.h_v_conv(x)
-        high_low_low = rearrange(high_low_low, "(b c) 1 t h w -> b c t h w", b=b)
-        high_low_high = self.g_v_conv(x)
-        high_low_high = rearrange(high_low_high, "(b c) 1 t h w -> b c t h w", b=b)
-        high_high_low = self.hh_v_conv(x)
-        high_high_low = rearrange(high_high_low, "(b c) 1 t h w -> b c t h w", b=b)
-        high_high_high = self.gh_v_conv(x)
-        high_high_high = rearrange(high_high_high, "(b c) 1 t h w -> b c t h w", b=b)
-
-        output = torch.cat(
-            [
-                low_low_low,
-                low_low_high,
-                low_high_low,
-                low_high_high,
-                high_low_low,
-                high_low_high,
-                high_high_low,
-                high_high_high,
-            ],
-            dim=1,
-        )
-        return output
+        c = x.shape[1]
+        
+        x = rearrange(x, "b c t h w -> (b c) 1 t h w") # 3 1 17 256 256
+        n_dim = x.shape[0]
+        outputs = []
+        for i in range(n_dim):
+            y = x[i: i+1]
+            outputs.append(self.h_conv(y))
+            outputs.append(self.g_conv(y))
+            outputs.append(self.hh_conv(y))
+            outputs.append(self.gh_conv(y))
+            outputs.append(self.h_v_conv(y))
+            outputs.append(self.g_v_conv(y))
+            outputs.append(self.hh_v_conv(y))
+            outputs.append(self.gh_v_conv(y))
+        
+        outputs = torch.cat(outputs, dim=0)
+        outputs = rearrange(outputs, "(b k c) 1 t h w -> b (c k) t h w", b=b, k=c)
+        return outputs
 
 
 class InverseHaarWaveletTransform3D(nn.Module):

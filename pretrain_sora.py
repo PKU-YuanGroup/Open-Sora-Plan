@@ -130,7 +130,7 @@ def train_valid_test_datasets_provider(train_val_test_num_samples):
         args.mm.data.dataloader_param,
         process_group=process_group,
     )
-    data_iterator, _, _ = build_iterations(train_dl=train_dataloader)
+    data_iterator, _, _ = build_iterations(train_dl=train_dataloader, iterator_type='single')
     return data_iterator, None, None
 
 

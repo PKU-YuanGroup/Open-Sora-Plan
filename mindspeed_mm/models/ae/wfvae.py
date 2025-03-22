@@ -72,7 +72,7 @@ class Encoder(MultiModalModule):
                 )
                 for _ in range(num_resblocks)
             ],
-            model_name_to_cls(l1_dowmsample_block)(in_channels=base_channels, out_channels=base_channels),
+            model_name_to_cls(l1_dowmsample_block)(in_channels=base_channels, out_channels=base_channels, conv_type="WfCausalConv3d"),
         )
         
         self.down2 = nn.Sequential(
@@ -359,7 +359,6 @@ class WFVAE(MultiModalModule):
 
         # Hardcode for now
         self.t_chunk_enc = 16
-        self.t_upsample_times = 4 // 2
         self.t_chunk_dec = 4
         self.use_quant_layer = False
         self.vae_scale_factor = vae_scale_factor
@@ -423,22 +422,22 @@ class WFVAE(MultiModalModule):
         for name, module in parent.named_modules():
             if hasattr(module, 'causal_cached'):
                 module.causal_cached = deque()
-
-    def _set_first_chunk(self, is_first_chunk=True):
-        for module in self.modules():
-            if hasattr(module, 'is_first_chunk'):
-                module.is_first_chunk = is_first_chunk
-
+                
     def _set_causal_cached(self, enable_cached=True):
         for name, module in self.named_modules():
             if hasattr(module, 'enable_cached'):
                 module.enable_cached = enable_cached
-
+    
     def _set_cache_offset(self, modules, cache_offset=0):
         for module in modules:
             for submodule in module.modules():
                 if hasattr(submodule, 'cache_offset'):
                     submodule.cache_offset = cache_offset
+    
+    def _set_first_chunk(self, is_first_chunk=True):
+        for module in self.modules():
+            if hasattr(module, 'is_first_chunk'):
+                module.is_first_chunk = is_first_chunk
 
     def build_chunk_start_end(self, t, decoder_mode=False):
         start_end = [[0, 1]]
@@ -447,7 +446,7 @@ class WFVAE(MultiModalModule):
         while True:
             if start >= t:
                 break
-            end = min(t, end + (self.t_chunk_dec if decoder_mode else self.t_chunk_enc))
+            end = min(t, end + (self.t_chunk_dec if decoder_mode else self.t_chunk_enc) )
             start_end.append([start, end])
             start = end
         return start_end
