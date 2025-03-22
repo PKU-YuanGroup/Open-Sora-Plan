@@ -106,7 +106,7 @@ def forward_step(data_iterator, model):
     loss_dict = unwrap_model(model).compute_loss(*output_tensor_list)
     return loss_dict, loss_func
 
-
+# pretrain函数调用datasets_provider, 而pretrain中dataloader_type传external，所以这里返回的iter就是实际用到的iter
 def train_valid_test_datasets_provider(train_val_test_num_samples):
     """Build train, valid, and test datasets."""
     args = get_args()

@@ -204,19 +204,26 @@ def pretrain(
             args.train_iters = args.retro_cyclic_train_iters
             print_rank_0("retro cyclic train iters : %d" % args.train_iters)
 
-        iteration = 0
-        extreme_error_flag = False
-        if args.do_train and args.train_iters > 0:
-            iteration, num_floating_point_operations_so_far, extreme_error_flag = train(
-                forward_step_func,
-                model,
-                optimizer,
-                opt_param_scheduler,
-                train_data_iterator,
-                valid_data_iterator,
-                process_non_loss_data_func,
-                config,
-            )
+        try:
+            iteration = 0
+            extreme_error_flag = False
+            if args.do_train and args.train_iters > 0:
+                iteration, num_floating_point_operations_so_far, extreme_error_flag = train(
+                    forward_step_func,
+                    model,
+                    optimizer,
+                    opt_param_scheduler,
+                    train_data_iterator,
+                    valid_data_iterator,
+                    process_non_loss_data_func,
+                    config,
+                )
+        except StopIteration:
+            print_rank_0("Training is done because dataloader ran out of data.")
+        except Exception as e:
+            print_rank_0(f"Training is done because of exception {type(e).__name__}")
+            raise e
+        
 
         print_datetime("after training is done")
 

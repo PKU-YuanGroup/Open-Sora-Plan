@@ -259,11 +259,11 @@ class VideoProcesser:
     def get_batched_data(self, vframes, frame_indices, crop=[None, None, None, None]):
         video_data = vframes.get_batch(frame_indices)
         try:
-            s_y, e_y, s_x, e_x = crop
+            s_x, e_x, s_y, e_y = crop
         except:
-            s_y, e_y, s_x, e_x = None, None, None, None
+            s_x, e_x, s_y, e_y = None, None, None, None
         if video_data is not None:
-            video_data = video_data.permute(0, 3, 1, 2)  # (T, H, W, C) -> (T C H W)
+            video_data = video_data.permute(0, 3, 1, 2)  # (T H W C) -> (T C H W)
             if s_y is not None:
                 video_data = video_data[:, :, s_y: e_y, s_x: e_x]
         else:
