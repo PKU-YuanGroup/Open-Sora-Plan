@@ -1,2 +1,2 @@
-/work,/work/share1/caption/osp/0319/random_video_final_17_1906616.json
-/work,/work/share1/caption/osp/0319/random_video_final_18_1906616.json
+/work,/work/share1/caption/osp/0324/random_video_final_17_3014225.json
+/work,/work/share1/caption/osp/0324/random_video_final_18_3014225.json
