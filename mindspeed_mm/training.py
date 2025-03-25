@@ -204,26 +204,20 @@ def pretrain(
             args.train_iters = args.retro_cyclic_train_iters
             print_rank_0("retro cyclic train iters : %d" % args.train_iters)
 
-        try:
-            iteration = 0
-            extreme_error_flag = False
-            if args.do_train and args.train_iters > 0:
-                iteration, num_floating_point_operations_so_far, extreme_error_flag = train(
-                    forward_step_func,
-                    model,
-                    optimizer,
-                    opt_param_scheduler,
-                    train_data_iterator,
-                    valid_data_iterator,
-                    process_non_loss_data_func,
-                    config,
-                )
-        except StopIteration:
-            print_rank_0("Training is done because dataloader ran out of data.")
-        except Exception as e:
-            print_rank_0(f"Training is done because of exception {type(e).__name__}")
-            raise e
         
+        iteration = 0
+        extreme_error_flag = False
+        if args.do_train and args.train_iters > 0:
+            iteration, num_floating_point_operations_so_far, extreme_error_flag = train(
+                forward_step_func,
+                model,
+                optimizer,
+                opt_param_scheduler,
+                train_data_iterator,
+                valid_data_iterator,
+                process_non_loss_data_func,
+                config,
+            )
 
         print_datetime("after training is done")
 
@@ -439,14 +433,24 @@ def train(
         update_num_microbatches(args.consumed_train_samples, consistency_check=True)
 
         args.curr_iteration = iteration
-        loss_dict, skipped_iter, grad_norm, num_zeros_in_grad = train_step(
-            forward_step_func,
-            train_data_iterator,
-            model,
-            optimizer,
-            opt_param_scheduler,
-            config,
-        )
+
+        data_run_out = False
+        try:
+            loss_dict, skipped_iter, grad_norm, num_zeros_in_grad = train_step(
+                forward_step_func,
+                train_data_iterator,
+                model,
+                optimizer,
+                opt_param_scheduler,
+                config,
+            )
+        except StopIteration:
+            data_run_out = True
+            print_rank_0("Training is done because dataloader ran out of data.")
+        except Exception as e:
+            print_rank_0(f"Training is done because of exception {type(e).__name__}")
+            raise e
+    
         iteration += 1
         batch_size = (
             mpu.get_data_parallel_world_size()
@@ -637,6 +641,11 @@ def train(
                 gc.collect()
 
         prof.step()
+
+        # Exit if data iterator is exhausted.
+        if data_run_out:
+            break
+
     prof.stop()
 
     track_e2e_metrics()
