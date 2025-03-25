@@ -139,25 +139,23 @@ def pretrain(
         one_logger.log_metrics({"train_iterations_warmup": 5})
 
 
-    if torch.distributed.get_rank() == 0:
-        # NOTE For group data, we need to set initial_global_step_for_sampler
-        group_data = getattr(args.mm.data.dataloader_param, 'group_data', False)
-        if group_data:
-            # group sampler
-            timers("global-step-for-sampler-setup", log_level=0).start()
-            print_rank_0("use group sampler...")
-            global_step_for_sampler_txt = os.path.join(args.save, 'global_step_for_sampler.txt')
-            if os.path.exists(global_step_for_sampler_txt):
-                with open(global_step_for_sampler_txt, 'r') as f:
-                    global_step_for_sampler = int(f.read().strip())
-            elif args.mm.data.dataloader_param.initial_global_step_for_sampler != 0:
-                global_step_for_sampler = args.mm.data.dataloader_param.initial_global_step_for_sampler
-            else:
-                global_step_for_sampler = 0
-            setattr(args.mm.data.dataloader_param, 'initial_global_step_for_sampler', global_step_for_sampler)
-            print_rank_0(f"global_step_for_sampler: {args.mm.data.dataloader_param.initial_global_step_for_sampler}")
-            timers("global-step-for-sampler-setup").stop()
-    torch.distributed.barrier()
+    # NOTE For group data, we need to set initial_global_step_for_sampler
+    group_data = getattr(args.mm.data.dataloader_param, 'group_data', False)
+    if group_data:
+        # group sampler
+        timers("global-step-for-sampler-setup", log_level=0).start()
+        print_rank_0("use group sampler...")
+        global_step_for_sampler_txt = os.path.join(args.save, 'global_step_for_sampler.txt')
+        if os.path.exists(global_step_for_sampler_txt):
+            with open(global_step_for_sampler_txt, 'r') as f:
+                global_step_for_sampler = int(f.read().strip())
+        elif args.mm.data.dataloader_param.initial_global_step_for_sampler != 0:
+            global_step_for_sampler = args.mm.data.dataloader_param.initial_global_step_for_sampler
+        else:
+            global_step_for_sampler = 0
+        setattr(args.mm.data.dataloader_param, 'initial_global_step_for_sampler', global_step_for_sampler)
+        print_rank_0(f"global_step_for_sampler: {args.mm.data.dataloader_param.initial_global_step_for_sampler}")
+        timers("global-step-for-sampler-setup").stop()
         
     # Model, optimizer, and learning rate.
     timers("model-and-optimizer-setup", log_level=0).start(barrier=True)
@@ -230,6 +228,7 @@ def pretrain(
         print_datetime("after training is done")
 
         if args.save and iteration != 0 and iteration % args.save_interval != 0:
+            print_rank_0(f'Training ends, save checkpoint at iteration {iteration}')
             save_checkpoint(
                 iteration,
                 model,
@@ -251,6 +250,10 @@ def pretrain(
                         global_step_for_sampler = int(f.read().strip())
                     print_rank_0(f"global_step_for_sampler: {global_step_for_sampler}, and we will reset it to 0...")
                     os.remove(global_step_for_sampler_txt)
+                    if not os.path.exists(global_step_for_sampler_txt):
+                        print_rank_0("reset global_step_for_sampler to 0, global_step_for_sampler_txt is deleted")
+                    else:
+                        raise Exception("error! global_step_for_sampler_txt is not deleted")
                 timers("global-step-for-sampler-txt-delete-setup").stop()
         torch.distributed.barrier()
     else:
