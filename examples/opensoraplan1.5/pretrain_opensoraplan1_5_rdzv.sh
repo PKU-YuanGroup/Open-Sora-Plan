@@ -63,7 +63,7 @@ DISTRIBUTED_ARGS="
     --rdzv_endpoint=${PET_RDZV_ENDPOINT} \
     --rdzv_id=${PET_RDZV_ID} \
     --max_restarts=3 \
-    --rdzv_conf=timeout=1800,read_timeout=1800 \
+    --rdzv_conf=timeout=7200,read_timeout=7200 \
 "
 
 #  DISTRIBUTED_ARGS="

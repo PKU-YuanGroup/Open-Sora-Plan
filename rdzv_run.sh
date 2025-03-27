@@ -12,11 +12,9 @@ run_bash() {
     bash "$command"  # 运行传入的命令
     while [ -f "$file" ]; do
         echo "$file 文件存在，循环继续..."
-        sleep 30s  # 防止高CPU占用
         bash "$command"  # 运行传入的命令
     done
     echo "$file 文件不存在，循环结束..."
-    sleep 2m
 }
 
 # 依次执行不同的数据文件

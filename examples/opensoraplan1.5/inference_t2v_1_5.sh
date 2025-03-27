@@ -5,7 +5,7 @@ MASTER_ADDR=localhost
 MASTER_PORT=12875
 NNODES=1
 NODE_RANK=0
-NPUS_PER_NODE=4
+NPUS_PER_NODE=8
 WORLD_SIZE=$(($NPUS_PER_NODE * $NNODES))
 
 MINDSPEED_PATH="./MindSpeed/"
@@ -67,7 +67,6 @@ SORA_ARGS="
     --sequence-parallel \
     --distributed-timeout-minutes 20 \
     --optimizer-selection fused_torch_adamw \
-    --load /work/share/checkpoint/gyy/osp/test_4_node_on_istock/iter_0002000 
 "
 
 torchrun $DISTRIBUTED_ARGS  inference_sora.py  $MM_ARGS $SORA_ARGS 2>&1 | tee logs/inference_test.log

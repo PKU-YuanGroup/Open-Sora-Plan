@@ -221,6 +221,7 @@ def pretrain(
 
         print_datetime("after training is done")
 
+        print(f'rank = {torch.distributed.get_rank()}, before save last checkpoint')
         if args.save and iteration != 0 and iteration % args.save_interval != 0:
             print_rank_0(f'Training ends, save checkpoint at iteration {iteration}')
             save_checkpoint(
@@ -230,7 +231,7 @@ def pretrain(
                 opt_param_scheduler,
                 num_floating_point_operations_so_far,
             )
-
+        print(f'rank = {torch.distributed.get_rank()}, before delete global_step_for_sampler_txt')
         if torch.distributed.get_rank() == 0:
             # NOTE For group data, we need to save the global step for sampler.
             group_data = getattr(args.mm.data.dataloader_param, 'group_data', False)
@@ -244,12 +245,13 @@ def pretrain(
                         global_step_for_sampler = int(f.read().strip())
                     print_rank_0(f"global_step_for_sampler: {global_step_for_sampler}, and we will reset it to 0...")
                     os.remove(global_step_for_sampler_txt)
-                    if not os.path.exists(global_step_for_sampler_txt):
-                        print_rank_0("reset global_step_for_sampler to 0, global_step_for_sampler_txt is deleted")
-                    else:
-                        raise Exception("error! global_step_for_sampler_txt is not deleted")
                 timers("global-step-for-sampler-txt-delete-setup").stop()
+        print(f'rank = {torch.distributed.get_rank()}, after delete global_step_for_sampler_txt')
         torch.distributed.barrier()
+        if not os.path.exists(global_step_for_sampler_txt):
+            print_rank_0("reset global_step_for_sampler to 0, global_step_for_sampler_txt is deleted")
+        else:
+            raise Exception("error! global_step_for_sampler_txt is not deleted")
     else:
         print_rank_0("skipping training (--skip-train is on) ...")
 
@@ -446,9 +448,9 @@ def train(
             )
         except StopIteration:
             data_run_out = True
-            print_rank_0("Training is done because dataloader ran out of data.")
+            print("Training is done because dataloader ran out of data.")
         except Exception as e:
-            print_rank_0(f"Training is done because of exception {type(e).__name__}")
+            print(f"Training is done because of exception {type(e).__name__}")
             raise e
     
         iteration += 1
@@ -513,7 +515,6 @@ def train(
                     with open(global_step_for_sampler_txt, 'w') as f:
                         f.write(str(global_step_for_sampler))
                     timers("global-step-for-sampler-txt-save-setup").stop()
-                break
         torch.distributed.barrier()
         # Autoresume
         if args.adlr_autoresume and (iteration % args.adlr_autoresume_interval == 0):
@@ -642,8 +643,8 @@ def train(
 
         prof.step()
 
-        # Exit if data iterator is exhausted.
-        if data_run_out:
+        # Exit if data iterator is exhausted or extreme error is detected.
+        if data_run_out or extreme_error_flag:
             break
 
     prof.stop()
