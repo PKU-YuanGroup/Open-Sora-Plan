@@ -97,6 +97,8 @@ def pretrain(
         extra_args_provider=extra_args_provider, args_defaults=args_defaults
     )
 
+    torch.distributed.barrier()
+
     init_func = args_defaults.get("init_func", None)
     if init_func:
         init_func()
@@ -138,7 +140,6 @@ def pretrain(
     if one_logger:
         one_logger.log_metrics({"train_iterations_warmup": 5})
 
-
     # NOTE For group data, we need to set initial_global_step_for_sampler
     group_data = getattr(args.mm.data.dataloader_param, 'group_data', False)
     if group_data:
@@ -156,13 +157,14 @@ def pretrain(
         setattr(args.mm.data.dataloader_param, 'initial_global_step_for_sampler', global_step_for_sampler)
         print_rank_0(f"global_step_for_sampler: {args.mm.data.dataloader_param.initial_global_step_for_sampler}")
         timers("global-step-for-sampler-setup").stop()
-        
+    
+    torch.distributed.barrier()
     # Model, optimizer, and learning rate.
     timers("model-and-optimizer-setup", log_level=0).start(barrier=True)
     model, optimizer, opt_param_scheduler = setup_model_and_optimizer(
         model_provider, model_type
     )
-
+    torch.distributed.barrier()
     timers("model-and-optimizer-setup").stop()
     print_datetime("after model, optimizer, and learning rate scheduler are built")
     config = get_model_config(model[0])
@@ -204,7 +206,7 @@ def pretrain(
             args.train_iters = args.retro_cyclic_train_iters
             print_rank_0("retro cyclic train iters : %d" % args.train_iters)
 
-        
+        torch.distributed.barrier()        
         iteration = 0
         extreme_error_flag = False
         if args.do_train and args.train_iters > 0:
@@ -218,7 +220,7 @@ def pretrain(
                 process_non_loss_data_func,
                 config,
             )
-
+        torch.distributed.barrier()
         print_datetime("after training is done")
 
         print(f'rank = {torch.distributed.get_rank()}, before save last checkpoint')
@@ -231,6 +233,7 @@ def pretrain(
                 opt_param_scheduler,
                 num_floating_point_operations_so_far,
             )
+        torch.distributed.barrier()
         print(f'rank = {torch.distributed.get_rank()}, before delete global_step_for_sampler_txt')
         if torch.distributed.get_rank() == 0:
             # NOTE For group data, we need to save the global step for sampler.
@@ -249,7 +252,7 @@ def pretrain(
         print(f'rank = {torch.distributed.get_rank()}, after delete global_step_for_sampler_txt')
         torch.distributed.barrier()
         if not os.path.exists(global_step_for_sampler_txt):
-            print_rank_0("reset global_step_for_sampler to 0, global_step_for_sampler_txt is deleted")
+            print("reset global_step_for_sampler to 0, global_step_for_sampler_txt is deleted")
         else:
             raise Exception("error! global_step_for_sampler_txt is not deleted")
     else:
@@ -448,7 +451,7 @@ def train(
             )
         except StopIteration:
             data_run_out = True
-            print("Training is done because dataloader ran out of data.")
+            print("Training is done because dataloader run out of data.")
         except Exception as e:
             print(f"Training is done because of exception {type(e).__name__}")
             raise e

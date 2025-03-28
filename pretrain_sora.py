@@ -103,7 +103,9 @@ def forward_step(data_iterator, model):
         prompt_mask_2=prompt_mask_2,
         **batch,
     )
+    torch.distributed.barrier()
     loss_dict = unwrap_model(model).compute_loss(*output_tensor_list)
+    torch.distributed.barrier()
     return loss_dict, loss_func
 
 # pretrain函数调用datasets_provider, 而pretrain中dataloader_type传external，所以这里返回的iter就是实际用到的iter
@@ -131,6 +133,7 @@ def train_valid_test_datasets_provider(train_val_test_num_samples):
         process_group=process_group,
     )
     data_iterator, _, _ = build_iterations(train_dl=train_dataloader, iterator_type='single')
+    torch.distributed.barrier()
     return data_iterator, None, None
 
 

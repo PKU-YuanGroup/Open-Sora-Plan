@@ -171,6 +171,7 @@ SoraClusterScripts/
 wandb/
 
 test_ckpt*/
+dataset_test/
 
 *.pt
 *.safetensors

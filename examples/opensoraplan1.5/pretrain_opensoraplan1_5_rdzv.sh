@@ -38,7 +38,7 @@ if [[ $o$POD_NAME =~ -([0-9]+)$ ]]; then
     RANK=${BASH_REMATCH[1]}
     # 将提取的数字转换为整数
     RANK=${RANK//[^0-9]/}
-    echo "The rank is: $rank"
+    echo "The rank is: $RANK"
 else
     echo "No match found"
 fi
@@ -62,17 +62,9 @@ DISTRIBUTED_ARGS="
     --rdzv_backend=${PET_RDZV_BACKEND} \
     --rdzv_endpoint=${PET_RDZV_ENDPOINT} \
     --rdzv_id=${PET_RDZV_ID} \
-    --max_restarts=3 \
+    --max_restarts=2 \
     --rdzv_conf=timeout=7200,read_timeout=7200 \
 "
-
-#  DISTRIBUTED_ARGS="
-#             --nproc_per_node $GPU_NUM_PER_NODE \
-#             --nnodes $PET_NNODES \
-#             --node_rank $PET_NODE_RANK \
-#             --master_addr $PET_MASTER_ADDR \
-#             --master_port $PET_MASTER_PORT
-#         "
 
 GPT_ARGS="
     --tensor-model-parallel-size ${TP} \
@@ -119,7 +111,7 @@ GPT_ARGS="
     --seed 1024 \
     --data-parallel-random-init \
     --use-ema \
-    --load $PROJECT_DIR \
+    --load $PROJECT_DIR
 "
 
     # --no-load-optim \
@@ -161,6 +153,3 @@ torchrun $DISTRIBUTED_ARGS pretrain_sora.py \
     --distributed-backend nccl 2>&1 | tee logs/$PROJECT_NAME/train_${logfile}.log
 
 chmod 440 logs/$PROJECT_NAME/train_${logfile}.log
-STEP_TIME=`grep "elapsed time per iteration" logs/$PROJECT_NAME/train_${logfile}.log | awk -F ':' '{print$5}' | awk -F '|' '{print$1}' | head -n 200 | tail -n 100 | awk '{sum+=$1} END {if (NR != 0) printf("%.1f",sum/NR)}'`
-FPS=`awk 'BEGIN{printf "%.3f\n", '${GBS}'*1000/'${STEP_TIME}'}'`
-echo "Elapsed Time Per iteration: $STEP_TIME, Average FPS: $FPS"

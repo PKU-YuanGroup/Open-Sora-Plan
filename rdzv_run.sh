@@ -18,32 +18,32 @@ run_bash() {
 }
 
 # 依次执行不同的数据文件
-export MM_DATA="./examples/opensoraplan1.5/data00.json" 
-run_bash "$SAMPLER_FILE_PATH" "examples/opensoraplan1.5/pretrain_opensoraplan1_5_rdzv.sh"
+# export MM_DATA="./examples/opensoraplan1.5/data00.json" 
+# run_bash "$SAMPLER_FILE_PATH" examples/opensoraplan1.5/pretrain_opensoraplan1_5_rdzv.sh
 
-export MM_DATA="./examples/opensoraplan1.5/data01.json" 
-run_bash "$SAMPLER_FILE_PATH" "examples/opensoraplan1.5/pretrain_opensoraplan1_5_rdzv.sh"
+# export MM_DATA="./examples/opensoraplan1.5/data01.json" 
+# run_bash "$SAMPLER_FILE_PATH" examples/opensoraplan1.5/pretrain_opensoraplan1_5_rdzv.sh
 
 export MM_DATA="./examples/opensoraplan1.5/data02.json" 
-run_bash "$SAMPLER_FILE_PATH" "examples/opensoraplan1.5/pretrain_opensoraplan1_5_rdzv.sh"
+run_bash "$SAMPLER_FILE_PATH" examples/opensoraplan1.5/pretrain_opensoraplan1_5_rdzv.sh
 
 export MM_DATA="./examples/opensoraplan1.5/data03.json" 
-run_bash "$SAMPLER_FILE_PATH" "examples/opensoraplan1.5/pretrain_opensoraplan1_5_rdzv.sh"
+run_bash "$SAMPLER_FILE_PATH" examples/opensoraplan1.5/pretrain_opensoraplan1_5_rdzv.sh
 
 export MM_DATA="./examples/opensoraplan1.5/data04.json" 
-run_bash "$SAMPLER_FILE_PATH" "examples/opensoraplan1.5/pretrain_opensoraplan1_5_rdzv.sh"
+run_bash "$SAMPLER_FILE_PATH" examples/opensoraplan1.5/pretrain_opensoraplan1_5_rdzv.sh
 
 export MM_DATA="./examples/opensoraplan1.5/data05.json" 
-run_bash "$SAMPLER_FILE_PATH" "examples/opensoraplan1.5/pretrain_opensoraplan1_5_rdzv.sh"
+run_bash "$SAMPLER_FILE_PATH" examples/opensoraplan1.5/pretrain_opensoraplan1_5_rdzv.sh
 
 export MM_DATA="./examples/opensoraplan1.5/data06.json" 
-run_bash "$SAMPLER_FILE_PATH" "examples/opensoraplan1.5/pretrain_opensoraplan1_5_rdzv.sh"
+run_bash "$SAMPLER_FILE_PATH" examples/opensoraplan1.5/pretrain_opensoraplan1_5_rdzv.sh
 
 export MM_DATA="./examples/opensoraplan1.5/data07.json" 
-run_bash "$SAMPLER_FILE_PATH" "examples/opensoraplan1.5/pretrain_opensoraplan1_5_rdzv.sh"
+run_bash "$SAMPLER_FILE_PATH" examples/opensoraplan1.5/pretrain_opensoraplan1_5_rdzv.sh
 
 export MM_DATA="./examples/opensoraplan1.5/data08.json" 
-run_bash "$SAMPLER_FILE_PATH" "examples/opensoraplan1.5/pretrain_opensoraplan1_5_rdzv.sh"
+run_bash "$SAMPLER_FILE_PATH" examples/opensoraplan1.5/pretrain_opensoraplan1_5_rdzv.sh
 
 export MM_DATA="./examples/opensoraplan1.5/data09.json" 
-run_bash "$SAMPLER_FILE_PATH" "examples/opensoraplan1.5/pretrain_opensoraplan1_5_rdzv.sh"
+run_bash "$SAMPLER_FILE_PATH" examples/opensoraplan1.5/pretrain_opensoraplan1_5_rdzv.sh

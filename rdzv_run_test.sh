@@ -17,6 +17,8 @@ run_bash() {
     echo "$file 文件不存在，循环结束..."
 }
 
+export MM_DATA="./examples/opensoraplan1.5/dataset_test_100k.json" 
+run_bash "$SAMPLER_FILE_PATH" "examples/opensoraplan1.5/pretrain_opensoraplan1_5_rdzv.sh"
 
-export MM_DATA="./examples/opensoraplan1.5/dataset_test.json" 
+export MM_DATA="./examples/opensoraplan1.5/dataset_test_100k.json" 
 run_bash "$SAMPLER_FILE_PATH" "examples/opensoraplan1.5/pretrain_opensoraplan1_5_rdzv.sh"
