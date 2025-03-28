@@ -28,13 +28,13 @@ def get_args():
         "--prompt_path", type=str, required=True, help="The path to the prompt file."
     )
     parser.add_argument("--n_samples", type=int, default=4)
-    parser.add_argument("--height", type=int, default=384)
-    parser.add_argument("--width", type=int, default=384)
-    parser.add_argument("--cfg", type=float, default=7.0)
-    parser.add_argument("--num_sampling_steps", type=int, default=100)
+    parser.add_argument("--height", type=int, default=256)
+    parser.add_argument("--width", type=int, default=256)
+    parser.add_argument("--cfg", type=float, default=4.0)
+    parser.add_argument("--num_sampling_steps", type=int, default=24)
     parser.add_argument("--model_path", type=str, required=True)
     parser.add_argument("--output_dir", type=str, required=True)
-    parser.add_argument("--version", type=str, default="v1_5", choices=["v1_3", "v1_5"])
+    parser.add_argument("--version", type=str, default="v1_5", choices=["t2i", "v1_3", "v1_5"])
     parser.add_argument(
         "--model_type", type=str, default="t2v", choices=["t2v", "inpaint", "i2v"]
     )
@@ -110,6 +110,8 @@ if __name__ == "__main__":
             
     inference_list = inference_list[args.local_rank::args.world_size]
     for prompt, sample_path, sample_count in tqdm(inference_list):
+        if os.path.exists(os.path.join(sample_path, f"{sample_count:05}.png")):
+            continue
         image = run_model_and_return_samples(
             pipeline,
             prompt,

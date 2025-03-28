@@ -23,7 +23,7 @@ class GenAIBench_Image(Dataset):
                 'prompt_idx': prompt_idx,
                 'prompt': self.dataset[prompt_idx]['prompt'],
                 'model': self.models,
-                'image': os.path.join(self.root_dir, f"{prompt_idx}.jpg"),
+                'image': os.path.join(self.root_dir, f"{int(prompt_idx):09d}.jpg"),
             })
             if prompt_idx not in self.prompt_to_images:
                 self.prompt_to_images[prompt_idx] = []

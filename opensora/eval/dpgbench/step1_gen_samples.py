@@ -117,7 +117,7 @@ if __name__ == "__main__":
     args = get_args()
     init_gpu_env(args)
     seed = 1234
-    set_seed(seed, rank=0, device_specific=False)
+    set_seed(seed, rank=0, device_specific=True)
     device = torch.cuda.current_device()
     # import ipdb;ipdb.set_trace()
     pipeline = prepare_pipeline(args, device)
@@ -136,22 +136,22 @@ if __name__ == "__main__":
         if not index % args.world_size == args.local_rank:
             continue
 
+        img_name = filename.replace('.txt', '.png')
+
+        save_path = os.path.join(args.result_path, img_name)
+        if os.path.exists(save_path):
+            continue
+
         image = run_model_and_return_samples(
         pipeline, 
         text_prompt, 
         height=256, 
         width=256, 
-        num_sampling_steps=100, 
-        guidance_scale=7.0, 
-        guidance_rescale=0.7,
+        num_sampling_steps=24, 
+        guidance_scale=4.0, 
+        guidance_rescale=0.0,
         num_samples_per_prompt=4, 
         )  # b t h w c, [0, 255]
-
-
-
-        img_name = filename.replace('.txt', '.png')
-
-        save_path = os.path.join(args.result_path, img_name)
 
         concat_image(image, save_path)
 
