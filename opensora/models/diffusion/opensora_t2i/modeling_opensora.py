@@ -11,7 +11,7 @@ from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.models.modeling_utils import ModelMixin
 from diffusers.models.normalization import RMSNorm, FP32LayerNorm
 from diffusers.models.embeddings import PixArtAlphaTextProjection
-from opensora.models.diffusion.opensora_t2i.modules import CombinedTimestepTextProjEmbeddings, BasicTransformerBlock, AdaNorm
+from opensora.models.diffusion.opensora_t2i.modules import CombinedTimestepTextProjEmbeddings, BasicTransformerBlock, AdaNorm, LightBasicTransformerBlock
 from opensora.utils.utils import to_2tuple
 from opensora.models.diffusion.common import PatchEmbed2D
 from opensora.models.diffusion.opensora_t2i.modules import RoPE3D, PositionGetter3D, FlashFP32LayerNorm
@@ -72,6 +72,7 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
         prenorm_num: int = 1000,
         deepnorm: bool = False,
         shrink: bool = False, 
+        light_block: bool = False, 
     ):  
         super().__init__()
         assert not (time_as_x_token and time_as_text_token), "Cannot have both time_as_token and time_as_text_token"
@@ -133,10 +134,15 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
         # 2. time embedding and pooled text embedding
         self.time_text_embed = CombinedTimestepTextProjEmbeddings(
             timestep_embed_dim=self.config.timestep_embed_dim, 
-            embedding_dim=self.config.timestep_embed_dim, 
+            embedding_dim=self.config.hidden_size if self.config.light_block else self.config.timestep_embed_dim, 
             pooled_projection_dim=self.config.pooled_projection_dim, 
             time_as_token=self.config.time_as_x_token or self.config.time_as_text_token
         )
+        if self.config.light_block:
+            self.t_block = nn.Sequential(
+                nn.SiLU(),
+                nn.Linear(self.config.hidden_size, 9 * self.config.hidden_size, bias=True)
+            )
 
         # 3. anthor text embedding
         text_hidden_size = self.config.caption_channels if self.config.use_text_dim else self.config.hidden_size
@@ -175,10 +181,11 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
         else:
             self.skip_norm_linear = nn.Identity()
 
+        blockcls = LightBasicTransformerBlock if self.config.light_block else BasicTransformerBlock
         for idx, num_layer in enumerate(self.config.num_layers):
             stage_blocks = nn.ModuleList(
                 [
-                    BasicTransformerBlock(
+                    blockcls(
                         self.config.hidden_size,
                         self.config.num_attention_heads,
                         self.config.attention_head_dim,
@@ -216,7 +223,8 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
             self.config.hidden_size, self.config.patch_size_t * self.config.patch_size * self.config.patch_size * self.out_channels
         )
         self.final_conv = nn.Conv2d(self.out_channels, self.out_channels, 3, padding=1) if self.config.conv_out else nn.Identity()
-
+        
+    # @torch.compile
     def forward(
         self,
         hidden_states: torch.Tensor,
@@ -495,7 +503,8 @@ class OpenSoraT2I(ModelMixin, ConfigMixin):
         if pooled_projections is not None:
             pooled_projections = pooled_projections.squeeze(1)  # b 1 1 d -> b 1 d
         timesteps_emb = self.time_text_embed(timestep, pooled_projections, hidden_states.dtype)  # (N, D)
-            
+        if self.config.light_block:
+            timesteps_emb = self.t_block(timesteps_emb)
         encoder_hidden_states = self.caption_projection(encoder_hidden_states)  # b, 1, l, d
         assert encoder_hidden_states.shape[1] == 1  # b, 1, l, d
         encoder_hidden_states = encoder_hidden_states.squeeze(1)
@@ -549,12 +558,28 @@ def OpenSoraT2I_2B_111(**kwargs):
         caption_channels=4096, pooled_projection_dim=0, **kwargs
     )
 
+def OpenSoraT2I_2B_122_QWenVL2(**kwargs):
+    return OpenSoraT2I(  # 25 layers
+        num_layers=[12, 1, 12], 
+        attention_head_dim=64, num_attention_heads=24, 
+        timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
+        caption_channels=3584, pooled_projection_dim=0, **kwargs
+    )
+
 def OpenSoraT2I_2B_122(**kwargs):
     return OpenSoraT2I(  # 25 layers
         num_layers=[12, 1, 12], 
         attention_head_dim=64, num_attention_heads=24, 
         timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
         caption_channels=4096, pooled_projection_dim=0, **kwargs
+    )
+
+def OpenSoraT2I_2B_122_Light(**kwargs):
+    return OpenSoraT2I(  # 25 layers
+        num_layers=[16, 1, 16], 
+        attention_head_dim=64, num_attention_heads=24, 
+        timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
+        caption_channels=4096, pooled_projection_dim=0, light_block=True, **kwargs
     )
 
 def OpenSoraT2I_2B_122_DeepNorm_Shrink(**kwargs):
@@ -676,16 +701,25 @@ def OpenSoraT2I_2B_122_Skip(**kwargs):
         prenorm_num=0, skip_connection=True, **kwargs
     )
 
-def OpenSoraT2I_2B_122_NormSkip(**kwargs):
+def OpenSoraT2I_2B_122_PreNorm_NormSkip(**kwargs):
     kwargs.pop('skip_connection', None)
     return OpenSoraT2I(  # 25 layers
         num_layers=[12, 1, 12], 
         attention_head_dim=64, num_attention_heads=24, 
         timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
         caption_channels=4096, pooled_projection_dim=0, 
-        prenorm_num=0, skip_connection=True, norm_skip=True, **kwargs
+        skip_connection=True, norm_skip=True, **kwargs
     )
 
+def OpenSoraT2I_2B_122_PreNorm_Skip(**kwargs):
+    kwargs.pop('skip_connection', None)
+    return OpenSoraT2I(  # 25 layers
+        num_layers=[12, 1, 12], 
+        attention_head_dim=64, num_attention_heads=24, 
+        timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
+        caption_channels=4096, pooled_projection_dim=0, 
+        skip_connection=True, norm_skip=False, **kwargs
+    )
 
 def OpenSoraT2I_2B_122_MixNorm_Skip(**kwargs):
     kwargs.pop('skip_connection', None)
@@ -746,6 +780,8 @@ def OpenSoraT2I_2B_122_TimeAsT(**kwargs):
 OpenSora_T2I_models = {
     "OpenSoraT2I-2B/111": OpenSoraT2I_2B_111, 
     "OpenSoraT2I-2B/122": OpenSoraT2I_2B_122, 
+    "OpenSoraT2I-2B/122_Light": OpenSoraT2I_2B_122_Light, 
+    "OpenSoraT2I-2B/122/QWenVL2": OpenSoraT2I_2B_122_QWenVL2,
     "OpenSoraT2I-2B/122/DeepNorm_Shrink": OpenSoraT2I_2B_122_DeepNorm_Shrink, 
     "OpenSoraT2I-2B/122/PostNorm": OpenSoraT2I_2B_122_PostNorm, 
     "OpenSoraT2I-2B/122/DeepNorm": OpenSoraT2I_2B_122_DeepNorm, 
@@ -757,7 +793,8 @@ OpenSora_T2I_models = {
     "OpenSoraT2I-2B/122/SandWichNorm": OpenSoraT2I_2B_122_SandWichNorm, 
     "OpenSoraT2I-2B/122/RMSNorm": OpenSoraT2I_2B_122_RMSNorm, 
     "OpenSoraT2I-2B/122/Skip": OpenSoraT2I_2B_122_Skip, 
-    "OpenSoraT2I-2B/122/NormSkip": OpenSoraT2I_2B_122_NormSkip, 
+    "OpenSoraT2I-2B/122/PreNorm_NormSkip": OpenSoraT2I_2B_122_PreNorm_NormSkip, 
+    "OpenSoraT2I-2B/122/PreNorm_Skip": OpenSoraT2I_2B_122_PreNorm_Skip, 
     "OpenSoraT2I-2B/122/MixNorm_Skip": OpenSoraT2I_2B_122_MixNorm_Skip, 
     "OpenSoraT2I-2B/122/DeepNorm_Skip": OpenSoraT2I_2B_122_DeepNorm_Skip, 
     "OpenSoraT2I-2B/122/PostNorm_Skip": OpenSoraT2I_2B_122_PostNorm_Skip, 
@@ -771,6 +808,8 @@ OpenSora_T2I_models = {
 OpenSora_T2I_models_class = {
     "OpenSoraT2I-2B/111": OpenSoraT2I,
     "OpenSoraT2I-2B/122": OpenSoraT2I,
+    "OpenSoraT2I-2B/122/Light": OpenSoraT2I,
+    "OpenSoraT2I-2B/122/QWenVL2": OpenSoraT2I,
     "OpenSoraT2I-2B/122/DeepNorm_Shrink": OpenSoraT2I,
     "OpenSoraT2I-2B/122/PostNorm": OpenSoraT2I,
     "OpenSoraT2I-2B/122/DeepNorm": OpenSoraT2I,
@@ -782,7 +821,8 @@ OpenSora_T2I_models_class = {
     "OpenSoraT2I-2B/122/SandWichNorm": OpenSoraT2I, 
     "OpenSoraT2I-2B/122/RMSNorm": OpenSoraT2I, 
     "OpenSoraT2I-2B/122/Skip": OpenSoraT2I, 
-    "OpenSoraT2I-2B/122/NormSkip": OpenSoraT2I, 
+    "OpenSoraT2I-2B/122/PreNorm_NormSkip": OpenSoraT2I, 
+    "OpenSoraT2I-2B/122/PreNorm_Skip": OpenSoraT2I, 
     "OpenSoraT2I-2B/122/DeepNorm_Skip": OpenSoraT2I, 
     "OpenSoraT2I-2B/122/PostNorm_Skip": OpenSoraT2I, 
     "OpenSoraT2I-2B/122/MixNorm_Skip": OpenSoraT2I, 
@@ -817,7 +857,7 @@ if __name__ == '__main__':
         "rank": 64, 
     }
     )
-    b = 1
+    b = 2
     c = 32
     cond_c = 4096
     cond_c2 = 4096
@@ -839,7 +879,7 @@ if __name__ == '__main__':
     # device = torch.device('cpu')
     device = torch.device('cuda:0')
 
-    model = OpenSoraT2I_2B_122_DeepNorm_Shrink(
+    model = OpenSoraT2I_2B_122_Light(
         in_channels=c, 
         out_channels=c, 
         sample_size_h=latent_size_h, 

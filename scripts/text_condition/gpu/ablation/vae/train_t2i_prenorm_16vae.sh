@@ -21,10 +21,10 @@ export TOKENIZERS_PARALLELISM=false
 # export NCCL_ALGO=Tree
 
 
-for i in {1..8}
+for i in {6..8}
 do
     accelerate launch \
-        --config_file scripts/accelerate_configs/multi_node_example1.yaml \
+        --config_file scripts/accelerate_configs/multi_node_example2.yaml \
         opensora/train/train_t2v_diffusers.py \
         --ema_deepspeed_config_file scripts/accelerate_configs/zero3.json \
         --model OpenSoraT2I-2B/111 \

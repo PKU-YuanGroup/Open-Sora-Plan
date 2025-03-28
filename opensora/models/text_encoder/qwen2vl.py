@@ -26,6 +26,7 @@ if __name__ == '__main__':
     # print(type(model))
 
     processor = Qwen2VLProcessor.from_pretrained(model_path)
+    
     print(type(processor))
     messages = [
         {
@@ -56,7 +57,7 @@ if __name__ == '__main__':
     # print(output_text)
 
 
-    text_enc = Qwen2VLWrapper(model_path).to(device)
+    text_enc = Qwen2VLWrapper(model_path).to(device).to(torch.bfloat16)
     print(text_enc)
     total_params = sum(p.numel() for p in text_enc.parameters())
     print(f"Total parameters: {total_params / 1e9} B")

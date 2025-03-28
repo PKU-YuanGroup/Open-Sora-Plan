@@ -42,6 +42,7 @@ def get_args():
     parser.add_argument('--enable_tiling', action='store_true')
     parser.add_argument('--compile', action='store_true')
     parser.add_argument('--save_memory', action='store_true') 
+    parser.add_argument('--use_pos_neg_prompt', action='store_true') 
     parser.add_argument("--prediction_type", type=str, default='epsilon', help="The prediction_type that shall be used for training. Choose between 'epsilon' or 'v_prediction' or leave `None`. If left to `None` the default prediction type of the scheduler: `noise_scheduler.config.prediciton_type` is chosen.")
     parser.add_argument('--rescale_betas_zero_snr', action='store_true')
     parser.add_argument('--sp', action='store_true')
@@ -67,7 +68,7 @@ if __name__ == "__main__":
         torch.backends.cuda.matmul.allow_tf32 = True
         torch.backends.cudnn.allow_tf32 = True
 
-    set_seed(args.seed, rank=0, device_specific=False)
+    set_seed(args.seed, rank=args.local_rank, device_specific=True)
     device = torch.cuda.current_device()
     pipeline = prepare_pipeline(args, device)
 
@@ -84,11 +85,13 @@ if __name__ == "__main__":
     ]
     print(f'need to process ({len(text_and_savepath)})')
 
-    meta_info = meta_info[args.local_rank::args.world_size]
+    text_and_savepath = text_and_savepath[args.local_rank::args.world_size]
     os.makedirs(args.output_dir, exist_ok=True)
 
-
+    cnt = 0
     for text_prompt, save_path in tqdm(text_and_savepath):
+        # print(text_prompt, save_path)
+        set_seed(args.seed + cnt * 50, rank=args.local_rank, device_specific=True)
         image = run_model_and_return_samples(
             pipeline, 
             text_prompt, 
@@ -98,8 +101,12 @@ if __name__ == "__main__":
             guidance_scale=args.guidance_scale, 
             guidance_rescale=args.guidance_rescale, 
             num_samples_per_prompt=args.num_samples_per_prompt, 
+            use_pos_neg_prompt=args.use_pos_neg_prompt, 
             )  # b t h w c, [0, 255]
         image = image[0][0].detach().cpu().numpy()
         Image.fromarray(image).save(save_path)
+        # import ipdb;ipdb.set_trace()
+        assert args.num_samples_per_prompt == 1
+        cnt += 1
 
 

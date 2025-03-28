@@ -636,11 +636,22 @@ class OpenSoraT2V_v1_5(ModelMixin, ConfigMixin):
 def OpenSoraT2V_v1_5_2B_122(**kwargs):
     if kwargs.get('sparse_n', None) is not None:
         kwargs.pop('sparse_n')
-    return OpenSoraT2V_v1_5(  # 26 layers
-        num_layers=[2, 4, 4, 6, 4, 4, 2], sparse_n=[1, 2, 4, 8, 4, 2, 1], 
+    return OpenSoraT2V_v1_5(  # 25 layers
+        num_layers=[4, 4, 4, 1, 4, 4, 4], sparse_n=[1, 1, 1, 1, 1, 1, 1], 
         attention_head_dim=64, num_attention_heads=24, 
         timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
         caption_channels=4096, pooled_projection_dim=0, **kwargs
+    )
+
+
+def OpenSoraT2V_v1_5_2B_122_MMFFN(**kwargs):
+    if kwargs.get('sparse_n', None) is not None:
+        kwargs.pop('sparse_n')
+    return OpenSoraT2V_v1_5(  # 25 layers
+        num_layers=[4, 2, 2, 1, 2, 2, 4], sparse_n=[1, 1, 1, 1, 1, 1, 1], 
+        attention_head_dim=64, num_attention_heads=24, 
+        timestep_embed_dim=512, patch_size_t=1, patch_size=2, 
+        caption_channels=4096, pooled_projection_dim=0, double_ff=True, **kwargs
     )
 
 def OpenSoraT2V_v1_5_3B_122(**kwargs):
@@ -704,6 +715,7 @@ def OpenSoraT2V_v1_5_32B_122(**kwargs):
 
 OpenSora_v1_5_models = {
     "OpenSoraT2V_v1_5-2B/122": OpenSoraT2V_v1_5_2B_122, 
+    "OpenSoraT2V_v1_5-2B/122/MMFFN": OpenSoraT2V_v1_5_2B_122_MMFFN, 
     "OpenSoraT2V_v1_5-3B/122": OpenSoraT2V_v1_5_3B_122, 
     "OpenSoraT2V_v1_5-6B/122": OpenSoraT2V_v1_5_6B_122, 
     "OpenSoraT2V_v1_5-9B/122": OpenSoraT2V_v1_5_9B_122, 
@@ -713,6 +725,7 @@ OpenSora_v1_5_models = {
 
 OpenSora_v1_5_models_class = {
     "OpenSoraT2V_v1_5-2B/122": OpenSoraT2V_v1_5,
+    "OpenSoraT2V_v1_5-2B/122/MMFFN": OpenSoraT2V_v1_5, 
     "OpenSoraT2V_v1_5-3B/122": OpenSoraT2V_v1_5,
     "OpenSoraT2V_v1_5-6B/122": OpenSoraT2V_v1_5,
     "OpenSoraT2V_v1_5-9B/122": OpenSoraT2V_v1_5,
@@ -763,7 +776,7 @@ if __name__ == '__main__':
     
     # device = torch.device('cpu')
     device = torch.device('cuda:0')
-    model = OpenSoraT2V_v1_5_2B_122(
+    model = OpenSoraT2V_v1_5_2B_122_MMFFN(
         in_channels=c, 
         out_channels=c, 
         sample_size_h=latent_size_h, 

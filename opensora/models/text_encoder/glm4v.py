@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from opensora.models.text_encoder.glm4v_utils import ChatGLMModel
+from opensora.models.text_encoder.glm4v_utils import ChatGLMModel as ChatGLMModelV
 
 try:
     import torch_npu
@@ -12,7 +12,7 @@ class GLM4VWrapper(nn.Module):
         super(GLM4VWrapper, self).__init__()
         self.model_name = model_name
         print(f'Loading GLM4V model from {self.model_name}...')
-        self.text_enc = ChatGLMModel.from_pretrained(self.model_name, attn_implementation="flash_attention_2", **kwargs).eval()
+        self.text_enc = ChatGLMModelV.from_pretrained(self.model_name, attn_implementation="flash_attention_2", **kwargs).eval()
         self.text_enc.vision = None
 
     def forward(self, input_ids, attention_mask):
@@ -20,13 +20,13 @@ class GLM4VWrapper(nn.Module):
         return text_encoder_embs.detach()
 
 if __name__ == '__main__':
-    from opensora.models.text_encoder.glm4v_utils import ChatGLMForConditionalGeneration, ChatGLM4Tokenizer
+    from opensora.models.text_encoder.glm4v_utils import ChatGLMForConditionalGeneration, ChatGLM4Tokenizer as ChatGLM4TokenizerV
     device = "cuda:0" # the device to load the model onto
     model_path = "/storage/ongoing/12.13/t2i/Open-Sora-Plan/cache_dir/glm-4v-9b"
     # model = ChatGLMForConditionalGeneration.from_pretrained(model_path).to(device)
     # print(type(model))
 
-    tokenizer = ChatGLM4Tokenizer.from_pretrained(model_path)
+    tokenizer = ChatGLM4TokenizerV.from_pretrained(model_path)
     print(type(tokenizer))
     prompt = "Give me a short introduction to large language model."
     messages = [{"role": "user", "content": prompt}]

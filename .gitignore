@@ -113,7 +113,6 @@ sync.sh
 1.txt
 inf_*sh
 plot*py
-make*py
 vis_attn*
 14b_del_stage*
 mse_vis*
@@ -130,12 +129,5 @@ hf_cache
 geneval_outputs
 opensora/eval/geneval/results.jsonl
 t2i_ablation_arch
-get_data_from_wandb*
 t2i_ablation_arch*
 t2i_ablation_del*
-run*
-lines_data_rows*
-get_graddata_from_wandb*
-flower_inv_mse.json
-flower_inv_psnr.json
-flower_inv.json

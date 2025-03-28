@@ -11,27 +11,8 @@ recording how to install the dependencies
 
 ### Step 1
 
-配置环境，运行生成t2i的采样脚本
-```
-bash opensora/eval/dpgbench/step1_sample_t2v_v1_5_384.sh
-```
-
+maybe genereate the images first by prompt from the benchmark
 
 ### Step 2
 
-运行pip install -r requirements-for-dpg_bench.txt
-
-将mplug模型下载到本地
-```
-modelscope download --model 'iic/mplug_visual-question-answering_coco_large_en' --local_dir 'iic/mplug_visual-question-answering_coco_large_en'
-```
-local_dir为本地存放权重路径
-
-运行脚本
-```
-bash dpgbench/step2_compute_dpg_bench.sh $YOUR_IMAGE_PATH $RESOLUTION
-```
-
-
-YOUR_IMAGE_PATH是存放生成图片的root路径
-RESOLUTION是图片分辨率
+use benchmark to evaluate your generated images

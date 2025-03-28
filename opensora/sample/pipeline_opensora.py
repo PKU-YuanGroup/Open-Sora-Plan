@@ -346,7 +346,7 @@ class OpenSoraPipeline(DiffusionPipeline):
 
         if prompt_embeds is None:
             text_inputs = tokenizer(
-                prompt,
+                text=prompt,
                 padding="max_length",
                 max_length=max_length,
                 truncation=True,
@@ -354,7 +354,7 @@ class OpenSoraPipeline(DiffusionPipeline):
                 return_tensors="pt",
             )
             text_input_ids = text_inputs.input_ids
-            untruncated_ids = tokenizer(prompt, padding="longest", return_tensors="pt").input_ids
+            untruncated_ids = tokenizer(text=prompt, padding="longest", return_tensors="pt").input_ids
 
             if untruncated_ids.shape[-1] >= text_input_ids.shape[-1] and not torch.equal(
                 text_input_ids, untruncated_ids
@@ -408,7 +408,7 @@ class OpenSoraPipeline(DiffusionPipeline):
 
             # max_length = prompt_embeds.shape[1]
             uncond_input = tokenizer(
-                uncond_tokens,
+                text=uncond_tokens,
                 padding="max_length",
                 max_length=max_length,
                 truncation=True,
@@ -791,6 +791,7 @@ class OpenSoraPipeline(DiffusionPipeline):
             # num_warmup_steps = max(len(timesteps) - num_inference_steps * self.scheduler.order, 0)
             # self._num_timesteps = len(timesteps)
             sigmas = self.scheduler.set_sigmas(num_inference_steps=num_inference_steps, device=device, sigmas=sigmas)
+            print(len(sigmas), sigmas)
             timesteps = sigmas.clone() * self.scheduler.rescale  # rescale to [0, 1000.0)
             timesteps = timesteps[:-1]
             num_warmup_steps = max(len(timesteps) - num_inference_steps * self.scheduler.order, 0)
