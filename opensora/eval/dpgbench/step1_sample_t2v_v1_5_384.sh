@@ -130,6 +130,20 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,6,7 torchrun --nnodes=1 --nproc_per_node 6 --master
     --version t2i
 
 
+OUTPUT_DIR="/storage/ongoing/12.29/eval/t2i_ablation_arch/prenorm/${PROMPT}"
+CUDA_VISIBLE_DEVICES=0,1,2,3,6,7 torchrun --nnodes=1 --nproc_per_node 6 --master_port 29512 \
+    -m opensora.eval.dpgbench.step1_gen_samples \
+     --model_path /storage/ongoing/12.13/t2i/t2i_ablation_arch/prenorm/checkpoint-309125/model_ema \
+     --text_encoder_name_1 /storage/ongoing/12.13/t2i/cache_dir/google/t5-v1_1-xxl \
+     --ae WFVAE2Model_D32_1x8x8 \
+     --ae_path "/storage/lcm/WF-VAE_paper/results/WFVAE2_18832_slim" \
+    --ae_dtype fp16 \
+    --weight_dtype fp16 \
+    --prompt_path /storage/hxy/t2i/osp/Open-Sora-Plan/opensora/eval/eval_prompts/DPGbench/dpgbench_prompts.json \
+    --result_path ${OUTPUT_DIR} \
+    --version t2i
+
+
 OUTPUT_DIR="/storage/ongoing/12.29/eval/t2i_ablation_arch/prenorm_normskip/${PROMPT}"
 CUDA_VISIBLE_DEVICES=0,1,2,3,6,7 torchrun --nnodes=1 --nproc_per_node 6 --master_port 29512 \
     -m opensora.eval.dpgbench.step1_gen_samples \

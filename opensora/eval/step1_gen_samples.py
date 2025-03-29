@@ -80,17 +80,20 @@ if __name__ == "__main__":
             ] for i in range(len(meta_info))
         ]
 
-    text_and_savepath = [
+    text_and_savepath_ = [
         [text_prompt, save_path] for text_prompt, save_path in text_and_savepath if not os.path.exists(save_path)
     ]
-    print(f'need to process ({len(text_and_savepath)})')
-
+    print(f'need to process ({len(text_and_savepath_)})')
+    if len(text_and_savepath_) == 0:
+        import sys;sys.exit(0)
     text_and_savepath = text_and_savepath[args.local_rank::args.world_size]
     os.makedirs(args.output_dir, exist_ok=True)
 
     cnt = 0
     for text_prompt, save_path in tqdm(text_and_savepath):
         # print(text_prompt, save_path)
+        if os.path.exists(save_path):
+            continue
         set_seed(args.seed + cnt * 50, rank=args.local_rank, device_specific=True)
         image = run_model_and_return_samples(
             pipeline, 

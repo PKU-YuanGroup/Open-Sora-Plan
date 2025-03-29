@@ -16,12 +16,12 @@ text_encoder = {
     'google/umt5-xxl': T5Wrapper,
     'google/t5-v1_1-xl': T5Wrapper,
     'google/t5-v1_1-xxl': T5Wrapper,
+    'google/byt5-xxl': T5Wrapper, 
     'clip-vit-large-patch14': CLIPWrapper, 
     'CLIP-ViT-bigG-14-laion2B-39B-b160k': CLIPWrapper, 
     'glm-4-9b-chat': GLM4Wrapper, 
     'glm-4v-9b': GLM4VWrapper, 
     'Qwen2-VL-7B-Instruct': Qwen2VLWrapper, 
-    'google/byt5-xxl': T5Wrapper, 
 }
 
 text_encoder_cls = {
@@ -31,12 +31,12 @@ text_encoder_cls = {
     'google/umt5-xxl': UMT5EncoderModel,
     'google/t5-v1_1-xl': T5EncoderModel,
     'google/t5-v1_1-xxl': T5EncoderModel,
+    'google/byt5-xxl': T5EncoderModel, 
     'clip-vit-large-patch14': CLIPTextModelWithProjection, 
     'CLIP-ViT-bigG-14-laion2B-39B-b160k': CLIPTextModelWithProjection, 
     'glm-4-9b-chat': ChatGLMModel, 
     'glm-4v-9b': ChatGLMModelV, 
     'Qwen2-VL-7B-Instruct': Qwen2VLModel, 
-    'google/byt5-xxl': T5EncoderModel, 
 }
 
 text_tokenizer = {
@@ -46,12 +46,12 @@ text_tokenizer = {
     'google/umt5-xxl': AutoTokenizer,
     'google/t5-v1_1-xl': AutoTokenizer,
     'google/t5-v1_1-xxl': AutoTokenizer,
+    'google/byt5-xxl': ByT5Tokenizer, 
     'clip-vit-large-patch14': AutoTokenizer, 
     'CLIP-ViT-bigG-14-laion2B-39B-b160k': AutoTokenizer, 
     'glm-4-9b-chat': ChatGLM4Tokenizer, 
     'glm-4v-9b': ChatGLM4TokenizerV, 
     'Qwen2-VL-7B-Instruct': Qwen2VLProcessor, 
-    'google/byt5-xxl': ByT5Tokenizer, 
 }
 
 def get_text_warpper(text_encoder_name):
