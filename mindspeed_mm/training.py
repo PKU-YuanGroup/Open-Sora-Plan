@@ -55,6 +55,7 @@ _TRAIN_START_TIME = time.time()
 
 
 def pretrain(
+    data_meta_info_list,
     train_valid_test_dataset_provider,
     model_provider,
     model_type,
@@ -140,63 +141,132 @@ def pretrain(
     if one_logger:
         one_logger.log_metrics({"train_iterations_warmup": 5})
 
-    # NOTE For group data, we need to set initial_global_step_for_sampler
-    group_data = getattr(args.mm.data.dataloader_param, 'group_data', False)
-    if group_data:
-        # group sampler
-        timers("global-step-for-sampler-setup", log_level=0).start()
-        print_rank_0("use group sampler...")
-        global_step_for_sampler_txt = os.path.join(args.save, 'global_step_for_sampler.txt')
-        if os.path.exists(global_step_for_sampler_txt):
-            with open(global_step_for_sampler_txt, 'r') as f:
-                global_step_for_sampler = int(f.read().strip())
-        elif args.mm.data.dataloader_param.initial_global_step_for_sampler != 0:
-            global_step_for_sampler = args.mm.data.dataloader_param.initial_global_step_for_sampler
-        else:
-            global_step_for_sampler = 0
-        setattr(args.mm.data.dataloader_param, 'initial_global_step_for_sampler', global_step_for_sampler)
-        print_rank_0(f"global_step_for_sampler: {args.mm.data.dataloader_param.initial_global_step_for_sampler}")
-        timers("global-step-for-sampler-setup").stop()
-    
     torch.distributed.barrier()
     # Model, optimizer, and learning rate.
     timers("model-and-optimizer-setup", log_level=0).start(barrier=True)
     model, optimizer, opt_param_scheduler = setup_model_and_optimizer(
         model_provider, model_type
     )
-    torch.distributed.barrier()
     timers("model-and-optimizer-setup").stop()
+    torch.distributed.barrier()
     print_datetime("after model, optimizer, and learning rate scheduler are built")
     config = get_model_config(model[0])
 
-    # Data stuff.
-    timers("train/valid/test-data-iterators-setup", log_level=0).start(barrier=True)
-    if args.virtual_pipeline_model_parallel_size is not None:
-        train_data_iterator = []
-        valid_data_iterator = []
-        test_data_iterator = []
-        for i in range(len(model)):
-            mpu.set_virtual_pipeline_model_parallel_rank(i)
-            iterators = build_train_valid_test_data_iterators(
-                train_valid_test_dataset_provider
+    dataset_index = 0
+    dataset_index_txt = os.path.join(args.save, 'dataset_index.txt')
+    if os.path.exists(dataset_index_txt):
+        with open(dataset_index_txt, 'r') as f:
+            dataset_index = int(f.read().strip())
+
+    extreme_error_flag = False
+
+    if dataset_index < len(data_meta_info_list):
+        print_rank_0(f"dataset_index: {dataset_index}")
+        data_meta_info = data_meta_info_list[dataset_index]
+        if not os.path.exists(data_meta_info) or not data_meta_info.endswith('.txt'):
+            raise ValueError(f"data_meta_info: {data_meta_info} is not a valid file path")
+        with open(data_meta_info, 'r') as f:
+            info = f.read().strip()
+        print_rank_0(f"data_meta_info: {data_meta_info}, content: {info}")
+        setattr(args.mm.data.dataset_param.basic_parameters, 'data_path', data_meta_info)
+        torch.distributed.barrier()
+        # NOTE For group data, we need to set initial_global_step_for_sampler
+        group_data = getattr(args.mm.data.dataloader_param, 'group_data', False)
+        if group_data:
+            # group sampler
+            timers("global-step-for-sampler-setup", log_level=0).start()
+            print_rank_0("use group sampler...")
+            global_step_for_sampler_txt = os.path.join(args.save, 'global_step_for_sampler.txt')
+            if os.path.exists(global_step_for_sampler_txt):
+                with open(global_step_for_sampler_txt, 'r') as f:
+                    global_step_for_sampler = int(f.read().strip())
+            elif args.mm.data.dataloader_param.initial_global_step_for_sampler != 0:
+                global_step_for_sampler = args.mm.data.dataloader_param.initial_global_step_for_sampler
+            else:
+                global_step_for_sampler = 0
+            setattr(args.mm.data.dataloader_param, 'initial_global_step_for_sampler', global_step_for_sampler)
+            print_rank_0(f"global_step_for_sampler: {args.mm.data.dataloader_param.initial_global_step_for_sampler}")
+            timers("global-step-for-sampler-setup").stop()
+        torch.distributed.barrier()
+        # Data stuff.
+        timers("train/valid/test-data-iterators-setup", log_level=0).start(barrier=True)
+        if args.virtual_pipeline_model_parallel_size is not None:
+            train_data_iterator = []
+            valid_data_iterator = []
+            test_data_iterator = []
+            for i in range(len(model)):
+                mpu.set_virtual_pipeline_model_parallel_rank(i)
+                iterators = build_train_valid_test_data_iterators(
+                    train_valid_test_dataset_provider
+                )
+                train_data_iterator.append(iterators[0])
+                valid_data_iterator.append(iterators[1])
+                test_data_iterator.append(iterators[2])
+        else:
+            train_data_iterator, valid_data_iterator, test_data_iterator = (
+                build_train_valid_test_data_iterators(train_valid_test_dataset_provider)
             )
-            train_data_iterator.append(iterators[0])
-            valid_data_iterator.append(iterators[1])
-            test_data_iterator.append(iterators[2])
-    else:
-        train_data_iterator, valid_data_iterator, test_data_iterator = (
-            build_train_valid_test_data_iterators(train_valid_test_dataset_provider)
+        timers("train/valid/test-data-iterators-setup").stop()
+        print_datetime("after dataloaders are built")
+
+        # Print setup timing.
+        print_rank_0("done with setup ...")
+        timers.log(
+            ["model-and-optimizer-setup", "train/valid/test-data-iterators-setup"],
+            barrier=True,
         )
-    timers("train/valid/test-data-iterators-setup").stop()
-    print_datetime("after dataloaders are built")
 
-    # Print setup timing.
-    print_rank_0("done with setup ...")
-    timers.log(
-        ["model-and-optimizer-setup", "train/valid/test-data-iterators-setup"],
-        barrier=True,
-    )
+        extreme_error_flag = train_on_one_dataset(
+            forward_step_func,
+            model,
+            optimizer,
+            opt_param_scheduler,
+            train_data_iterator,
+            valid_data_iterator,
+            process_non_loss_data_func,
+            config,
+        )
+        if not extreme_error_flag:
+            print_rank_0(f'dataset_index: {dataset_index}, done with training')
+            print(f"rank = {torch.distributed.get_rank()}, done with training")
+            dataset_index += 1
+            torch.distributed.barrier()
+            if torch.distributed.get_rank() == 0:
+                print("update dataset_index.txt")
+                with open(dataset_index_txt, 'w') as f:
+                    f.write(str(dataset_index))
+        else:
+            print_rank_0("extreme error, we must restart training on this dataset")
 
+        torch.distributed.barrier()
+
+        if dataset_index < len(data_meta_info_list):
+            raise ValueError("In RDZV training mode, we actively throw exceptions to execute the next task")
+        else:
+            print_rank_0("training is done, exit")
+        
+    print(f"rank = {torch.distributed.get_rank()}, done with training all datasets")
+    if torch.distributed.get_rank() == 0:
+        print("training is done, remove dataset_index.txt")
+        os.remove(dataset_index_txt)
+    torch.distributed.barrier()
+
+
+def train_on_one_dataset(
+    forward_step_func,
+    model,
+    optimizer,
+    opt_param_scheduler,
+    train_data_iterator,
+    valid_data_iterator,
+    process_non_loss_data_func,
+    config,
+):
+
+    args = get_args()
+    timers = get_timers()
+
+    extreme_error_flag = False
     if not args.skip_train:
         print_rank_0("training ...")
 
@@ -208,7 +278,6 @@ def pretrain(
 
         torch.distributed.barrier()        
         iteration = 0
-        extreme_error_flag = False
         if args.do_train and args.train_iters > 0:
             iteration, num_floating_point_operations_so_far, extreme_error_flag = train(
                 forward_step_func,
@@ -234,6 +303,7 @@ def pretrain(
                 num_floating_point_operations_so_far,
             )
         torch.distributed.barrier()
+        global_step_for_sampler_txt = os.path.join(args.save, 'global_step_for_sampler.txt')
         print(f'rank = {torch.distributed.get_rank()}, before delete global_step_for_sampler_txt')
         if torch.distributed.get_rank() == 0:
             # NOTE For group data, we need to save the global step for sampler.
@@ -241,7 +311,6 @@ def pretrain(
             if group_data and not extreme_error_flag:
                 # group sampler
                 timers("global-step-for-sampler-txt-delete-setup", log_level=0).start()
-                global_step_for_sampler_txt = os.path.join(args.save, 'global_step_for_sampler.txt')
                 if os.path.exists(global_step_for_sampler_txt):
                     print_rank_0("delete global_step_for_sampler.txt...")
                     with open(global_step_for_sampler_txt, 'r') as f:
@@ -288,6 +357,7 @@ def pretrain(
             write_to_tensorboard=not args.skip_train,
         )
 
+    return extreme_error_flag
 
 def train(
     forward_step_func,

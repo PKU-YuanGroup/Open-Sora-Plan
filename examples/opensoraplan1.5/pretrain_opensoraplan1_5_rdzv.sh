@@ -1,7 +1,6 @@
 #!/bin/bash
 wandb login 720d886d8c437c2142c88056a1eab8ef78d64a1f
 source /usr/local/Ascend/ascend-toolkit/set_env.sh
-source /usr/local/Ascend/nnal/atb/set_env.sh
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 export ASCEND_SLOG_PRINT_TO_STDOUT=0
 export ASCEND_GLOBAL_LOG_LEVEL=3
@@ -55,6 +54,7 @@ GBS=$(($NUM_NPUS*$GRAD_ACC_STEP*$MBS/$CP/$TP))
 
 MM_MODEL="./examples/opensoraplan1.5/model_opensoraplan1_5.json"
 MM_TOOL="./mindspeed_mm/tools/tools.json"
+MM_DATA="./examples/opensoraplan1.5/data00.json"
 
 DISTRIBUTED_ARGS="
     --nproc_per_node $GPU_NUM_PER_NODE \
@@ -62,9 +62,17 @@ DISTRIBUTED_ARGS="
     --rdzv_backend=${PET_RDZV_BACKEND} \
     --rdzv_endpoint=${PET_RDZV_ENDPOINT} \
     --rdzv_id=${PET_RDZV_ID} \
-    --max_restarts=2 \
+    --max_restarts=25 \
     --rdzv_conf=timeout=7200,read_timeout=7200 \
 "
+
+# DISTRIBUTED_ARGS="
+#     --nproc_per_node $GPU_NUM_PER_NODE \
+#     --nnodes $PET_NNODES \
+#     --node_rank $PET_NODE_RANK \
+#     --master_addr $PET_MASTER_ADDR \
+#     --master_port $PET_MASTER_PORT
+# "
 
 GPT_ARGS="
     --tensor-model-parallel-size ${TP} \

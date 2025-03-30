@@ -5,6 +5,7 @@ import os
 import re
 from pathlib import Path
 
+import torch
 from tqdm import tqdm
 
 def load_data(file_path):
@@ -144,7 +145,7 @@ root_path_list = [
     "share1/video1/panda1",
     "share1/video1/panda1",
 ]  # 对应的根路径
-output_dir = "/work/share1/caption/osp/0319"  # 输出文件夹
+output_dir = "/work/share1/caption/osp/0330"  # 输出文件夹
 k = 20  # 分割为 k 个 JSON
 
 os.makedirs(output_dir, exist_ok=True)
