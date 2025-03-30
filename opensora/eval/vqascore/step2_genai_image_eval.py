@@ -69,9 +69,9 @@ def show_performance_per_skill(our_scores, dataset, items_name='images', prompt_
             print(tag_header)
             for model_name in all_models:
                 if print_std:
-                    detailed_scores = [f"{tag_result[tag][model_name][score_name]['mean']:.2f}+-{tag_result[tag][model_name][score_name]['std']:.2f}" for tag in tag_groups[tag_group]]
+                    detailed_scores = [f"{tag_result[tag][model_name][score_name]['mean']:.6f}+-{tag_result[tag][model_name][score_name]['std']:.6f}" for tag in tag_groups[tag_group]]
                 else:
-                    detailed_scores = [f"{tag_result[tag][model_name][score_name]['mean']:.2f}" for tag in tag_groups[tag_group]]
+                    detailed_scores = [f"{tag_result[tag][model_name][score_name]['mean']:.6f}" for tag in tag_groups[tag_group]]
                 detailed_scores = " ".join([f"{score:<17}" for score in detailed_scores])
                 model_scores = f"{model_name:<17}" + detailed_scores
                 print(model_scores)
