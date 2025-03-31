@@ -163,7 +163,17 @@ fusion_result.json
 ge_check_op.json
 
 # sample dir
-/opensora_samples/
+/opensora_samples*/
 
 # multi-node script
 SoraClusterScripts/
+
+wandb/
+
+test_ckpt*/
+dataset_test/
+
+*.pt
+*.safetensors
+*.pth
+*.mp4

@@ -55,6 +55,7 @@ def last_group_frame_fun(shuffled_megabatches, lengths):
             len_each_batch = [lengths[i] for i in batch]
             idx_length_dict = dict([*zip(batch, len_each_batch)])
             count_dict = Counter(len_each_batch)
+            # This means that there are multiple different shapes of data on a certain GPU
             if len(count_dict) != 1:
                 sorted_by_value = sorted(count_dict.items(), key=lambda item: item[1])
                 pick_length = sorted_by_value[-1][0]  # the highest frequency
@@ -95,8 +96,9 @@ def get_length_grouped_data_indices(
         lengths, 
         batch_size, 
         world_size, 
-        gradient_accumulation_size, 
-        initial_global_step, 
+        gradient_accumulation_size=1, 
+        encoder_dp_size=1,
+        initial_global_step=0, 
         generator=None, 
         group_data=False, 
         seed=42
@@ -113,6 +115,7 @@ def get_length_grouped_data_indices(
     megabatch_size = world_size * batch_size
     megabatches = [indices[i: i + megabatch_size] for i in range(0, len(lengths), megabatch_size)]
 
+    # Ensure that the sample quantity for each GPU is consistent, and only a small portion of GPU data shapes do not match
     megabatches = [split_to_even_chunks(megabatch, lengths, world_size, batch_size) for megabatch in megabatches]
 
     indices_mega = torch.randperm(len(megabatches), generator=generator).tolist()
@@ -122,7 +125,8 @@ def get_length_grouped_data_indices(
     if group_data:
         shuffled_megabatches = last_group_frame_fun(shuffled_megabatches, lengths)
     
-    initial_global_step = initial_global_step * gradient_accumulation_size
+    initial_global_step = initial_global_step * gradient_accumulation_size // encoder_dp_size
+    print(f"initial_global_step: {initial_global_step}, gradient_accumulation_size: {gradient_accumulation_size}, encoder_dp_size: {encoder_dp_size}")
     shuffled_megabatches = shuffled_megabatches[initial_global_step:]
 
     out_list = []
@@ -147,6 +151,7 @@ class LengthGroupedSampler(DistributedSampler):
         rank: Optional[int] = None,
         gradient_accumulation_size: int = 1, 
         initial_global_step: int = 0, 
+        encoder_dp_size=1,
         lengths: Optional[List[int]] = None,
         group_data=False,
         generator=None,
@@ -161,16 +166,17 @@ class LengthGroupedSampler(DistributedSampler):
         self.world_size = world_size
         self.initial_global_step = initial_global_step
         self.gradient_accumulation_size = gradient_accumulation_size
+        self.encoder_dp_size = encoder_dp_size
         self.lengths = lengths
         self.group_data = group_data
         self.generator = generator
 
-        print('self.lengths, self.initial_global_step, self.batch_size, self.world_size, self.gradient_accumulation_size', 
-            len(self.lengths), self.initial_global_step, self.batch_size, self.world_size, self.gradient_accumulation_size)
+        print('self.lengths, self.initial_global_step, self.batch_size, self.world_size, self.gradient_accumulation_size, self.encoder_dp_size,', 
+            len(self.lengths), self.initial_global_step, self.batch_size, self.world_size, self.gradient_accumulation_size, self.encoder_dp_size)
 
     def __len__(self):
         if self.group_data:
-            return len(self.lengths) - self.initial_global_step * self.batch_size * self.world_size * self.gradient_accumulation_size
+            return len(self.lengths) - self.initial_global_step * self.batch_size * self.world_size * self.gradient_accumulation_size // self.encoder_dp_size
         return len(self.lengths)
 
     def __iter__(self):
@@ -179,11 +185,12 @@ class LengthGroupedSampler(DistributedSampler):
             self.batch_size,
             self.world_size,
             self.gradient_accumulation_size,
+            self.encoder_dp_size,
             self.initial_global_step,
             group_data=self.group_data,
             generator=self.generator,
         )
-        indices = indices[self.rank:self.total_size:self.num_replicas]
+        indices = indices[self.rank:len(indices):self.num_replicas]
         return iter(indices)
 
 class StatefulDistributedSampler(DistributedSampler):

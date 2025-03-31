@@ -1,8 +1,12 @@
 # Copyright (c) 2024, NVIDIA CORPORATION. All rights reserved.
+import os
 import gc
 import sys
 import time
 import torch
+import torch_npu
+
+from megatron.core.optimizer.clip_grads import AdaptiveGradClipInfo
 
 from megatron.core import mpu
 from megatron.core.utils import get_model_config
@@ -51,13 +55,13 @@ _TRAIN_START_TIME = time.time()
 
 
 def pretrain(
-        train_valid_test_dataset_provider,
-        model_provider,
-        model_type,
-        forward_step_func,
-        process_non_loss_data_func=None,
-        extra_args_provider=None,
-        args_defaults={},
+    train_valid_test_dataset_provider,
+    model_provider,
+    model_type,
+    forward_step_func,
+    process_non_loss_data_func=None,
+    extra_args_provider=None,
+    args_defaults={},
 ):
     """
     Main training program.
@@ -88,11 +92,12 @@ def pretrain(
         args_defaults: a dictionary from argument-name to argument-value. It
             to set already parse arguments.
     """
-
     # Initalize and get arguments, timers, and Tensorboard writer.
     initialize_megatron(
         extra_args_provider=extra_args_provider, args_defaults=args_defaults
     )
+
+    torch.distributed.barrier()
 
     init_func = args_defaults.get("init_func", None)
     if init_func:
@@ -101,7 +106,6 @@ def pretrain(
     args = get_args()
     merge_mm_args(args)
     timers = get_timers()
-
     if args.log_progress:
         append_to_progress_log("Starting job")
 
@@ -128,18 +132,39 @@ def pretrain(
     print_datetime("after megatron is initialized")
 
     args = get_args()
+    if args.save_interval == 0 or args.log_interval == 0 or args.eval_interval == 0:
+        raise ValueError("save_interval, log_interval, and eval_interval cannot be 0")
     timers = get_timers()
 
     one_logger = get_one_logger()
     if one_logger:
         one_logger.log_metrics({"train_iterations_warmup": 5})
 
+    # NOTE For group data, we need to set initial_global_step_for_sampler
+    group_data = getattr(args.mm.data.dataloader_param, 'group_data', False)
+    if group_data:
+        # group sampler
+        timers("global-step-for-sampler-setup", log_level=0).start()
+        print_rank_0("use group sampler...")
+        global_step_for_sampler_txt = os.path.join(args.save, 'global_step_for_sampler.txt')
+        if os.path.exists(global_step_for_sampler_txt):
+            with open(global_step_for_sampler_txt, 'r') as f:
+                global_step_for_sampler = int(f.read().strip())
+        elif args.mm.data.dataloader_param.initial_global_step_for_sampler != 0:
+            global_step_for_sampler = args.mm.data.dataloader_param.initial_global_step_for_sampler
+        else:
+            global_step_for_sampler = 0
+        setattr(args.mm.data.dataloader_param, 'initial_global_step_for_sampler', global_step_for_sampler)
+        print_rank_0(f"global_step_for_sampler: {args.mm.data.dataloader_param.initial_global_step_for_sampler}")
+        timers("global-step-for-sampler-setup").stop()
+    
+    torch.distributed.barrier()
     # Model, optimizer, and learning rate.
     timers("model-and-optimizer-setup", log_level=0).start(barrier=True)
     model, optimizer, opt_param_scheduler = setup_model_and_optimizer(
         model_provider, model_type
     )
-
+    torch.distributed.barrier()
     timers("model-and-optimizer-setup").stop()
     print_datetime("after model, optimizer, and learning rate scheduler are built")
     config = get_model_config(model[0])
@@ -181,9 +206,11 @@ def pretrain(
             args.train_iters = args.retro_cyclic_train_iters
             print_rank_0("retro cyclic train iters : %d" % args.train_iters)
 
+        torch.distributed.barrier()        
         iteration = 0
+        extreme_error_flag = False
         if args.do_train and args.train_iters > 0:
-            iteration, num_floating_point_operations_so_far = train(
+            iteration, num_floating_point_operations_so_far, extreme_error_flag = train(
                 forward_step_func,
                 model,
                 optimizer,
@@ -193,10 +220,12 @@ def pretrain(
                 process_non_loss_data_func,
                 config,
             )
-
+        torch.distributed.barrier()
         print_datetime("after training is done")
 
+        print(f'rank = {torch.distributed.get_rank()}, before save last checkpoint')
         if args.save and iteration != 0 and iteration % args.save_interval != 0:
+            print_rank_0(f'Training ends, save checkpoint at iteration {iteration}')
             save_checkpoint(
                 iteration,
                 model,
@@ -204,6 +233,28 @@ def pretrain(
                 opt_param_scheduler,
                 num_floating_point_operations_so_far,
             )
+        torch.distributed.barrier()
+        print(f'rank = {torch.distributed.get_rank()}, before delete global_step_for_sampler_txt')
+        if torch.distributed.get_rank() == 0:
+            # NOTE For group data, we need to save the global step for sampler.
+            group_data = getattr(args.mm.data.dataloader_param, 'group_data', False)
+            if group_data and not extreme_error_flag:
+                # group sampler
+                timers("global-step-for-sampler-txt-delete-setup", log_level=0).start()
+                global_step_for_sampler_txt = os.path.join(args.save, 'global_step_for_sampler.txt')
+                if os.path.exists(global_step_for_sampler_txt):
+                    print_rank_0("delete global_step_for_sampler.txt...")
+                    with open(global_step_for_sampler_txt, 'r') as f:
+                        global_step_for_sampler = int(f.read().strip())
+                    print_rank_0(f"global_step_for_sampler: {global_step_for_sampler}, and we will reset it to 0...")
+                    os.remove(global_step_for_sampler_txt)
+                timers("global-step-for-sampler-txt-delete-setup").stop()
+        print(f'rank = {torch.distributed.get_rank()}, after delete global_step_for_sampler_txt')
+        torch.distributed.barrier()
+        if not os.path.exists(global_step_for_sampler_txt):
+            print("reset global_step_for_sampler to 0, global_step_for_sampler_txt is deleted")
+        else:
+            raise Exception("error! global_step_for_sampler_txt is not deleted")
     else:
         print_rank_0("skipping training (--skip-train is on) ...")
 
@@ -239,14 +290,14 @@ def pretrain(
 
 
 def train(
-        forward_step_func,
-        model,
-        optimizer,
-        opt_param_scheduler,
-        train_data_iterator,
-        valid_data_iterator,
-        process_non_loss_data_func,
-        config,
+    forward_step_func,
+    model,
+    optimizer,
+    opt_param_scheduler,
+    train_data_iterator,
+    valid_data_iterator,
+    process_non_loss_data_func,
+    config,
 ):
     """Train the model function."""
     args = get_args()
@@ -264,6 +315,9 @@ def train(
 
     # Iterations.
     iteration = args.iteration
+    # NOTE for group data, we need to log initial iteration for computing global_step_for_sampler
+    initial_iteration = iteration
+
     one_logger = get_one_logger()
     if one_logger:
         iteration_start = iteration
@@ -342,8 +396,8 @@ def train(
             )
             if eval_iterations > 0:
                 validation_iterations_time_msecs_avg = (
-                                                               eval_duration * 1000.0
-                                                       ) / eval_iterations
+                    eval_duration * 1000.0
+                ) / eval_iterations
             else:
                 validation_iterations_time_msecs_avg = None
 
@@ -378,24 +432,35 @@ def train(
                 optimizer,
                 opt_param_scheduler,
                 num_floating_point_operations_so_far,
+                None,
             )
         num_microbatches = get_num_microbatches()
         update_num_microbatches(args.consumed_train_samples, consistency_check=True)
 
         args.curr_iteration = iteration
-        loss_dict, skipped_iter, grad_norm, num_zeros_in_grad = train_step(
-            forward_step_func,
-            train_data_iterator,
-            model,
-            optimizer,
-            opt_param_scheduler,
-            config,
-        )
+
+        data_run_out = False
+        try:
+            loss_dict, skipped_iter, grad_norm, num_zeros_in_grad = train_step(
+                forward_step_func,
+                train_data_iterator,
+                model,
+                optimizer,
+                opt_param_scheduler,
+                config,
+            )
+        except StopIteration:
+            data_run_out = True
+            print("Training is done because dataloader run out of data.")
+        except Exception as e:
+            print(f"Training is done because of exception {type(e).__name__}")
+            raise e
+    
         iteration += 1
         batch_size = (
-                mpu.get_data_parallel_world_size()
-                * args.micro_batch_size
-                * get_num_microbatches()
+            mpu.get_data_parallel_world_size()
+            * args.micro_batch_size
+            * get_num_microbatches()
         )
         args.consumed_train_samples += batch_size
         num_floating_point_operations_so_far += num_floating_point_operations(
@@ -418,6 +483,12 @@ def train(
                 decoupled_learning_rate = param_group["lr"]
             else:
                 learning_rate = param_group["lr"]
+
+        extreme_error_flag = False
+        if AdaptiveGradClipInfo.extreme_error_flag:
+            print_rank_0("Extreme error, stop training!")
+            extreme_error_flag = True
+            
         report_memory_flag = training_log(
             loss_dict,
             total_loss_dict,
@@ -431,7 +502,23 @@ def train(
             params_norm,
             num_zeros_in_grad,
         )
-
+        if torch.distributed.get_rank() == 0:
+            if extreme_error_flag: 
+                # NOTE For group data, we need to save the global step for sampler.
+                group_data = getattr(args.mm.data.dataloader_param, 'group_data', False)
+                if group_data:
+                    # group sampler
+                    timers("global-step-for-sampler-txt-save-setup", log_level=0).start()
+                    print_rank_0("save global_step_for_sampler.txt")
+                    initial_global_step_for_sampler = getattr(args.mm.data.dataloader_param, 'initial_global_step_for_sampler', 0)
+                    global_step_for_sampler_txt = os.path.join(args.save, 'global_step_for_sampler.txt')
+                    global_step_for_sampler = initial_global_step_for_sampler + iteration - initial_iteration
+                    print_rank_0(f"initial_global_step_for_sampler: {initial_global_step_for_sampler}")
+                    print_rank_0(f"current_global_step_for_sampler: {global_step_for_sampler}")
+                    with open(global_step_for_sampler_txt, 'w') as f:
+                        f.write(str(global_step_for_sampler))
+                    timers("global-step-for-sampler-txt-save-setup").stop()
+        torch.distributed.barrier()
         # Autoresume
         if args.adlr_autoresume and (iteration % args.adlr_autoresume_interval == 0):
             check_adlr_autoresume_termination(
@@ -479,22 +566,39 @@ def train(
                     optimizer,
                     opt_param_scheduler,
                     num_floating_point_operations_so_far,
+                    None,
                 )
                 print_datetime("exiting program after receiving SIGTERM.")
                 exit_flag = True
                 break
 
         if args.save and args.save_interval and iteration % args.save_interval == 0:
-            timers("interval-time").stop()
             save_checkpoint_and_time(
                 iteration,
                 model,
                 optimizer,
                 opt_param_scheduler,
                 num_floating_point_operations_so_far,
+                None,
             )
             saved_checkpoint = True
-            timers("interval-time", log_level=0).start(barrier=True)
+
+            if torch.distributed.get_rank() == 0:
+                # NOTE For group data, we need to save the global step for sampler.
+                group_data = getattr(args.mm.data.dataloader_param, 'group_data', False)
+                if group_data:
+                    # group sampler
+                    timers("global-step-for-sampler-txt-save-setup", log_level=0).start()
+                    print_rank_0("save global_step_for_sampler.txt")
+                    initial_global_step_for_sampler = getattr(args.mm.data.dataloader_param, 'initial_global_step_for_sampler', 0)
+                    global_step_for_sampler_txt = os.path.join(args.save, 'global_step_for_sampler.txt')
+                    global_step_for_sampler = initial_global_step_for_sampler + iteration - initial_iteration
+                    print_rank_0(f"initial_global_step_for_sampler: {initial_global_step_for_sampler}")
+                    print_rank_0(f"current_global_step_for_sampler: {global_step_for_sampler}")
+                    with open(global_step_for_sampler_txt, 'w') as f:
+                        f.write(str(global_step_for_sampler))
+                    timers("global-step-for-sampler-txt-save-setup").stop()
+            torch.distributed.barrier()
 
         # Exiting based on duration
         if args.exit_duration_in_mins:
@@ -514,6 +618,7 @@ def train(
                         optimizer,
                         opt_param_scheduler,
                         num_floating_point_operations_so_far,
+                        None,
                     )
                 print_datetime("exiting program after {} minutes".format(train_time))
                 exit_flag = True
@@ -528,6 +633,7 @@ def train(
                     optimizer,
                     opt_param_scheduler,
                     num_floating_point_operations_so_far,
+                    None,
                 )
             torch.distributed.barrier()
             print_datetime("exiting program at iteration {}".format(iteration))
@@ -539,6 +645,11 @@ def train(
                 gc.collect()
 
         prof.step()
+
+        # Exit if data iterator is exhausted or extreme error is detected.
+        if data_run_out or extreme_error_flag:
+            break
+
     prof.stop()
 
     track_e2e_metrics()
@@ -559,11 +670,11 @@ def train(
     if exit_flag:
         sys.exit()
 
-    return iteration, num_floating_point_operations_so_far
+    return iteration, num_floating_point_operations_so_far, extreme_error_flag
 
 
 def train_step(
-        forward_step_func, data_iterator, model, optimizer, opt_param_scheduler, config
+    forward_step_func, data_iterator, model, optimizer, opt_param_scheduler, config
 ):
     """Single training step."""
     args = get_args()
@@ -593,8 +704,8 @@ def train_step(
 
     # Vision gradients.
     if (
-            getattr(args, "vision_pretraining", False)
-            and args.vision_pretraining_type == "dino"
+        getattr(args, "vision_pretraining", False)
+        and args.vision_pretraining_type == "dino"
     ):
         unwrapped_model = unwrap_model(model[0])
         unwrapped_model.cancel_gradients_last_layer(args.curr_iteration)
@@ -606,8 +717,8 @@ def train_step(
 
     # Vision momentum.
     if (
-            getattr(args, "vision_pretraining", False)
-            and args.vision_pretraining_type == "dino"
+        getattr(args, "vision_pretraining", False)
+        and args.vision_pretraining_type == "dino"
     ):
         unwrapped_model = unwrap_model(model[0])
         unwrapped_model.update_momentum(args.curr_iteration)
@@ -615,7 +726,7 @@ def train_step(
     # Update learning rate.
     if update_successful:
         increment = (
-                get_num_microbatches() * args.micro_batch_size * args.data_parallel_size
+            get_num_microbatches() * args.micro_batch_size * args.data_parallel_size
         )
         opt_param_scheduler.step(increment=increment)
         skipped_iter = 0

@@ -305,6 +305,7 @@ def save_checkpoint(iteration, model, optimizer, opt_param_scheduler, num_floati
     print_rank_0('saving checkpoint at iteration {:7d} to {} in {} format'.format(
         iteration, args.save, ckpt_format))
 
+
     # Collect rng state across data parallel ranks.
     rng_state = get_rng_state(args.use_dist_ckpt)
 

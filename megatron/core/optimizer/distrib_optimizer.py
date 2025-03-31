@@ -35,6 +35,8 @@ from .grad_scaler import MegatronGradScaler
 from .optimizer import MixedPrecisionOptimizer, _zero_grad_group_helper
 from .optimizer_config import OptimizerConfig
 
+from .clip_grads import adaptive_clip_grad_norm_fp32_with_distributed_optimizer
+
 logger = getLogger(__name__)
 
 
@@ -550,6 +552,20 @@ class DistributedOptimizer(MixedPrecisionOptimizer):
         entire world.
         """
         return None
+
+    def clip_grad_norm(self, clip_grad: float) -> float:
+        """Compute grad norm."""
+        params = self.get_parameters()
+        grads_for_norm = self.get_main_grads_for_grad_norm()
+        if self.config.clip_grad_ema_decay > 0.0:
+            params_for_norm = self.get_unlocked_main_params_for_norm()
+            return adaptive_clip_grad_norm_fp32_with_distributed_optimizer(
+                params, grads_for_norm, params_for_norm, model_parallel_group=self.get_model_parallel_group(),
+                clip_grad_ema_decay=self.config.clip_grad_ema_decay
+            )
+        return clip_grad_norm_fp32(
+            params, grads_for_norm, clip_grad, model_parallel_group=self.get_model_parallel_group(),
+        )
 
     def state_dict(self):
         """

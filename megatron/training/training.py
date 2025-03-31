@@ -50,6 +50,7 @@ from .utils import (
     report_memory,
     unwrap_model,
     append_to_progress_log,
+    gather_info_from_all_processes
 )
 from .global_vars import (
     get_args,
@@ -59,6 +60,8 @@ from .global_vars import (
     get_wandb_writer,
     get_one_logger)
 from . import one_logger_utils
+
+from megatron.core.optimizer.clip_grads import AdaptiveGradClipInfo
 
 
 stimer = StragglerDetector()
@@ -735,77 +738,104 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
        (iteration % args.tensorboard_log_interval == 0):
         timers.write(timers_to_log, writer, iteration,
                      normalizer=total_iterations)
-    if writer and (iteration % args.tensorboard_log_interval == 0):
+
+    # We only need wandb writer
+    if (writer is not None or wandb_writer is not None) and (iteration % args.tensorboard_log_interval == 0):
         if wandb_writer:
             wandb_writer.log({'samples vs steps': args.consumed_train_samples},
                              iteration)
         if args.log_learning_rate_to_tensorboard:
-            writer.add_scalar('learning-rate', learning_rate, iteration)
-            if args.decoupled_lr is not None:
-                writer.add_scalar('decoupled-learning-rate', decoupled_learning_rate, iteration)
-            writer.add_scalar('learning-rate vs samples', learning_rate,
-                              args.consumed_train_samples)
+            if writer:
+                writer.add_scalar('learning-rate', learning_rate, iteration)
+                if args.decoupled_lr is not None:
+                    writer.add_scalar('decoupled-learning-rate', decoupled_learning_rate, iteration)
+                writer.add_scalar('learning-rate vs samples', learning_rate,
+                                    args.consumed_train_samples)
             if wandb_writer:
                 wandb_writer.log({'learning-rate': learning_rate}, iteration)
         if args.log_batch_size_to_tensorboard:
-            writer.add_scalar('batch-size', batch_size, iteration)
-            writer.add_scalar('batch-size vs samples', batch_size,
-                              args.consumed_train_samples)
+            if writer:
+                writer.add_scalar('batch-size', batch_size, iteration)
+                writer.add_scalar('batch-size vs samples', batch_size,
+                                args.consumed_train_samples)
             if wandb_writer:
                 wandb_writer.log({'batch-size': batch_size}, iteration)
         for key in loss_dict:
-            writer.add_scalar(key , loss_dict[key], iteration)
-            writer.add_scalar(key + ' vs samples', loss_dict[key],
-                              args.consumed_train_samples)
+            if writer:
+                writer.add_scalar(key , loss_dict[key], iteration)
+                writer.add_scalar(key + ' vs samples', loss_dict[key],
+                                args.consumed_train_samples)
             if wandb_writer:
                 wandb_writer.log({key: loss_dict[key]}, iteration)
         if args.log_loss_scale_to_tensorboard:
-            writer.add_scalar('loss-scale', loss_scale, iteration)
-            writer.add_scalar('loss-scale vs samples', loss_scale,
-                              args.consumed_train_samples)
+            if writer:
+                writer.add_scalar('loss-scale', loss_scale, iteration)
+                writer.add_scalar('loss-scale vs samples', loss_scale,
+                                args.consumed_train_samples)
             if wandb_writer:
                 wandb_writer.log({'loss-scale': loss_scale}, iteration)
         if args.log_world_size_to_tensorboard:
-            writer.add_scalar('world-size', args.world_size, iteration)
-            writer.add_scalar('world-size vs samples', args.world_size,
-                              args.consumed_train_samples)
+            if writer:
+                writer.add_scalar('world-size', args.world_size, iteration)
+                writer.add_scalar('world-size vs samples', args.world_size,
+                                args.consumed_train_samples)
             if wandb_writer:
                 wandb_writer.log({'world-size': args.world_size}, iteration)
         if grad_norm is not None:
-            writer.add_scalar('grad-norm', grad_norm, iteration)
-            writer.add_scalar('grad-norm vs samples', grad_norm,
-                              args.consumed_train_samples)
+            if writer:
+                writer.add_scalar('grad-norm', grad_norm, iteration)
+                writer.add_scalar('grad-norm vs samples', grad_norm,
+                                args.consumed_train_samples)
             if wandb_writer:
                 wandb_writer.log({'grad-norm': grad_norm}, iteration)
         if num_zeros_in_grad is not None:
-            writer.add_scalar('num-zeros', num_zeros_in_grad, iteration)
-            writer.add_scalar('num-zeros vs samples', num_zeros_in_grad,
-                              args.consumed_train_samples)
+            if writer:
+                writer.add_scalar('num-zeros', num_zeros_in_grad, iteration)
+                writer.add_scalar('num-zeros vs samples', num_zeros_in_grad,
+                                args.consumed_train_samples)
             if wandb_writer:
                 wandb_writer.log({'num-zeros': num_zeros_in_grad}, iteration)
         if params_norm is not None:
-            writer.add_scalar('params-norm', params_norm, iteration)
-            writer.add_scalar('params-norm vs samples', params_norm,
-                              args.consumed_train_samples)
+            if writer:
+                writer.add_scalar('params-norm', params_norm, iteration)
+                writer.add_scalar('params-norm vs samples', params_norm,
+                                args.consumed_train_samples)
             if wandb_writer:
                 wandb_writer.log({'params-norm': params_norm}, iteration)
         if args.log_memory_to_tensorboard:
             mem_stats = torch.cuda.memory_stats()
-            writer.add_scalar(
-                "mem-reserved-bytes",
-                mem_stats["reserved_bytes.all.current"],
-                iteration,
-            )
-            writer.add_scalar(
-                "mem-allocated-bytes",
-                mem_stats["allocated_bytes.all.current"],
-                iteration,
-            )
-            writer.add_scalar(
-                "mem-allocated-count",
-                mem_stats["allocation.all.current"],
-                iteration,
-            )
+            if writer:
+                writer.add_scalar(
+                    "mem-reserved-bytes",
+                    mem_stats["reserved_bytes.all.current"],
+                    iteration,
+                )
+                writer.add_scalar(
+                    "mem-allocated-bytes",
+                    mem_stats["allocated_bytes.all.current"],
+                    iteration,
+                )
+                writer.add_scalar(
+                    "mem-allocated-count",
+                    mem_stats["allocation.all.current"],
+                    iteration,
+                )
+        # we use adaptive clip grad, so we should log extreme error situation.
+        if wandb_writer:
+            wandb_writer.log({'extreme-error': AdaptiveGradClipInfo.extreme_error_flag}, iteration)
+            wandb_writer.log({
+                'weight_norm': AdaptiveGradClipInfo.weight_norm,
+                'moving_avg_max_grad_norm': AdaptiveGradClipInfo.moving_avg_max_grad_norm,
+                'moving_avg_max_grad_norm_var': AdaptiveGradClipInfo.moving_avg_max_grad_norm_var,
+                'max_grad_norm': AdaptiveGradClipInfo.max_grad_norm,
+                'max_grad_norm_after_clip': AdaptiveGradClipInfo.max_grad_norm_after_clip,
+                'max_norm': AdaptiveGradClipInfo.max_norm,
+                'max_grad_norm_var': AdaptiveGradClipInfo.max_grad_norm_var,
+                'num_zero_grad': AdaptiveGradClipInfo.num_zero_grad,
+                'clip_coef': AdaptiveGradClipInfo.clip_coef,
+                'nan_norm_flag': AdaptiveGradClipInfo.nan_norm_flag,
+            }, iteration)
+
     if args.num_experts is not None:
         moe_loss_scale = 1 / get_num_microbatches()
         track_moe_metrics(moe_loss_scale, iteration, writer, wandb_writer, total_loss_dict, args.moe_per_layer_logging)

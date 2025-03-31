@@ -10,8 +10,12 @@ from megatron.core.enums import ModelType
 from megatron.training import get_args, print_rank_0
 from megatron.training.utils import (
     average_losses_across_data_parallel_group,
+    get_max_loss_across_data_parallel_group,
+    gather_info_from_all_processes,
     unwrap_model,
 )
+from megatron.training.global_vars import get_wandb_writer
+from megatron.core.optimizer.clip_grads import AdaptiveGradClipInfo
 
 from mindspeed_mm.configs.config import mm_extra_args_provider
 from mindspeed_mm.training import pretrain
@@ -59,9 +63,13 @@ def get_batch(data_iterator):
 def loss_func(output_tensor):
     """Loss function."""
     loss = output_tensor.mean()
-    averaged_loss = average_losses_across_data_parallel_group([loss])
+    max_loss = get_max_loss_across_data_parallel_group([loss])
+    # loss_clone = loss.clone().detach()
+    # loss_clone = (1.0 - AdaptiveGradClipInfo.zero_grad_flag) * loss_clone / (AdaptiveGradClipInfo.clip_coef + 1e-15)
+    # avg_loss = average_losses_across_data_parallel_group([loss_clone])
+    avg_loss = average_losses_across_data_parallel_group([loss])
     loss = loss.unsqueeze(0)
-    return loss, {"loss": averaged_loss[0]}
+    return loss, {"avg_loss": avg_loss[0], "max_loss": max_loss[0]}
 
 def get_batch_for_step(data_iterator):
     args = get_args()
@@ -95,18 +103,27 @@ def forward_step(data_iterator, model):
         prompt_mask_2=prompt_mask_2,
         **batch,
     )
+    torch.distributed.barrier()
     loss_dict = unwrap_model(model).compute_loss(*output_tensor_list)
+    torch.distributed.barrier()
     return loss_dict, loss_func
 
-
+# pretrain函数调用datasets_provider, 而pretrain中dataloader_type传external，所以这里返回的iter就是实际用到的iter
 def train_valid_test_datasets_provider(train_val_test_num_samples):
     """Build train, valid, and test datasets."""
     args = get_args()
     train_dataset = build_mm_dataset(args.mm.data.dataset_param)
 
     enable_encoder_dp = args.mm.model.enable_encoder_dp if hasattr(args.mm.model, "enable_encoder_dp") else False
+    # After enabling the encoder dp, data is taken every tp_cp size step, 
+    # but the world size of the dataloader is all ranks, 
+    # so when calculating the initial global step, 
+    # it should be divided by the tp_cp size
     if enable_encoder_dp:
         process_group = torch.distributed.group.WORLD
+        encoder_dp_size = torch.distributed.get_world_size(mpu.get_tensor_and_context_parallel_group())
+        setattr(args.mm.data.dataloader_param, 'encoder_dp_size', encoder_dp_size)
+        print_rank_0(f"use encoder_dp, encoder_dp_size: {args.mm.data.dataloader_param.encoder_dp_size}")
     else:
         process_group = mpu.get_data_parallel_group()
 
@@ -115,7 +132,8 @@ def train_valid_test_datasets_provider(train_val_test_num_samples):
         args.mm.data.dataloader_param,
         process_group=process_group,
     )
-    data_iterator, _, _ = build_iterations(train_dl=train_dataloader)
+    data_iterator, _, _ = build_iterations(train_dl=train_dataloader, iterator_type='single')
+    torch.distributed.barrier()
     return data_iterator, None, None
 
 

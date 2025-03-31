@@ -259,11 +259,11 @@ class VideoProcesser:
     def get_batched_data(self, vframes, frame_indices, crop=[None, None, None, None]):
         video_data = vframes.get_batch(frame_indices)
         try:
-            s_y, e_y, s_x, e_x = crop
+            s_x, e_x, s_y, e_y = crop
         except:
-            s_y, e_y, s_x, e_x = None, None, None, None
+            s_x, e_x, s_y, e_y = None, None, None, None
         if video_data is not None:
-            video_data = video_data.permute(0, 3, 1, 2)  # (T, H, W, C) -> (T C H W)
+            video_data = video_data.permute(0, 3, 1, 2)  # (T H W C) -> (T C H W)
             if s_y is not None:
                 video_data = video_data[:, :, s_y: e_y, s_x: e_x]
         else:
@@ -332,6 +332,7 @@ class VideoProcesser:
         cnt_vid_res_too_small = 0
         cnt_vid_after_filter = 0
         cnt_img_after_filter = 0
+        cnt_fps_too_low = 0
         cnt = len(cap_list)
 
         if torch.distributed.is_initialized():
@@ -373,11 +374,33 @@ class VideoProcesser:
                     continue
                 else:
                     height, width = i["resolution"]["height"], i["resolution"]["width"]
+                    if height <= 0 or width <= 0:
+                        cnt_no_resolution += 1
+                        continue
+
+                    # filter min_hxw
+                    if height * width < self.min_hxw:
+                        if path.endswith('.mp4'):
+                            cnt_vid_res_too_small += 1
+                        elif path.endswith('.jpg'):
+                            cnt_img_res_too_small += 1
+                        continue
+                                            # filter aspect
+                    is_pick = filter_resolution(
+                        height, 
+                        width, 
+                        max_h_div_w_ratio=self.max_h_div_w_ratio, 
+                        min_h_div_w_ratio=self.min_h_div_w_ratio
+                    )
+
+                    if not is_pick:
+                        if path.endswith('.mp4'):
+                            cnt_vid_aspect_mismatch += 1
+                        elif path.endswith('.jpg'):
+                            cnt_img_aspect_mismatch += 1
+                        continue
+
                     if not self.force_resolution:
-                        if height <= 0 or width <= 0:
-                            cnt_no_resolution += 1
-                            continue
-                        
                         tr_h, tr_w = maxhwresize(height, width, self.max_hxw, force_5_ratio=self.force_5_ratio)
                         _, _, sample_h, sample_w = get_params(tr_h, tr_w, self.hw_stride, force_5_ratio=self.force_5_ratio)
 
@@ -387,7 +410,6 @@ class VideoProcesser:
                             elif path.endswith('.jpg'):
                                 cnt_img_res_mismatch_stride += 1
                             continue
-                        
                         # filter min_hxw
                         if sample_h * sample_w < self.min_hxw:
                             if path.endswith('.mp4'):
@@ -395,43 +417,10 @@ class VideoProcesser:
                             elif path.endswith('.jpg'):
                                 cnt_img_res_too_small += 1
                             continue
-
-                        # filter aspect
-                        is_pick = filter_resolution(
-                            sample_h, 
-                            sample_w, 
-                            max_h_div_w_ratio=self.max_h_div_w_ratio, 
-                            min_h_div_w_ratio=self.min_h_div_w_ratio
-                        )
-
-                        if not is_pick:
-                            if path.endswith('.mp4'):
-                                cnt_vid_aspect_mismatch += 1
-                            elif path.endswith('.jpg'):
-                                cnt_img_aspect_mismatch += 1
-                            continue
-
                         i["resolution"].update(dict(sample_height=sample_h, sample_width=sample_w))
-
-                    else:
-                        is_pick = filter_resolution(
-                            height, 
-                            width, 
-                            max_h_div_w_ratio=self.max_h_div_w_ratio, 
-                            min_h_div_w_ratio=self.min_h_div_w_ratio
-                        )
-
-                        if not is_pick:
-                            if path.endswith('.mp4'):
-                                cnt_vid_aspect_mismatch += 1
-                            elif path.endswith('.jpg'):
-                                cnt_img_aspect_mismatch += 1
-                            continue
-                            
+                    else: 
                         sample_h, sample_w = self.max_height, self.max_width
-
                         i["resolution"].update(dict(sample_height=sample_h, sample_width=sample_w))
-
 
 
             if path.endswith(".mp4"):
@@ -443,6 +432,11 @@ class VideoProcesser:
 
                 # resample in case high fps, such as 50/60/90/144 -> train_fps(e.g, 24)
                 frame_interval = 1.0 if abs(fps - self.train_fps) < 0.1 else fps / self.train_fps
+
+                if frame_interval < 1.0:
+                    cnt_fps_too_low += 1
+                    continue
+
                 start_frame_idx = i.get("cut", [0])[0]
                 i["start_frame_idx"] = start_frame_idx
                 frame_indices = np.arange(
@@ -508,7 +502,7 @@ class VideoProcesser:
         cnt_filter_minority = len_before_filter_major - len(new_cap_list)
         counter = Counter(sample_size)
         print(f'no_cap: {cnt_no_cap}, no_resolution: {cnt_no_resolution}\n'
-            f'too_long: {cnt_too_long}, too_short: {cnt_too_short}\n'
+            f'too_long: {cnt_too_long}, too_short: {cnt_too_short}, fps_too_low: {cnt_fps_too_low}\n'
             f'cnt_img_res_mismatch_stride: {cnt_img_res_mismatch_stride}, cnt_vid_res_mismatch_stride: {cnt_vid_res_mismatch_stride}\n'
             f'cnt_img_res_too_small: {cnt_img_res_too_small}, cnt_vid_res_too_small: {cnt_vid_res_too_small}\n'
             f'cnt_img_aspect_mismatch: {cnt_img_aspect_mismatch}, cnt_vid_aspect_mismatch: {cnt_vid_aspect_mismatch}\n'

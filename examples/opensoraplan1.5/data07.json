@@ -2,7 +2,7 @@
 	"dataset_param": {
 		"dataset_type": "t2v",
 		"basic_parameters": {
-			"data_path": "/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data.txt",
+			"data_path": "/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data07.txt",
 			"data_folder": "",
 			"data_storage_mode": "combine"
 		},
@@ -21,13 +21,13 @@
 			"min_h_div_w_ratio": 0.42,
 			"hw_stride": 16,
 			"ae_stride_t": 8,
-			"train_fps": 16,
+			"train_fps": 24,
 			"speed_factor": 1.0,
 			"drop_short_ratio": 1.0,
 			"min_num_frames": 29,
 			"cfg": 0.1,
 			"batch_size": 4,
-			"gradient_accumulation_size": 1,
+			"gradient_accumulation_size": 2,
 			"use_aesthetic": false,
 			"train_pipeline": {
 				"video": [{
@@ -80,13 +80,13 @@
 		"dataloader_mode": "sampler",
         "sampler_type": "LengthGroupedSampler",
 		"batch_size": 4,
-		"num_workers": 10,
+		"num_workers": 8,
 		"shuffle": false,
 		"drop_last": true,
 		"pin_memory": false,
 		"group_data": true,
 		"initial_global_step_for_sampler": 0, 
-		"gradient_accumulation_size": 1,
+		"gradient_accumulation_size": 2,
 		"collate_param": {
 			"batch_size": 4,
 			"num_frames": 105,

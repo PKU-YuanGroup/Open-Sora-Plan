@@ -144,7 +144,7 @@ class WfCausalConv3d(nn.Module):
             )
         else:
             first_frame_pad = self.causal_cached.popleft()
-
+            
         x = torch.concatenate((first_frame_pad, x), dim=2)
 
         if self.enable_cached and self.time_kernel_size != 1:
@@ -152,13 +152,12 @@ class WfCausalConv3d(nn.Module):
                 if self.cache_offset == 0:
                     self.causal_cached.append(x[:, :, -(self.time_kernel_size - 1) // self.stride[0]:].clone())
                 else:
-                    self.causal_cached.append(
-                        x[:, :, :-self.cache_offset][:, :, -(self.time_kernel_size - 1) // self.stride[0]:].clone())
+                    self.causal_cached.append(x[:, :, :-self.cache_offset][:, :, -(self.time_kernel_size - 1) // self.stride[0]:].clone())
             else:
                 self.causal_cached.append(x[:, :, 0:0, :, :].clone())
-        else:
+        elif self.enable_cached:
             self.causal_cached.append(x[:, :, 0:0, :, :].clone())
-
+            
         if x.dtype not in [torch.float16, torch.bfloat16]:
             dtype = x.dtype
             with torch.cuda.amp.autocast(enabled=False):

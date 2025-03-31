@@ -3,6 +3,7 @@
 """General utilities."""
 import os
 import sys
+from typing import Union
 from datetime import datetime
 
 import torch
@@ -114,6 +115,14 @@ def average_losses_across_data_parallel_group(losses):
 
     return averaged_losses
 
+def get_max_loss_across_data_parallel_group(losses):
+    """Reduce a tensor of losses across all GPUs."""
+    max_loss = torch.cat(
+        [loss.clone().detach().view(1) for loss in losses])
+    torch.distributed.all_reduce(max_loss, op=torch.distributed.ReduceOp.MAX,
+                                 group=mpu.get_data_parallel_group())
+
+    return max_loss
 
 def report_memory(name):
     """Simple GPU memory report."""
@@ -384,3 +393,17 @@ def get_batch_on_this_tp_rank(data_iterator):
        }
 
     return batch
+
+
+def gather_info_from_all_processes(info: Union[float, torch.Tensor], dtype=torch.float):
+    if not torch.distributed.is_initialized():
+        raise ValueError("torch.distributed is not initialized.")
+    if not isinstance(info, torch.Tensor):
+        info = torch.tensor([info], dtype=dtype).cuda()
+    gathered_infos = [torch.zeros_like(info) for _ in range(torch.distributed.get_world_size())]
+    torch.distributed.all_gather(gathered_infos, info)
+    if info.ndim == 0:
+        gathered_infos = torch.stack(gathered_infos)
+    else:
+        gathered_infos = torch.cat(gathered_infos)
+    return gathered_infos.clone().detach()
