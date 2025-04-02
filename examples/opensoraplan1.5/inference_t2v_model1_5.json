@@ -29,6 +29,7 @@
          1.1250, -0.2578, -2.1094,  1.0391,  1.1797, -1.2422, -0.2988, -0.9570],
         "t_interpolation": "trilinear",
         "use_attention": true,
+        "use_tiling": false,
         "from_pretrained": "/work/share/checkpoint/pretrained/vae/Middle888/merged.ckpt",
         "dtype": "fp32"
       },
@@ -78,12 +79,12 @@
         "activation_fn": "gelu-approximate",
         "norm_elementwise_affine": true,
         "norm_eps": 1e-06,
-        "from_pretrained": "/work/share/projects/gyy/mindspeed/Open-Sora-Plan/test_ckpt/test_48_node_step8k/model_ema.pt"
+        "from_pretrained": "/work/share/projects/gyy/mindspeed/Open-Sora-Plan/test_ckpt/test_48_node_new_step9k/model_ema.pt"
     },
     "diffusion": {
         "model_id": "OpenSoraPlan",
-        "num_inference_steps":100,
-        "guidance_scale":7.5,
+        "num_inference_steps": 100,
+        "guidance_scale": 7.5,
         "guidance_rescale": 0.7
     },
     "pipeline_config": {
@@ -95,8 +96,8 @@
     "micro_batch_size": 1,
     "frame_interval":1,
     "model_max_length": 512,
-    "save_path":"./opensora_samples_tp/samples_48node_ema/",
-    "fps":18,
+    "save_path":"./opensora_samples_test_new/100step_9k_ema",
+    "fps":24,
     "prompt":"/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/sora.txt",
     "device":"npu",
     "weight_dtype": "fp16"

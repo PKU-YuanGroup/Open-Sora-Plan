@@ -1,7 +1,6 @@
 #!/bin/bash
 wandb login 720d886d8c437c2142c88056a1eab8ef78d64a1f
 source /usr/local/Ascend/ascend-toolkit/set_env.sh
-source /usr/local/Ascend/nnal/atb/set_env.sh
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 export ASCEND_SLOG_PRINT_TO_STDOUT=0
 export ASCEND_GLOBAL_LOG_LEVEL=3
@@ -50,11 +49,12 @@ TP=4
 PP=1
 CP=1
 MBS=4
-GRAD_ACC_STEP=2
+GRAD_ACC_STEP=1
 GBS=$(($NUM_NPUS*$GRAD_ACC_STEP*$MBS/$CP/$TP))
 
 MM_MODEL="./examples/opensoraplan1.5/model_opensoraplan1_5.json"
 MM_TOOL="./mindspeed_mm/tools/tools.json"
+MM_DATA="./examples/opensoraplan1.5/data00.json"
 
 DISTRIBUTED_ARGS="
     --nproc_per_node $GPU_NUM_PER_NODE \
@@ -62,9 +62,17 @@ DISTRIBUTED_ARGS="
     --rdzv_backend=${PET_RDZV_BACKEND} \
     --rdzv_endpoint=${PET_RDZV_ENDPOINT} \
     --rdzv_id=${PET_RDZV_ID} \
-    --max_restarts=2 \
+    --max_restarts=25 \
     --rdzv_conf=timeout=7200,read_timeout=7200 \
 "
+
+# DISTRIBUTED_ARGS="
+#     --nproc_per_node $GPU_NUM_PER_NODE \
+#     --nnodes $PET_NNODES \
+#     --node_rank $PET_NODE_RANK \
+#     --master_addr $PET_MASTER_ADDR \
+#     --master_port $PET_MASTER_PORT
+# "
 
 GPT_ARGS="
     --tensor-model-parallel-size ${TP} \
@@ -86,14 +94,14 @@ GPT_ARGS="
     --swiglu \
     --no-masked-softmax-fusion \
     --bf16 \
-    --lr 1e-4 \
-    --min-lr 1e-4 \
+    --lr 4e-5 \
+    --min-lr 4e-5 \
     --adam-beta1 0.9 \
     --adam-beta2 0.999 \
     --adam-eps 1e-15 \
     --lr-decay-style constant \
-    --weight-decay 1e-4 \
-    --lr-warmup-init 1e-4 \
+    --weight-decay 1e-2 \
+    --lr-warmup-init 4e-5 \
     --lr-warmup-iters 0 \
     --clip-grad 1.0 \
     --train-iters 100000000 \
@@ -101,7 +109,7 @@ GPT_ARGS="
     --use-distributed-optimizer \
     --recompute-granularity full \
     --recompute-method block \
-    --recompute-num-layers 0 \
+    --recompute-num-layers 32 \
     --normalization RMSNorm \
     --use-fused-rmsnorm \
     --qk-layernorm \

@@ -385,7 +385,8 @@ class VideoProcesser:
                         elif path.endswith('.jpg'):
                             cnt_img_res_too_small += 1
                         continue
-                                            # filter aspect
+                    
+                    # filter aspect
                     is_pick = filter_resolution(
                         height, 
                         width, 

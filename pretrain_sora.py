@@ -139,7 +139,32 @@ def train_valid_test_datasets_provider(train_val_test_num_samples):
 
 if __name__ == "__main__":
     train_valid_test_datasets_provider.is_distributed = True
+
+    data_meta_info_list = [
+        '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data00.txt',
+        '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data01.txt',
+        '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data02.txt',
+        '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data03.txt',
+        '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data04.txt',
+        '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data05.txt',
+        '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data06.txt',
+        '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data07.txt',
+        '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data08.txt',
+        '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data09.txt',
+        '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data10.txt',
+        '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data11.txt',
+        '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data12.txt',
+        '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data13.txt',
+        '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data14.txt',
+        '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data15.txt',
+        '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data16.txt',
+        '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data17.txt',
+        '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data18.txt',
+        '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data19.txt',
+    ]
+
     pretrain(
+        data_meta_info_list,
         train_valid_test_datasets_provider,
         model_provider,
         ModelType.encoder_or_decoder,
@@ -147,3 +172,7 @@ if __name__ == "__main__":
         extra_args_provider=mm_extra_args_provider,
         args_defaults={"dataloader_type": "external", "vision_pretraining": False},
     )
+    print(f"pretrain done, rank = {torch.distributed.get_rank()}, wait for all processes to exit...")
+    torch.distributed.barrier()
+    print(f"all processes exit, rank = {torch.distributed.get_rank()}")
+    sys.exit(0)

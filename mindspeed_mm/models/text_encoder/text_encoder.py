@@ -51,7 +51,7 @@ class TextEncoder(nn.Module):
 
     def encode(self, input_ids, mask, **kwargs):
         attention_mask = mask if self.use_attention_mask else None
-        if self.automodel_name is not "CLIPTextModelWithProjection":
+        if self.automodel_name != "CLIPTextModelWithProjection":
             output = self.model(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
@@ -60,6 +60,6 @@ class TextEncoder(nn.Module):
         else:
             output = self.model(
                 input_ids=input_ids,
-                attention_mask=attention_mask,
+                output_hidden_states=True,
             )[0]
         return output
