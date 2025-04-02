@@ -135,15 +135,15 @@ class Collate:
                     random.choice(candidate_batch)
                     for _ in range(len(len_each_batch) - len(candidate_batch))
                 ]
-                print(
-                    batch_input_size,
-                    idx_length_dict,
-                    count_dict,
-                    sorted_by_value,
-                    pick_length,
-                    candidate_batch,
-                    random_select_batch,
-                )
+                # print(
+                #     batch_input_size,
+                #     idx_length_dict,
+                #     count_dict,
+                #     sorted_by_value,
+                #     pick_length,
+                #     candidate_batch,
+                #     random_select_batch,
+                # )
                 pick_idx = candidate_batch + random_select_batch
 
                 batch_tubes = [batch_tubes[i] for i in pick_idx]

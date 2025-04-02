@@ -359,7 +359,7 @@ class WFVAE(MultiModalModule):
 
         # Hardcode for now
         self.t_chunk_enc = 16
-        self.t_chunk_dec = 4
+        self.t_chunk_dec = 8
         self.use_quant_layer = False
         self.vae_scale_factor = vae_scale_factor
 

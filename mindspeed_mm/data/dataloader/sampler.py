@@ -45,7 +45,7 @@ def split_to_even_chunks(megabatch, lengths, world_size, batch_size):
     return pad_chunks
 
 
-def last_group_frame_fun(shuffled_megabatches, lengths):
+def last_group_data_fun(shuffled_megabatches, lengths):
     re_shuffled_megabatches = []
     for i_megabatch, megabatch in enumerate(shuffled_megabatches):
         re_megabatch = []
@@ -123,7 +123,7 @@ def get_length_grouped_data_indices(
     shuffled_megabatches = [megabatches[i] for i in indices_mega]
 
     if group_data:
-        shuffled_megabatches = last_group_frame_fun(shuffled_megabatches, lengths)
+        shuffled_megabatches = last_group_data_fun(shuffled_megabatches, lengths)
     
     initial_global_step = initial_global_step * gradient_accumulation_size // encoder_dp_size
     print(f"initial_global_step: {initial_global_step}, gradient_accumulation_size: {gradient_accumulation_size}, encoder_dp_size: {encoder_dp_size}")

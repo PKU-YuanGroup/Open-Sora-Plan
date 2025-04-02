@@ -4,7 +4,7 @@
     "allow_internal_format": false,
     "load_video_features": false,
     "load_text_features": false,
-    "enable_encoder_dp": true,
+    "enable_encoder_dp": false,
     "weight_dtype": "bf16",
     "ae": {
         "model_id": "wfvae",
@@ -35,7 +35,7 @@
          1.1250, -0.2578, -2.1094,  1.0391,  1.1797, -1.2422, -0.2988, -0.9570],
         "t_interpolation": "trilinear",
         "use_attention": true,
-        "use_tiling": true,
+        "use_tiling": false,
         "from_pretrained": "/work/share/checkpoint/pretrained/vae/Middle888/merged.ckpt",
         "dtype": "fp32"
       },

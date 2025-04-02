@@ -345,6 +345,11 @@ class OpenSoraPlanScheduler:
         encoder_attention_mask = model_kwargs.pop("prompt_attention_mask")
         pooled_projections = model_kwargs.pop("prompt_embeds_2")
 
+        print(f'latents dtype: {latents.dtype}')
+        print(f'encoder_hidden_states dtype: {encoder_hidden_states.dtype}')
+        print(f'encoder_attention_mask dtype: {encoder_attention_mask.dtype}')
+        print(f'pooled_projections dtype: {pooled_projections.dtype}')
+        
         with tqdm(total=self.num_inference_steps) as progress_bar:
             for i, t in enumerate(timesteps):
                 latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents

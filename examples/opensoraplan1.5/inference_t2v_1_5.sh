@@ -1,8 +1,9 @@
 source /usr/local/Ascend/ascend-toolkit/set_env.sh
 export CUDA_DEVICE_MAX_CONNECTIONS=1
+export ASCEND_LAUNCH_BLOCKING=1
 
 MASTER_ADDR=localhost
-MASTER_PORT=12875
+MASTER_PORT=29200
 NNODES=1
 NODE_RANK=0
 NPUS_PER_NODE=8
@@ -14,7 +15,7 @@ export PYTHONPATH=${MINDSPEED_PATH}:$PYTHONPATH
 export LD_PRELOAD=/lib/aarch64-linux-gnu/libGLdispatch.so.0
 export LD_PRELOAD=/lib/aarch64-linux-gnu/libgomp.so.1:$LD_PRELOAD
 
-TP=4
+TP=1
 PP=1
 CP=1
 MBS=1

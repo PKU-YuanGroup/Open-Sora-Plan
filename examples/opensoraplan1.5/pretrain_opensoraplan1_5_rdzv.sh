@@ -49,7 +49,7 @@ TP=4
 PP=1
 CP=1
 MBS=4
-GRAD_ACC_STEP=2
+GRAD_ACC_STEP=1
 GBS=$(($NUM_NPUS*$GRAD_ACC_STEP*$MBS/$CP/$TP))
 
 MM_MODEL="./examples/opensoraplan1.5/model_opensoraplan1_5.json"
@@ -94,14 +94,14 @@ GPT_ARGS="
     --swiglu \
     --no-masked-softmax-fusion \
     --bf16 \
-    --lr 1e-4 \
-    --min-lr 1e-4 \
+    --lr 4e-5 \
+    --min-lr 4e-5 \
     --adam-beta1 0.9 \
     --adam-beta2 0.999 \
     --adam-eps 1e-15 \
     --lr-decay-style constant \
-    --weight-decay 1e-4 \
-    --lr-warmup-init 1e-4 \
+    --weight-decay 1e-2 \
+    --lr-warmup-init 4e-5 \
     --lr-warmup-iters 0 \
     --clip-grad 1.0 \
     --train-iters 100000000 \
@@ -109,7 +109,7 @@ GPT_ARGS="
     --use-distributed-optimizer \
     --recompute-granularity full \
     --recompute-method block \
-    --recompute-num-layers 0 \
+    --recompute-num-layers 32 \
     --normalization RMSNorm \
     --use-fused-rmsnorm \
     --qk-layernorm \

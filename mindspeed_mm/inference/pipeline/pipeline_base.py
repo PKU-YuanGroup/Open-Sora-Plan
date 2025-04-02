@@ -23,7 +23,7 @@ class MMPipeline(DiffusionPipeline):
               torch.max(latents).item(), torch.min(latents).item(),
               torch.mean(latents).item(), torch.std(latents).item())
         video = self.vae.decode(latents)  # [b, c, t, h, w]
-        print(f"before vae decode {video.shape}",
+        print(f"after vae decode {video.shape}",
               torch.max(video).item(), torch.min(latents).item(),
               torch.mean(video).item(), torch.std(latents).item())
         # [b, c, t, h, w] --> [b, t, h, w, c]

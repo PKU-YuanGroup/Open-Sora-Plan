@@ -21,7 +21,7 @@ from mindspeed_mm.models.common.communications import split_forward_gather_backw
 
 from mindspeed_mm.models.predictor.dits.modules import CombinedTimestepTextProjEmbeddings, AdaNorm, OpenSoraNormZero
 
-selective_recom = True
+selective_recom = False
 recom_ffn_layers = 32
 
 def create_custom_forward(module, return_dict=None):
@@ -52,7 +52,7 @@ def zero_initialized_skip_connection(module_cls):
 
 def maybe_clamp_tensor(x, max_value=65504.0, min_value=-65504.0, training=True):
     if not training and x.dtype == torch.float16:
-        x.nan_to_num_(posinf=max_value, neginf=min_value)
+        x.nan_to_num_(posinf=max_value, neginf=min_value).clamp_(min_value, max_value)
     return x
 
 class SparseUMMDiT(MultiModalModule):
