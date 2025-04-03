@@ -21,7 +21,7 @@ from mindspeed_mm.models.common.communications import split_forward_gather_backw
 
 from mindspeed_mm.models.predictor.dits.modules import CombinedTimestepTextProjEmbeddings, AdaNorm, OpenSoraNormZero
 
-selective_recom = False
+selective_recom = True
 recom_ffn_layers = 32
 
 def create_custom_forward(module, return_dict=None):

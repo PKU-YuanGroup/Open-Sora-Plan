@@ -79,7 +79,7 @@
         "activation_fn": "gelu-approximate",
         "norm_elementwise_affine": true,
         "norm_eps": 1e-06,
-        "from_pretrained": "/work/share/projects/gyy/mindspeed/Open-Sora-Plan/test_ckpt/test_48_node_new_step9k/model_ema.pt"
+        "from_pretrained": "/work/share/projects/gyy/mindspeed/Open-Sora-Plan/test_ckpt/test_48_node_new_step18k/model.pt"
     },
     "diffusion": {
         "model_id": "OpenSoraPlan",
@@ -96,7 +96,7 @@
     "micro_batch_size": 1,
     "frame_interval":1,
     "model_max_length": 512,
-    "save_path":"./opensora_samples_test_new/100step_9k_ema",
+    "save_path":"./opensora_samples_test_new/100step_18k",
     "fps":24,
     "prompt":"/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/sora.txt",
     "device":"npu",

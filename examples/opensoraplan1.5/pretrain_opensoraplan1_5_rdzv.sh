@@ -49,7 +49,7 @@ TP=4
 PP=1
 CP=1
 MBS=4
-GRAD_ACC_STEP=1
+GRAD_ACC_STEP=2
 GBS=$(($NUM_NPUS*$GRAD_ACC_STEP*$MBS/$CP/$TP))
 
 MM_MODEL="./examples/opensoraplan1.5/model_opensoraplan1_5.json"
@@ -109,12 +109,11 @@ GPT_ARGS="
     --use-distributed-optimizer \
     --recompute-granularity full \
     --recompute-method block \
-    --recompute-num-layers 32 \
+    --recompute-num-layers 0 \
     --normalization RMSNorm \
     --use-fused-rmsnorm \
     --qk-layernorm \
     --sequence-parallel \
-    --use-ascend-mc2 \
     --optimizer-selection fused_ema_adamw \
     --seed 1024 \
     --data-parallel-random-init \
