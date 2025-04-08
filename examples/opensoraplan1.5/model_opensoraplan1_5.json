@@ -72,7 +72,7 @@
         "activation_fn": "gelu-approximate",
         "norm_elementwise_affine": false,
         "norm_eps": 1e-06,
-        "from_pretrained": "/work/share/checkpoint/gyy/suv_test_ckpt/diffusion_pytorch_model.safetensors"
+        "from_pretrained": "/work/share/projects/gyy/mindspeed/Open-Sora-Plan/test_ckpt/test_48_node_new_step18k/model_ema.pt"
     },
     "diffusion": {
         "model_id": "OpenSoraPlan",

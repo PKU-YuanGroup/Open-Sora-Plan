@@ -29,6 +29,10 @@ def save_video_with_opencv(video, save_path, fps=18, quality="medium"):
     else:
         fourcc = cv2.VideoWriter_fourcc(*'XVID')  # 适用于 .avi
     out = cv2.VideoWriter(save_path, fourcc, fps, frame_size)
+
+    if isinstance(video, torch.Tensor):
+        video = video.cpu().numpy()
+
     for frame in video:
         frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)  # OpenCV 需要 BGR 格式
         out.write(frame_bgr)
