@@ -23,6 +23,12 @@ from mindspeed_mm.models.ae import AEModel
 from mindspeed_mm.models.text_encoder import TextEncoder
 from mindspeed_mm import Tokenizer
 from mindspeed_mm.utils.utils import get_dtype, get_device, is_npu_available
+from mindspeed_mm.data.data_utils.utils import DecordDecoder
+import json
+import random
+import shutil
+import numpy as np
+from tqdm import tqdm 
 
 if is_npu_available():
     import torch_npu
@@ -56,6 +62,48 @@ def main():
     dtype = get_dtype(args.weight_dtype)
     ae_dtype = get_dtype(args.ae.dtype)
     device = get_device(args.device)
+
+    # json_path = "/work/share1/video_final/tiyu_20241006_final_83899.json"
+    # root_dir = "/work/share/dataset/xigua_video"
+    # save_dir = "/work/share/projects/gyy/mindspeed/Open-Sora-Plan/test_dataset_to_frame"
+
+    # os.makedirs(save_dir, exist_ok=True)
+
+    # with open(json_path, 'r') as f:
+    #     data = json.load(f)
+
+    # test_sample_nums = 100
+    # data = random.sample(data, test_sample_nums * 10)
+
+    # for idx in tqdm(range(test_sample_nums), desc='test'):
+
+    #     save_sub_dir = os.path.join(save_dir, f'{idx:06d}')
+    #     os.makedirs(save_sub_dir, exist_ok=True)
+    #     sample = random.sample(data, 1)[0]
+    #     video = os.path.join(root_dir, sample['path'])
+    #     while not os.path.exists(video):
+    #         sample = random.sample(data, 1)[0]
+    #         video = os.path.join(root_dir, sample['path'])
+
+    #     vframes = DecordDecoder(video)
+    #     start_frame_idx, end_frame_idx = sample.get('cut', None)
+    #     s_x, e_x, s_y, e_y = sample.get('crop', [None, None, None, None])
+    #     frame_indice = np.arange(start_frame_idx, end_frame_idx)
+    #     clip = vframes.get_batch(frame_indice)
+    #     if clip is not None:
+    #         if s_y is not None:
+    #             clip = clip[:, s_y: e_y, s_x: e_x, :]
+    #     clip = torch.unsqueeze(clip, 0)
+    #     num_frames = clip.shape[1]
+    #     rand_frame = random.randint(0, num_frames)
+    #     clip = clip[:, rand_frame: rand_frame + 1, :, :, :]
+    #     save_image_or_videos(clip, save_sub_dir, idx)
+    #     text = sample["cap"]
+    #     if not isinstance(text, list):
+    #         text = [text]
+    #     with open(os.path.join(save_sub_dir, 'caption.txt'), 'w') as f:
+    #         for t in text:
+    #             f.write(f'{t}\n')
 
     prompts = load_prompts(args.prompt)
     images = load_images(args.image) if hasattr(args, "image") else None

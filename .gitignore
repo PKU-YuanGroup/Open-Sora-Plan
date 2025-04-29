@@ -172,6 +172,8 @@ wandb/
 
 test_ckpt*/
 dataset_test/
+npu_profiling/
+test*.json
 
 *.pt
 *.safetensors

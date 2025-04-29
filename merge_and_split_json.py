@@ -94,6 +94,7 @@ file_list = [
     "/work/share1/video_final/panda_part17_final_829629.json",
     "/work/share1/video_final/panda_part18_final_830319.json",
     "/work/share1/video_final/panda_part19_final_849255.json",
+    "/work/share1/video_final_YT001/YT001_final_6439905.json"
 ]  # 你的 JSON/PKL 文件列表
 root_path_list = [
     "share1/video1/vidal",
@@ -144,6 +145,7 @@ root_path_list = [
     "share1/video1/panda1",
     "share1/video1/panda1",
     "share1/video1/panda1",
+    "share1/yt001"
 ]  # 对应的根路径
 output_dir = "/work/share1/caption/osp/0330"  # 输出文件夹
 k = 20  # 分割为 k 个 JSON

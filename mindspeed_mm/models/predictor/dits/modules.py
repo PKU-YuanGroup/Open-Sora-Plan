@@ -25,8 +25,11 @@ class CombinedTimestepTextProjEmbeddings(nn.Module):
         timesteps_emb = self.timestep_embedder(timesteps_proj.to(dtype=pooled_projection.dtype))  # (N, D)
 
         pooled_projections = self.text_embedder(pooled_projection)
-
+        timesteps_emb = timesteps_emb.float()
+        pooled_projections = pooled_projections.float()
         conditioning = timesteps_emb + pooled_projections
+        if conditioning.dtype != torch.float32:
+            raise ValueError("Conditioning embeddings must be float32.")
 
         return conditioning
 
@@ -87,6 +90,7 @@ class AdaNorm(nn.Module):
             temb = self.emb(timestep)
 
         temb = self.linear(self.silu(temb))[0]
+        temb = temb.float()
         if self.sequence_parallel:
             temb = tensor_parallel.mappings.all_gather_last_dim_from_tensor_parallel_region(temb)
         else:
@@ -95,9 +99,12 @@ class AdaNorm(nn.Module):
         shift, scale = temb.chunk(2, dim=1)
         shift = shift[None, :, :]
         scale = scale[None, :, :]
- 
-        x = self.norm(x) * (1 + scale) + shift
-        return x
+
+        if shift.dtype != torch.float32 or scale.dtype != torch.float32:
+            raise ValueError("Shift and scale must be float32.")
+        weight_dtype = x.dtype
+        x = self.norm(x).float() * (1 + scale) + shift
+        return x.to(weight_dtype)
 
 class OpenSoraNormZero(nn.Module):
     def __init__(
@@ -108,13 +115,14 @@ class OpenSoraNormZero(nn.Module):
         eps: float = 1e-5,
         bias: bool = True,
         norm_cls: str = 'rms_norm', 
+        context_pre_only: bool = False,
     ) -> None:
         super().__init__()
         args = get_args()
         self.sequence_parallel = args.sequence_parallel
         config = core_transformer_config_from_args(args)
         config.sequence_parallel = False
-
+        
         if norm_cls == 'rms_norm':
             self.norm_cls = RMSNorm
         elif norm_cls == 'layer_norm':
@@ -129,17 +137,24 @@ class OpenSoraNormZero(nn.Module):
             gather_output=False
         )
         self.norm = self.norm_cls(embedding_dim, eps=eps, sequence_parallel=self.sequence_parallel)
-        self.norm_enc = self.norm_cls(embedding_dim, eps=eps, sequence_parallel=self.sequence_parallel)
+        self.norm_enc = None
+        if not context_pre_only:
+            self.norm_enc = self.norm_cls(embedding_dim, eps=eps, sequence_parallel=self.sequence_parallel)
 
     def forward(
         self, hidden_states: torch.Tensor, encoder_hidden_states: torch.Tensor, temb: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         temb = self.linear(self.silu(temb))[0]
+        temb = temb.float()
         if self.sequence_parallel:
             temb = tensor_parallel.mappings.all_gather_last_dim_from_tensor_parallel_region(temb)
         else:
             temb = tensor_parallel.mappings.gather_from_tensor_model_parallel_region(temb)
         shift, scale, gate, enc_shift, enc_scale, enc_gate = temb.chunk(6, dim=1)
-        hidden_states = self.norm(hidden_states) * (1 + scale)[None, :, :] + shift[None, :, :] # because hidden_states'shape is (S B H), so we need to add None at the first dimension
-        encoder_hidden_states = self.norm_enc(encoder_hidden_states) * (1 + enc_scale)[None, :, :] + enc_shift[None, :, :]
-        return hidden_states, encoder_hidden_states, gate[None, :, :], enc_gate[None, :, :]
+        if shift.dtype != torch.float32 or scale.dtype != torch.float32 or gate.dtype != torch.float32 or enc_shift.dtype != torch.float32 or enc_scale.dtype != torch.float32 or enc_gate.dtype != torch.float32:
+            raise ValueError("Shift, scale and gate must be float32.")
+        weight_dtype = hidden_states.dtype
+        hidden_states = self.norm(hidden_states).float() * (1 + scale)[None, :, :] + shift[None, :, :] # because hidden_states'shape is (S B H), so we need to add None at the first dimension
+        if self.norm_enc is not None:
+            encoder_hidden_states = self.norm_enc(encoder_hidden_states).float() * (1 + enc_scale)[None, :, :] + enc_shift[None, :, :]
+        return hidden_states.to(weight_dtype), encoder_hidden_states.to(weight_dtype), gate[None, :, :], enc_gate[None, :, :]

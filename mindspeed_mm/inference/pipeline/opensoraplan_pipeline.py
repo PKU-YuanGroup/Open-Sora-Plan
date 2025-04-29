@@ -212,7 +212,6 @@ class OpenSoraPlanPipeline(MMPipeline, InputsCheckMixin, MMEncoderMixin):
                         "prompt_embeds_2": prompt_embeds_2,
                         "added_cond_kwargs": added_cond_kwargs,
                         "prompt_attention_mask": prompt_embeds_attention_mask,
-                        "use_linear_quadratic_schedule": use_linear_quadratic_schedule,
                         "return_dict": False}
         if self.model_type == "i2v":
             model_kwargs.update(i2v_kwargs)

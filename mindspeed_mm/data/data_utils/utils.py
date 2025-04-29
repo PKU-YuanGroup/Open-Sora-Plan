@@ -378,14 +378,6 @@ class VideoProcesser:
                         cnt_no_resolution += 1
                         continue
 
-                    # filter min_hxw
-                    if height * width < self.min_hxw:
-                        if path.endswith('.mp4'):
-                            cnt_vid_res_too_small += 1
-                        elif path.endswith('.jpg'):
-                            cnt_img_res_too_small += 1
-                        continue
-                    
                     # filter aspect
                     is_pick = filter_resolution(
                         height, 
@@ -401,6 +393,14 @@ class VideoProcesser:
                             cnt_img_aspect_mismatch += 1
                         continue
 
+                    # filter min_hxw
+                    if height * width < self.min_hxw:
+                        if path.endswith('.mp4'):
+                            cnt_vid_res_too_small += 1
+                        elif path.endswith('.jpg'):
+                            cnt_img_res_too_small += 1
+                        continue
+                    
                     if not self.force_resolution:
                         tr_h, tr_w = maxhwresize(height, width, self.max_hxw, force_5_ratio=self.force_5_ratio)
                         _, _, sample_h, sample_w = get_params(tr_h, tr_w, self.hw_stride, force_5_ratio=self.force_5_ratio)
@@ -420,6 +420,17 @@ class VideoProcesser:
                             continue
                         i["resolution"].update(dict(sample_height=sample_h, sample_width=sample_w))
                     else: 
+                        target_h_div_w = self.max_height / self.max_width
+                        current_h_div_w = height / width
+                        min_hxw_scale = max(current_h_div_w / target_h_div_w, target_h_div_w / current_h_div_w)
+                        min_hxw = math.ceil(self.min_hxw * min_hxw_scale)
+                        # filter min_hxw
+                        if height * width < min_hxw:
+                            if path.endswith('.mp4'):
+                                cnt_vid_res_too_small += 1
+                            elif path.endswith('.jpg'):
+                                cnt_img_res_too_small += 1
+                            continue
                         sample_h, sample_w = self.max_height, self.max_width
                         i["resolution"].update(dict(sample_height=sample_h, sample_width=sample_w))
 

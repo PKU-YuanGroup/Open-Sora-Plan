@@ -1,5 +1,5 @@
 {
-    "frames": 105,
+    "frames": 57,
     "allow_tf32": false,
     "allow_internal_format": false,
     "load_video_features": false,
@@ -72,7 +72,7 @@
         "activation_fn": "gelu-approximate",
         "norm_elementwise_affine": false,
         "norm_eps": 1e-06,
-        "from_pretrained": "/work/share/projects/gyy/mindspeed/Open-Sora-Plan/test_ckpt/test_48_node_new_step18k/model_ema.pt"
+        "from_pretrained": null
     },
     "diffusion": {
         "model_id": "OpenSoraPlan",

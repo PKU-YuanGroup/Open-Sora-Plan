@@ -1,4 +1,5 @@
 import os
+import math
 from collections import deque
 
 import torch.nn as nn
@@ -357,9 +358,11 @@ class WFVAE(MultiModalModule):
     ) -> None:
         super().__init__(config=None)
 
-        # Hardcode for now
-        self.t_chunk_enc = 16
-        self.t_chunk_dec = 8
+        # It will auto set when tiling is enabled.
+        self.t_chunk_enc = None
+        self.t_chunk_dec = None
+        self.temporal_size = None
+
         self.use_quant_layer = False
         self.vae_scale_factor = vae_scale_factor
 
@@ -450,7 +453,7 @@ class WFVAE(MultiModalModule):
             start_end.append([start, end])
             start = end
         return start_end
-
+    
     def encode(self, x):
         dtype = x.dtype
         self._empty_causal_cached(self.encoder)
@@ -466,9 +469,62 @@ class WFVAE(MultiModalModule):
         posterior = DiagonalGaussianDistribution(h)
         return posterior
 
+    def _auto_select_t_chunk(self):
+        assert self.temporal_uptimes in [
+            4,
+            8,
+        ], "Only support 4 or 8 temporal compression rate."
+        t_compess_rate = self.temporal_uptimes  # Compression rate.
+        downsample_times = int(math.log(t_compess_rate, 2))
+        temporal_size = self.temporal_size  # Video length.
+        dec_t_chunk = 2
+        enc_t_chunk = t_compess_rate
+
+        # If chunk too large, disable tiling inference.
+        success_auto_select = False
+        while dec_t_chunk < temporal_size and enc_t_chunk < temporal_size:
+            T_list = [temporal_size]
+            for i in range(downsample_times):
+                T_list.append((T_list[-1] - 1) // 2 + 1)
+
+            # Judge if decoder chunk is valid.
+            if (T_list[-1] - 1) % dec_t_chunk == 1:
+                dec_t_chunk *= 2
+                continue
+
+            # Judge if encoder chunk is valid.
+            for inner_T in T_list[:-1]:
+                if (inner_T - 1) % 2 != 0:
+                    enc_t_chunk *= 2
+                    continue
+
+                if (inner_T - 1) % enc_t_chunk == 1 and (inner_T - 1) / enc_t_chunk > 1:
+                    enc_t_chunk *= 2
+                    continue
+
+            success_auto_select = True
+            break
+
+        if not success_auto_select:
+            raise ValueError(
+                "Can't find valid chunk size. Please check your input video length or disable tiling."
+            )
+        self.t_chunk_enc = enc_t_chunk
+        self.t_chunk_dec = dec_t_chunk
+        print(f"Auto selected chunk size: {enc_t_chunk} for encoder and {dec_t_chunk} for decoder.")
+
     def tile_encode(self, x):
         b, c, t, h, w = x.shape
         
+        if self.temporal_size is None:
+            self.temporal_size = t
+            self._auto_select_t_chunk()
+            
+        if self.temporal_size and self.temporal_size != t:
+            raise ValueError(
+                "Input temporal size is not consistent with the temporal size of the model."
+            )
+
         start_end = self.build_chunk_start_end(t)
         result = []
         for idx, (start, end) in enumerate(start_end):
@@ -494,29 +550,41 @@ class WFVAE(MultiModalModule):
         return dec
 
     def tile_decode(self, x):
-        b, c, t, h, w = x.shape
+        b, c, t_latent, h, w = x.shape
         
-        start_end = self.build_chunk_start_end(t, decoder_mode=True)
+        t_upsampled = (t_latent - 1) * self.temporal_uptimes + 1
+        if self.temporal_size is None:
+            self.temporal_size = t_upsampled
+            self._auto_select_t_chunk()
         
+        if self.temporal_size and self.temporal_size != t_upsampled:
+            raise ValueError(
+                "Input temporal size is not consistent with the temporal size of the model."
+            )
+        
+        start_end = self.build_chunk_start_end(t_latent, decoder_mode=True)
+
         result = []
         for idx, (start, end) in enumerate(start_end):
-            self._set_first_chunk(idx==0)
-            
-            if end + 1 < t:
-                chunk = x[:, :, start:end+1, :, :]
+            self._set_first_chunk(idx == 0)
+
+            if end + 1 < t_latent:
+                chunk = x[:, :, start : end + 1, :, :]
             else:
                 chunk = x[:, :, start:end, :, :]
-                
+
             if self.use_quant_layer:
                 chunk = self.post_quant_conv(chunk)
             chunk = self.decoder(chunk)
-            
-            if end + 1 < t:
-                chunk = chunk[:, :, :-self.temporal_uptimes]
+
+            if end + 1 < t_latent:
+                chunk = chunk[:, :, : -self.temporal_uptimes]
                 result.append(chunk.clone())
             else:
                 result.append(chunk.clone())
-            
+
+        for idx, chunk in enumerate(result):
+            print(idx, chunk.shape)
         return torch.cat(result, dim=2)
 
     def forward(self, x):

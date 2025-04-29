@@ -584,6 +584,11 @@ class SparseMMDiTBlock(nn.Module):
         self.sparse_group = sparse_group
         self.head_dim = head_dim
 
+        self.tp_size = mpu.get_tensor_model_parallel_world_size()
+
+        self.context_pre_only = context_pre_only
+        self.double_ff = double_ff
+
         if norm_cls == 'rms_norm':
             self.norm_cls = RMSNorm
         elif norm_cls == 'layer_norm':
@@ -591,7 +596,13 @@ class SparseMMDiTBlock(nn.Module):
 
         # adanorm-zero1: to introduce timestep and clip condition
         self.norm1 = OpenSoraNormZero(
-            timestep_embed_dim, dim, norm_elementwise_affine, norm_eps, bias=True, norm_cls=norm_cls
+            timestep_embed_dim, 
+            dim, 
+            norm_elementwise_affine,
+            norm_eps, 
+            bias=True, 
+            norm_cls=norm_cls,
+            context_pre_only=False, # we always need enc branch in norm1
         )
 
         # 1. MM Attention
@@ -613,9 +624,21 @@ class SparseMMDiTBlock(nn.Module):
             is_cross_attn=False,
         )
 
+        context_pre_only_for_norm2_ff_enc = True
+        if self.double_ff:
+            if self.context_pre_only is not None:
+                if self.tp_size > 1 or not self.context_pre_only:
+                    context_pre_only_for_norm2_ff_enc = False
+
         # adanorm-zero2: to introduce timestep and clip condition
         self.norm2 = OpenSoraNormZero(
-            timestep_embed_dim, dim, norm_elementwise_affine, norm_eps, bias=True, norm_cls=norm_cls
+            timestep_embed_dim,
+            dim, 
+            norm_elementwise_affine, 
+            norm_eps, 
+            bias=True, 
+            norm_cls=norm_cls,
+            context_pre_only=context_pre_only_for_norm2_ff_enc,
         )
 
         # 2. Feed-forward
@@ -628,8 +651,8 @@ class SparseMMDiTBlock(nn.Module):
             bias=ff_bias,
         )
 
-        self.double_ff = double_ff
-        if self.double_ff:
+        self.ff_enc = None
+        if not context_pre_only_for_norm2_ff_enc:
             self.ff_enc = FeedForward(
                 dim,
                 dropout=dropout,
@@ -648,20 +671,28 @@ class SparseMMDiTBlock(nn.Module):
             hidden_states, encoder_hidden_states, embedded_timestep
         )
         # import ipdb; ipdb.set_trace()
+        weight_dtype = hidden_states.dtype
+        if gate_ff.dtype != torch.float32 or enc_gate_ff.dtype != torch.float32:
+            raise AssertionError("Gate FFN should be float32")
         if self.double_ff:
             # 5. FFN
             vis_ff_output = self.ff(norm_hidden_states)
-            enc_ff_output = self.ff_enc(norm_encoder_hidden_states)
             # 6. residual & gate
-            hidden_states = hidden_states + gate_ff * vis_ff_output
-            encoder_hidden_states = encoder_hidden_states + enc_gate_ff * enc_ff_output
+            hidden_states = hidden_states.float() + gate_ff * vis_ff_output.float()
+            hidden_states = hidden_states.to(weight_dtype)
+            if self.ff_enc is not None:
+                enc_ff_output = self.ff_enc(norm_encoder_hidden_states)
+                encoder_hidden_states = encoder_hidden_states.float() + enc_gate_ff * enc_ff_output.float()
+                encoder_hidden_states = encoder_hidden_states.to(weight_dtype)
         else:
             # 5. FFN
             norm_hidden_states = torch.cat([norm_hidden_states, norm_encoder_hidden_states], dim=0)
             ff_output = self.ff(norm_hidden_states)
             # 6. residual & gate
-            hidden_states = hidden_states + gate_ff * ff_output[:vis_seq_length]
-            encoder_hidden_states = encoder_hidden_states + enc_gate_ff * ff_output[vis_seq_length:]
+            hidden_states = hidden_states.float() + gate_ff * ff_output[:vis_seq_length].float()
+            encoder_hidden_states = encoder_hidden_states.float() + enc_gate_ff * ff_output[vis_seq_length:].float()
+            hidden_states = hidden_states.to(weight_dtype)
+            encoder_hidden_states = encoder_hidden_states.to(weight_dtype)
         return hidden_states, encoder_hidden_states
 
     def forward(
@@ -698,8 +729,15 @@ class SparseMMDiTBlock(nn.Module):
         # print('attn1')
         # print(f'attn_hidden_states: {attn_hidden_states.shape}, attn_encoder_hidden_states: {attn_encoder_hidden_states.shape}')
         # 3. residual & gate
-        hidden_states = hidden_states + gate_msa * attn_hidden_states
-        encoder_hidden_states = encoder_hidden_states + enc_gate_msa * attn_encoder_hidden_states
+        weight_dtype = hidden_states.dtype
+        if gate_msa.dtype != torch.float32 or enc_gate_msa.dtype != torch.float32:
+            raise ValueError("Gate must be float32.")
+        hidden_states = hidden_states.float() + gate_msa * attn_hidden_states.float()
+        hidden_states = hidden_states.to(weight_dtype)
+        if self.context_pre_only is not None:
+            if self.tp_size > 1 or not self.context_pre_only:
+                encoder_hidden_states = encoder_hidden_states.float() + enc_gate_msa * attn_encoder_hidden_states.float()
+                encoder_hidden_states = encoder_hidden_states.to(weight_dtype)
 
         # import ipdb; ipdb.set_trace()
         if self.training and recom_ffn:

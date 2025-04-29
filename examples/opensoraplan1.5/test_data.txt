@@ -1,0 +1,1 @@
+/work,/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/test_100k.json

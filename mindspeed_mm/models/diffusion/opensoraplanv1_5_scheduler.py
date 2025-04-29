@@ -53,6 +53,7 @@ class OpenSoraPlanScheduler:
         self.num_inference_steps = config.pop("num_inference_steps", None)
         self.guidance_scale = config.pop("guidance_scale", 4.5)
         self.guidance_rescale = config.pop("guidance_rescale", 0.7)
+        self.use_linear_quadratic_schedule = config.pop("use_linear_quadratic_schedule", False)
         self.device = get_device(config.pop("device", "npu"))
 
         self.shift = config.pop("shift", 1.0)
@@ -294,6 +295,7 @@ class OpenSoraPlanScheduler:
         b, c, _, _, _ = x_start.shape
         if noise is None:
             noise = torch.randn_like(x_start)
+            self.broadcast_tensor(noise)
         if noise.shape != x_start.shape:
             raise ValueError("The shape of noise and x_start must be equal.")
         if sigmas is None:
@@ -301,8 +303,8 @@ class OpenSoraPlanScheduler:
             timesteps = sigmas.clone() * 1000
             while sigmas.ndim < x_start.ndim:
                 sigmas = sigmas.unsqueeze(-1)
-            self.broadcast_timesteps(sigmas)
-            self.broadcast_timesteps(timesteps)
+            self.broadcast_tensor(sigmas)
+            self.broadcast_tensor(timesteps)
 
         x_t = self.add_noise(x_start, sigmas, noise)
         return dict(x_t=x_t, noise=noise, timesteps=timesteps, sigmas=sigmas)
@@ -326,8 +328,7 @@ class OpenSoraPlanScheduler:
             model_kwargs.update(added_cond_kwargs)
 
         sigmas = None
-        use_linear_quadratic_schedule = model_kwargs.pop("use_linear_quadratic_schedule", False)
-        if use_linear_quadratic_schedule:
+        if self.use_linear_quadratic_schedule:
             print("use OpenSoraPlanScheduler and linear quadratic schedule")
             approximate_steps = min(max(self.num_inference_steps * 10, 250), 1000)
             sigmas = opensora_linear_quadratic_schedule(self.num_inference_steps, approximate_steps=approximate_steps)
@@ -383,7 +384,7 @@ class OpenSoraPlanScheduler:
         
         return latents
 
-    def broadcast_timesteps(self, input_: torch.Tensor):
+    def broadcast_tensor(self, input_: torch.Tensor):
         cp_src_rank = list(mpu.get_context_parallel_global_ranks())[0]
         if mpu.get_context_parallel_world_size() > 1:
             dist.broadcast(input_, cp_src_rank, group=mpu.get_context_parallel_group())

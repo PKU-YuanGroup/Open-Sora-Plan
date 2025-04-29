@@ -1,11 +1,10 @@
 #!/bin/bash
 wandb login 720d886d8c437c2142c88056a1eab8ef78d64a1f
 source /usr/local/Ascend/ascend-toolkit/set_env.sh
-source /usr/local/Ascend/nnal/atb/set_env.sh
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 export ASCEND_SLOG_PRINT_TO_STDOUT=0
 export ASCEND_GLOBAL_LOG_LEVEL=3
-export TASK_QUEUE_ENABLE=2
+export TASK_QUEUE_ENABLE=0
 export MULTI_STREAM_MEMORY_REUSE=1
 export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
 export COMBINED_ENABLE=1
@@ -29,22 +28,22 @@ NODE_RANK=0
 MASTER_ADDR=localhost
 
 MASTER_NODE_ID=0
-GPUS_PER_NODE=8
+GPUS_PER_NODE=2
 MASTER_PORT=12345
 WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
 
-TP=8
+TP=2
 PP=1
 CP=1
-MBS=4
-GRAD_ACC_STEP=2
+MBS=1
+GRAD_ACC_STEP=1
 GBS=$(($WORLD_SIZE*$GRAD_ACC_STEP*$MBS/$CP/$TP))
 
-MM_DATA="./examples/opensoraplan1.5/data00.json"
-MM_MODEL="./examples/opensoraplan1.5/model_opensoraplan1_5.json"
+MM_DATA="./examples/opensoraplan1.5/data_test.json"
+MM_MODEL="./examples/opensoraplan1.5/model_test.json"
 MM_TOOL="./mindspeed_mm/tools/tools.json"
 
-PROJECT_DIR="./test_ckpt/test_1_node"
+PROJECT_DIR="./test_ckpt/test_cann_8_0_1_1"
 
 DISTRIBUTED_ARGS="
     --nproc_per_node $GPUS_PER_NODE \
@@ -89,19 +88,20 @@ GPT_ARGS="
     --use-distributed-optimizer \
     --recompute-granularity full \
     --recompute-method block \
-    --recompute-num-layers 32 \
+    --recompute-num-layers 0 \
     --normalization RMSNorm \
     --use-fused-rmsnorm \
     --qk-layernorm \
     --sequence-parallel \
-    --use-ascend-mc2 \
     --optimizer-selection fused_ema_adamw \
     --seed 1024 \
     --data-parallel-random-init \
     --use-ema \
     --load $PROJECT_DIR \
+    --fp32-residual-connection \
+    --attention-softmax-in-fp32 \
+    --accumulate-allreduce-grads-in-fp32 
 "
-
     # --no-load-optim \
     # --no-load-rng \
     # --no-save-optim \
@@ -125,7 +125,7 @@ OUTPUT_ARGS="
 "
 
 WANDB_ARGS="
-    --wandb-project test_in_tianyi \
+    --wandb-project test_1_node \
     --wandb-exp-name test_1_node \
     --wandb-save-dir . \
     --tensorboard-log-interval 1 \

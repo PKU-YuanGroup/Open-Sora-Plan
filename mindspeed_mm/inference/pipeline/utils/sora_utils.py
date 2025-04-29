@@ -54,7 +54,7 @@ def optimize_video(save_path, quality):
     os.system(ffmpeg_cmd)
     print(f"✅ 优化后视频已保存至: {optimized_path}")
 
-def save_image_or_videos(videos, save_path, start_idx, fps, value_range=(0, 1), normalize=True):
+def save_image_or_videos(videos, save_path, start_idx, fps=24, value_range=(0, 1), normalize=True):
     os.makedirs(save_path, exist_ok=True)
     if videos.ndim == 5:
         if videos.shape[1] == 1: # image

@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 wandb login 720d886d8c437c2142c88056a1eab8ef78d64a1f
 source /usr/local/Ascend/ascend-toolkit/set_env.sh
 export CUDA_DEVICE_MAX_CONNECTIONS=1
@@ -10,6 +11,7 @@ export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
 export COMBINED_ENABLE=1
 export CPU_AFFINITY_CONF=1
 export HCCL_CONNECT_TIMEOUT=3600
+export ACL_DEVICE_SYNC_TIMEOUT=3600
 export HCCL_OP_BASE_FFTS_MODE_ENABLE=TRUE
 export GPU_NUM_PER_NODE=8
 
@@ -18,61 +20,63 @@ export PYTHONPATH=${MINDSPEED_PATH}:$PYTHONPATH
 
 export LD_PRELOAD=/lib/aarch64-linux-gnu/libGLdispatch.so.0
 export LD_PRELOAD=/lib/aarch64-linux-gnu/libgomp.so.1:$LD_PRELOAD
+export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/8.0.1/aarch64-linux/devlib/libascend_hal.so:$LD_LIBRARY_PATH
 # export GLOO_SOCKET_IFNAME=enp67s0f0
 
 # 平台断点续训，增加pipe fail捕获退出码
 set -o pipefail
 
-# 平台参数解析，使用冒号作为分隔符分割字符串
-IFS=':' read -r -a array <<< "${PET_RDZV_ENDPOINT}"
-main_process_ip=${array[0]} # 主节点ip
-main_process_port=${array[1]} # 主节点端口
+# # 平台参数解析，使用冒号作为分隔符分割字符串
+# IFS=':' read -r -a array <<< "${PET_RDZV_ENDPOINT}"
+# main_process_ip=${array[0]} # 主节点ip
+# main_process_port=${array[1]} # 主节点端口
 
-IFS=':' read -r first_value second_value <<< "$PET_NNODES"
-NNODE=${first_value//[^0-9]/} # 节点总数目
-NUM_NPUS=$(($NNODE * $GPU_NUM_PER_NODE)) # 总卡数
+# IFS=':' read -r first_value second_value <<< "$PET_NNODES"
+# NNODE=${first_value//[^0-9]/} # 节点总数目
+# NUM_NPUS=$(($NNODE * $GPU_NUM_PER_NODE)) # 总卡数
 
-# 使用正则表达式提取最后一个-后面的数字
-if [[ $o$POD_NAME =~ -([0-9]+)$ ]]; then
-    RANK=${BASH_REMATCH[1]}
-    # 将提取的数字转换为整数
-    RANK=${RANK//[^0-9]/}
-    echo "The rank is: $RANK"
-else
-    echo "No match found"
-fi
-echo "----------------"
-echo $NUM_NPUS
-echo $NNODE
+# # 使用正则表达式提取最后一个-后面的数字
+# if [[ $o$POD_NAME =~ -([0-9]+)$ ]]; then
+#     RANK=${BASH_REMATCH[1]}
+#     # 将提取的数字转换为整数
+#     RANK=${RANK//[^0-9]/}
+#     echo "The rank is: $RANK"
+# else
+#     echo "No match found"
+# fi
+# echo "----------------"
+# echo $NUM_NPUS
+# echo $NNODE
 
-TP=4
+TP=2
 PP=1
 CP=1
-MBS=4
+MBS=2
 GRAD_ACC_STEP=2
+NUM_NPUS=$(($PET_NNODES * $GPU_NUM_PER_NODE))
 GBS=$(($NUM_NPUS*$GRAD_ACC_STEP*$MBS/$CP/$TP))
 
 MM_MODEL="./examples/opensoraplan1.5/model_opensoraplan1_5.json"
 MM_TOOL="./mindspeed_mm/tools/tools.json"
 MM_DATA="./examples/opensoraplan1.5/data00.json"
 
-DISTRIBUTED_ARGS="
-    --nproc_per_node $GPU_NUM_PER_NODE \
-    --nnodes ${PET_NNODES} \
-    --rdzv_backend=${PET_RDZV_BACKEND} \
-    --rdzv_endpoint=${PET_RDZV_ENDPOINT} \
-    --rdzv_id=${PET_RDZV_ID} \
-    --max_restarts=25 \
-    --rdzv_conf=timeout=7200,read_timeout=7200 \
-"
-
 # DISTRIBUTED_ARGS="
 #     --nproc_per_node $GPU_NUM_PER_NODE \
-#     --nnodes $PET_NNODES \
-#     --node_rank $PET_NODE_RANK \
-#     --master_addr $PET_MASTER_ADDR \
-#     --master_port $PET_MASTER_PORT
+#     --nnodes ${PET_NNODES} \
+#     --rdzv_backend=${PET_RDZV_BACKEND} \
+#     --rdzv_endpoint=${PET_RDZV_ENDPOINT} \
+#     --rdzv_id=${PET_RDZV_ID} \
+#     --max_restarts=25 \
+#     --rdzv_conf=timeout=7200,read_timeout=7200 \
 # "
+
+DISTRIBUTED_ARGS="
+    --nproc_per_node=${GPU_NUM_PER_NODE} \
+    --nnodes=${PET_NNODES} \
+    --node_rank=${RANK} \
+    --master_addr=${MASTER_ADDR} \
+    --master_port=${MASTER_PORT}
+"
 
 GPT_ARGS="
     --tensor-model-parallel-size ${TP} \
@@ -94,14 +98,14 @@ GPT_ARGS="
     --swiglu \
     --no-masked-softmax-fusion \
     --bf16 \
-    --lr 4e-5 \
-    --min-lr 4e-5 \
+    --lr 6e-5 \
+    --min-lr 6e-5 \
     --adam-beta1 0.9 \
     --adam-beta2 0.999 \
     --adam-eps 1e-15 \
     --lr-decay-style constant \
     --weight-decay 1e-2 \
-    --lr-warmup-init 4e-5 \
+    --lr-warmup-init 6e-5 \
     --lr-warmup-iters 0 \
     --clip-grad 1.0 \
     --train-iters 100000000 \
@@ -118,7 +122,11 @@ GPT_ARGS="
     --seed 1024 \
     --data-parallel-random-init \
     --use-ema \
-    --load $PROJECT_DIR
+    --load $PROJECT_DIR \
+    --fp32-residual-connection \
+    --attention-softmax-in-fp32 \
+    --accumulate-allreduce-grads-in-fp32 \
+    --distributed-timeout-minutes 30
 "
 
     # --no-load-optim \
@@ -138,7 +146,7 @@ MM_ARGS="
 OUTPUT_ARGS="
     --save $PROJECT_DIR \
     --log-interval 1 \
-    --save-interval 1000 \
+    --save-interval 10000 \
     --eval-interval 10 \
     --eval-iters 10 \
 "

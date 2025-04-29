@@ -582,6 +582,7 @@ def train(
                     print_rank_0("save global_step_for_sampler.txt")
                     initial_global_step_for_sampler = getattr(args.mm.data.dataloader_param, 'initial_global_step_for_sampler', 0)
                     global_step_for_sampler_txt = os.path.join(args.save, 'global_step_for_sampler.txt')
+                    os.makedirs(os.path.dirname(global_step_for_sampler_txt), exist_ok=True)
                     global_step_for_sampler = initial_global_step_for_sampler + iteration - initial_iteration
                     print_rank_0(f"initial_global_step_for_sampler: {initial_global_step_for_sampler}")
                     print_rank_0(f"current_global_step_for_sampler: {global_step_for_sampler}")
@@ -665,6 +666,7 @@ def train(
                     global_step_for_sampler = initial_global_step_for_sampler + iteration - initial_iteration
                     print_rank_0(f"initial_global_step_for_sampler: {initial_global_step_for_sampler}")
                     print_rank_0(f"current_global_step_for_sampler: {global_step_for_sampler}")
+                    os.makedirs(os.path.dirname(global_step_for_sampler_txt), exist_ok=True)
                     with open(global_step_for_sampler_txt, 'w') as f:
                         f.write(str(global_step_for_sampler))
                     timers("global-step-for-sampler-txt-save-setup").stop()

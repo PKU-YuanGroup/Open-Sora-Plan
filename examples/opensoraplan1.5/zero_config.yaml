@@ -1,0 +1,12 @@
+zero3_size: 8
+transformer_layers:
+  - mindspeed_mm.models.predictor.dits.sparseu_mmdit.SparseMMDiTBlock
+backward_prefetch: 'BACKWARD_PRE'
+param_dtype: "bf16"
+reduce_dtype: "fp32"
+forward_prefetch: True
+limit_all_gathers: True
+ignored_modules:
+  - ae
+  - text_encoder
+  - text_encoder_2
