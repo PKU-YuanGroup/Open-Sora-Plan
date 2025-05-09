@@ -9,7 +9,7 @@
 		"preprocess_parameters": {
 			"video_reader_type": "decoder",
 			"image_reader_type": "Image",
-			"num_frames": 57,
+			"num_frames": 121,
 			"frame_interval": 1,
 			"max_height": 288,
 			"max_width": 512,
@@ -89,7 +89,7 @@
 		"gradient_accumulation_size": 1,
 		"collate_param": {
 			"batch_size": 1,
-			"num_frames": 57,
+			"num_frames": 121,
 			"group_data": true,
 			"ae_stride": 8,
 			"ae_stride_t": 8,

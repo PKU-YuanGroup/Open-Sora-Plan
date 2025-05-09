@@ -1,5 +1,5 @@
 {
-    "frames": 57,
+    "frames": 121,
     "allow_tf32": false,
     "allow_internal_format": false,
     "load_video_features": false,
@@ -72,10 +72,11 @@
         "activation_fn": "gelu-approximate",
         "norm_elementwise_affine": false,
         "norm_eps": 1e-06,
-        "from_pretrained": null
+        "from_pretrained": "/work/share/projects/gyy/mindspeed/Open-Sora-Plan/test_ckpt/test_ac_121_0023498/model_ema.pt"
     },
     "diffusion": {
         "model_id": "OpenSoraPlan",
-        "weighting_scheme": "logit_normal"
+        "weighting_scheme": "logit_normal",
+        "use_dynamic_shifting": true
     }
 }

@@ -62,7 +62,6 @@ class OpenSoraPlanPipeline(MMPipeline, InputsCheckMixin, MMEncoderMixin):
         negative_prompt: Optional[str] = None,
         negative_prompt_embeds: Optional[torch.Tensor] = None,
         negative_prompt_embeds_2: Optional[torch.Tensor] = None,
-        use_linear_quadratic_schedule: bool = True,
         eta: float = 0.0,
         num_samples_per_prompt: Optional[int] = 1,
         guidance_scale: float = 4.5,

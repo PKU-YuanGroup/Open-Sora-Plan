@@ -20,7 +20,7 @@ export PYTHONPATH=${MINDSPEED_PATH}:$PYTHONPATH
 
 export LD_PRELOAD=/lib/aarch64-linux-gnu/libGLdispatch.so.0
 export LD_PRELOAD=/lib/aarch64-linux-gnu/libgomp.so.1:$LD_PRELOAD
-export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/8.0.1/aarch64-linux/devlib/libascend_hal.so:$LD_LIBRARY_PATH
+# export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/8.0.1/aarch64-linux/devlib/libascend_hal.so:$LD_LIBRARY_PATH
 # export GLOO_SOCKET_IFNAME=enp67s0f0
 
 # 平台断点续训，增加pipe fail捕获退出码
@@ -48,11 +48,11 @@ set -o pipefail
 # echo $NUM_NPUS
 # echo $NNODE
 
-TP=2
+TP=4
 PP=1
 CP=1
-MBS=2
-GRAD_ACC_STEP=2
+MBS=1
+GRAD_ACC_STEP=4
 NUM_NPUS=$(($PET_NNODES * $GPU_NUM_PER_NODE))
 GBS=$(($NUM_NPUS*$GRAD_ACC_STEP*$MBS/$CP/$TP))
 
@@ -98,14 +98,14 @@ GPT_ARGS="
     --swiglu \
     --no-masked-softmax-fusion \
     --bf16 \
-    --lr 6e-5 \
-    --min-lr 6e-5 \
+    --lr 2e-5 \
+    --min-lr 2e-5 \
     --adam-beta1 0.9 \
     --adam-beta2 0.999 \
     --adam-eps 1e-15 \
     --lr-decay-style constant \
     --weight-decay 1e-2 \
-    --lr-warmup-init 6e-5 \
+    --lr-warmup-init 2e-5 \
     --lr-warmup-iters 0 \
     --clip-grad 1.0 \
     --train-iters 100000000 \

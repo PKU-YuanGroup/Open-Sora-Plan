@@ -28,11 +28,11 @@ NODE_RANK=0
 MASTER_ADDR=localhost
 
 MASTER_NODE_ID=0
-GPUS_PER_NODE=2
+GPUS_PER_NODE=8
 MASTER_PORT=12345
 WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
 
-TP=2
+TP=8
 PP=1
 CP=1
 MBS=1
@@ -43,7 +43,7 @@ MM_DATA="./examples/opensoraplan1.5/data_test.json"
 MM_MODEL="./examples/opensoraplan1.5/model_test.json"
 MM_TOOL="./mindspeed_mm/tools/tools.json"
 
-PROJECT_DIR="./test_ckpt/test_cann_8_0_1_1"
+PROJECT_DIR="./test_ckpt/test_cann_8_0_1_1_720p"
 
 DISTRIBUTED_ARGS="
     --nproc_per_node $GPUS_PER_NODE \

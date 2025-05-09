@@ -9,7 +9,7 @@
             "with_memory": true,
             "record_shapes": true,
             "with_cpu": true,
-            "save_path": "./npu_profiling/18_layers",
+            "save_path": "./npu_profiling/test",
             "start_step": 10,
             "end_step": 11,
             "data_simplification": false

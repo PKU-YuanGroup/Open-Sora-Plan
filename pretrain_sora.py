@@ -82,12 +82,13 @@ def get_batch_for_step(data_iterator):
 
     # Only the first step of a round needs to get batch when enable encoder dp
     batch = get_batch(data_iterator) if args.curr_forward_iteration % tp_cp_group_size == 1 else {}
-
     return batch
 
 def forward_step(data_iterator, model):
     """Forward step."""
+    torch.distributed.barrier()
     batch = get_batch_for_step(data_iterator)
+    torch.distributed.barrier()
     video = batch.pop(VIDEO, None)
     prompt_ids = batch.pop(PROMPT_IDS, None)
     video_mask = batch.pop(VIDEO_MASK, None)
@@ -163,26 +164,26 @@ if __name__ == "__main__":
         '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data17.txt',
         '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data18.txt',
         '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data19.txt',
-        # '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data20.txt',
-        # '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data21.txt',
-        # '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data22.txt',
-        # '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data23.txt',
-        # '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data24.txt',
-        # '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data25.txt',
-        # '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data26.txt',
-        # '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data27.txt',
-        # '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data28.txt',
-        # '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data29.txt',
-        # '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data30.txt',
-        # '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data31.txt',
-        # '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data32.txt',
-        # '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data33.txt',
-        # '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data34.txt',
-        # '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data35.txt',
-        # '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data36.txt',
-        # '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data37.txt',
-        # '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data38.txt',
-        # '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data39.txt',
+        '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data20.txt',
+        '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data21.txt',
+        '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data22.txt',
+        '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data23.txt',
+        '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data24.txt',
+        '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data25.txt',
+        '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data26.txt',
+        '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data27.txt',
+        '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data28.txt',
+        '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data29.txt',
+        '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data30.txt',
+        '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data31.txt',
+        '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data32.txt',
+        '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data33.txt',
+        '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data34.txt',
+        '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data35.txt',
+        '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data36.txt',
+        '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data37.txt',
+        '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data38.txt',
+        '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data39.txt',
     ]
 
     pretrain(

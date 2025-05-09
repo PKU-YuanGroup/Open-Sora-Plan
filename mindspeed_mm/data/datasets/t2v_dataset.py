@@ -112,7 +112,7 @@ class T2VDataset(MMBaseDataset):
 
         max_workers = vid_img_process.get("max_workers", 1)
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
-        self.timeout = vid_img_process.get("timeout", 30) 
+        self.timeout = vid_img_process.get("timeout", 300) 
         
         if self.max_hxw is not None and self.min_hxw is None:
             self.min_hxw = self.max_hxw // 4

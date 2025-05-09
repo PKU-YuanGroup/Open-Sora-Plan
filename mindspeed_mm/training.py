@@ -215,7 +215,7 @@ def pretrain(
             ["model-and-optimizer-setup", "train/valid/test-data-iterators-setup"],
             barrier=True,
         )
-
+        torch.distributed.barrier()
         extreme_error_flag = train_on_one_dataset(
             forward_step_func,
             model,
