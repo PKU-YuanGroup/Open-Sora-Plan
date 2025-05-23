@@ -98,14 +98,14 @@ GPT_ARGS="
     --swiglu \
     --no-masked-softmax-fusion \
     --bf16 \
-    --lr 2e-5 \
-    --min-lr 2e-5 \
+    --lr 1e-5 \
+    --min-lr 1e-5 \
     --adam-beta1 0.9 \
     --adam-beta2 0.999 \
     --adam-eps 1e-15 \
     --lr-decay-style constant \
     --weight-decay 1e-2 \
-    --lr-warmup-init 2e-5 \
+    --lr-warmup-init 1e-5 \
     --lr-warmup-iters 0 \
     --clip-grad 1.0 \
     --train-iters 100000000 \

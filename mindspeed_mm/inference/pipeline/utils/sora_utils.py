@@ -80,6 +80,10 @@ def save_video_grid(videos, nrow=None):
     b, t, h, w, c = videos.shape
     if nrow is None:
         nrow = math.ceil(math.sqrt(b))
+
+    if nrow > 20:
+        raise ValueError("Video grid is too large, so we will not save it.")
+    
     ncol = math.ceil(b / nrow)
     padding = 1
     video_grid = torch.zeros(
@@ -114,9 +118,9 @@ def load_prompts(prompt):
     if os.path.exists(prompt):
         with open(prompt, "r") as f:
             lines = f.readlines()
-            if len(lines) > 100:
+            if len(lines) > 1000:
                 print("The file has more than 100 lines of prompts, we can only proceed the first 100")
-                lines = lines[:100]
+                lines = lines[:1000]
             prompts = [line.strip() for line in lines]
         return prompts
     else:

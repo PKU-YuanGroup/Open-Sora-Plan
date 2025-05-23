@@ -149,7 +149,7 @@ class WfCausalConv3d(nn.Module):
 
         if self.enable_cached and self.time_kernel_size != 1:
             if (self.time_kernel_size - 1) // self.stride[0] != 0:
-                if self.cache_offset == 0:
+                if self.cache_offset == 0 or self.is_first_chunk:
                     self.causal_cached.append(x[:, :, -(self.time_kernel_size - 1) // self.stride[0]:].clone())
                 else:
                     self.causal_cached.append(x[:, :, :-self.cache_offset][:, :, -(self.time_kernel_size - 1) // self.stride[0]:].clone())
@@ -158,11 +158,11 @@ class WfCausalConv3d(nn.Module):
         elif self.enable_cached:
             self.causal_cached.append(x[:, :, 0:0, :, :].clone())
             
-        if x.dtype not in [torch.float16, torch.bfloat16]:
-            dtype = x.dtype
-            with torch.cuda.amp.autocast(enabled=False):
-                x = self.conv.to(device=x.device, dtype=torch.bfloat16)(x.to(torch.bfloat16))
-                x = x.to(dtype)
-                return torch_npu.npu_format_cast(x, 2)
-        else:
-            return self.conv(x)
+        # if x.dtype not in [torch.float16, torch.bfloat16]:
+        #     dtype = x.dtype
+        #     with torch.cuda.amp.autocast(enabled=False):
+        #         x = self.conv.to(device=x.device, dtype=torch.bfloat16)(x.to(torch.bfloat16))
+        #         x = x.to(dtype)
+        #         return torch_npu.npu_format_cast(x, 2)
+        # else:
+        return self.conv(x)

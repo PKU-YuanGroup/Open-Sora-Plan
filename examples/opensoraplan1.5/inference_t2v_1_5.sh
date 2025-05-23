@@ -1,6 +1,11 @@
 source /usr/local/Ascend/ascend-toolkit/set_env.sh
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 export ASCEND_LAUNCH_BLOCKING=1
+export MULTI_STREAM_MEMORY_REUSE=1
+export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+export COMBINED_ENABLE=1
+export CPU_AFFINITY_CONF=1
+export HCCL_OP_BASE_FFTS_MODE_ENABLE=TRUE
 
 MASTER_ADDR=localhost
 MASTER_PORT=29200
@@ -68,7 +73,7 @@ SORA_ARGS="
     --no-save-rng \
     --sequence-parallel \
     --distributed-timeout-minutes 20 \
-    --seed 1234 \
+    --seed 1235 \
     --optimizer-selection fused_torch_adamw \
 "
 

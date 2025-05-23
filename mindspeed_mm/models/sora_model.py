@@ -92,33 +92,34 @@ class SoRAModel(nn.Module):
         video_mask: mask for video/image
         prompt_mask: mask for prompt(text)
         """
-        with torch.no_grad():
-            if video is not None:
-                self.index = 0
-                # Visual Encode
-                if self.load_video_features:
-                    latents = video
-                else:
-                    video = video.to(self.ae.dtype) 
-                    latents = self.ae.encode(video)
-                # Text Encode
-                if self.load_text_features:
-                    prompt = prompt_ids
-                    prompt_2 = prompt_ids_2
-                else:
-                    B, _, L = prompt_ids.shape
-                    prompt_ids = prompt_ids.view(-1, L)
-                    prompt_mask = prompt_mask.view(-1, L)
-                    prompt = self.text_encoder.encode(prompt_ids, prompt_mask)
-                    prompt = prompt.view(B, 1, L, -1)
-                    prompt_mask = prompt_mask.view(B, 1, L)
+        with torch.autocast("cuda", enabled=False):
+            with torch.no_grad():
+                if video is not None:
+                    self.index = 0
+                    # Visual Encode
+                    if self.load_video_features:
+                        latents = video
+                    else:
+                        video = video.to(self.ae.dtype) 
+                        latents = self.ae.encode(video)
+                    # Text Encode
+                    if self.load_text_features:
+                        prompt = prompt_ids
+                        prompt_2 = prompt_ids_2
+                    else:
+                        B, _, L = prompt_ids.shape
+                        prompt_ids = prompt_ids.view(-1, L)
+                        prompt_mask = prompt_mask.view(-1, L)
+                        prompt = self.text_encoder.encode(prompt_ids, prompt_mask)
+                        prompt = prompt.view(B, 1, L, -1)
+                        prompt_mask = prompt_mask.view(B, 1, L)
 
-                    if self.text_encoder_2 is not None and prompt_ids_2 is not None:
-                        B_, _, L_ = prompt_ids_2.shape
-                        prompt_ids_2 = prompt_ids_2.view(-1, L_)
-                        prompt_mask_2 = prompt_mask_2.view(-1, L_)
-                        prompt_2 = self.text_encoder_2.encode(prompt_ids_2, prompt_mask_2)
-                        prompt_2 = prompt_2.view(B_, 1, -1)
+                        if self.text_encoder_2 is not None and prompt_ids_2 is not None:
+                            B_, _, L_ = prompt_ids_2.shape
+                            prompt_ids_2 = prompt_ids_2.view(-1, L_)
+                            prompt_mask_2 = prompt_mask_2.view(-1, L_)
+                            prompt_2 = self.text_encoder_2.encode(prompt_ids_2, prompt_mask_2)
+                            prompt_2 = prompt_2.view(B_, 1, -1)
         # print("--------------------------shape--------------------------")
         # print(f"latent: {latents.shape}, prompt: {prompt.shape}, prompt_2: {prompt_2.shape}, video_mask: {video_mask.shape}, prompt_mask: {prompt_mask.shape}, prompt_mask_2: {prompt_mask_2.shape}")
         # print("--------------------------dtype--------------------------")
@@ -138,7 +139,6 @@ class SoRAModel(nn.Module):
         noise = output.get('noise', None)
         timesteps = output.get('timesteps', None)
         sigmas = output.get('sigmas', None)
-
         model_output = self.predictor(
             noised_latents.to(self.weight_dtype),
             attention_mask=video_mask,

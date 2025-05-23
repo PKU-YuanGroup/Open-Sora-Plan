@@ -25,9 +25,8 @@ class CombinedTimestepTextProjEmbeddings(nn.Module):
         timesteps_emb = self.timestep_embedder(timesteps_proj.to(dtype=pooled_projection.dtype))  # (N, D)
 
         pooled_projections = self.text_embedder(pooled_projection)
-        timesteps_emb = timesteps_emb.float()
-        pooled_projections = pooled_projections.float()
-        conditioning = timesteps_emb + pooled_projections
+
+        conditioning = (timesteps_emb + pooled_projections).float()
         if conditioning.dtype != torch.float32:
             raise ValueError("Conditioning embeddings must be float32.")
 
@@ -88,9 +87,7 @@ class AdaNorm(nn.Module):
     ) -> torch.Tensor:
         if self.emb is not None:
             temb = self.emb(timestep)
-
         temb = self.linear(self.silu(temb))[0]
-        temb = temb.float()
         if self.sequence_parallel:
             temb = tensor_parallel.mappings.all_gather_last_dim_from_tensor_parallel_region(temb)
         else:
@@ -99,11 +96,9 @@ class AdaNorm(nn.Module):
         shift, scale = temb.chunk(2, dim=1)
         shift = shift[None, :, :]
         scale = scale[None, :, :]
-
-        if shift.dtype != torch.float32 or scale.dtype != torch.float32:
-            raise ValueError("Shift and scale must be float32.")
         weight_dtype = x.dtype
-        x = self.norm(x).float() * (1 + scale) + shift
+        with torch.autocast("cuda", enabled=False):
+            x = self.norm(x).float() * (1 + scale.float()) + shift.float()
         return x.to(weight_dtype)
 
 class OpenSoraNormZero(nn.Module):
@@ -145,16 +140,14 @@ class OpenSoraNormZero(nn.Module):
         self, hidden_states: torch.Tensor, encoder_hidden_states: torch.Tensor, temb: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         temb = self.linear(self.silu(temb))[0]
-        temb = temb.float()
         if self.sequence_parallel:
             temb = tensor_parallel.mappings.all_gather_last_dim_from_tensor_parallel_region(temb)
         else:
             temb = tensor_parallel.mappings.gather_from_tensor_model_parallel_region(temb)
         shift, scale, gate, enc_shift, enc_scale, enc_gate = temb.chunk(6, dim=1)
-        if shift.dtype != torch.float32 or scale.dtype != torch.float32 or gate.dtype != torch.float32 or enc_shift.dtype != torch.float32 or enc_scale.dtype != torch.float32 or enc_gate.dtype != torch.float32:
-            raise ValueError("Shift, scale and gate must be float32.")
         weight_dtype = hidden_states.dtype
-        hidden_states = self.norm(hidden_states).float() * (1 + scale)[None, :, :] + shift[None, :, :] # because hidden_states'shape is (S B H), so we need to add None at the first dimension
-        if self.norm_enc is not None:
-            encoder_hidden_states = self.norm_enc(encoder_hidden_states).float() * (1 + enc_scale)[None, :, :] + enc_shift[None, :, :]
+        with torch.autocast("cuda", enabled=False):
+            hidden_states = self.norm(hidden_states).float() * (1 + scale.float())[None, :, :] + shift.float()[None, :, :] # because hidden_states'shape is (S B H), so we need to add None at the first dimension
+            if self.norm_enc is not None:
+                encoder_hidden_states = self.norm_enc(encoder_hidden_states).float() * (1 + enc_scale.float())[None, :, :] + enc_shift.float()[None, :, :]
         return hidden_states.to(weight_dtype), encoder_hidden_states.to(weight_dtype), gate[None, :, :], enc_gate[None, :, :]

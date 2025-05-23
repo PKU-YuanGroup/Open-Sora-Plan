@@ -80,7 +80,7 @@
 		"dataloader_mode": "sampler",
         "sampler_type": "LengthGroupedSampler",
 		"batch_size": 1,
-		"num_workers": 8,
+		"num_workers": 4,
 		"shuffle": false,
 		"drop_last": true,
 		"pin_memory": false,
