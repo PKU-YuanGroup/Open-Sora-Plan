@@ -1,3 +1,0 @@
-wget
-curl
-git
