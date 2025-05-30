@@ -201,7 +201,6 @@ For more details, please refer to the [Contribution Guidelines](docs/Contributio
 [![Star History](https://api.star-history.com/svg?repos=PKU-YuanGroup/Open-Sora-Plan)](https://star-history.com/#PKU-YuanGroup/Open-Sora-Plan&Date)
 
 
-
 # ✏️ Citing
 
 
