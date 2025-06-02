@@ -1,4 +1,9 @@
 import os
+import json
+import random
+import shutil
+import numpy as np
+from tqdm import tqdm 
 
 import torch
 import mindspeed.megatron_adaptor
@@ -14,8 +19,6 @@ from mindspeed_mm.inference.pipeline.utils.sora_utils import (
     save_image_or_videos,
     save_image_or_video_grid,
     load_prompts,
-    load_images,
-    load_conditional_pixel_values
 )
 from mindspeed_mm.models.predictor import PredictModel
 from mindspeed_mm.models.diffusion import DiffusionModel
@@ -23,12 +26,6 @@ from mindspeed_mm.models.ae import AEModel
 from mindspeed_mm.models.text_encoder import TextEncoder
 from mindspeed_mm import Tokenizer
 from mindspeed_mm.utils.utils import get_dtype, get_device, is_npu_available
-from mindspeed_mm.data.data_utils.utils import DecordDecoder
-import json
-import random
-import shutil
-import numpy as np
-from tqdm import tqdm 
 
 if is_npu_available():
     import torch_npu
@@ -63,58 +60,8 @@ def main():
     ae_dtype = get_dtype(args.ae.dtype)
     device = get_device(args.device)
 
-    # json_path = "/work/share1/video_final/tiyu_20241006_final_83899.json"
-    # root_dir = "/work/share/dataset/xigua_video"
-    # save_dir = "/work/share/projects/gyy/mindspeed/Open-Sora-Plan/test_dataset_to_frame"
-
-    # os.makedirs(save_dir, exist_ok=True)
-
-    # with open(json_path, 'r') as f:
-    #     data = json.load(f)
-
-    # test_sample_nums = 100
-    # data = random.sample(data, test_sample_nums * 10)
-
-    # for idx in tqdm(range(test_sample_nums), desc='test'):
-
-    #     save_sub_dir = os.path.join(save_dir, f'{idx:06d}')
-    #     os.makedirs(save_sub_dir, exist_ok=True)
-    #     sample = random.sample(data, 1)[0]
-    #     video = os.path.join(root_dir, sample['path'])
-    #     while not os.path.exists(video):
-    #         sample = random.sample(data, 1)[0]
-    #         video = os.path.join(root_dir, sample['path'])
-
-    #     vframes = DecordDecoder(video)
-    #     start_frame_idx, end_frame_idx = sample.get('cut', None)
-    #     s_x, e_x, s_y, e_y = sample.get('crop', [None, None, None, None])
-    #     frame_indice = np.arange(start_frame_idx, end_frame_idx)
-    #     clip = vframes.get_batch(frame_indice)
-    #     if clip is not None:
-    #         if s_y is not None:
-    #             clip = clip[:, s_y: e_y, s_x: e_x, :]
-    #     clip = torch.unsqueeze(clip, 0)
-    #     num_frames = clip.shape[1]
-    #     rand_frame = random.randint(0, num_frames)
-    #     clip = clip[:, rand_frame: rand_frame + 1, :, :, :]
-    #     save_image_or_videos(clip, save_sub_dir, idx)
-    #     text = sample["cap"]
-    #     if not isinstance(text, list):
-    #         text = [text]
-    #     with open(os.path.join(save_sub_dir, 'caption.txt'), 'w') as f:
-    #         for t in text:
-    #             f.write(f'{t}\n')
-
     prompts = load_prompts(args.prompt)
-    images = load_images(args.image) if hasattr(args, "image") else None
-    conditional_pixel_values_path = load_conditional_pixel_values(args.conditional_pixel_values_path) if hasattr(args, "conditional_pixel_values_path") else None
-    mask_type = args.mask_type if hasattr(args, "mask_type") else None
-    crop_for_hw = args.crop_for_hw if hasattr(args, "crop_for_hw") else None
-    max_hxw = args.max_hxw if hasattr(args, "max_hxw") else None
     num_samples_per_prompt = args.num_samples_per_prompt if hasattr(args, "num_samples_per_prompt") else 1
-
-    if images is not None and len(prompts) != len(images):
-        raise AssertionError(f'The number of images {len(images)} and the numbers of prompts {len(prompts)} do not match')
 
     if len(prompts) % args.micro_batch_size != 0:
         raise AssertionError(f'The number of  prompts {len(prompts)} is not divisible by the batch size {args.micro_batch_size}')
@@ -133,20 +80,8 @@ def main():
         # == prepare batch prompts ==
         batch_prompts = prompts[i: i + args.micro_batch_size]
         kwargs = {}
-        if conditional_pixel_values_path:
-            batch_pixel_values_path = conditional_pixel_values_path[i: i + args.micro_batch_size]
-            kwargs.update({"conditional_pixel_values_path": batch_pixel_values_path,
-                           "mask_type": mask_type,
-                           "crop_for_hw": crop_for_hw,
-                           "max_hxw": max_hxw})
-
-        if images is not None:
-            batch_images = images[i: i + args.micro_batch_size]
-        else:
-            batch_images = None
 
         videos = sora_pipeline(prompt=batch_prompts,
-                               image=batch_images,
                                fps=save_fps,
                                max_sequence_length=args.model_max_length,
                                use_prompt_preprocess=True,

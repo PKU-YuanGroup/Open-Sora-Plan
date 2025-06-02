@@ -15,11 +15,6 @@ try:
 except ImportError:
     print("Failed to import decord module.")
 
-from torchvision.transforms import Compose, Lambda
-
-from mindspeed_mm.data.data_utils.data_transform import CenterCropResizeVideo, SpatialStrideCropVideo, \
-    ToTensorAfterResize, maxhwresize
-from mindspeed_mm.utils.mask_utils import STR_TO_TYPE, TYPE_TO_STR, MaskType
 
 # video: (T H W C)
 def save_video_with_opencv(video, save_path, fps=18, quality="medium"):
@@ -37,7 +32,7 @@ def save_video_with_opencv(video, save_path, fps=18, quality="medium"):
         frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)  # OpenCV 需要 BGR 格式
         out.write(frame_bgr)
     out.release()
-    print(f"✅ 视频已保存至: {save_path}")
+    print(f"✅ The video is saved to: {save_path}")
     optimize_video(save_path, quality)
 
 def optimize_video(save_path, quality):
@@ -47,12 +42,13 @@ def optimize_video(save_path, quality):
         "high": ["-crf", "18", "-b:v", "5000k"]  # 高质量
     }
     if quality not in quality_settings:
-        print("⚠️ 质量设置无效，默认使用 high")
+        print("⚠️ The quality must be one of: low, medium, high")
         quality = "high"
     optimized_path = save_path.replace(".mp4", "_optimized.mp4")
     ffmpeg_cmd = f"ffmpeg -i {save_path} -c:v libx264 {' '.join(quality_settings[quality])} -preset slow -pix_fmt yuv420p {optimized_path} -y"
     os.system(ffmpeg_cmd)
-    print(f"✅ 优化后视频已保存至: {optimized_path}")
+    print(f"✅ The optimized video is saved to: {optimized_path}")
+    os.remove(save_path)
 
 def save_image_or_videos(videos, save_path, start_idx, fps=24, value_range=(0, 1), normalize=True):
     os.makedirs(save_path, exist_ok=True)
@@ -202,69 +198,3 @@ def open_video(file_path, start_frame_idx, num_frames, frame_interval=1):
     video_data = torch.from_numpy(video_data)
     video_data = video_data.permute(0, 3, 1, 2)  # (T, H, W, C) -> (T C H W)
     return video_data
-
-
-def get_resize_transform(
-        ori_height,
-        ori_width,
-        height=None,
-        width=None,
-        crop_for_hw=False,
-        hw_stride=32,
-        max_hxw=236544,  # 480 x 480
-):
-    if crop_for_hw:
-        transform = CenterCropResizeVideo((height, width))
-    else:
-        new_height, new_width = maxhwresize(ori_height, ori_width, max_hxw)
-        transform = Compose(
-            [
-                CenterCropResizeVideo((new_height, new_width)),
-                # We use CenterCropResizeVideo to share the same height and width, ensuring that the shape of the crop remains consistent when multiple images are captured
-                SpatialStrideCropVideo(stride=hw_stride),
-            ]
-        )
-    return transform
-
-
-def get_video_transform():
-    norm_fun = Lambda(lambda x: 2. * x - 1.)
-    transform = Compose([
-        ToTensorAfterResize(),
-        norm_fun
-    ])
-    return transform
-
-
-def get_pixel_values(file_path, num_frames):
-    if is_image_file(file_path[0]):
-        pixel_values = [safe_load_image(path) for path in file_path]
-        pixel_values = [torch.from_numpy(np.array(image)) for image in pixel_values]
-        pixel_values = [rearrange(image, 'h w c -> c h w').unsqueeze(0) for image in pixel_values]
-    elif is_video_file(file_path[0]):
-        pixel_values = [open_video(video_path, 0, num_frames) for video_path in file_path]
-    return pixel_values
-
-
-def get_mask_type_cond_indices(mask_type, conditional_pixel_values_path, conditional_pixel_values_indices,
-                               num_frames):
-    if mask_type is not None and mask_type in STR_TO_TYPE.keys():
-        mask_type = STR_TO_TYPE[mask_type]
-    if is_image_file(conditional_pixel_values_path[0]):
-        if len(conditional_pixel_values_path) == 1:
-            mask_type = MaskType.i2v if mask_type is None else mask_type
-            if num_frames > 1:
-                conditional_pixel_values_indices = [
-                    0] if conditional_pixel_values_indices is None else conditional_pixel_values_indices
-        elif len(conditional_pixel_values_path) == 2:
-            mask_type = MaskType.transition if mask_type is None else mask_type
-            if num_frames > 1:
-                conditional_pixel_values_indices = [0,
-                                                    -1] if conditional_pixel_values_indices is None else conditional_pixel_values_indices
-        else:
-            if num_frames > 1:
-                mask_type = MaskType.random_temporal if mask_type is None else mask_type
-    elif is_video_file(conditional_pixel_values_path[0]):
-        # When the input is a video, video continuation is executed by default, with a continuation rate of double
-        mask_type = MaskType.continuation if mask_type is None else mask_type
-    return mask_type, conditional_pixel_values_indices

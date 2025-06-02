@@ -120,12 +120,6 @@ class SoRAModel(nn.Module):
                             prompt_mask_2 = prompt_mask_2.view(-1, L_)
                             prompt_2 = self.text_encoder_2.encode(prompt_ids_2, prompt_mask_2)
                             prompt_2 = prompt_2.view(B_, 1, -1)
-        # print("--------------------------shape--------------------------")
-        # print(f"latent: {latents.shape}, prompt: {prompt.shape}, prompt_2: {prompt_2.shape}, video_mask: {video_mask.shape}, prompt_mask: {prompt_mask.shape}, prompt_mask_2: {prompt_mask_2.shape}")
-        # print("--------------------------dtype--------------------------")
-        # print(f"latent: {latents.dtype}, prompt: {prompt.dtype}, prompt_2: {prompt_2.dtype}, video_mask: {video_mask.dtype}, prompt_mask: {prompt_mask.dtype}, prompt_mask_2: {prompt_mask_2.dtype}")
-        # print("--------------------------device--------------------------")
-        # print(f"latent: {latents.device}, prompt: {prompt.device}, prompt_2: {prompt_2.device}, video_mask: {video_mask.device}, prompt_mask: {prompt_mask.device}, prompt_mask_2: {prompt_mask_2.device}")
 
         # Gather the results after encoding of ae and text_encoder
         if self.enable_encoder_dp:

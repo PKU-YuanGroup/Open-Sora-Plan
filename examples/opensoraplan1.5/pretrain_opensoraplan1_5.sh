@@ -1,6 +1,7 @@
 #!/bin/bash
 wandb login 720d886d8c437c2142c88056a1eab8ef78d64a1f
 source /usr/local/Ascend/ascend-toolkit/set_env.sh
+export WANDB_MODE="offline"
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 export ASCEND_SLOG_PRINT_TO_STDOUT=0
 export ASCEND_GLOBAL_LOG_LEVEL=3
@@ -39,11 +40,13 @@ MBS=1
 GRAD_ACC_STEP=1
 GBS=$(($WORLD_SIZE*$GRAD_ACC_STEP*$MBS/$CP/$TP))
 
-MM_DATA="./examples/opensoraplan1.5/data_test.json"
-MM_MODEL="./examples/opensoraplan1.5/model_test.json"
+MM_DATA="./examples/opensoraplan1.5/data.json"
+MM_MODEL="./examples/opensoraplan1.5/model_opensoraplan1_5.json"
 MM_TOOL="./mindspeed_mm/tools/tools.json"
 
-PROJECT_DIR="./test_ckpt/test_cann_8_0_1_1_720p"
+PROJECT_DIR="./test_ckpt/opensoraplan1_5"
+WANDB_PROJECT="opensoraplan1_5"
+WANDB_EXP_NAME="test"
 
 DISTRIBUTED_ARGS="
     --nproc_per_node $GPUS_PER_NODE \
@@ -113,7 +116,9 @@ MM_ARGS="
     --mm-model $MM_MODEL \
     --mm-tool $MM_TOOL \
     --model_custom_precision \
-    --clip_grad_ema_decay 0.99
+    --clip_grad_ema_decay 0.99 \
+    --selective_recom \
+    --recom_ffn_layers 32 \
 "
 
 OUTPUT_ARGS="
@@ -125,8 +130,8 @@ OUTPUT_ARGS="
 "
 
 WANDB_ARGS="
-    --wandb-project test_1_node \
-    --wandb-exp-name test_1_node \
+    --wandb-project $WANDB_PROJECT \
+    --wandb-exp-name $WANDB_EXP_NAME \
     --wandb-save-dir . \
     --tensorboard-log-interval 1 \
 "

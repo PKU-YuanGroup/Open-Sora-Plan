@@ -2,7 +2,7 @@
 	"dataset_param": {
 		"dataset_type": "t2v",
 		"basic_parameters": {
-			"data_path": "/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/data00.txt",
+			"data_path": "./examples/opensoraplan1.5/data.txt",
 			"data_folder": "",
 			"data_storage_mode": "combine"
 		},
@@ -88,6 +88,7 @@
 		"initial_global_step_for_sampler": 0, 
 		"gradient_accumulation_size": 4,
 		"collate_param": {
+			"model_name": "GroupLength",
 			"batch_size": 1,
 			"num_frames": 121,
 			"group_data": true,

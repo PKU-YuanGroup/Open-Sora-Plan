@@ -10,7 +10,6 @@ import mindspeed.megatron_adaptor
 
 
 def get_ckpt_path(path: str) -> Tuple[Path, Optional[str]]:
-    """ 判断path内是否有iteration信息，如果有，去找对应目录，判断对应目录下是否有符合要求的目录；如果没有，则判断本目录是否已经满足要求 """
     path = Path(path)
     files = [item.name for item in path.iterdir() if item.is_file()]
     if 'latest_checkpointed_iteration.txt' in files:
@@ -32,7 +31,6 @@ def get_ckpt_path(path: str) -> Tuple[Path, Optional[str]]:
 
 
 def get_loaded_ckpt_tp_pp(path: Path, extra_model_name: str = None):
-    """ 自动获取待加载的ckpt的tp和pp """
     dirs = [item.name for item in path.iterdir() if item.is_dir()]
     pattern = re.compile(r'mp_?([a-zA-Z0-9]+)?_rank_(\d{2})(?:_(\d{3}))?')
     tp_size, pp_size = 0, 0
@@ -53,7 +51,6 @@ def get_loaded_ckpt_tp_pp(path: Path, extra_model_name: str = None):
 def load_ckpt(
     path, tp_size, pp_size, extra_model_name=None, ema=False
 ) -> Tuple[Dict[Tuple[int, int], Dict[str, torch.Tensor]], Dict[str, Any]]:
-    """ 加载ckpt，返回{(int, int): {'layers': Tensor}}, {原来state_dict中除了'model'以外的所有信息} """
     ckpts, params = {}, None
     model_key = 'model' if not ema else 'ema_model'
     for tp in range(tp_size):
@@ -73,7 +70,6 @@ def load_ckpt(
 
 
 def calculate_pp_layer_sizes(ckpt_list, startswith):
-    """ 用来根据ckpts计算pp_layer_sizes，在merge_by_pp中使用 """
     pp_layer_sizes = [0 for _ in range(len(ckpt_list))]
     j = len(startswith.split('.'))
     for i, ckpt in enumerate(ckpt_list):
@@ -84,7 +80,6 @@ def calculate_pp_layer_sizes(ckpt_list, startswith):
 
 
 def _cumulative_sum(pp_layer_sizes):
-    """ 计算每个pp_layer的起始layer_index """
     result = [0]  # 初始化结果列表，第一个元素为0
     for num in pp_layer_sizes:
         result.append(result[-1] + num)  # 将当前元素与结果列表的最后一个元素相加，并添加到结果列表中
@@ -92,7 +87,6 @@ def _cumulative_sum(pp_layer_sizes):
 
 
 def _get_key_startswith_index_and_str(key, prefix_list):
-    """ 返回key对应prefix_list中的哪个，并返回这个index和prefix """
     for i, prefix in enumerate(prefix_list):
         if key.startswith(prefix):
             return i, prefix
@@ -115,7 +109,6 @@ def _merge_by_pp(ori_ckpt, new_ckpt, cur_pp_idx, keys_full_prefix_on_pp_layer, p
 
 
 def merge_by_pp(ckpts, tp_size, pp_size, keys_full_prefix_on_pp_layer: Sequence[str]):
-    """ 沿着pp合并ckpt """
     new_ckpts = {}
     for tp in range(tp_size):
         ckpt = deepcopy(ckpts[(tp, 0)])
@@ -156,7 +149,6 @@ def _merge_by_tp(ori_ckpt, new_ckpt, keys_part_on_tp_dim_0, keys_part_on_tp_dim_
 
 
 def merge_by_tp(ckpts, tp_size, pp_size, keys_part_on_tp_dim_0, keys_part_on_tp_dim_1):
-    """ 沿着tp合并ckpt """
     new_ckpts = {}
     for pp in range(pp_size):
         ckpt = ckpts[(0, pp)]
@@ -245,7 +237,12 @@ def convert(load_dir, save_dir, ema=False):
 
     
 if __name__ == "__main__":
-    load_dir = '/work/share1/checkpoint/gyy/osp/121x576x1024_node64_tp4_bs1_gc4_lr1e-5_wd1e-2_hq/iter_0003936/'
-    save_dir = '/work/share/projects/gyy/mindspeed/Open-Sora-Plan/test_ckpt/test_ac_121_576_hq_03936'
-    ema = True
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--load_dir', type=str, default=None, help='tp sp checkpoint dir')
+    parser.add_argument('--save_dir', type=str, default=None, help='normal checkpoint dir')
+    parser.add_argument('--ema', action='store_true', help='use ema checkpoint')
+    args = parser.parse_args()
+    load_dir = args.load_dir
+    save_dir = args.save_dir
+    ema = args.ema
     convert(load_dir, save_dir, ema=ema)

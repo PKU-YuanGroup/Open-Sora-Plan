@@ -62,6 +62,8 @@ from mindspeed_mm.data.data_utils.data_transform import (
 from mindspeed_mm.data.data_utils.transform_pipeline import get_transforms
 from mindspeed_mm.data.data_utils.constants import MODEL_CONSTANTS
 
+from megatron.training import get_args
+
 VID_EXTENSIONS = (".mp4", ".avi", ".mov", ".mkv")
 
 
@@ -335,14 +337,8 @@ class VideoProcesser:
         cnt_fps_too_low = 0
         cnt = len(cap_list)
 
-        if torch.distributed.is_initialized():
-            world_size = torch.distributed.get_world_size()
-        else:
-            world_size = 1
-        total_batch_size = self.batch_size * world_size * self.gradient_accumulation_size
-        total_batch_size = total_batch_size // self.sp_size * self.train_sp_batch_size
-        # discard samples with shape which num is less than 4 * total_batch_size
-        filter_major_num = 4 * total_batch_size
+        args = get_args()
+        filter_major_num = 4 * args.global_batch_size
 
         for i in tqdm(cap_list, desc=f"flitering samples"):
             path = i["path"]
@@ -547,188 +543,6 @@ class VideoProcesser:
                 # 8, 8: y in [57]
                 return y
         return -1
-
-# # TODO: not suported now
-# def type_ratio_normalize(mask_type_ratio_dict):
-#     for k, v in mask_type_ratio_dict.items():
-#         assert v >= 0, f"mask_type_ratio_dict[{k}] should be non-negative, but got {v}"
-#     total = sum(mask_type_ratio_dict.values())
-#     length = len(mask_type_ratio_dict)
-#     if total == 0:
-#         return {k: 1.0 / length for k in mask_type_ratio_dict.keys()}
-#     return {k: v / total for k, v in mask_type_ratio_dict.items()}
-
-# # TODO: not suported now
-# class InpaintVideoProcesser(VideoProcesser):
-#     """Used for video inpaint data preprocessing"""
-
-#     def __init__(
-#             self,
-#             num_frames=16,
-#             frame_interval=1,
-#             train_pipeline=None,
-#             train_resize_pipeline=None,
-#             data_storage_mode="standard",
-#             train_fps=24,
-#             speed_factor=1.0,
-#             drop_short_ratio=1.0,
-#             max_height=480,
-#             max_width=640,
-#             min_clear_ratio=0.0,
-#             max_clear_ratio=1.0,
-#             mask_type_ratio_dict_video=None,
-#             **kwargs,
-#     ):
-#         super().__init__(
-#             num_frames=num_frames,
-#             frame_interval=frame_interval,
-#             train_pipeline=train_pipeline,
-#             data_storage_mode=data_storage_mode,
-#             train_fps=train_fps,
-#             speed_factor=speed_factor,
-#             drop_short_ratio=drop_short_ratio,
-#             max_height=max_height,
-#             max_width=max_width,
-#         )
-
-#         self.train_resize_pipeline = train_resize_pipeline
-
-#         self.mask_type_ratio_dict_video = mask_type_ratio_dict_video if mask_type_ratio_dict_video is not None else {'random_temporal': 1.0}
-#         self.mask_type_ratio_dict_video = {STR_TO_TYPE[k]: v for k, v in self.mask_type_ratio_dict_video.items()}
-#         self.mask_type_ratio_dict_video = type_ratio_normalize(self.mask_type_ratio_dict_video)
-
-#         print(f"mask_type_ratio_dict_video: {self.mask_type_ratio_dict_video}")
-
-#         self.mask_processor = MaskProcessor(
-#             max_height=max_height,
-#             max_width=max_width,
-#             min_clear_ratio=min_clear_ratio,
-#             max_clear_ratio=max_clear_ratio,
-#         )
-
-
-#     def __call__(self, vframes, num_frames=None, frame_interval=None, image_size=None, is_decord_read=False,
-#                  predefine_num_frames=13):
-#         if image_size:
-#             self.resize_transforms = get_transforms(is_video=True, train_pipeline=self.train_resize_pipeline,
-#                                                    image_size=image_size)
-#             self.video_transforms = get_transforms(is_video=True, train_pipeline=self.train_pipeline,
-#                                                    image_size=image_size)
-#         else:
-#             self.resize_transforms = get_transforms(is_video=True, train_pipeline=self.train_resize_pipeline)
-#             self.video_transforms = get_transforms(is_video=True, train_pipeline=self.train_pipeline)
-#         if self.data_storage_mode == "standard":
-#             total_frames = len(vframes)
-#             if num_frames:
-#                 self.num_frames = num_frames
-#                 self.temporal_sample = TemporalRandomCrop(num_frames * frame_interval)
-#             start_frame_ind, end_frame_ind = self.temporal_sample(total_frames)
-#             if end_frame_ind - start_frame_ind < self.num_frames:
-#                 raise AssertionError("the video does not have enough frames.")
-#             frame_indice = np.linspace(
-#                 start_frame_ind, end_frame_ind - 1, self.num_frames, dtype=int
-#             )
-#             if is_decord_read:
-#                 video = vframes.get_batch(frame_indice).asnumpy()
-#                 video = torch.from_numpy(video)
-#                 # THWC -> TCHW,  [T: temporal, C: channel, H: height, W: width]
-#                 video = video.permute(0, 3, 1, 2)
-#             else:
-#                 video = vframes[frame_indice]  # TCHW
-
-#             video = self.resize_transforms(video)
-#             inpaint_cond_data = self.mask_processor(video, mask_type_ratio_dict=self.mask_type_ratio_dict_video)
-#             mask, masked_video = inpaint_cond_data['mask'], inpaint_cond_data['masked_pixel_values']
-
-#             video = self.video_transforms(video)  # T C H W -> T C H W
-#             masked_video = self.video_transforms(masked_video)  # T C H W -> T C H W
-
-#             video = torch.cat([video, masked_video, mask], dim=1)  # T 2C+1 H W
-
-#             # video = self.video_transforms(video)
-#             # TCHW -> CTHW
-#             video = video.permute(1, 0, 2, 3)
-#         else:
-#             video = self.combine_data_video_process(
-#                 vframes,
-#                 is_decord_read=is_decord_read,
-#                 predefine_num_frames=predefine_num_frames,
-#             )
-#         return video
-
-
-#     def combine_data_video_process(
-#             self, vframes, is_decord_read=True, predefine_num_frames=13
-#     ):
-#         total_frames = len(vframes)
-#         fps = vframes.get_avg_fps() if vframes.get_avg_fps() > 0 else 30.0
-#         # resample in case high fps, such as 50/60/90/144 -> train_fps(e.g, 24)
-#         frame_interval = (
-#             1.0 if abs(fps - self.train_fps) < 0.1 else fps / self.train_fps
-#         )
-#         # some special video should be set to a different number
-#         start_frame_idx = 0
-#         frame_indices = np.arange(start_frame_idx, total_frames, frame_interval).astype(
-#             int
-#         )
-#         frame_indices = frame_indices[frame_indices < total_frames]
-#         # speed up
-#         max_speed_factor = len(frame_indices) / self.num_frames
-#         if self.speed_factor > 1 and max_speed_factor > 1:
-#             speed_factor = min(self.speed_factor, max_speed_factor)
-#             target_frame_count = int(len(frame_indices) / speed_factor)
-#             speed_frame_idx = np.linspace(
-#                 0, len(frame_indices) - 1, target_frame_count, dtype=int
-#             )
-#             frame_indices = frame_indices[speed_frame_idx]
-
-#         #  too long video will be temporal-crop randomly
-#         if len(frame_indices) > self.num_frames:
-#             begin_index, end_index = self.temporal_sample(len(frame_indices))
-#             frame_indices = frame_indices[begin_index:end_index]
-
-#         # to find a suitable end_frame_idx, to ensure we do not need pad video
-#         end_frame_idx = self.find_closest_y(
-#             len(frame_indices), vae_stride_t=4, model_ds_t=4
-#         )
-#         if end_frame_idx == -1:  # too short that can not be encoded exactly by videovae
-#             raise IndexError(
-#                 f"video has {total_frames} frames, but need to sample {len(frame_indices)} frames ({frame_indices})"
-#             )
-#         frame_indices = frame_indices[:end_frame_idx]
-#         if predefine_num_frames != len(frame_indices):
-#             raise ValueError(
-#                 f"predefine_num_frames ({predefine_num_frames}) is not equal with frame_indices ({len(frame_indices)})"
-#             )
-#         if len(frame_indices) < self.num_frames and self.drop_short_ratio >= 1:
-#             raise IndexError(
-#                 f"video has {total_frames} frames, but need to sample {len(frame_indices)} frames ({frame_indices})"
-#             )
-#         video = vframes.get_batch(frame_indices).asnumpy()
-#         video = torch.from_numpy(video)
-#         # (T, H, W, C) -> (T C H W)
-#         video = video.permute(0, 3, 1, 2)
-
-#         h, w = video.shape[-2:]
-#         if h / w > 17 / 16 or h / w < 8 / 16:
-#             raise AssertionError(
-#                 f"Only videos with a ratio (h/w) less than 17/16 and more than 8/16 are supported. But the video found ratio is {round(h / w, 2)} with the shape of {video.shape}"
-#             )
-
-#         video = self.resize_transforms(video)
-#         inpaint_cond_data = self.mask_processor(video, mask_type_ratio_dict=self.mask_type_ratio_dict_video)
-#         mask, masked_video = inpaint_cond_data['mask'], inpaint_cond_data['masked_pixel_values']
-
-#         video = self.video_transforms(video)  # T C H W -> T C H W
-#         masked_video = self.video_transforms(masked_video)  # T C H W -> T C H W
-
-#         # TCHW -> TCHW
-#         # video = self.video_transforms(video)
-#         # TCHW -> CTHW
-#         video = video.permute(1, 0, 2, 3)
-#         return video
-
-
 
 class ImageProcesser:
     """Used for image data preprocessing"""
@@ -994,67 +808,6 @@ class TextProcesser:
         caption = re.sub(r"^\.\S+$", "", caption)
 
         return caption.strip()
-
-# # NOTE: not supported now
-# class InpaintTextProcesser(TextProcesser):
-
-#     def __init__(
-#         self,
-#         model_max_length=120,
-#         tokenizer=None,
-#         use_clean_caption=True,
-#         enable_text_preprocessing=True,
-#         padding_type="max_length",
-#         support_chinese=False,
-#         cfg=0.1,
-#         default_text_ratio=0.5,
-#     ):
-#         super().__init__(
-#             model_max_length=model_max_length,
-#             tokenizer=tokenizer,
-#             use_clean_caption=use_clean_caption,
-#             enable_text_preprocessing=enable_text_preprocessing,
-#             padding_type=padding_type,
-#             support_chinese=support_chinese,
-#             cfg=cfg,
-#         )
-
-#         self.default_text_ratio = default_text_ratio
-
-#     def drop(self, text):
-#         rand_num = random.random()
-#         rand_num_text = random.random()
-
-#         if rand_num < self.cfg:
-#             if rand_num_text < self.default_text_ratio:
-#                 text = ["A scene with coherent and clear visuals." ]
-#             else:
-#                 text = [""]
-
-#         return text
-    
-#     def __call__(self, texts):
-#         if self.enable_text_preprocessing:
-#             texts_info = [
-#                 TextProcesser.text_preprocessing(text, self.use_clean_caption)
-#                 for text in texts
-#             ]
-#             texts_info = self.drop(texts_info)
-#         else:
-#             texts_info = texts
-
-#         text_tokens_and_mask = self.tokenizer(
-#             texts_info,
-#             max_length=self.model_max_length,
-#             padding=self.padding,
-#             truncation=True,
-#             return_attention_mask=True,
-#             add_special_tokens=True,
-#             return_tensors="pt",
-#         )
-#         prompt_ids = text_tokens_and_mask["input_ids"]
-#         prompt_mask = text_tokens_and_mask["attention_mask"]
-#         return prompt_ids, prompt_mask
 
 def filter_resolution(h, w, max_h_div_w_ratio=17 / 16, min_h_div_w_ratio=8 / 16):
     if h / w <= max_h_div_w_ratio and h / w >= min_h_div_w_ratio:

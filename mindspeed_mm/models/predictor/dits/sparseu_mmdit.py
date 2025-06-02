@@ -21,9 +21,6 @@ from mindspeed_mm.models.common.communications import split_forward_gather_backw
 
 from mindspeed_mm.models.predictor.dits.modules import CombinedTimestepTextProjEmbeddings, AdaNorm, OpenSoraNormZero
 
-selective_recom = True
-recom_ffn_layers = 32
-
 def create_custom_forward(module, return_dict=None):
     def custom_forward(*inputs):
         if return_dict is not None:
@@ -116,6 +113,8 @@ class SparseUMMDiT(MultiModalModule):
         self.sequence_parallel = args.sequence_parallel
         print(f'sequence_parallel: {args.sequence_parallel}')
         self.recompute_num_layers = args.recompute_num_layers
+        self.selective_recom = args.selective_recom
+        self.recom_ffn_layers = args.recom_ffn_layers
         self.recompute_granularity = args.recompute_granularity
         self.distribute_saved_activations = args.distribute_saved_activations
         self.recompute_method = args.recompute_method
@@ -525,7 +524,7 @@ class SparseUMMDiT(MultiModalModule):
         return output
     
     def block_forward(self, block, hidden_states, attention_mask, encoder_hidden_states, embedded_timestep, frames, height, width, video_rotary_emb, layer_idx):
-        if self.training and layer_idx <= self.recompute_num_layers and not selective_recom:
+        if self.training and layer_idx <= self.recompute_num_layers and not self.selective_recom:
             ckpt_kwargs: Dict[str, Any] = {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
             hidden_states, encoder_hidden_states = torch.utils.checkpoint.checkpoint(
                 create_custom_forward(block),
@@ -549,7 +548,7 @@ class SparseUMMDiT(MultiModalModule):
                 height=height,
                 width=width,
                 video_rotary_emb=video_rotary_emb,
-                recom_ffn=layer_idx <= recom_ffn_layers
+                recom_ffn=layer_idx <= self.recom_ffn_layers
             )
         return hidden_states, encoder_hidden_states
 

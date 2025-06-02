@@ -19,15 +19,12 @@ from dataclasses import dataclass
 import torch
 from torch.distributed import ProcessGroup
 from torch.distributed.distributed_c10d import _get_default_group
-from torch.utils.data import DataLoader, BatchSampler, SequentialSampler
+from torch.utils.data import DataLoader
 
 from mindspeed_mm.data.data_utils.utils import get_seed_worker, collate_fn_default
-from mindspeed_mm.data.datasets.t2v_dataset import DynamicVideoTextDataset
 from mindspeed_mm.data.dataloader.sampler import (
     LengthGroupedSampler,
     StatefulDistributedSampler,
-    VariableVideoBatchSampler,
-    BaseRandomBatchSampler,
 )
 from mindspeed_mm.data.dataloader.collator import DATA_COLLATOR
 
@@ -139,6 +136,7 @@ def prepare_sampler_dataloader(
                 num_replicas=process_group.size(),
                 rank=process_group.rank(),
                 shuffle=shuffle,
+                consumed_samples=consumed_samples,
             )
 
         if collate_param is None:
@@ -159,16 +157,13 @@ def prepare_sampler_dataloader(
             drop_last=drop_last,
         )
     
-    elif sampler_type == "BaseRandomBatchSampler":
-        batch_sampler = BaseRandomBatchSampler(
+    elif sampler_type == "StatefulDistributedSampler":
+        sampler = StatefulDistributedSampler(
             dataset,
-            batch_size=batch_size,
             num_replicas=process_group.size(),
             rank=process_group.rank(),
             shuffle=shuffle,
-            drop_last=drop_last,
             consumed_samples=consumed_samples,
-            data_sharding=data_sharding,
         )
 
         if collate_param is None:
@@ -187,110 +182,5 @@ def prepare_sampler_dataloader(
             num_workers=num_workers,
             batch_sampler=batch_sampler,
         )
-    elif sampler_type == "SequentialSampler":
-        return build_sequential_loader(DataLoaderArgs(dataset,
-                                                      batch_size,
-                                                      drop_last,
-                                                      pin_memory,
-                                                      process_group,
-                                                      num_workers))
     else:
         raise NotImplementedError(f"sampler type: {sampler_type}")
-
-
-class DistributedBatchSampler(BatchSampler):
-    """
-    similar to normal implementation of distributed sampler, except implementation is at the
-    batch sampler level, instead of just the sampler level. This allows wrapping of arbitrary
-    data samplers (sequential, random, WeightedRandomSampler, etc.) with this batch sampler.
-    """
-    def __init__(self, sampler, batch_size, drop_last, rank=-1, world_size=2, wrap_last=False, gradient_accumulation_steps=None):
-        super(DistributedBatchSampler, self).__init__(sampler, batch_size, drop_last)
-        if rank == -1:
-            raise ValueError('please select rank')
-        self.rank = rank
-        self.world_size = world_size
-        self.sampler.wrap_around = 0
-        self.wrap_around = 0
-        self.wrap_last = wrap_last
-        self.start_iter = 0
-        self.effective_batch_size = batch_size if gradient_accumulation_steps is None else batch_size * gradient_accumulation_steps
-
-    def __iter__(self):
-        batch = []
-        i = 0
-        for idx in self.data_iterator(self.sampler, wrap_around=False):
-            batch.append(idx)
-            if len(batch) == self.batch_size:
-                tbatch = self._batch(batch)
-                if i >= self.start_iter * self.effective_batch_size:
-                    yield tbatch
-                    self.start_iter = 0
-                i += len(batch)
-                batch = []
-        batch_len = len(batch)
-        if batch_len > 0 and not self.drop_last:
-            if self.wrap_last:
-                self.sampler.wrap_around -= self.batch_size
-                self.wrap_around += (len(batch))
-                self.wrap_around %= self.batch_size
-            yield self._batch(batch)
-        if self.wrap_last:
-            self.sampler.wrap_around += self.batch_size
-
-    def data_iterator(self, _iter, wrap_around=False):
-        """iterates through data and handles wrap around"""
-        for i, idx in enumerate(_iter):
-            if i < self.wrap_around % self.batch_size:
-                continue
-            if wrap_around:
-                self.wrap_around += 1
-                self.wrap_around %= self.batch_size
-            yield idx
-
-    def _batch(self, batch):
-        """extracts samples only pertaining to this worker's batch"""
-        start = self.rank * self.batch_size // self.world_size
-        end = (self.rank + 1) * self.batch_size // self.world_size
-        if start >= len(batch):
-            return batch[0:1]
-        else:
-            return batch[start:end]
-
-
-@dataclass
-class DataLoaderArgs:
-    dataset: object
-    batch_size: int
-    drop_last: bool
-    pin_memory: bool
-    process_group: object
-    num_workers: int
-
-
-def build_sequential_loader(args: DataLoaderArgs):
-    sampler = SequentialSampler(args.dataset)
-
-    world_size = torch.distributed.get_world_size(group=args.process_group)
-    rank = args.process_group.rank()
-    distributed = world_size > 1
-    batch_size = args.batch_size * world_size
-
-    if distributed:
-        batch_sampler = DistributedBatchSampler(sampler,
-                                                batch_size,
-                                                args.drop_last,
-                                                rank,
-                                                world_size,
-                                                gradient_accumulation_steps=1)
-    else:
-        batch_sampler = torch.utils.data.BatchSampler(sampler, batch_size, args.drop_last)
-
-    data_loader = torch.utils.data.DataLoader(args.dataset,
-                                              batch_sampler=batch_sampler,
-                                              num_workers=args.num_workers,
-                                              pin_memory=args.pin_memory,
-                                              collate_fn=None,
-                                              prefetch_factor=4 if args.num_workers > 0 else None)
-    return data_loader
-

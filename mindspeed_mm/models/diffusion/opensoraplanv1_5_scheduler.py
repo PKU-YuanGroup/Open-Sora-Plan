@@ -65,6 +65,7 @@ class OpenSoraPlanScheduler:
         self.logit_std = config.pop("logit_std", 1.0)
         self.mode_scale = config.pop("mode_scale", 1.29) 
 
+        # from flux https://github.com/black-forest-labs/flux/blob/main/src/flux/sampling.py#L222
         if self.use_dynamic_shifting:
             self.base_image_seq = config.pop("base_image_seq", 256)
             self.max_image_seq = config.pop("max_image_seq", 4096)
@@ -358,11 +359,6 @@ class OpenSoraPlanScheduler:
         encoder_attention_mask = model_kwargs.pop("prompt_attention_mask")
         pooled_projections = model_kwargs.pop("prompt_embeds_2")
 
-        print(f'latents dtype: {latents.dtype}')
-        print(f'encoder_hidden_states dtype: {encoder_hidden_states.dtype}')
-        print(f'encoder_attention_mask dtype: {encoder_attention_mask.dtype}')
-        print(f'pooled_projections dtype: {pooled_projections.dtype}')
-        
         with tqdm(total=self.num_inference_steps) as progress_bar:
             for i, t in enumerate(timesteps):
                 latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents

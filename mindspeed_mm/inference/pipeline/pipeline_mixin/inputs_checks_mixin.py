@@ -5,7 +5,6 @@
 import PIL
 import torch
 from mindspeed_mm.data.data_utils.utils import TextProcesser
-from mindspeed_mm.utils.mask_utils import STR_TO_TYPE
 from mindspeed_mm.inference.pipeline.utils.sora_utils import is_image_file, is_video_file
 
 

@@ -264,10 +264,10 @@ def train_on_one_dataset(
                 num_floating_point_operations_so_far,
             )
         torch.distributed.barrier()
-        global_step_for_sampler_txt = os.path.join(args.save, 'global_step_for_sampler.txt')
-        if torch.distributed.get_rank() == 0:
-            group_data = getattr(args.mm.data.dataloader_param, 'group_data', False)
-            if group_data and not extreme_error_flag:
+        group_data = getattr(args.mm.data.dataloader_param, 'group_data', False)
+        if group_data and not extreme_error_flag:
+            if torch.distributed.get_rank() == 0:
+                global_step_for_sampler_txt = os.path.join(args.save, 'global_step_for_sampler.txt')
                 # group sampler
                 timers("global-step-for-sampler-txt-delete-setup", log_level=0).start()
                 if os.path.exists(global_step_for_sampler_txt):
@@ -277,11 +277,11 @@ def train_on_one_dataset(
                     print_rank_0(f"global_step_for_sampler: {global_step_for_sampler}, and we will reset it to 0...")
                     os.remove(global_step_for_sampler_txt)
                 timers("global-step-for-sampler-txt-delete-setup").stop()
-        torch.distributed.barrier()
-        if not os.path.exists(global_step_for_sampler_txt):
-            print("reset global_step_for_sampler to 0, global_step_for_sampler_txt is deleted")
-        else:
-            raise Exception("error! global_step_for_sampler_txt is not deleted")
+            torch.distributed.barrier()
+            if not os.path.exists(global_step_for_sampler_txt):
+                print("reset global_step_for_sampler to 0, global_step_for_sampler_txt is deleted")
+            else:
+                raise Exception("error! global_step_for_sampler_txt is not deleted")
     else:
         print_rank_0("skipping training (--skip-train is on) ...")
 
