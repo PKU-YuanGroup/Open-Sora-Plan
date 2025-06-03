@@ -196,7 +196,7 @@ class OpenSoraPlanPipeline(MMPipeline, InputsCheckMixin, MMEncoderMixin):
             """
         elif self.version == "v1.5":
             positive_template = """
-            best quality, high quality, 4k epic detailed. {}
+            high quality, {}
             """
 
             negative_template = "Worst quality, Normal quality, Low quality, Low res, Blurry details, Jpeg artifacts, Grainy, watermark, too garish, " \
