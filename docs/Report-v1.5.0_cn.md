@@ -122,7 +122,7 @@ Skiparse Attention与Full Attention的区别在于前向过程中参与计算的
 
 **Video-Stage-1:** 继承Text-to-Image阶段得到的SUV权重，我们在57x288x512的视频上训练了大约40k step，学习率为6e-5，TP/SP并行度为2，学习率为6e-5，梯度累积次数为2， micro batch size为2，global batch size为1024。在这个阶段，我们采用的train fps为24，即大约57/24≈2.4s的视频内容。该阶段作为图片权重到视频权重迁移的第一个阶段，我们选择了较短的视频训练作为良好的初始化。
 
-**Video-Stage-2: **我们同样在57x288x512的视频上训练45k step，学习率、TP/SP并行度和梯度累积设置保持不变，但是train fps更改为12，即对应的原视频长度为57/12≈4.8s的内容。该阶段旨在不增加序列长度的同时提高对时序的学习，为后续高帧数训练阶段做准备。
+**Video-Stage-2:** 我们同样在57x288x512的视频上训练45k step，学习率、TP/SP并行度和梯度累积设置保持不变，但是train fps更改为12，即对应的原视频长度为57/12≈4.8s的内容。该阶段旨在不增加序列长度的同时提高对时序的学习，为后续高帧数训练阶段做准备。
 
 **Video-Stage-3:** 我们在121x288x512的视频上训练约25k step，学习率调整为4e-5、TP/SP并行度设置为4，梯度累积次数设置为2，micro batch size为4，global batch size为1024。在这个阶段我们重新采用train fps为24。
 
