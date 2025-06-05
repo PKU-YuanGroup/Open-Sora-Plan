@@ -33,7 +33,7 @@ This project aims to create a simple and scalable repo, to reproduce [Sora](http
 
 # 📣 News
 
-* **[2025.06.06]** 🔥🔥🔥 We released version 1.5.0, Our most powerful model! By introducing a **higher compression WFVAE** and an improved sparse DiT architecture, **SUV**, we achieved performance **comparable to HunyuanVideo (Open-Source)** using an 8B-scale model and 40 million video samples. Version 1.5.0 is **fully trained and inferred on Ascend 910-series accelerators**; Please check the [mindspeed_mmdit](https://github.com/PKU-YuanGroup/Open-Sora-Plan/tree/mindspeed_mmdit) branch for our new code. the GPU version is coming soon. 
+* **[2025.06.06]** 🔥🔥🔥 We release version 1.5.0, Our most powerful model! By introducing a **higher-compression WFVAE** and an improved sparse DiT architecture, **SUV**, we achieve performance **comparable to HunyuanVideo (Open-Source)** using an 8B-scale model and 40 million video samples. Version 1.5.0 is **fully trained and inferred on Ascend 910-series accelerators**; Please check the [mindspeed_mmdit](https://github.com/PKU-YuanGroup/Open-Sora-Plan/tree/mindspeed_mmdit) branch for our new code. The GPU version is coming soon. 
 * **[2024.12.03]** ⚡️ We released our [arxiv paper](https://arxiv.org/abs/2412.00131) and WF-VAE [paper](https://arxiv.org/abs/2411.17459) for v1.3. The next more powerful version is coming soon.
 * **[2024.10.16]** 🎉 We released version 1.3.0, featuring: **WFVAE**, **prompt refiner**, **data filtering strategy**, **sparse attention**, and **bucket training strategy**. We also support 93x480p within **24G VRAM**. More details can be found at our latest [report](docs/Report-v1.3.0.md).
 * **[2024.08.13]** 🎉 We are launching Open-Sora Plan v1.2.0 **I2V** model, which is based on Open-Sora Plan v1.2.0. The current version supports image-to-video generation and transition generation (the starting and ending frames conditions for video generation). Check out the Image-to-Video section in this [report](https://github.com/PKU-YuanGroup/Open-Sora-Plan/blob/main/docs/Report-v1.2.0.md#training-image-to-video-diffusion-model).
@@ -56,8 +56,8 @@ Text-to-Video Generation of Open-Sora Plan v1.5.0.
 
 Open-Sora Plan shows excellent performance in video generation.
 
-### 🔥 Higher performance and compression WFVAE
-- With an 8×8×8 downsampling rate, but achieve higher PSNR reconstruction than the VAE used in Wan2.1. Lowers the training cost for the DiT built upon it.
+### 🔥 WFVAE with Higher performance and compression
+- With an 8×8×8 downsampling rate, but achieves higher PSNR than the VAE used in Wan2.1. Lowers the training cost for the DiT built upon it.
 
 ### 🚀 More powerful sparse dit
 - The more powerful sparse attention architecture, SUV, achieves performance close to dense DiT while providing over a 35% speedup.
@@ -84,7 +84,7 @@ Open-Sora Plan shows excellent performance in video generation.
 
 > [4] Model weights are also available at [OpenMind](https://modelers.cn/models/linbin/Open-Sora-Plan-v1.3.0) and [WiseModel](https://wisemodel.cn/models/PKU-YUAN/Open-Sora-Plan-v1.3.0).
 
-> [5] The current model weights are only compatible with the NPU + MindSpeed-MM framework. Model weights are also available at and [WiseModel](https://wisemodel.cn/models/PKU-YUAN/Open-Sora-Plan-v1.5.0).
+> [5] The current model weights are only compatible with the NPU + MindSpeed-MM framework. Model weights are also available at and [modelers](https://modelers.cn/models/PKU-YUAN-Group/Open-Sora-Plan-v1.5.0).
 
 > [!Warning]
 >
@@ -97,7 +97,7 @@ Open-Sora Plan shows excellent performance in video generation.
 # ⚙️ How to start
 
 ### GPU
-comming soon...
+coming soon...
 ### NPU
 Please check out the **[mindspeed_mmdit](https://github.com/PKU-YuanGroup/Open-Sora-Plan/tree/mindspeed_mmdit)** branch and follow the README.md for configuration.
 
