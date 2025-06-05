@@ -1,403 +1,424 @@
-  <p align="center"> <img src="sources/images/logo.png" height="103px" width="700px"> </p>
+Open-Sora Plan v1.5.0 is trained using the MindSpeed-MM toolkit.
 
-<p align="center">
-    <a href="https://gitee.com/ascend/MindSpeed/blob/master/LICENSE">
-    <a href="https://gitee.com/ascend/MindSpeed/blob/master/LICENSE">
-        <img alt="GitHub" src="https://img.shields.io/github/license/huggingface/transformers.svg?color=blue">
-    </a>
-    <a href="https://gitee.com/ascend/MindSpeed">
-        <img alt="Documentation" src="https://img.shields.io/website/http/huggingface.co/docs/transformers/index.svg?down_color=red&down_message=offline&up_message=online">
-    </a>
-    <a>
-        <img src="https://app.codacy.com/project/badge/Grade/1710faac5e634acaabfc26b0a778cdde">
-    </a>
-</p>
+### Prerequisites
 
-MindSpeed-MM是面向大规模分布式训练的昇腾多模态大模型套件，同时支持多模态生成及多模态理解，旨在为华为 [昇腾芯片](https://www.hiascend.com/) 提供端到端的多模态训练解决方案, 包含预置业界主流模型，数据工程，分布式训练及加速，预训练、微调、在线推理任务等特性。
+Open-Sora Plan v1.5.0 is trained using CANN version 8.0.1. Please refer to the official guide [CANN8_0_1](https://support.huawei.com/enterprise/zh/ascend-computing/cann-pid-251168373/software/264595017?idAbsPath=fixnode01|23710424|251366513|22892968|252309113|251168373) for installation instructions.
 
----
+### 环境安装
 
-## MindSpeed-MM大模型方案概览
+1、To begin, install **Torch** and **MindSpeed** as required for the training environment.
 
-当前MindSpeed-MM支撑大模型使用功能:
+```python
+# python3.8
+conda create -n osp python=3.8
+conda activate osp
 
-* [生成类多模态大模型](#jump1) 【昇腾】【NAIE】
-* [理解类多模态大模型](#jump1) 【昇腾】【NAIE】【GTS】
-* [预训练/全参微调/低参微调/在线推理](./examples/) 【昇腾】【NAIE】
-* 数据工程： 多模数据预处理及加载/数据分桶策略 【昇腾】
-* 分布式训练： TP/PP/CP/DSP/分布式优化器/重计算 【昇腾】
-* [昇腾工具链](#jump2): [Profiling采集](#jump2.1)【昇腾】
+# Install torch and torch_npu, making sure to select the versions compatible with your Python version and system architecture (x86 or ARM), including the corresponding apex package.
+pip install torch-2.1.0-cp38-cp38m-manylinux2014_aarch64.whl
+pip install torch_npu-2.1.0*-cp38-cp38m-linux_aarch64.whl
 
-更多多模态模型持续研发中....
+# apex for Ascend, refer to https://gitee.com/ascend/apex
+# It is recommended to build and install from the official source repository.
 
----
+# Modify the environment variable paths in the shell script to the actual paths. Example:
+source /usr/local/Ascend/ascend-toolkit/set_env.sh
 
-## 版本维护策略
+# install mindspeed
+git clone https://gitee.com/ascend/MindSpeed.git
+cd MindSpeed
+git checkout 59b4e983b7dc1f537f8c6b97a57e54f0316fafb0
+pip install -r requirements.txt
+pip3 install -e .
+cd ..
 
-MindSpeed-MM版本有以下五个维护阶段：
+# install other repos
+pip install -e .
+```
 
-| **状态**            | **时间** | **说明**                                                               |
-| ------------------- | -------- |----------------------------------------------------------------------|
-| 计划                | 1—3 个月 | 计划特性                                                                 |
-| 开发                | 3 个月   | 开发特性                                                                 |
-| 维护                | 6-12 个月| 合入所有已解决的问题并发布版本，针对不同的MindSpeed-MM版本采取不同的维护策略，常规版本和长期支持版本维护周期分别为6个月和12个月 |
-| 无维护              | 0—3 个月 | 合入所有已解决的问题，无专职维护人员，无版本发布                                             |
-| 生命周期终止（EOL） | N/A      | 分支不再接受任何修改                                                           |
+2、install decord
 
-MindSpeed-MM已发布版本维护策略：
+```bash
+git clone --recursive https://github.com/dmlc/decord
+mkdir build && cd build 
+cmake .. -DUSE_CUDA=0 -DCMAKE_BUILD_TYPE=Release -DFFMPEG_DIR=/usr/local/ffmpeg 
+make 
+cd ../python 
+pwd=$PWD 
+echo "PYTHONPATH=$PYTHONPATH:$pwd" >> ~/.bashrc 
+source ~/.bashrc 
+python3 setup.py install --user
+```
 
-| **MindSpeed-MM版本** | **维护策略** | **当前状态** | **发布时间**   | **后续状态**         | **EOL日期** |
-|-----------------|-----------|--------|------------|-----------------------|-----------|
-| 1.0.RC3             |  常规版本  | 维护   | 2024/09/30 | 预计2025/03/30起无维护  |           |
+### Download Weights
 
----
+Modelers:
 
-## 配套版本与支持模型
+https://modelers.cn/models/PKU-YUAN-Group/Open-Sora-Plan-v1.5.0
 
-【版本配套环境】
+huggingface：
 
-|           软件            | [版本](https://www.hiascend.com/zh/) |
-| :-----------------------: |:----------------------------------:|
-|          Python           |                3.8, 3.10                |
-|          Driver           |         在研版本          |
-|         Firmware          |         在研版本          |
-|           CANN            |             在研版本             |
-|           Torch           |            2.1.0            |
-|         Torch_npu         |           2.1.0           |
+https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.5.0
 
-【现版本实测性能（硬件信息：Atlas 900 A2 PODc）】
+T5:
 
-下述列表中支持的模型，我们在各模型的`README`文件中提供了相应的使用说明，里面有详细的模型训练、推理、微调等流程
+[google/t5-v1_1-xl · Hugging Face](https://huggingface.co/google/t5-v1_1-xl)
 
-`模型`列中的超链接指向各模型的文件夹地址， `参数量`列中的超链接指向模型的社区资源地址
+CLIP:
 
-`认证`【Pass】表示已经过测试的模型，【Test】表示测试中的模型
+[laion/CLIP-ViT-bigG-14-laion2B-39B-b160k · Hugging Face](https://huggingface.co/laion/CLIP-ViT-bigG-14-laion2B-39B-b160k)
 
-<table>
-  <a id="jump1"></a>
-  <caption>MindSpeed-MM模型列表</caption>
-  <thead>
-    <tr>
-      <th>模型</th>
-      <th>参数量</th>
-      <th>任务</th>
-      <th>集群</th>
-      <th>精度格式</th>
-      <th>NPU性能</th>
-      <th>参考性能</th>
-      <th>贡献方</th>
-      <th>认证</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><a href="https://gitee.com/ascend/MindSpeed-MM/tree/master/examples/opensora1.0">OpenSora 1.0</a></td>
-      <td><a href="https://huggingface.co/hpcai-tech/Open-Sora/tree/main">5.5B</a></td>
-      <td> 预训练 </td>
-      <td> 1x8 </td>
-      <td> BF16 </td>
-      <td> 3.18 (Samples per Second)</td>
-      <td> 2.04 (Samples per Second)</td>
-      <td> 【昇腾】 </td>
-      <td>【Pass】</td>
-    </tr>
-    <tr>
-      <td><a href="https://gitee.com/ascend/MindSpeed-MM/tree/master/examples/opensora1.2">OpenSora 1.2</a></td>
-      <td><a href="https://huggingface.co/hpcai-tech/OpenSora-STDiT-v3">5.2B</a></td>
-      <td> 预训练 </td>
-      <td> 1x8</td>
-      <td> BF16 </td>
-      <td> 7.31 (Samples per Second) </td>
-      <td> 8.15 (Samples per Second) </td>
-      <td> 【昇腾】 </td>
-      <td>【Pass】</td>
-    </tr>
-    <tr>
-      <td><a href="https://gitee.com/ascend/MindSpeed-MM/tree/master/examples/opensoraplan1.2">OpenSoraPlan 1.2</a></td>
-      <td><a href="https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0">10.8B</a></td>
-      <td>预训练</td>
-      <td> 1x8</td>
-      <td> BF16 </td>
-      <td> 0.42 (Samples per Second) </td>
-      <td> 0.37 (Samples per Second) </td>
-      <td> 【昇腾】 </td>
-      <td>【Pass】</td>
-    </tr>
-    <tr>
-      <td><a href="https://gitee.com/ascend/MindSpeed-MM/tree/master/examples/opensoraplan1.3">OpenSoraPlan 1.3</a></td>
-      <td><a href="https://huggingface.co/hpcaitech/Open-Sora/tree/v1.3.0"> 10.8B </a></td>
-      <td> 预训练 </td>
-      <td> 1x8 </td>
-      <td> BF16 </td>
-      <td> 0.71 (Samples per Second) </td>
-      <td> 0.73 (Samples per Second) </td>
-      <td> 【昇腾】 </td>
-      <td>【Coming Soon】</td>
-    </tr>
-    <tr>
-      <td rowspan="2"><a href="https://gitee.com/ascend/MindSpeed-MM/tree/master/examples/diffusers/sdxl">SDXL</a></td>
-      <td><a href="https://github.com/huggingface/diffusers/tree/eda36c4c286d281f216dfeb79e64adad3f85d37a">3.5B</a></td>
-      <td>预训练</td>
-      <td> 1x8</td>
-      <td> BF16 </td>
-      <td> 29.92  (FPS)</td>
-      <td> 30.65 (FPS)</td>
-      <td> 【昇腾】【NAIE】 </td>
-      <td>【Pass】</td>
-    </tr>
-    <tr>
-      <td><a href="https://github.com/huggingface/diffusers/tree/eda36c4c286d281f216dfeb79e64adad3f85d37a">3.5B</a></td>
-      <td>预训练</td>
-      <td> 1x8</td>
-      <td> FP16 </td>
-      <td> 28.51 (FPS)</td>
-      <td> 30.23 (FPS)</td>
-      <td> 【昇腾】【NAIE】 </td>
-      <td>【Pass】</td>
-    </tr>
-    <tr>
-      <td rowspan="2"><a href="https://gitee.com/ascend/MindSpeed-MM/tree/master/examples/diffusers/sd3">SD3</a></td>
-      <td><a href="https://github.com/huggingface/diffusers/tree/eda36c4c286d281f216dfeb79e64adad3f85d37a">2B</a></td>
-      <td>全参微调</td>
-      <td> 1x8</td>
-      <td> BF16 </td>
-      <td> 17.08 (FPS)</td>
-      <td> 17.51 (FPS)</td>
-      <td> 【昇腾】【NAIE】 </td>
-      <td>【Pass】</td>
-    </tr>
-    <tr>
-      <td><a href="https://github.com/huggingface/diffusers/tree/eda36c4c286d281f216dfeb79e64adad3f85d37a">2B</a></td>
-      <td>全参微调</td>
-      <td> 1x8</td>
-      <td> FP16 </td>
-      <td> 16.57 (FPS)</td>
-      <td> 16.36 (FPS)</td>
-      <td> 【昇腾】【NAIE】 </td>
-      <td>【Pass】</td>
-    </tr>
-    <tr>
-      <td><a href="https://gitee.com/ascend/MindSpeed-MM/tree/master/examples/whisper">Whisper</a></td>
-      <td><a href="https://github.com/openai/whisper">1.5B</a></td>
-      <td>预训练</td>
-      <td> 1x8</td>
-      <td> BF16 </td>
-      <td> 93.38 (Samples per Second) </td>
-      <td> 109.23 (Samples per Second) </td>
-      <td> 【昇腾】 </td>
-      <td>【Pass】</td>
-    </tr>
-    <tr>
-      <td><a href="https://gitee.com/ascend/MindSpeed-MM/tree/master/examples/diffusers/kolors">Kolors</a></td>
-      <td><a href="https://github.com/Kwai-Kolors/Kolors">2.6B</a></td>
-      <td>推理</td>
-      <td> 1x1 </td>
-      <td> FP16 </td>
-      <td> / </td>
-      <td> / </td>
-      <td> 【NAIE】 </td>
-      <td>【Pass】</td>
-    </tr>
-    <tr>
-      <td><a href="https://gitee.com/ascend/MindSpeed-MM/tree/master/examples/llava1.5">LLaVA 1.5</a></td>
-      <td><a href="https://github.com/haotian-liu/LLaVA">7B</a></td>
-      <td>预训练</td>
-      <td> 1x8 </td>
-      <td> BF16 </td>
-      <td> 48.27 (FPS) </td>
-      <td> 49.94 (FPS) </td>
-      <td> 【昇腾】【NAIE】 </td>
-      <td>【Pass】</td>
-    </tr>
-   <tr>
-      <td rowspan="3"><a href="https://gitee.com/ascend/MindSpeed-MM/tree/master/examples/internvl2">Intern-VL-2.0</a></td>
-      <td><a href="https://huggingface.co/OpenGVLab/InternVL2-2B">2B</a></td>
-      <td>预训练</td>
-      <td> 1x8 </td>
-      <td> BF16 </td>
-      <td> / </td>
-      <td> / </td>
-      <td> 【昇腾】 </td>
-      <td>【Test】</td>
-    </tr>
-    <tr>
-      <td><a href="https://huggingface.co/OpenGVLab/InternVL2-8B">8B</a></td>
-      <td>预训练</td>
-      <td> 1x8 </td>
-      <td> BF16 </td>
-      <td> / </td>
-      <td> / </td>
-      <td> 【昇腾】 </td>
-      <td>【Test】</td>
-    </tr>
-    <tr>
-      <td><a href="https://huggingface.co/OpenGVLab/InternVL2-26B">26B</a></td>
-      <td>/</td>
-      <td> /</td>
-      <td> / </td>
-      <td> / </td>
-      <td> / </td>
-      <td> / </td>
-      <td>【Coming Soon】</td>
-    </tr>
-    <tr>
-      <td><a href="https://gitee.com/ascend/MindSpeed-MM/tree/master/examples/cogvideox">CogVideoX</a></td>
-      <td><a href="https://huggingface.co/THUDM/CogVideo">5B</a></td>
-      <td>/</td>
-      <td> /</td>
-      <td> / </td>
-      <td> / </td>
-      <td> / </td>
-      <td> / </td>
-      <td>【Coming Soon】</td>
-    </tr>
-    <tr>
-      <td rowspan="2"><a href="https://gitee.com/ascend/MindSpeed-MM/tree/master/examples/qwen2-vl">Qwen2-VL</a></td>
-      <td><a href="https://qwen2.org/vl/">7B</a></td>
-      <td>/</td>
-      <td> /</td>
-      <td> / </td>
-      <td> / </td>
-      <td> / </td>
-      <td> / </td>
-      <td>【Coming Soon】</td>
-    </tr>
- <tr>
-      <td><a href="https://qwen2.org/vl/">72B</a></td>
-      <td>/</td>
-      <td> /</td>
-      <td> / </td>
-      <td> / </td>
-      <td> / </td>
-      <td> / </td>
-      <td>【Coming Soon】</td>
-    </tr>
-    </tbody>
-</table>
+### Train Text-to-Video
 
-<table>
-  <caption><a href="https://gitee.com/ascend/ModelZoo-PyTorch/tree/master/PyTorch/built-in/mm">其他已适配昇腾的多模态大模型</a></caption>
-  <thead>
-    <tr>
-      <th>模型</th>
-      <th>参数量</th>
-      <th>任务</th>
-      <th>集群</th>
-      <th>精度格式</th>
-      <th>NPU性能</th>
-      <th>参考性能</th>
-      <th>贡献方</th>
-      <th>认证</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><a href="https://gitee.com/ascend/ModelZoo-PyTorch/tree/master/PyTorch/built-in/mm/CogVLM2">CogVLM-2</a></td>
-      <td><a href="https://github.com/THUDM/CogVLM2">8B</a></td>
-      <td>微调</td>
-      <td> 1x8</td>
-      <td> BF16 </td>
-      <td> 3.9 (s/it) </td>
-      <td> 3.3 (s/it) </td>
-      <td> 【GTS】 </td>
-      <td>【Pass】</td>
-    </tr>
-    <tr>
-      <td rowspan="2"><a href="https://gitee.com/ascend/ModelZoo-PyTorch/tree/master/PyTorch/built-in/mm/PLLaVA">PLLaVA</a></td>
-      <td><a href="https://github.com/magic-research/PLLaVA">7B</a></td>
-      <td>预训练</td>
-      <td> 1x8</td>
-      <td> BF16 </td>
-      <td> 0.841 (s/step) </td>
-      <td> 0.935 (s/step) </td>
-      <td> 【NAIE】 </td>
-      <td>【Pass】</td>
-    </tr>
-    <tr>
-      <td><a href="https://github.com/magic-research/PLLaVA">7B</a></td>
-      <td>预训练</td>
-      <td> 1x8</td>
-      <td> FP32 </td>
-      <td> 0.935 (s/step) </td>
-      <td> 1.08 (s/step) </td>
-      <td>【NAIE】 </td>
-      <td>【Pass】</td>
-    </tr>
-    <tr>
-      <td rowspan="2"><a href="https://gitee.com/ascend/ModelZoo-PyTorch/tree/master/PyTorch/built-in/mm/MiniCPM-V">miniCPM 2.5</a></td>
-      <td><a href="https://github.com/OpenBMB/MiniCPM-V">8B</a></td>
-      <td>全参微调</td>
-      <td> 1x8</td>
-      <td> BF16 </td>
-      <td> 1046 (s)/50-200steps </td>
-      <td> 847 (s)/50-200steps </td>
-      <td> 【昇腾】 </td>
-      <td>【Pass】</td>
-    </tr>
-    <tr>
-      <td><a href="https://github.com/OpenBMB/MiniCPM-V">8B</a></td>
-      <td>Lora微调</td>
-      <td> 1x8</td>
-      <td> BF16 </td>
-      <td> 603 (s)/50-200steps </td>
-      <td> 490 (s)/50-200steps </td>
-      <td> 【昇腾】 </td>
-      <td>【Pass】</td>
-    </tr>
-    <tr>
-      <td><a href="https://gitee.com/ascend/ModelZoo-PyTorch/tree/master/PyTorch/built-in/mm/HunyuanDiT">HunYuanDiT</a></td>
-      <td><a href="https://github.com/Tencent/HunyuanDiT">1.5B</a></td>
-      <td>预训练</td>
-      <td> 1x8</td>
-      <td> BF16 </td>
-      <td> 1099.5 (ms/step) </td>
-      <td> 1059.3 (ms/step) </td>
-      <td> 【昇腾】 </td>
-      <td>【Pass】</td>
-    </tr>
-    <tr>
-      <td><a href="https://gitee.com/ascend/ModelZoo-PyTorch/tree/master/PyTorch/built-in/mm/InternVL1.5">Intern-VL-1.5</a></td>
-      <td><a href="https://github.com/OpenGVLab/InternVL/tree/v1.5.0">26B</a></td>
-      <td>微调训练</td>
-      <td> 1x8</td>
-      <td> BF16 </td>
-      <td> 4.952 (FPS) </td>
-      <td> 5.151 (FPS) </td>
-      <td> 【昇腾】 </td>
-      <td>【Pass】</td>
-    </tr>
-  </tbody>
-</table>
+Make sure to properly configure `data.json` and `model_opensoraplan1_5.json`.
 
----
+#### data.json: 
 
-<a id="jump2"></a>
+```
+{
+	"dataset_param": {
+		"dataset_type": "t2v",
+		"basic_parameters": {
+			"data_path": "./examples/opensoraplan1.5/data.txt",
+			"data_folder": "",
+			"data_storage_mode": "combine"
+		},
+		"preprocess_parameters": {
+			"video_reader_type": "decoder",
+			"image_reader_type": "Image",
+			"num_frames": 121, 
+			"frame_interval": 1,
+			"max_height": 576, # Sample height when fixed resolution is enabled; this setting is ignored when multi-resolution is enabled.
+			"max_width": 1024, # Sample width when fixed resolution is enabled; this setting is ignored when multi-resolution is enabled.
+			"max_hxw": 589824, # Maximum number of tokens when multi-resolution is enabled.
+			"min_hxw": 589824, # Minimum number of tokens when multi-resolution is enabled. Additionally, when force_resolution is enabled, min_hxw should be set to max_height * max_width to filter out low-resolution samples, or to a custom value for stricter filtering criteria.
+			"force_resolution": true, # Enable fixed-resolution training.
+			"force_5_ratio": false, # Enable multi-resolution training with 5 aspect ratios.
+			"max_h_div_w_ratio": 1.0, # Maximum allowed aspect ratio for filtering.
+			"min_h_div_w_ratio": 0.42, # Minimum allowed aspect ratio for filtering.
+			"hw_stride": 16,
+			"ae_stride_t": 8,
+			"train_fps": 24, # Sampling FPS during training; all videos with varying frame rates will be resampled to train_fps.
+			"speed_factor": 1.0,
+			"drop_short_ratio": 1.0,
+			"min_num_frames": 29,
+			"cfg": 0.1,
+			"batch_size": 1,
+			"gradient_accumulation_size": 4,
+			"use_aesthetic": false,
+			"train_pipeline": {
+				"video": [{
+						"trans_type": "ToTensorVideo"
+					},
+					{
+						"trans_type": "CenterCropResizeVideo",
+						"param": {
+							"size": [576, 1024],
+							"interpolation_mode": "bicubic"
+						}
+					},
+					{
+						"trans_type": "ae_norm"
+					}
+				],
+				"image": [{
+					"trans_type": "ToTensorVideo"
+					},
+					{
+						"trans_type": "CenterCropResizeVideo",
+						"param": {
+							"size": [576, 1024],
+							"interpolation_mode": "bicubic"
+						}
+					},
+					{
+						"trans_type": "ae_norm"
+					}
+				]
+			}
+		},
+		"use_text_processer": true,
+		"enable_text_preprocess": true,
+		"model_max_length": 512,
+		"tokenizer_config": {
+			"hub_backend": "hf",
+			"autotokenizer_name": "AutoTokenizer",
+			"from_pretrained": "/work/share/checkpoint/pretrained/t5/t5-v1_1-xl"
+		},
+		"tokenizer_config_2": {
+		    "hub_backend": "hf",
+			"autotokenizer_name": "AutoTokenizer",
+			"from_pretrained": "/work/share/checkpoint/pretrained/clip/models--laion--CLIP-ViT-bigG-14-laion2B-39B-b160k/snapshots/bc7788f151930d91b58474715fdce5524ad9a189"
+		},
+		"use_feature_data": false,
+		"use_img_from_vid": false
+	},
+	"dataloader_param": {
+		"dataloader_mode": "sampler",
+        "sampler_type": "LengthGroupedSampler", # Enable the Group Data strategy (enabled by default).
+		"batch_size": 1,
+		"num_workers": 4,
+		"shuffle": false,
+		"drop_last": true,
+		"pin_memory": false,
+		"group_data": true,
+		"initial_global_step_for_sampler": 0, 
+		"gradient_accumulation_size": 4,
+		"collate_param": {
+			"model_name": "GroupLength", # Enable the Group Data-specific collate function (enabled by default).
+			"batch_size": 1,
+			"num_frames": 121,
+			"group_data": true,
+			"ae_stride": 8,
+			"ae_stride_t": 8,
+			"patch_size": 2,
+			"patch_size_t": 1
+		}
+	}
+}
 
-## MindSpeed-MM工具库
+```
 
-<a id="jump2.1"></a>
+#### model_opensoraplan1_5.json
 
-### 昇腾Profiling采集工具
+```
+{
+    "frames": 121,
+    "allow_tf32": false,
+    "allow_internal_format": false,
+    "load_video_features": false,
+    "load_text_features": false,
+    "enable_encoder_dp": true, # MindSpeed optimization. It takes effect when TP (tensor parallelism) degree is greater than 1.
+    "weight_dtype": "bf16",
+    "ae": {
+        "model_id": "wfvae",
+        "base_channels": 160,
+        "connect_res_layer_num": 1,
+        "decoder_energy_flow_hidden_size": 128,
+        "decoder_num_resblocks": 2,
+        "dropout": 0.0,
+        "encoder_energy_flow_hidden_size": 128,
+        "encoder_num_resblocks": 2,
+        "l1_dowmsample_block": "Spatial2xTime2x3DDownsample",
+        "l1_downsample_wavelet": "HaarWaveletTransform3D",
+        "l1_upsample_block": "Spatial2xTime2x3DUpsample",
+        "l1_upsample_wavelet": "InverseHaarWaveletTransform3D",
+        "l2_dowmsample_block": "Spatial2xTime2x3DDownsample",
+        "l2_downsample_wavelet": "HaarWaveletTransform3D",
+        "l2_upsample_block": "Spatial2xTime2x3DUpsample",
+        "l2_upsample_wavelet": "InverseHaarWaveletTransform3D",
+        "latent_dim": 32,
+        "norm_type": "layernorm",
+        "scale": [0.7031, 0.7109, 1.5391, 1.2969, 0.7109, 1.4141, 1.3828, 2.1719, 1.7266,
+        1.8281, 1.9141, 1.2031, 0.6875, 0.9609, 1.6484, 1.1875, 1.5312, 1.1328,
+        0.8828, 0.6836, 0.8828, 0.9219, 1.6953, 1.4453, 1.5312, 0.6836, 0.7656,
+        0.8242, 1.2344, 1.0312, 1.7266, 0.9492],
+        "shift": [-0.2129,  0.1226,  1.6328,  0.6211, -0.8750,  0.6172, -0.5703,  0.1348,
+        -0.2178, -0.9375,  0.3184,  0.3281, -0.0544, -0.1826, -0.2812,  0.4355,
+         0.1621, -0.2578,  0.7148, -0.7422, -0.2295, -0.2324, -1.4922,  0.6328,
+         1.1250, -0.2578, -2.1094,  1.0391,  1.1797, -1.2422, -0.2988, -0.9570],
+        "t_interpolation": "trilinear",
+        "use_attention": true,
+        "use_tiling": true, # Whether to enable the tiling strategy.
+        "from_pretrained": "/work/share/checkpoint/pretrained/vae/Middle888/merged.ckpt",
+        "dtype": "fp32"
+      },
+    "text_encoder": {
+        "hub_backend": "hf",
+        "model_id": "T5",
+        "from_pretrained": "/work/share/checkpoint/pretrained/t5/t5-v1_1-xl",
+        "low_cpu_mem_usage": false
+    },
+    "text_encoder_2":{
+        "hub_backend": "hf",
+        "model_id": "CLIPWithProjection", 
+        "from_pretrained": "/work/share/checkpoint/pretrained/clip/models--laion--CLIP-ViT-bigG-14-laion2B-39B-b160k/snapshots/bc7788f151930d91b58474715fdce5524ad9a189",
+        "low_cpu_mem_usage": false
+    },
+    "predictor": {
+        "model_id": "SparseUMMDiT",
+        "num_layers": [2, 4, 6, 8, 6, 4, 2], # Number of layers per stage.
+        "sparse_n": [1, 2, 4, 8, 4, 2, 1], # Sparsity level for each stage.
+        "double_ff": true, # Whether to use a shared FFN for visual and textual inputs, or separate FFNs for each.
+        "sparse1d": true, # Whether to use the Skiparse strategy; setting this to false results in a dense DiT.
+        "num_heads": 24,
+        "head_dim": 128,
+        "in_channels": 32,
+        "out_channels": 32,
+        "timestep_embed_dim": 1024,
+        "caption_channels": 2048,
+        "pooled_projection_dim": 1280,
+        "skip_connection": true, # Whether to add skip connections.
+        "dropout": 0.0, 
+        "attention_bias": true,
+        "patch_size": 2,
+        "patch_size_t": 1,
+        "activation_fn": "gelu-approximate",
+        "norm_elementwise_affine": false,
+        "norm_eps": 1e-06,
+        "from_pretrained": null # Path to the pretrained weights; merged weights must be used.
+    },
+    "diffusion": {
+        "model_id": "OpenSoraPlan",
+        "weighting_scheme": "logit_normal",
+        "use_dynamic_shifting": true 
+    }
+}
 
-MindSpeed-MM集成了昇腾profiling采集工具，以提供对模型运行情况的分析。该工具能够依照配置采集模型的算子、显存等关键信息，同时支持动静态两种采集方式，协助开发者分析模型瓶颈，并可根据实际场景需求选择使用。
+```
 
-  具体方法见 [README](./mindspeed_mm/tools/README.md) 的profiling章节
+Enter the Open-Sora Plan directory and run:
 
----
+```
+bash examples/opensoraplan1.5/pretrain_opensoraplan1_5.sh
+```
 
-## 致谢
+**Parameter Description:**
 
-MindSpeed-MM 由华为公司的下列部门联合贡献 ：
+`--optimizer-selection fused_ema_adamw`  Select the optimizer to use. In our case, `fused_ema_adamw` is required to obtain EMA-based weights.
 
-* 昇腾计算产品部
-* 公共开发部：NAIE
-* 全球技术服务部：GTS
-* 计算技术开发部
+`--model_custom_precision`  Different components use different precisions, rather than adopting Megatron’s default of full-model bf16 precision. For example, the VAE is run in fp32, while the text encoder and DiT use bf16.
 
-感谢来自社区的每一个PR，欢迎贡献 MindSpeed-MM
+`--clip_grad_ema_decay 0.99` Set the EMA decay rate used in adaptive gradient clipping.
 
----
+`--selective_recom`  `--recom_ffn_layers 32`  Whether to enable selective recomputation and specify the number of layers for it. When selective recomputation is activated, only the FFN layers are recomputed, while the Attention layers are skipped, enabling faster training. This parameter is mutually exclusive with `--recompute-granularity full`, `--recompute-method block`, and `--recompute-num-layers 0`. When selective recomputation is enabled, full-layer recomputation is disabled by default.
 
-## 安全申明
+### Sample Text-to-Video
 
-[MindSpeed MM 安全申明](https://gitee.com/ascend/MindSpeed-MM/blob/master/docs/SECURITYNOTE.md)
+Due to TP-based training, the model weights are partitioned. Therefore, weight merging is required prior to running inference.
+
+#### Merge Weights
+
+```
+python examples/opensoraplan1.5/convert_mm_to_ckpt.py --load_dir $load_dir --save_dir $save_dir --ema
+```
+
+**Parameter Description:**
+
+`--load_dir`: Path to the weights saved during training, partitioned by Megatron.
+
+`--save_dir`: Path to save the merged weights.
+
+`--ema`: Whether to use EMA (Exponential Moving Average) weights.
+
+#### Inference
+
+Make sure the `inference_t2v_model1_5.json` file is properly configured.
+
+```
+{
+    "ae": {
+        "model_id": "wfvae",
+        "base_channels": 160,
+        "connect_res_layer_num": 1,
+        "decoder_energy_flow_hidden_size": 128,
+        "decoder_num_resblocks": 2,
+        "dropout": 0.0,
+        "encoder_energy_flow_hidden_size": 128,
+        "encoder_num_resblocks": 2,
+        "l1_dowmsample_block": "Spatial2xTime2x3DDownsample",
+        "l1_downsample_wavelet": "HaarWaveletTransform3D",
+        "l1_upsample_block": "Spatial2xTime2x3DUpsample",
+        "l1_upsample_wavelet": "InverseHaarWaveletTransform3D",
+        "l2_dowmsample_block": "Spatial2xTime2x3DDownsample",
+        "l2_downsample_wavelet": "HaarWaveletTransform3D",
+        "l2_upsample_block": "Spatial2xTime2x3DUpsample",
+        "l2_upsample_wavelet": "InverseHaarWaveletTransform3D",
+        "latent_dim": 32,
+        "vae_scale_factor": [8, 8, 8],
+        "norm_type": "layernorm",
+        "scale": [0.7031, 0.7109, 1.5391, 1.2969, 0.7109, 1.4141, 1.3828, 2.1719, 1.7266,
+        1.8281, 1.9141, 1.2031, 0.6875, 0.9609, 1.6484, 1.1875, 1.5312, 1.1328,
+        0.8828, 0.6836, 0.8828, 0.9219, 1.6953, 1.4453, 1.5312, 0.6836, 0.7656,
+        0.8242, 1.2344, 1.0312, 1.7266, 0.9492],
+        "shift": [-0.2129,  0.1226,  1.6328,  0.6211, -0.8750,  0.6172, -0.5703,  0.1348,
+        -0.2178, -0.9375,  0.3184,  0.3281, -0.0544, -0.1826, -0.2812,  0.4355,
+         0.1621, -0.2578,  0.7148, -0.7422, -0.2295, -0.2324, -1.4922,  0.6328,
+         1.1250, -0.2578, -2.1094,  1.0391,  1.1797, -1.2422, -0.2988, -0.9570],
+        "t_interpolation": "trilinear",
+        "use_attention": true,
+        "use_tiling": true, # Whether to enable the tiling strategy; it is enabled by default during inference to reduce memory usage.
+        "from_pretrained": "/work/share/checkpoint/pretrained/vae/Middle888/merged.ckpt",
+        "dtype": "fp16"
+      },
+    "text_encoder": {
+        "hub_backend": "hf",
+        "model_id": "T5",
+        "from_pretrained": "/work/share/checkpoint/pretrained/t5/t5-v1_1-xl",
+        "low_cpu_mem_usage": false
+    },
+    "text_encoder_2":{
+        "hub_backend": "hf",
+        "model_id": "CLIPWithProjection", 
+        "from_pretrained": "/work/share/checkpoint/pretrained/clip/models--laion--CLIP-ViT-bigG-14-laion2B-39B-b160k/snapshots/bc7788f151930d91b58474715fdce5524ad9a189",
+        "low_cpu_mem_usage": false
+    },
+    "tokenizer":{
+        "hub_backend": "hf",
+        "autotokenizer_name": "AutoTokenizer",
+        "from_pretrained": "/work/share/checkpoint/pretrained/t5/t5-v1_1-xl",
+        "low_cpu_mem_usage": false
+    },
+    "tokenizer_2":{
+        "hub_backend": "hf",
+        "autotokenizer_name": "AutoTokenizer",
+        "from_pretrained": "/work/share/checkpoint/pretrained/clip/models--laion--CLIP-ViT-bigG-14-laion2B-39B-b160k/snapshots/bc7788f151930d91b58474715fdce5524ad9a189",
+        "low_cpu_mem_usage": false
+    },
+    "predictor": {
+        "model_id": "SparseUMMDiT",
+        "num_layers": [2, 4, 6, 8, 6, 4, 2],
+        "sparse_n": [1, 2, 4, 8, 4, 2, 1],
+        "double_ff": true,
+        "sparse1d": true,
+        "num_heads": 24,
+        "head_dim": 128,
+        "in_channels": 32,
+        "out_channels": 32,
+        "timestep_embed_dim": 1024,
+        "caption_channels": 2048,
+        "pooled_projection_dim": 1280,
+        "skip_connection": true,
+        "skip_connection_zero_init": true,
+        "dropout": 0.0,
+        "attention_bias": true,
+        "patch_size": 2,
+        "patch_size_t": 1,
+        "activation_fn": "gelu-approximate",
+        "norm_elementwise_affine": true,
+        "norm_eps": 1e-06,
+        "from_pretrained": "/path/to/pretrained/model"
+    },
+    "diffusion": {
+        "model_id": "OpenSoraPlan",
+        "num_inference_steps": 50, # Inference steps
+        "guidance_scale": 8.0, # CFG strength. We recommend using a relatively high value; 8.0 is generally a good choice.
+        "guidance_rescale": 0.7, # Guidance rescale strength. If the sampled outputs appear overly saturated, we recommend increasing guidance_rescale instead of adjusting the CFG value.
+        "use_linear_quadratic_schedule": false, # Using a linear-to-quadratic sampling strategy.
+        "use_dynamic_shifting": false,
+        "shift": 7.0 # Using the shifting sampling strategy.
+    },
+    "pipeline_config": {
+        "use_attention_mask": true,
+        "input_size": [121, 576, 1024],
+        "version": "v1.5",
+        "model_type": "t2v"
+    },
+    "micro_batch_size": 1,
+    "frame_interval":1,
+    "model_max_length": 512,
+    "save_path":"./opensoraplan_samples/test_samples",
+    "fps":24,
+    "prompt":"./examples/opensoraplan1.5/sora.txt",
+    "device":"npu",
+    "weight_dtype": "fp16"
+}
+
+```
+
+Enter the Open-Sora Plan directory and run:
+
+```
+bash examples/opensoraplan1.5/inference_t2v_1_5.sh
+```
+
+In practice, inference at 121×576×1024 resolution can be run with TP=1 (i.e., without parallelism). To accelerate inference, you may manually increase the TP parallelism level.
