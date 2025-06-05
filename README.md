@@ -1,3 +1,5 @@
+中文版本Readme请参考[README_cn.md](README_cn.md)
+
 Open-Sora Plan v1.5.0 is trained using the MindSpeed-MM toolkit.
 
 ### Prerequisites
