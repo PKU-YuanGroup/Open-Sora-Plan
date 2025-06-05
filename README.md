@@ -4,7 +4,7 @@ Open-Sora Plan v1.5.0 is trained using the MindSpeed-MM toolkit.
 
 Open-Sora Plan v1.5.0 is trained using CANN version 8.0.1. Please refer to the official guide [CANN8_0_1](https://support.huawei.com/enterprise/zh/ascend-computing/cann-pid-251168373/software/264595017?idAbsPath=fixnode01|23710424|251366513|22892968|252309113|251168373) for installation instructions.
 
-### 环境安装
+### Runtime Environment
 
 1、To begin, install **Torch** and **MindSpeed** as required for the training environment.
 
