@@ -199,10 +199,11 @@ class OpenSoraPlanPipeline(MMPipeline, InputsCheckMixin, MMEncoderMixin):
             high quality, {}
             """
 
-            negative_template = "Worst quality, Normal quality, Low quality, Low res, Blurry details, Jpeg artifacts, Grainy, watermark, too garish, " \
-            "Cropped, Out of frame, Out of focus, Transition, Jump cut, Bad anatomy, Bad proportions, Deformed, Disconnected limbs, Disfigured, " \
-            "duplicate, ugly, monochrome, mutation, disgusting, overexposed, underexposed, Subtitles, Motionless, Overall gray, Extra fingers, " \
-            "Poorly drawn hands, Poorly drawn face, Fused fingers, Extra legs, Walking backward."
+            negative_template = """
+            Worst quality, Normal quality, Low quality, Low res, Blurry, Jpeg artifacts, Grainy, watermark, banner, 
+            Cropped, Out of frame, Out of focus, Bad anatomy, Bad proportions, Deformed, Disconnected limbs, Disfigured, 
+            username, error, sketch, duplicate, ugly, monochrome, horror, geometry, mutation, disgusting, overexposed, underexposed.
+            """
         else:
             positive_template = "{}"
             negative_template = ""
