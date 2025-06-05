@@ -1,5 +1,7 @@
 ## Report v1.5.0
 
+中文版本Report请参考[Report-v1.5.0_cn.md](./Report-v1.5.0_cn.md)
+
 In October 2024, we released Open-Sora Plan v1.3.0, introducing the sparse attention structure, Skiparse Attention, to the field of video generation for the first time. Additionally, we adopted the efficient WFVAE, significantly reducing encoding time and memory usage during training.
 
 In Open-Sora Plan v1.5.0, We introduce several key updates to enhance the framework:
