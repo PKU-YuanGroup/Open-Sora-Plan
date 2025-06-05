@@ -1,4 +1,4 @@
-Open-Sora Plan v1.5.0采用mindspeed-mm套件训练。
+Open-Sora Plan v1.5.0采用mindspeed-mm套件训练。mindspeed-mm套件采用apache 2.0协议，请访问 https://www.apache.org/licenses/LICENSE-2.0 查看细节。
 
 ### 前置要求
 
