@@ -1,6 +1,6 @@
 ## Report v1.5.0
 
-中文版本Report请参考[Report-v1.5.0_cn.md](./Report-v1.5.0_cn.md)
+中文版本Report请参考[Report-v1.5.0_cn.md](Report-v1.5.0_cn.md)
 
 In October 2024, we released Open-Sora Plan v1.3.0, introducing the sparse attention structure, Skiparse Attention, to the field of video generation for the first time. Additionally, we adopted the efficient WFVAE, significantly reducing encoding time and memory usage during training.
 
@@ -78,7 +78,7 @@ For more details on WFVAE, please refer to [WF-VAE: Enhancing Video VAE by Wavel
 
 #### Framework —— SUV: A Sparse U-shaped Diffusion Transformer For Fast Video Generation
 
-In Open-Sora Plan v1.3.0, we discuss the strengths and weaknesses of Full 3D Attention and 2+1D Attention. Based on their characteristics, we propose Skiparse Attention, a novel global sparse attention mechanism. For details, please refer to [Report-v1.3.0](https://github.com/yunyangge/Open-Sora-Plan/blob/main/docs/Report-v1.3.0.md).
+In Open-Sora Plan v1.3.0, we discuss the strengths and weaknesses of Full 3D Attention and 2+1D Attention. Based on their characteristics, we propose Skiparse Attention, a novel global sparse attention mechanism. For details, please refer to [Report-v1.3.0](Report-v1.3.0.md).
 
 Under a predefined sparsity $k$, Skiparse Attention selects a subsequence of length $\frac{1}{k}$ of the original sequence in an alternating Single-Skip and Group-Skip pattern for attention interaction. This design approximates the effect of Full 3D Attention. As the sparsity increases, the selected positions become more widely spaced; as it decreases, the positions become more concentrated. Regardless of the sparsity, Skiparse Attention remains global.
 
