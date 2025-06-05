@@ -56,7 +56,7 @@ Text-to-Video Generation of Open-Sora Plan v1.5.0.
 
 Open-Sora Plan shows excellent performance in video generation.
 
-### 🔥 WFVAE with Higher performance and compression
+### 🔥 WFVAE with higher performance and compression
 - With an 8×8×8 downsampling rate, but achieves higher PSNR than the VAE used in Wan2.1. Lowers the training cost for the DiT built upon it.
 
 ### 🚀 More powerful sparse dit
