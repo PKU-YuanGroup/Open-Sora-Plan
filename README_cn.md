@@ -8,7 +8,7 @@ Open-Sora Plan v1.5.0在CANN 8.0.1版本完成训练，请参照[CANN 系列 昇
 
 ```
 git clone -b mindspeed_mmdit https://github.com/PKU-YuanGroup/Open-Sora-Plan.git
-cd Open-Sora Plan
+cd Open-Sora-Plan
 ```
 
 ### 环境安装
