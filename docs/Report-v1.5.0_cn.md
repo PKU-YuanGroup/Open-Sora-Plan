@@ -90,7 +90,7 @@ WFVAE详情请见[WF-VAE: Enhancing Video VAE by Wavelet-Driven Energy Flow for 
 
 SUV架构存在以下优点：
 
-1、SUV是首个在视频生成模型上验证有效的稀疏化方法，在我们的消融实验中表明其在同样训练步数下可以达到接近dense dit的性能，且可以同时应用于预训练和推理中。
+1、SUV是首个在视频生成模型上验证有效的稀疏化方法，在我们的消融实验中表明其在同样训练步数下可以达到接近dense dit的性能，且可以同时应用于预训练和推理中。在910B测试平台下，在121x576x1024的视频shape下，SUV的推理速度相比Dense DiT提升35%以上，其中Attn部分速度提升45%以上。
 
 2、相较于UNet结构对feature map进行显式的下采样造成了信息损失，SUV的U形结构作用在Attention上，feature map的shape并没有发生变化，即信息并未发生损失，改变的只是token间信息交互的粒度。
 
