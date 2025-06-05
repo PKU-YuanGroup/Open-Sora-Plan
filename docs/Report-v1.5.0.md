@@ -90,11 +90,12 @@ In Open-Sora Plan v1.5.0, we adopt an SUV architecture based on MMDiT. Skiparse 
 
 The SUV architecture offers the following advantages:
 
-1、SUV is the first sparsification method proven effective for video generation. Our ablation studies show that it achieves performance comparable to dense DiT within the approximate training steps. Moreover, it can be applied during both pretraining and inference.
+1、SUV is the first sparsification method proven effective for video generation. Our ablation studies show that it achieves performance comparable to dense DiT within the approximate training steps. Moreover, it can be applied during both pretraining and inference. Testing on the Ascend 910B platform at 121×576×1024 shape shows SUV runs over 35% faster than Dense DiT, with the attention operation alone gaining a speed boost of over 45%.
 
 2、Unlike UNet structures that explicitly downsample feature maps and cause information loss, the U-shaped structure of SUV operates on attention. The shape of the feature map remains unchanged, preserving information while altering only the granularity of token-level interactions.
 
 3、Skiparse Attention and SUV only change the attention computation during the forward pass instead of modifying model weights. This allows dynamic adjustment of sparsity throughout training: lower sparsity for image or low-resolution video training, and higher sparsity for high-resolution video training. As a result, FLOPS grow approximately linearly with increasing of sequence length.
+
 
 A more detailed analysis of the SUV architecture will be released in a future arXiv update.
 
