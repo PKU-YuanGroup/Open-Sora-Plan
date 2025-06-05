@@ -18,13 +18,13 @@ cd Open-Sora-Plan
 1、To begin, install **Torch** and **MindSpeed** as required for the training environment.
 
 ```python
-# python3.8
-conda create -n osp python=3.8
+# python3.10
+conda create -n osp python=3.10
 conda activate osp
 
 # Install torch and torch_npu, making sure to select the versions compatible with your Python version and system architecture (x86 or ARM), including the corresponding apex package.
-pip install torch-2.1.0-cp38-cp38m-manylinux2014_aarch64.whl
-pip install torch_npu-2.1.0*-cp38-cp38m-linux_aarch64.whl
+pip install torch-2.1.0-cp310-cp310m-manylinux2014_aarch64.whl 
+pip install torch_npu-2.1.0*-cp310-cp310m-linux_aarch64.whl
 
 # apex for Ascend, refer to https://gitee.com/ascend/apex
 # It is recommended to build and install from the official source repository.
