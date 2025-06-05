@@ -4,6 +4,13 @@ Open-Sora Plan v1.5.0采用mindspeed-mm套件训练。mindspeed-mm套件采用ap
 
 Open-Sora Plan v1.5.0在CANN 8.0.1版本完成训练，请参照[CANN 系列 昇腾计算 8.0.1 软件补丁下载](https://support.huawei.com/enterprise/zh/ascend-computing/cann-pid-251168373/software/264595017?idAbsPath=fixnode01|23710424|251366513|22892968|252309113|251168373)安装。
 
+仓库克隆：
+
+```
+git clone -b mindspeed_mmdit https://github.com/PKU-YuanGroup/Open-Sora-Plan.git
+cd Open-Sora Plan
+```
+
 ### 环境安装
 
 1、安装torch、Mindspeed
