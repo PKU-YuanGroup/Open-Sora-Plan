@@ -1,6 +1,6 @@
 中文版本Readme请参考[README_cn.md](README_cn.md)
 
-Open-Sora Plan v1.5.0 is trained using the MindSpeed-MM toolkit.
+Open-Sora Plan v1.5.0 is trained using the MindSpeed-MM toolkit, which is licensed under the Apache License 2.0. See https://www.apache.org/licenses/LICENSE-2.0 for more details.
 
 ### Prerequisites
 
