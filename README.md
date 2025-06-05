@@ -10,7 +10,7 @@ Clone code:
 
 ```
 git clone -b mindspeed_mmdit https://github.com/PKU-YuanGroup/Open-Sora-Plan.git
-cd Open-Sora Plan
+cd Open-Sora-Plan
 ```
 
 ### Runtime Environment
