@@ -32,10 +32,8 @@ This project aims to create a simple and scalable repo, to reproduce [Sora](http
 
 
 # 📣 News
-* `COMING SOON` ⚡️⚡️⚡️ For large model parallelisation training, TP & SP and more strategies are coming...
-  
-  > 近期将新增华为昇腾多模态MindSpeed-MM分支，借助华为MindSpeed-MM套件的能力支撑Open-Sora Plan参数的扩增，为更大参数规模的模型训练提供TP、SP等分布式训练能力。
 
+* **[2025.06.05]** 🔥🔥🔥 We release version 1.5.0, Our most powerful model! By introducing a **higher-compression WFVAE** and an improved sparse DiT architecture, **SUV**, we achieve performance **comparable to HunyuanVideo (Open-Source)** using an 8B-scale model and 40 million video samples. Version 1.5.0 is **fully trained and inferred on Ascend 910-series accelerators**; Please check the [mindspeed_mmdit](https://github.com/PKU-YuanGroup/Open-Sora-Plan/tree/mindspeed_mmdit) branch for our new code and [Report-v1.5.0.md](docs/Report-v1.5.0.md) for our report. The GPU version is coming soon. 
 * **[2024.12.03]** ⚡️ We released our [arxiv paper](https://arxiv.org/abs/2412.00131) and WF-VAE [paper](https://arxiv.org/abs/2411.17459) for v1.3. The next more powerful version is coming soon.
 * **[2024.10.16]** 🎉 We released version 1.3.0, featuring: **WFVAE**, **prompt refiner**, **data filtering strategy**, **sparse attention**, and **bucket training strategy**. We also support 93x480p within **24G VRAM**. More details can be found at our latest [report](docs/Report-v1.3.0.md).
 * **[2024.08.13]** 🎉 We are launching Open-Sora Plan v1.2.0 **I2V** model, which is based on Open-Sora Plan v1.2.0. The current version supports image-to-video generation and transition generation (the starting and ending frames conditions for video generation). Check out the Image-to-Video section in this [report](https://github.com/PKU-YuanGroup/Open-Sora-Plan/blob/main/docs/Report-v1.2.0.md#training-image-to-video-diffusion-model).
@@ -48,45 +46,31 @@ This project aims to create a simple and scalable repo, to reproduce [Sora](http
 
 # 😍 Gallery
 
-Text & Image to Video Generation. 
-
-[![Demo Video of Open-Sora Plan V1.3](https://github.com/user-attachments/assets/4ff1d873-3dde-4905-a907-dbff51174c20)](https://www.bilibili.com/video/BV1KR2fYPEF5/?spm_id_from=333.999.0.0&vd_source=cfda99203e659100629b465161f1d87d)
+Text-to-Video Generation of Open-Sora Plan v1.5.0.
+### Youtube:
+[![Demo Video of Open-Sora Plan V1.5.0](https://github.com/user-attachments/assets/130bbba2-3ded-4092-92ef-b65b673cb1a6)](https://youtu.be/IiWTdx2EHCY)
+### Bilibili:
+[![Demo Video of Open-Sora Plan V1.5.0](https://github.com/user-attachments/assets/130bbba2-3ded-4092-92ef-b65b673cb1a6)](https://www.bilibili.com/video/BV1X77tzxE3b/)
 
 # 😮 Highlights
 
 Open-Sora Plan shows excellent performance in video generation.
 
-### 🔥 High performance CausalVideoVAE, but with lower training cost
-- High compression ratio with excellent performance, capable of **compressing videos by 256 times (4×8×8)**. Causal convolution supports simultaneous inference of images and videos but only need **1 node to train**.
+### 🔥 WFVAE with higher performance and compression
+- With an 8×8×8 downsampling rate, but achieves higher PSNR than the VAE used in Wan2.1. Lowers the training cost for the DiT built upon it.
 
-### 🚀 Video Diffusion Model based on 3D attention, joint learning of spatiotemporal features.
-- With **a new sparse attention architecture** instead of a 2+1D model, 3D attention can better capture joint spatial and temporal features.
+### 🚀 More powerful sparse dit
+- The more powerful sparse attention architecture, SUV, achieves performance close to dense DiT while providing over a 35% speedup.
 
 <p align="center">
     <img src="https://s21.ax1x.com/2024/07/22/pk7cob8.png" width="650" style="margin-bottom: 0.2;"/>
 <p>
 
-# 🤗 Demo
-
-### Gradio Web UI
-
-Highly recommend trying out our web demo by the following command.
-
-```bash
-python -m opensora.serve.gradio_web_server --model_path "path/to/model" \
-    --ae WFVAEModel_D8_4x8x8 --ae_path "path/to/vae" \
-    --caption_refiner "path/to/refiner" \
-    --text_encoder_name_1 "path/to/text_enc" --rescale_betas_zero_snr
-```
-
-### ComfyUI
-
-Coming soon...
-
 # 🐳 Resource
 
 | Version | Architecture |  Diffusion Model | CausalVideoVAE | Data | Prompt Refiner |
 |:---|:---|:---|:---|:---|:---|
+| v1.5.0 | SUV (Skiparse 3D) | [121x576x1024](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.5.0/blob/main/MindSpeed/model_ema.pt)[5] | [Anysize_8x8x8_32dim](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.5.0/blob/main/MindSpeed/wfvae_888_dim32.ckpt) | - | - |
 | v1.3.0 [4] | Skiparse 3D | [Anysize in 93x640x640](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.3.0/tree/main/any93x640x640)[3], [Anysize in 93x640x640_i2v](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.3.0/tree/main/any93x640x640_i2v)[3] | [Anysize](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.3.0/tree/main/vae)| [prompt_refiner](https://huggingface.co/datasets/LanguageBind/Open-Sora-Plan-v1.3.0/tree/main/prompt_refiner) | [checkpoint](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.3.0/tree/main/prompt_refiner)| |
 | v1.2.0 | Dense 3D | [93x720p](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0/tree/main/93x720p), [29x720p](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0/tree/main/29x720p)[1], [93x480p](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0/tree/main/93x480p)[1,2], [29x480p](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0/tree/main/29x480p), [1x480p](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0/tree/main/1x480p), [93x480p_i2v](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0/tree/main/93x480p_i2v) | [Anysize](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.2.0/tree/main/vae)| [Annotations](https://huggingface.co/datasets/LanguageBind/Open-Sora-Plan-v1.2.0) | - |
 | v1.1.0 | 2+1D | [221x512x512](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.1.0/tree/main/221x512x512), [65x512x512](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.1.0/tree/main/65x512x512) |[Anysize](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.1.0/tree/main/vae) |[Data and Annotations](https://huggingface.co/datasets/LanguageBind/Open-Sora-Plan-v1.1.0)| - |
@@ -100,6 +84,8 @@ Coming soon...
 
 > [4] Model weights are also available at [OpenMind](https://modelers.cn/models/linbin/Open-Sora-Plan-v1.3.0) and [WiseModel](https://wisemodel.cn/models/PKU-YUAN/Open-Sora-Plan-v1.3.0).
 
+> [5] The current model weights are only compatible with the NPU + MindSpeed-MM framework. Model weights are also available at and [modelers](https://modelers.cn/models/PKU-YUAN-Group/Open-Sora-Plan-v1.5.0/tree/main/MindSpeed).
+
 > [!Warning]
 >
 > <div align="left">
@@ -108,74 +94,15 @@ Coming soon...
 > </b>
 > </div>
 
-# ⚙️ Requirements and Installation
-
-1. Clone this repository and navigate to Open-Sora-Plan folder
-```
-git clone https://github.com/PKU-YuanGroup/Open-Sora-Plan
-cd Open-Sora-Plan
-```
-2. Install required packages
-We recommend the requirements as follows.
-* Python >= 3.8
-* Pytorch >= 2.1.0
+# ⚙️ How to start
 
 ### GPU
-```
-conda create -n opensora python=3.8 -y
-conda activate opensora
-pip install -e .
-```
+coming soon...
 ### NPU
-```
-pip install torch_npu==2.1.0.post6
-# ref https://github.com/dmlc/decord
-git clone --recursive https://github.com/dmlc/decord
-mkdir build && cd build 
-cmake .. -DUSE_CUDA=0 -DCMAKE_BUILD_TYPE=Release -DFFMPEG_DIR=/usr/local/ffmpeg 
-make 
-cd ../python 
-pwd=$PWD 
-echo "PYTHONPATH=$PYTHONPATH:$pwd" >> ~/.bashrc 
-source ~/.bashrc 
-python3 setup.py install --user
-```
+Please check out the **[mindspeed_mmdit](https://github.com/PKU-YuanGroup/Open-Sora-Plan/tree/mindspeed_mmdit)** branch and follow the README.md for configuration.
 
-3. Install optional requirements such as static type checking:
-```
-pip install -e '.[dev]'
-```
-
-# 🗝️ Training & Inferencing
-
-## 🗜️ CausalVideoVAE
-
-The data preparation, training, inferencing and evaluation can be found [here](docs/VAE.md)
-
-## 📖 Prompt Refiner
-
-The data preparation, training, inferencing can be found [here](docs/Prompt_Refiner.md)
-
-## 📜 Text-to-Video 
-
-The data preparation, training and inferencing can be found [here](docs/T2V.md)
-
-## 🖼️ Image-to-Video
-
-The data preparation, training and inferencing can be found [here](docs/I2V.md)
-
-
-# ⚡️ Extra Save Memory
-
-## 🔆 Training
-During training, the entire EMA model remains in VRAM. You can enable `--offload_ema` or disable `--use_ema`. Additionally, VAE tiling is disabled by default, but you can pass `--enable_tiling` or disable `--vae_fp32`. Finally, a temporary but extreme saving memory option is enable `--extra_save_mem` to offload the text encoder and VAE to the CPU when not in use, though this will significantly slow down performance.
-
-We currently have two plans: one is to continue using the Deepspeed/FSDP approach, sharding the EMA and text encoder across ranks with Zero3, which is sufficient for training 10-15B models. The other is to adopt MindSpeed for various parallel strategies, enabling us to scale the model up to 30B.
-
-## ⚡️ 24G VRAM Inferencing
-
-Please first ensure that you understand how to inference. Refer to the [inference](https://github.com/PKU-YuanGroup/Open-Sora-Plan/blob/main/docs/T2V.md#inference) instructions in Text-to-Video.
-Simply specify `--save_memory`, and during inference, `enable_model_cpu_offload()`, `enable_sequential_cpu_offload()`, and `vae.vae.enable_tiling()` will be automatically activated.
+# 📖 Technical report
+Please check [Report-v1.5.0.md](docs/Report-v1.5.0.md).
 
 # 💡 How to Contribute
 We greatly appreciate your contributions to the Open-Sora Plan open-source community and helping us make it even better than it is now!
