@@ -1,1 +1,0 @@
-bash examples/opensoraplan1.5/pretrain_opensoraplan1_5_multi_node.sh

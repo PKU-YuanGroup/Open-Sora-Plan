@@ -1,11 +1,11 @@
 #!/bin/bash
 wandb login 720d886d8c437c2142c88056a1eab8ef78d64a1f
 source /usr/local/Ascend/ascend-toolkit/set_env.sh
-source /usr/local/Ascend/nnal/atb/set_env.sh
+export WANDB_MODE="offline"
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 export ASCEND_SLOG_PRINT_TO_STDOUT=0
 export ASCEND_GLOBAL_LOG_LEVEL=3
-export TASK_QUEUE_ENABLE=2
+export TASK_QUEUE_ENABLE=0
 export MULTI_STREAM_MEMORY_REUSE=1
 export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
 export COMBINED_ENABLE=1
@@ -33,18 +33,20 @@ GPUS_PER_NODE=8
 MASTER_PORT=12345
 WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
 
-TP=4
+TP=8
 PP=1
 CP=1
-MBS=4
-GRAD_ACC_STEP=2
+MBS=1
+GRAD_ACC_STEP=1
 GBS=$(($WORLD_SIZE*$GRAD_ACC_STEP*$MBS/$CP/$TP))
 
-MM_DATA="./examples/opensoraplan1.5/data00.json"
+MM_DATA="./examples/opensoraplan1.5/data.json"
 MM_MODEL="./examples/opensoraplan1.5/model_opensoraplan1_5.json"
 MM_TOOL="./mindspeed_mm/tools/tools.json"
 
-PROJECT_DIR="./test_ckpt/test_1_node"
+PROJECT_DIR="./test_ckpt/opensoraplan1_5"
+WANDB_PROJECT="opensoraplan1_5"
+WANDB_EXP_NAME="test"
 
 DISTRIBUTED_ARGS="
     --nproc_per_node $GPUS_PER_NODE \
@@ -89,19 +91,20 @@ GPT_ARGS="
     --use-distributed-optimizer \
     --recompute-granularity full \
     --recompute-method block \
-    --recompute-num-layers 32 \
+    --recompute-num-layers 0 \
     --normalization RMSNorm \
     --use-fused-rmsnorm \
     --qk-layernorm \
     --sequence-parallel \
-    --use-ascend-mc2 \
     --optimizer-selection fused_ema_adamw \
     --seed 1024 \
     --data-parallel-random-init \
     --use-ema \
     --load $PROJECT_DIR \
+    --fp32-residual-connection \
+    --attention-softmax-in-fp32 \
+    --accumulate-allreduce-grads-in-fp32 
 "
-
     # --no-load-optim \
     # --no-load-rng \
     # --no-save-optim \
@@ -113,7 +116,9 @@ MM_ARGS="
     --mm-model $MM_MODEL \
     --mm-tool $MM_TOOL \
     --model_custom_precision \
-    --clip_grad_ema_decay 0.99
+    --clip_grad_ema_decay 0.99 \
+    --selective_recom \
+    --recom_ffn_layers 32 \
 "
 
 OUTPUT_ARGS="
@@ -125,8 +130,8 @@ OUTPUT_ARGS="
 "
 
 WANDB_ARGS="
-    --wandb-project test_in_tianyi \
-    --wandb-exp-name test_1_node \
+    --wandb-project $WANDB_PROJECT \
+    --wandb-exp-name $WANDB_EXP_NAME \
     --wandb-save-dir . \
     --tensorboard-log-interval 1 \
 "

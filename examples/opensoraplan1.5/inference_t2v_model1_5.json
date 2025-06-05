@@ -29,9 +29,9 @@
          1.1250, -0.2578, -2.1094,  1.0391,  1.1797, -1.2422, -0.2988, -0.9570],
         "t_interpolation": "trilinear",
         "use_attention": true,
-        "use_tiling": false,
+        "use_tiling": true,
         "from_pretrained": "/work/share/checkpoint/pretrained/vae/Middle888/merged.ckpt",
-        "dtype": "fp32"
+        "dtype": "fp16"
       },
     "text_encoder": {
         "hub_backend": "hf",
@@ -79,26 +79,29 @@
         "activation_fn": "gelu-approximate",
         "norm_elementwise_affine": true,
         "norm_eps": 1e-06,
-        "from_pretrained": "/work/share/projects/gyy/mindspeed/Open-Sora-Plan/test_ckpt/test_48_node_new_step9k/model_ema.pt"
+        "from_pretrained": "/path/to/pretrained/model"
     },
     "diffusion": {
         "model_id": "OpenSoraPlan",
-        "num_inference_steps": 100,
-        "guidance_scale": 7.5,
-        "guidance_rescale": 0.7
+        "num_inference_steps": 50,
+        "guidance_scale": 8.0,
+        "guidance_rescale": 0.7,
+        "use_linear_quadratic_schedule": false,
+        "use_dynamic_shifting": false,
+        "shift": 7.0
     },
     "pipeline_config": {
         "use_attention_mask": true,
-        "input_size": [105, 288, 512],
+        "input_size": [121, 576, 1024],
         "version": "v1.5",
         "model_type": "t2v"
     },
     "micro_batch_size": 1,
     "frame_interval":1,
     "model_max_length": 512,
-    "save_path":"./opensora_samples_test_new/100step_9k_ema",
+    "save_path":"./opensoraplan_samples/test_samples",
     "fps":24,
-    "prompt":"/work/share/projects/gyy/mindspeed/Open-Sora-Plan/examples/opensoraplan1.5/sora.txt",
+    "prompt":"./examples/opensoraplan1.5/sora.txt",
     "device":"npu",
     "weight_dtype": "fp16"
 }

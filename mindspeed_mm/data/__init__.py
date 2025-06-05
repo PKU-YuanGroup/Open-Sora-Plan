@@ -1,9 +1,8 @@
 from mindspeed_mm.data.dataloader.dataloader import (
     prepare_base_dataloader,
     prepare_sampler_dataloader,
-    prepare_variable_dataloader,
 )
-from mindspeed_mm.data.datasets.t2v_dataset import T2VDataset, DynamicVideoTextDataset
+from mindspeed_mm.data.datasets.t2v_dataset import T2VDataset
 
 __all__ = [
     "build_mm_dataset", "build_mm_dataloader"
@@ -59,9 +58,6 @@ def build_mm_dataloader(dataset, dataloader_param, process_group=None, consumed_
         data_loader = prepare_sampler_dataloader(
             dataset, **dataloader_param, process_group=process_group, consumed_samples=consumed_samples,
         )
-        return data_loader
-    elif dataloader_mode == "variable":
-        data_loader = prepare_variable_dataloader(dataset, **dataloader_param, process_group=process_group)
         return data_loader
     else:
         raise NotImplementedError(dataloader_param["dataloader_mode"])

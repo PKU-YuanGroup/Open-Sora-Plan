@@ -2,14 +2,14 @@
     "profile": {
         "enable": false,
         "profile_type": "static",
-        "ranks": [0, 1, 2, 3],
+        "ranks": [0],
         "static_param": {
             "level": "level1",
-            "with_stack": false,
-            "with_memory": false,
-            "record_shapes": false,
+            "with_stack": true,
+            "with_memory": true,
+            "record_shapes": true,
             "with_cpu": true,
-            "save_path": "./npu_profiling",
+            "save_path": "./npu_profiling/test",
             "start_step": 10,
             "end_step": 11,
             "data_simplification": false

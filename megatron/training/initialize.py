@@ -297,6 +297,12 @@ def _set_random_seed(seed_, data_parallel_random_init=False):
         torch.manual_seed(seed)
         if torch.cuda.device_count() > 0:
             tensor_parallel.model_parallel_cuda_manual_seed(seed)
+        os.environ["HCCL_DETERMINISTIC"] = 'True'
+        os.environ['CLOSE_MATMUL_K_SHIFT']= '1'
+        torch.use_deterministic_algorithms(True)
+        import torch_npu
+        torch_npu.npu.manual_seed_all(seed)
+        torch_npu.npu.manual_seed(seed)
     else:
         raise ValueError("Seed ({}) should be a positive integer.".format(seed))
 

@@ -53,6 +53,7 @@ class OpenSoraPlanScheduler:
         self.num_inference_steps = config.pop("num_inference_steps", None)
         self.guidance_scale = config.pop("guidance_scale", 4.5)
         self.guidance_rescale = config.pop("guidance_rescale", 0.7)
+        self.use_linear_quadratic_schedule = config.pop("use_linear_quadratic_schedule", False)
         self.device = get_device(config.pop("device", "npu"))
 
         self.shift = config.pop("shift", 1.0)
@@ -64,6 +65,15 @@ class OpenSoraPlanScheduler:
         self.logit_std = config.pop("logit_std", 1.0)
         self.mode_scale = config.pop("mode_scale", 1.29) 
 
+        # from flux https://github.com/black-forest-labs/flux/blob/main/src/flux/sampling.py#L222
+        if self.use_dynamic_shifting:
+            self.base_image_seq = config.pop("base_image_seq", 256)
+            self.max_image_seq = config.pop("max_image_seq", 4096)
+            self.base_shift = config.pop("base_shift", 0.5)
+            self.max_shift = config.pop("max_shift", 1.15)
+            self.shift_k = (self.max_shift - self.base_shift) / (self.max_image_seq - self.base_image_seq)
+            self.shift_b = self.base_shift - self.shift_k * self.base_image_seq
+        
         sigma_eps = config.pop("sigma_eps", None)
 
         if sigma_eps is not None:
@@ -140,8 +150,6 @@ class OpenSoraPlanScheduler:
         else:
             sigmas = torch.rand(size=(batch_size,), device="cpu")
 
-        sigmas = torch.where(sigmas > self._sigma_eps, sigmas, torch.ones_like(sigmas) * self._sigma_eps)
-
         return sigmas
     
     def compute_loss_weighting_for_sd3(self, sigmas=None):
@@ -160,20 +168,28 @@ class OpenSoraPlanScheduler:
             weighting = torch.ones_like(sigmas)
         return weighting
 
-    def sigma_shift(
-        self, 
-        sigmas: Union[float, torch.Tensor], 
-        shift: float, 
-        dynamic: Optional[bool] = False, 
-        mu: Optional[float] = None,
-        gamma: Optional[float] = 1.0
+    def sigma_shift_opensoraplan(
+        self,
+        sigmas: Union[float, torch.Tensor],
+        image_seq_len: Optional[int] = None,
+        gamma: Optional[float] = 1.0,
     ):
-        if not dynamic:
-            sigmas_ = shift * sigmas / (1 + (shift - 1) * sigmas)
+        if not self.use_dynamic_shifting:
+            sigmas_ = self.shift * sigmas / (1 + (self.shift - 1) * sigmas)
         else:
-            sigmas_ = math.exp(mu) / (math.exp(mu) + (1 / sigmas - 1) ** gamma)
+            if image_seq_len is None:
+                raise ValueError("you have to pass `image_seq_len` when `use_dynamic_shifting` is set to be `True`")
+            shift = image_seq_len * self.shift_k + self.shift_b
+            shift = math.exp(shift)
+            if gamma == 1.0:
+                sigmas_ = shift * sigmas / (1 + (shift - 1) * sigmas)
+            else:
+                sigmas_ = shift / (shift + (1 / sigmas - 1) ** gamma)
+
         if isinstance(sigmas_, torch.Tensor):
             sigmas_ = torch.where(sigmas_ > self.sigma_eps, sigmas_, torch.ones_like(sigmas_) * self.sigma_eps)
+        elif isinstance(sigmas_, np.ndarray):
+            sigmas_ = np.where(sigmas_ > self.sigma_eps, sigmas_, np.ones_like(sigmas_) * self.sigma_eps)
         else:
             sigmas_ = max(sigmas_, self.sigma_eps)
         return sigmas_
@@ -182,26 +198,27 @@ class OpenSoraPlanScheduler:
         self,
         device: Union[str, torch.device] = None,
         sigmas: Optional[List[float]] = None,
-        mu: Optional[float] = None,
+        image_seq_len: Optional[int] = None,
         inversion: Optional[bool] = False,
         **kwargs,
     ):
 
-        if self.use_dynamic_shifting and mu is None:
-            raise ValueError(" you have a pass a value for `mu` when `use_dynamic_shifting` is set to be `True`")
-
-        if sigmas is None:
-            sigmas = np.linspace(self._sigma_max, self._sigma_min, self.num_inference_steps + 1)
+        if self.use_linear_quadratic_schedule:
+            print("use OpenSoraPlanScheduler and linear quadratic schedule")
+            approximate_steps = min(max(self.num_inference_steps * 10, 250), 1000)
+            sigmas = opensora_linear_quadratic_schedule(self.num_inference_steps, approximate_steps=approximate_steps)
+            sigmas = np.array(sigmas)
+        else:
+            if sigmas is None:
+                sigmas = np.linspace(self._sigma_max, self._sigma_min, self.num_inference_steps + 1)
+            if self.shift > 1.0 or self.use_dynamic_shifting:
+                print("use OpenSoraPlanScheduler and shifting schedule")
+                sigmas = self.sigma_shift_opensoraplan(sigmas, image_seq_len=image_seq_len)
 
         if inversion:
             sigmas = np.copy(np.flip(sigmas))
 
         sigmas = torch.from_numpy(sigmas).to(dtype=torch.float32, device=device)
-
-        if self.use_dynamic_shifting:
-            sigmas = self.sigma_shift(sigmas, self.shift, dynamic=True, mu=mu)
-        else:
-            sigmas = self.sigma_shift(sigmas, self.shift)
 
         self.sigmas = sigmas
 
@@ -294,15 +311,18 @@ class OpenSoraPlanScheduler:
         b, c, _, _, _ = x_start.shape
         if noise is None:
             noise = torch.randn_like(x_start)
+            self.broadcast_tensor(noise)
         if noise.shape != x_start.shape:
             raise ValueError("The shape of noise and x_start must be equal.")
         if sigmas is None:
             sigmas = self.compute_density_for_sigma_sampling(b).to(x_start.device)
+            image_seq_len = (noise.shape[-1] * noise.shape[-2]) // 4 if self.use_dynamic_shifting else None # devided by patch embedding size
+            sigmas = self.sigma_shift_opensoraplan(sigmas, image_seq_len=image_seq_len)
             timesteps = sigmas.clone() * 1000
             while sigmas.ndim < x_start.ndim:
                 sigmas = sigmas.unsqueeze(-1)
-            self.broadcast_timesteps(sigmas)
-            self.broadcast_timesteps(timesteps)
+            self.broadcast_tensor(sigmas)
+            self.broadcast_tensor(timesteps)
 
         x_t = self.add_noise(x_start, sigmas, noise)
         return dict(x_t=x_t, noise=noise, timesteps=timesteps, sigmas=sigmas)
@@ -325,14 +345,8 @@ class OpenSoraPlanScheduler:
         if added_cond_kwargs:
             model_kwargs.update(added_cond_kwargs)
 
-        sigmas = None
-        use_linear_quadratic_schedule = model_kwargs.pop("use_linear_quadratic_schedule", False)
-        if use_linear_quadratic_schedule:
-            print("use OpenSoraPlanScheduler and linear quadratic schedule")
-            approximate_steps = min(max(self.num_inference_steps * 10, 250), 1000)
-            sigmas = opensora_linear_quadratic_schedule(self.num_inference_steps, approximate_steps=approximate_steps)
-            sigmas = np.array(sigmas)
-        sigmas = self.set_sigmas(device=self.device, sigmas=sigmas)
+        image_seq_len = (shape[-1] * shape[-2]) // 4 if self.use_dynamic_shifting else None # patch embedding size
+        sigmas = self.set_sigmas(device=self.device, sigmas=None, image_seq_len=image_seq_len)
         timesteps = sigmas.clone() * 1000
         timesteps = timesteps[:-1]
 
@@ -345,11 +359,6 @@ class OpenSoraPlanScheduler:
         encoder_attention_mask = model_kwargs.pop("prompt_attention_mask")
         pooled_projections = model_kwargs.pop("prompt_embeds_2")
 
-        print(f'latents dtype: {latents.dtype}')
-        print(f'encoder_hidden_states dtype: {encoder_hidden_states.dtype}')
-        print(f'encoder_attention_mask dtype: {encoder_attention_mask.dtype}')
-        print(f'pooled_projections dtype: {pooled_projections.dtype}')
-        
         with tqdm(total=self.num_inference_steps) as progress_bar:
             for i, t in enumerate(timesteps):
                 latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
@@ -383,7 +392,7 @@ class OpenSoraPlanScheduler:
         
         return latents
 
-    def broadcast_timesteps(self, input_: torch.Tensor):
+    def broadcast_tensor(self, input_: torch.Tensor):
         cp_src_rank = list(mpu.get_context_parallel_global_ranks())[0]
         if mpu.get_context_parallel_world_size() > 1:
             dist.broadcast(input_, cp_src_rank, group=mpu.get_context_parallel_group())

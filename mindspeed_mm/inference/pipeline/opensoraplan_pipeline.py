@@ -8,9 +8,6 @@ from mindspeed_mm.inference.pipeline.pipeline_base import MMPipeline
 from mindspeed_mm.inference.pipeline.pipeline_mixin.encode_mixin import MMEncoderMixin
 from mindspeed_mm.inference.pipeline.pipeline_mixin.inputs_checks_mixin import InputsCheckMixin
 from mindspeed_mm.inference.pipeline.patchs.sora_patchs import replace_with_fp32_forwards
-from mindspeed_mm.utils.mask_utils import MaskProcessor, MaskCompressor, TYPE_TO_STR
-from mindspeed_mm.inference.pipeline.utils.sora_utils import get_pixel_values, get_mask_type_cond_indices, get_video_transform, get_resize_transform
-
 
 class OpenSoraPlanPipeline(MMPipeline, InputsCheckMixin, MMEncoderMixin):
 
@@ -45,12 +42,6 @@ class OpenSoraPlanPipeline(MMPipeline, InputsCheckMixin, MMEncoderMixin):
         text_encoder.use_attention_mask = config.use_attention_mask
         self.num_frames, self.height, self.width = config.input_size
         self.version = config.version
-        self.model_type = config.model_type
-        if self.model_type == "i2v":
-            self.mask_processor = MaskProcessor(min_clear_ratio=0.5, max_clear_ratio=0.5)
-            self.mask_compressor = MaskCompressor(ae_stride_t=self.vae.vae_scale_factor[0],
-                                                  ae_stride_h=self.vae.vae_scale_factor[1],
-                                                  ae_stride_w=self.vae.vae_scale_factor[2])
         replace_with_fp32_forwards()
 
     @torch.no_grad()
@@ -62,7 +53,6 @@ class OpenSoraPlanPipeline(MMPipeline, InputsCheckMixin, MMEncoderMixin):
         negative_prompt: Optional[str] = None,
         negative_prompt_embeds: Optional[torch.Tensor] = None,
         negative_prompt_embeds_2: Optional[torch.Tensor] = None,
-        use_linear_quadratic_schedule: bool = True,
         eta: float = 0.0,
         num_samples_per_prompt: Optional[int] = 1,
         guidance_scale: float = 4.5,
@@ -85,40 +75,6 @@ class OpenSoraPlanPipeline(MMPipeline, InputsCheckMixin, MMEncoderMixin):
         print("prompt: ", prompt, "negative_prompt: ", negative_prompt)
         self.text_prompt_checks(prompt, negative_prompt, prompt_embeds, negative_prompt_embeds)
         self.generate_params_checks(self.height, self.width)
-        if self.model_type == "i2v":
-            conditional_pixel_values_path = kwargs.get("conditional_pixel_values_path", None)
-            mask_type = kwargs.get("mask_type", None)
-            conditional_pixel_values_indices = kwargs.get("conditional_pixel_values_indices", None)
-            crop_for_hw = kwargs.get("crop_for_hw", False)
-            max_hxw = kwargs.get("max_hxw", 236544)
-            pixel_values = []
-            pixel_values_indices = []
-            for pixel_values_path_i in conditional_pixel_values_path:
-                self.i2v_prompt_checks(pixel_values_path_i, mask_type)
-                mask_type, pixel_values_indices_i = get_mask_type_cond_indices(mask_type,
-                                                                                    pixel_values_path_i,
-                                                                                    conditional_pixel_values_indices,
-                                                                                    self.num_frames)
-
-                pixel_values_i = get_pixel_values(pixel_values_path_i, self.num_frames)
-                pixel_values += pixel_values_i
-                pixel_values_indices.append(pixel_values_indices_i)
-            min_height = min([pixels.shape[2] for pixels in pixel_values])
-            min_width = min([pixels.shape[3] for pixels in pixel_values])
-
-            resize_transform = get_resize_transform(
-                ori_height=min_height,
-                ori_width=min_width,
-                height=self.height,
-                width=self.width,
-                crop_for_hw=crop_for_hw,
-                max_hxw=max_hxw,
-            )
-
-            video_transform = get_video_transform()
-            pixel_values = torch.cat([resize_transform(pixels) for pixels in pixel_values])
-            height, width = pixel_values.shape[-2], pixel_values.shape[-1]
-
         if prompt is not None and isinstance(prompt, str):
             batch_size = 1
         elif prompt is not None and isinstance(prompt, list):
@@ -166,23 +122,6 @@ class OpenSoraPlanPipeline(MMPipeline, InputsCheckMixin, MMEncoderMixin):
             prompt_embeds_attention_mask = torch.cat([negative_prompt_attention_mask, prompt_embeds_attention_mask], dim=0)
             if prompt_embeds_2 is not None:
                 prompt_embeds_2 = torch.cat([negative_prompt_embeds_2, prompt_embeds_2], dim=0)
-        if self.model_type == "i2v":
-            masked_pixel_values, mask = self.get_masked_pixel_values_mask(
-                pixel_values,
-                pixel_values_indices,
-                mask_type,
-                batch_size,
-                num_images_per_prompt,
-                self.num_frames,
-                height,
-                width,
-                video_transform,
-                prompt_embeds.dtype,
-                device
-            )
-
-            i2v_kwargs = {MASKED_VIDEO: masked_pixel_values, INPUT_MASK: mask}
-
         # 5. Prepare latents
         latent_channels = self.predict_model.in_channels
         batch_size = batch_size * num_samples_per_prompt
@@ -212,10 +151,7 @@ class OpenSoraPlanPipeline(MMPipeline, InputsCheckMixin, MMEncoderMixin):
                         "prompt_embeds_2": prompt_embeds_2,
                         "added_cond_kwargs": added_cond_kwargs,
                         "prompt_attention_mask": prompt_embeds_attention_mask,
-                        "use_linear_quadratic_schedule": use_linear_quadratic_schedule,
                         "return_dict": False}
-        if self.model_type == "i2v":
-            model_kwargs.update(i2v_kwargs)
 
         latents = self.scheduler.sample(model=self.predict_model, shape=shape, latents=latents, model_kwargs=model_kwargs,
                                         extra_step_kwargs=extra_step_kwargs)
@@ -263,11 +199,10 @@ class OpenSoraPlanPipeline(MMPipeline, InputsCheckMixin, MMEncoderMixin):
             high quality, {}
             """
 
-            negative_template = """
-            Worst quality, Normal quality, Low quality, Low res, Blurry, Jpeg artifacts, Grainy, watermark, banner, 
-            Cropped, Out of frame, Out of focus, Bad anatomy, Bad proportions, Deformed, Disconnected limbs, Disfigured, 
-            username, error, sketch, duplicate, ugly, monochrome, horror, geometry, mutation, disgusting, overexposed, underexposed.
-            """
+            negative_template = "Worst quality, Normal quality, Low quality, Low res, Blurry details, Jpeg artifacts, Grainy, watermark, too garish, " \
+            "Cropped, Out of frame, Out of focus, Transition, Jump cut, Bad anatomy, Bad proportions, Deformed, Disconnected limbs, Disfigured, " \
+            "duplicate, ugly, monochrome, mutation, disgusting, overexposed, underexposed, Subtitles, Motionless, Overall gray, Extra fingers, " \
+            "Poorly drawn hands, Poorly drawn face, Fused fingers, Extra legs, Walking backward."
         else:
             positive_template = "{}"
             negative_template = ""
@@ -283,66 +218,3 @@ class OpenSoraPlanPipeline(MMPipeline, InputsCheckMixin, MMEncoderMixin):
             positive_template_i = positive_template.format(positive_prompt)
             negative_template_i = negative_template + negative_prompt
             return [positive_template_i], [negative_template_i]
-
-    def get_masked_pixel_values_mask(
-        self,
-        conditional_pixel_values,
-        conditional_pixel_values_indices,
-        mask_type,
-        batch_size,
-        num_samples_per_prompt,
-        num_frames,
-        height,
-        width,
-        video_transform,
-        weight_dtype,
-        device
-    ):
-        if device is None:
-            device = getattr(self, '_execution_device', None) or getattr(self, 'device', None) or torch.device('cuda')
-
-        conditional_pixel_values = conditional_pixel_values.to(device=device, dtype=weight_dtype)
-
-        masked_pixel_values = []
-        mask = []
-        for i in range(batch_size):
-            conditional_pixel_values_i = conditional_pixel_values[i].unsqueeze(0)
-            conditional_pixel_values_indices_i = conditional_pixel_values_indices[i]
-            if conditional_pixel_values_i.shape[0] == num_frames:
-                inpaint_cond_data = self.mask_processor(conditional_pixel_values_i, mask_type=mask_type)
-                masked_pixel_values_i, mask_i = inpaint_cond_data['masked_pixel_values'], inpaint_cond_data['mask']
-            else:
-                input_pixel_values = torch.zeros([num_frames, 3, height, width], device=device, dtype=weight_dtype)
-                input_mask = torch.ones([num_frames, 1, height, width], device=device, dtype=weight_dtype)
-                input_pixel_values[conditional_pixel_values_indices_i] = conditional_pixel_values_i
-                input_mask[conditional_pixel_values_indices_i] = 0
-                masked_pixel_values_i = input_pixel_values * (input_mask < 0.5)
-                mask_i = input_mask
-
-            print('conditional_pixel_values_indices_i', conditional_pixel_values_indices_i)
-            print('mask_type', TYPE_TO_STR[mask_type])
-
-            masked_pixel_values_i = video_transform(masked_pixel_values_i)
-
-            masked_pixel_values_i = masked_pixel_values_i.unsqueeze(0).repeat(num_samples_per_prompt, 1, 1, 1,
-                                                                          1).transpose(1, 2).contiguous()  # 1 c t h w
-            mask_i = mask_i.unsqueeze(0).repeat(num_samples_per_prompt, 1, 1, 1, 1).transpose(1, 2).contiguous()  # 1 c t h w
-
-            masked_pixel_values.append(masked_pixel_values_i)
-            mask.append(mask_i)
-
-        masked_pixel_values = torch.cat(masked_pixel_values, dim=0)
-        mask = torch.cat(mask, dim=0)
-        masked_pixel_values = masked_pixel_values.to(self.vae.dtype)
-        masked_pixel_values = self.vae.encode(masked_pixel_values)
-
-        mask = self.mask_compressor(mask)
-
-        masked_pixel_values = torch.cat(
-            [masked_pixel_values] * 2) if self.do_classifier_free_guidance else masked_pixel_values
-        mask = torch.cat([mask] * 2) if self.do_classifier_free_guidance else mask
-
-        masked_pixel_values = masked_pixel_values.to(weight_dtype)
-        mask = mask.to(weight_dtype)
-
-        return masked_pixel_values, mask

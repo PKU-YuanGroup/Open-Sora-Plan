@@ -257,36 +257,43 @@ class CachedCausal3DUpsample(nn.Module):
         out_channels,
         t_interpolation="trilinear",
         enable_cached=False,
+        depth=0,
     ):
         super().__init__()
         self.t_interpolation = t_interpolation
         self.conv = WfCausalConv3d(in_channels, out_channels, kernel_size=3, padding=1)
         self.enable_cached = enable_cached
         self.causal_cached = deque()
+        self.depth = depth
 
     def forward(self, x):
         x_dtype = x.dtype
         x = x.to(torch.float32)
-        if x.size(2) > 1 or len(self.causal_cached) > 0:
-            if self.enable_cached and len(self.causal_cached) > 0:
-                x = torch.cat([self.causal_cached.popleft(), x], dim=2)
-                self.causal_cached.append(x[:, :, -2:-1])
-                x = F.interpolate(x, scale_factor=(2, 1, 1), mode=self.t_interpolation)
-                x = x[:, :, 2:]
-                x = F.interpolate(x, scale_factor=(1, 2, 2), mode="trilinear")
-            else:
-                if self.enable_cached:
-                    self.causal_cached.append(x[:, :, -1:])
-                x, x_ = x[:, :, :1], x[:, :, 1:]
-                x_ = F.interpolate(
-                    x_, scale_factor=(2, 1, 1), mode=self.t_interpolation
-                )
-                x_ = F.interpolate(x_, scale_factor=(1, 2, 2), mode="trilinear")
-                x = F.interpolate(x, scale_factor=(1, 2, 2), mode="trilinear")
-                x = torch.concat([x, x_], dim=2)
-        else:
-            if self.enable_cached:
-                self.causal_cached.append(x[:, :, -1:])
+
+        if x.size(2) == 1:
             x = F.interpolate(x, scale_factor=(1, 2, 2), mode="trilinear")
+            
+        elif self.enable_cached:
+            drop_cached = False
+            if len(self.causal_cached) > 0:
+                cached = self.causal_cached.popleft()
+                x = torch.cat([cached, x], dim=2)
+                drop_cached = True
+            self.causal_cached.append(
+                x[:, :, -(2**self.depth) - 1 : -(2**self.depth)].clone()
+            )
+            x = F.interpolate(x, scale_factor=(2, 1, 1), mode=self.t_interpolation)
+            if drop_cached:
+                x = x[:, :, 2:]
+            x = F.interpolate(x, scale_factor=(1, 2, 2), mode="trilinear")
+        else:
+            x, x_ = x[:, :, :1], x[:, :, 1:]
+            x_ = F.interpolate(
+                x_, scale_factor=(2, 1, 1), mode=self.t_interpolation
+            )
+            x_ = F.interpolate(x_, scale_factor=(1, 2, 2), mode="trilinear")
+            x = F.interpolate(x, scale_factor=(1, 2, 2), mode="trilinear")
+            x = torch.concat([x, x_], dim=2)
+            
         x = x.to(x_dtype)
         return self.conv(x)

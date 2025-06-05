@@ -27,6 +27,8 @@ def pad_to_multiple(number, ds_stride):
         padding = ds_stride - remainder
         return number + padding
 
+def default_collate(*args, **kwargs):
+    return None
 
 class Collate:
     """
@@ -225,6 +227,6 @@ class Collate:
         return (pad_batch_tubes, attention_mask, input_ids, cond_mask, input_ids_2, cond_mask_2)
 
 DATA_COLLATOR = {
-    "Default": Collate,
+    "Default": default_collate,
     "GroupLength": Collate,
 }

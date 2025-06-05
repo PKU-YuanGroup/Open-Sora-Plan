@@ -77,6 +77,8 @@ def _add_mm_args(parser):
     group = parser.add_argument_group(title="multimodel")
     group.add_argument("--model_custom_precision", action="store_true", default=True, help="Use custom precision for model, e.g., we use fp32 for vae and fp16 for predictor.")
     group.add_argument("--clip_grad_ema_decay", type=float, default=0.99, help="EMA decay coefficient of Adaptive Gradient clipping in Open-Sora Plan based on global L2 norm.")
+    group.add_argument("--selective_recom", action="store_true", default=False, help="Use selective recomputation in Open-Sora Plan.")
+    group.add_argument("--recom_ffn_layers", type=int, default=32, help="Number of FFN layers when we use selective recomputation in Open-Sora Plan.")
     group.add_argument("--mm-data", type=str, default="")
     group.add_argument("--mm-model", type=str, default="")
     group.add_argument("--mm-tool", type=str, default="")
