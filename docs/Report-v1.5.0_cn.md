@@ -1,5 +1,7 @@
 ## Report v1.5.0
 
+For the English version of the report, please refer to [Report-v1.5.0.md](Report-v1.5.0.md).
+
 在2024年的10月，我们发布了Open-Sora Plan v1.3.0，第一次将一种稀疏化的attention结构——skiparse attention引入video generation领域。同时，我们采用了高效的WFVAE，使得训练时的编码时间和显存占用大大降低。
 
 在Open-Sora Plan v1.5.0中，Open-Sora Plan引入了几个关键的更新：
@@ -76,7 +78,7 @@ WFVAE详情请见[WF-VAE: Enhancing Video VAE by Wavelet-Driven Energy Flow for 
 
 #### Framework —— SUV: A Sparse U-shaped Diffusion Transformer For Fast Video Generation
 
-在Open-Sora Plan v1.3.0中，我们讨论了Full 3D Attention以及2+1D Attention的优劣，并综合他们的特点提出了Skiparse Attention——一种新型的global sparse attention，具体原理请参考[Report-v1.3.0](https://github.com/yunyangge/Open-Sora-Plan/blob/main/docs/Report-v1.3.0.md)。
+在Open-Sora Plan v1.3.0中，我们讨论了Full 3D Attention以及2+1D Attention的优劣，并综合他们的特点提出了Skiparse Attention——一种新型的global sparse attention，具体原理请参考[Report-v1.3.0](Report-v1.3.0.md)。
 
 在一个事先指定的sparse ratio $k$ 下，Skiparse Attention按照Single Skip - Group Skip交替的方式选定原序列长度 $\frac{1}{k}$ 的子序列进行attention交互，以此达到近似Full 3D Attention的效果。在Skiparse Attention中，sparse ratio越大，子序列在原序列中的位置越稀疏；sparse ratio越小，子序列在原序列中的位置越密集。但无论sparse ratio为多少，Skiparse Attention总是global的。
 
