@@ -2,9 +2,11 @@
 
 <h1 align="left"> <a href="">Open-Sora Plan</a></h1>
 
-This project aims to create a simple and scalable repo, to reproduce [Sora](https://openai.com/sora) (OpenAI, but we prefer to call it "ClosedAI" ). We wish the open-source community can contribute to this project. Pull requests are welcome! The current code supports complete training and inference using the Huawei Ascend AI computing system. Models trained on Huawei Ascend can also output video quality comparable to industry standards.
+This project aims to create a simple and scalable repo, to reproduce [Sora](https://openai.com/sora) (OpenAI, but we prefer to call it "ClosedAI" ). 
 
-本项目希望通过开源社区的力量复现Sora，由北大-兔展AIGC联合实验室共同发起，当前版本离目标差距仍然较大，仍需持续完善和快速迭代，欢迎Pull request！目前代码同时支持使用国产AI计算系统（华为昇腾）进行完整的训练和推理。基于昇腾训练出的模型，也可输出持平业界的视频质量。
+本项目希望通过开源社区的力量复现Sora，由北大-兔展AIGC联合实验室共同发起，来自兔展、华为、鹏城实验室和开源社区伙伴均有深度贡献力量。
+
+当前V1.5版本**完全基于华为昇腾训练（昇腾纯血版）**，欢迎Pull Request和使用！
 
 我们正在快速迭代新版本，欢迎更多合作者或算法工程师加入，[算法工程师招聘-兔展智能.pdf](https://github.com/user-attachments/files/19107972/-.pdf)
 
