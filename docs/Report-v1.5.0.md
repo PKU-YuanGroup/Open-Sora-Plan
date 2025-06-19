@@ -133,16 +133,17 @@ For video training, we fix the aspect ratio at 9:16 and training solely on video
 
  #### Performance on Vbench
 
-| Model                      | Total Score   | Quality Score | Semantic Score | **aesthetic quality** |
-| -------------------------- | ------------- | ------------- | -------------- | --------------------- |
-| Mochi-1                    | 80.13%        | 82.64%        | 70.08%         | 56.94%                |
-| CogvideoX-2B               | 80.91%        | 82.18%        | 75.83%         | 60.82%                |
-| CogvideoX-5B               | 81.61%        | 82.75%        | 77.04%         | 61.98%                |
-| Step-Video-T2V             | 81.83%        | <u>84.46%</u> | 71.28%         | 61.23%                |
-| CogvideoX1.5-5B            | 82.17%        | 82.78%        | **79.76%**     | 62.79%                |
-| Gen-3                      | 82.32%        | 84.11%        | 75.17%         | <u>63.34%</u>         |
-| HunyuanVideo (Open-Source) | **83.24%**    | **85.09%**    | 75.82%         | 60.36%                |
-| Open-Sora Plan v1.5.0      | <u>82.95%</u> | 84.15%        | <u>78.17%</u>  | **66.93%**            |
+| Model                      | Parameters                      | Total Score   | Quality Score | Semantic Score | **Aesthetic Quality** |
+| -------------------------- | ------------- | ------------- | ------------- | -------------- | --------------------- |
+| HunyuanVideo (Open-Source) | 13 B |**83.24%**    | **85.09%**    | 75.82%         | 60.36%                |
+| Open-Sora Plan v1.5.0      |8 B| <u>82.95%</u> | 84.15%        | <u>78.17%</u>  | **66.93%**            |
+| CogvideoX1.5            | 5 B|82.17%        | 82.78%        | **79.76%**     | 62.79%                |
+| Gen-3                      |-| 82.32%        | 84.11%        | 75.17%         | <u>63.34%</u>         |
+| Step-Video-T2V             | 30 B|81.83%        | <u>84.46%</u> | 71.28%         | 61.23%                |
+| CogvideoX               | 5 B|81.61%        | 82.75%        | 77.04%         | 61.98%                |
+| CogvideoX               | 2 B|80.91%        | 82.18%        | 75.83%         | 60.82%                |
+| Mochi-1                    |10 B| 80.13%        | 82.64%        | 70.08%         | 56.94%                |
+
 
 ### Training Image-to-Video Diffusion Model
 
