@@ -4,7 +4,7 @@ Open-Sora Plan v1.5.0 is trained using the MindSpeed-MM toolkit, which is licens
 
 ### Prerequisites
 
-Open-Sora Plan v1.5.0 is trained using CANN version 8.0.1. Please refer to the official guide [CANN8_0_1](https://support.huawei.com/enterprise/zh/ascend-computing/cann-pid-251168373/software/264595017?idAbsPath=fixnode01|23710424|251366513|22892968|252309113|251168373) for installation instructions. If you haven't installed the driver yet, you can refer to the [Installation Guide]（ https://gitee.com/ascend/MindSpeed-MM/blob/master/docs/user-guide/installation.md ）to view a more complete guide.
+Open-Sora Plan v1.5.0 is trained using CANN version 8.0.1. Please refer to the official guide [CANN8_0_1](https://support.huawei.com/enterprise/zh/ascend-computing/cann-pid-251168373/software/264595017?idAbsPath=fixnode01|23710424|251366513|22892968|252309113|251168373) for installation instructions. If you haven't installed the driver yet, you can refer to the [Installation Guide](https://gitee.com/ascend/MindSpeed-MM/blob/master/docs/user-guide/installation.md) to view a more complete guide.
 
 Clone code:
 
