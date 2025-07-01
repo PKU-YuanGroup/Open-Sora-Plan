@@ -2,7 +2,7 @@ Open-Sora Plan v1.5.0采用mindspeed-mm套件训练。mindspeed-mm套件采用ap
 
 ### 前置要求
 
-Open-Sora Plan v1.5.0在CANN 8.0.1版本完成训练，请参照[CANN 系列 昇腾计算 8.0.1 软件补丁下载](https://support.huawei.com/enterprise/zh/ascend-computing/cann-pid-251168373/software/264595017?idAbsPath=fixnode01|23710424|251366513|22892968|252309113|251168373)安装。
+Open-Sora Plan v1.5.0在CANN 8.0.1版本完成训练，请参照[CANN 系列 昇腾计算 8.0.1 软件补丁下载](https://support.huawei.com/enterprise/zh/ascend-computing/cann-pid-251168373/software/264595017?idAbsPath=fixnode01|23710424|251366513|22892968|252309113|251168373)安装。如果您还未安装驱动，可以参照[安装指引](https://gitee.com/ascend/MindSpeed-MM/blob/master/docs/user-guide/installation.md)查看更完整的环境安装指引。
 
 仓库克隆：
 
