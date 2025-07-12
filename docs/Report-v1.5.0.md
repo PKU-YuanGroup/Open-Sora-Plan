@@ -1,7 +1,5 @@
 ## Report v1.5.0
 
-中文版本Report请参考[Report-v1.5.0_cn.md](Report-v1.5.0_cn.md)
-
 In October 2024, we released Open-Sora Plan v1.3.0, introducing the sparse attention structure, Skiparse Attention, to the field of video generation for the first time. Additionally, we adopted the efficient WFVAE, significantly reducing encoding time and memory usage during training.
 
 In Open-Sora Plan v1.5.0, We introduce several key updates to enhance the framework:
@@ -78,13 +76,13 @@ For more details on WFVAE, please refer to [WF-VAE: Enhancing Video VAE by Wavel
 
 #### Framework —— SUV: A Sparse U-shaped Diffusion Transformer For Fast Video Generation
 
-In Open-Sora Plan v1.3.0, we discuss the strengths and weaknesses of Full 3D Attention and 2+1D Attention. Based on their characteristics, we propose Skiparse Attention, a novel global sparse attention mechanism. For details, please refer to [Report-v1.3.0](Report-v1.3.0.md).
+In Open-Sora Plan v1.3.0, we discuss the strengths and weaknesses of Full 3D Attention and 2+1D Attention. Based on their characteristics, we propose Skiparse Attention, a novel global sparse attention mechanism.
 
 Under a predefined sparsity $k$, Skiparse Attention selects a subsequence of length $\frac{1}{k}$ of the original sequence in an alternating Single-Skip and Group-Skip pattern for attention interaction. This design approximates the effect of Full 3D Attention. As the sparsity increases, the selected positions become more widely spaced; as it decreases, the positions become more concentrated. Regardless of the sparsity, Skiparse Attention remains global.
 
 In Open-Sora Plan v1.5.0, we interpret this sparse interaction pattern as a form of token-level information downsampling. Sparser Skiparse Attention performs more semantic-level interactions, while denser Skiparse Attention captures fine-grained information. Following the multi-scale design principle in neural networks, we introduce Skiparse Attention with U-shaped sparsity variation: low-sparsity Skiparse Attention is used in shallow layers, with Full 3D Attention applied at the shallowest layer, and high-sparsity Skiparse Attention in deeper layers. Inspired by the UNet architecture, we further incorporate long skip connections between stages with identical sparsity. This U-shaped DiT architecture based on Skiparse Attention is referred to as **SUV**.
 
-![SUV](https://img.picui.cn/free/2025/06/05/684108197cbb8.png)
+![SUV](https://img.remit.ee/api/file/BQACAgUAAyEGAASHRsPbAAIs_2ht4IRvJpsuYbGci4YXReH7gNVWAALHHAACVtxwV5-cDqKwBggCNgQ.png)
 
 In Open-Sora Plan v1.5.0, we adopt an SUV architecture based on MMDiT. Skiparse Attention is applied to the video latents, while the text embeddings are only repeated to align with the skiparse-processed latent shape, without any sparsification.
 
@@ -133,16 +131,16 @@ For video training, we fix the aspect ratio at 9:16 and training solely on video
 
  #### Performance on Vbench
 
-| Model                      | Parameters                      | Total Score   | Quality Score | Semantic Score | **Aesthetic Quality** |
-| -------------------------- | ------------- | ------------- | ------------- | -------------- | --------------------- |
-| HunyuanVideo (Open-Source) | 13 B |**83.24%**    | **85.09%**    | 75.82%         | 60.36%                |
-| Open-Sora Plan v1.5.0      |8 B| <u>82.95%</u> | 84.15%        | <u>78.17%</u>  | **66.93%**            |
-| CogvideoX1.5            | 5 B|82.17%        | 82.78%        | **79.76%**     | 62.79%                |
-| Gen-3                      |-| 82.32%        | 84.11%        | 75.17%         | <u>63.34%</u>         |
-| Step-Video-T2V             | 30 B|81.83%        | <u>84.46%</u> | 71.28%         | 61.23%                |
-| CogvideoX               | 5 B|81.61%        | 82.75%        | 77.04%         | 61.98%                |
-| CogvideoX               | 2 B|80.91%        | 82.18%        | 75.83%         | 60.82%                |
-| Mochi-1                    |10 B| 80.13%        | 82.64%        | 70.08%         | 56.94%                |
+| Model                      | Parameters | Total Score   | Quality Score | Semantic Score | **aesthetic quality** |
+| -------------------------- | ---------- | ------------- | ------------- | -------------- | --------------------- |
+| Mochi-1                    | 10B        | 80.13%        | 82.64%        | 70.08%         | 56.94%                |
+| CogvideoX-2B               | 2B         | 80.91%        | 82.18%        | 75.83%         | 60.82%                |
+| CogvideoX-5B               | 5B         | 81.61%        | 82.75%        | 77.04%         | 61.98%                |
+| Step-Video-T2V             | 30B        | 81.83%        | <u>84.46%</u> | 71.28%         | 61.23%                |
+| CogvideoX1.5-5B            | 5B         | 82.17%        | 82.78%        | **79.76%**     | 62.79%                |
+| Gen-3                      | -          | 82.32%        | 84.11%        | 75.17%         | <u>63.34%</u>         |
+| HunyuanVideo (Open-Source) | 13B        | **83.24%**    | **85.09%**    | 75.82%         | 60.36%                |
+| Open-Sora Plan v1.5.0      | 8B         | <u>83.02%</u> | 84.24%        | <u>78.18%</u>  | **66.89%**            |
 
 
 ### Training Image-to-Video Diffusion Model

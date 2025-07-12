@@ -1,7 +1,5 @@
 ## Report v1.5.0
 
-For the English version of the report, please refer to [Report-v1.5.0.md](Report-v1.5.0.md).
-
 在2024年的10月，我们发布了Open-Sora Plan v1.3.0，第一次将一种稀疏化的attention结构——skiparse attention引入video generation领域。同时，我们采用了高效的WFVAE，使得训练时的编码时间和显存占用大大降低。
 
 在Open-Sora Plan v1.5.0中，Open-Sora Plan引入了几个关键的更新：
@@ -78,13 +76,13 @@ WFVAE详情请见[WF-VAE: Enhancing Video VAE by Wavelet-Driven Energy Flow for 
 
 #### Framework —— SUV: A Sparse U-shaped Diffusion Transformer For Fast Video Generation
 
-在Open-Sora Plan v1.3.0中，我们讨论了Full 3D Attention以及2+1D Attention的优劣，并综合他们的特点提出了Skiparse Attention——一种新型的global sparse attention，具体原理请参考[Report-v1.3.0](Report-v1.3.0.md)。
+在Open-Sora Plan v1.3.0中，我们讨论了Full 3D Attention以及2+1D Attention的优劣，并综合他们的特点提出了Skiparse Attention——一种新型的global sparse attention。
 
 在一个事先指定的sparse ratio $k$ 下，Skiparse Attention按照Single Skip - Group Skip交替的方式选定原序列长度 $\frac{1}{k}$ 的子序列进行attention交互，以此达到近似Full 3D Attention的效果。在Skiparse Attention中，sparse ratio越大，子序列在原序列中的位置越稀疏；sparse ratio越小，子序列在原序列中的位置越密集。但无论sparse ratio为多少，Skiparse Attention总是global的。
 
 在Open-Sora Plan v1.5.0中，我们将这种稀疏交互方式看作一种token上的信息下采样，越稀疏的Skiparse Attention是一种更偏语义级的信息交互，越密集的Skiparse Attention是一种更偏细粒度的信息交互。遵循神经网络中多尺度设计的准则，我们在网络中引入U形变化稀疏度的Skiparse Attention，即浅层采用稀疏度低的Skiparse Attention，并在最浅层使用Full 3D Attention，深层采用稀疏度高的Skiparse Attention。特别的，类比UNet的设计，我们在相同稀疏度的Stage之间引入了Long Skip Connection。我们将这种U形变化的基于Skiparse Attention的DiT称之为SUV。
 
-![SUV](https://img.picui.cn/free/2025/06/05/684108197cbb8.png)
+![SUV](https://img.remit.ee/api/file/BQACAgUAAyEGAASHRsPbAAIs_2ht4IRvJpsuYbGci4YXReH7gNVWAALHHAACVtxwV5-cDqKwBggCNgQ.png)
 
 在Open-Sora Plan v1.5.0中我们采用了基于MMDiT的SUV架构。对于video latents，我们对其进行skiparse attention操作，对于text embedding，我们仅对其进行repeat以对齐skiparse后的latent shape而不进行任何稀疏化操作。
 
@@ -132,16 +130,16 @@ Skiparse Attention与Full Attention的区别在于前向过程中参与计算的
 
  #### Performance on Vbench
 
-| Model                      | Total Score   | Quality Score | Semantic Score | **aesthetic quality** |
-| -------------------------- | ------------- | ------------- | -------------- | --------------------- |
-| Mochi-1                    | 80.13%        | 82.64%        | 70.08%         | 56.94%                |
-| CogvideoX-2B               | 80.91%        | 82.18%        | 75.83%         | 60.82%                |
-| CogvideoX-5B               | 81.61%        | 82.75%        | 77.04%         | 61.98%                |
-| Step-Video-T2V             | 81.83%        | <u>84.46%</u> | 71.28%         | 61.23%                |
-| CogvideoX1.5-5B            | 82.17%        | 82.78%        | **79.76%**     | 62.79%                |
-| Gen-3                      | 82.32%        | 84.11%        | 75.17%         | <u>63.34%</u>         |
-| HunyuanVideo (Open-Source) | **83.24%**    | **85.09%**    | 75.82%         | 60.36%                |
-| Open-Sora Plan v1.5.0      | <u>82.95%</u> | 84.15%        | <u>78.17%</u>  | **66.93%**            |
+| Model                      | Parameters | Total Score   | Quality Score | Semantic Score | **aesthetic quality** |
+| -------------------------- | ---------- | ------------- | ------------- | -------------- | --------------------- |
+| Mochi-1                    | 10B        | 80.13%        | 82.64%        | 70.08%         | 56.94%                |
+| CogvideoX-2B               | 2B         | 80.91%        | 82.18%        | 75.83%         | 60.82%                |
+| CogvideoX-5B               | 5B         | 81.61%        | 82.75%        | 77.04%         | 61.98%                |
+| Step-Video-T2V             | 30B        | 81.83%        | <u>84.46%</u> | 71.28%         | 61.23%                |
+| CogvideoX1.5-5B            | 5B         | 82.17%        | 82.78%        | **79.76%**     | 62.79%                |
+| Gen-3                      | -          | 82.32%        | 84.11%        | 75.17%         | <u>63.34%</u>         |
+| HunyuanVideo (Open-Source) | 13B        | **83.24%**    | **85.09%**    | 75.82%         | 60.36%                |
+| Open-Sora Plan v1.5.0      | 8B         | <u>83.02%</u> | 84.24%        | <u>78.18%</u>  | **66.89%**            |
 
 ### Training Image-to-Video Diffusion Model
 
