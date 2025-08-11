@@ -1,6 +1,6 @@
-import contextlib
+import os
 import copy
-import random
+import math
 from typing import Any, Dict, Iterable, List, Optional, Union
 
 from diffusers.utils import (
@@ -17,6 +17,12 @@ if is_torchvision_available():
 
 import numpy as np
 import torch
+import deepspeed
+from deepspeed.runtime.zero.partition_parameters import ZeroParamStatus
+
+
+def _z3_params_to_fetch(param_list):
+    return [p for p in param_list if hasattr(p, "ds_id") and p.ds_status == ZeroParamStatus.NOT_AVAILABLE]
 
 
 # Adapted from diffusers-style ema https://github.com/huggingface/diffusers/blob/main/src/diffusers/training_utils.py#L263
@@ -27,7 +33,7 @@ class EMAModel:
 
     def __init__(
         self,
-        parameters: Iterable[torch.nn.Parameter],
+        model: torch.nn.Module,
         decay: float = 0.9999,
         min_decay: float = 0.0,
         update_after_step: int = 0,
@@ -57,22 +63,8 @@ class EMAModel:
             gamma=1, power=3/4 for models you plan to train for less (reaches decay factor 0.999 at 10K steps, 0.9999
             at 215.4k steps).
         """
-
-        if isinstance(parameters, torch.nn.Module):
-            deprecation_message = (
-                "Passing a `torch.nn.Module` to `ExponentialMovingAverage` is deprecated. "
-                "Please pass the parameters of the module instead."
-            )
-            deprecate(
-                "passing a `torch.nn.Module` to `ExponentialMovingAverage`",
-                "1.0.0",
-                deprecation_message,
-                standard_warn=False,
-            )
-            parameters = parameters.parameters()
-
-            # set use_ema_warmup to True if a torch.nn.Module is passed for backwards compatibility
-            use_ema_warmup = True
+        
+        self.model = model
 
         if kwargs.get("max_value", None) is not None:
             deprecation_message = "The `max_value` argument is deprecated. Please use `decay` instead."
@@ -83,9 +75,6 @@ class EMAModel:
             deprecation_message = "The `min_value` argument is deprecated. Please use `min_decay` instead."
             deprecate("min_value", "1.0.0", deprecation_message, standard_warn=False)
             min_decay = kwargs["min_value"]
-
-        parameters = list(parameters)
-        self.shadow_params = [p.clone().detach() for p in parameters]
 
         if kwargs.get("device", None) is not None:
             deprecation_message = "The `device` argument is deprecated. Please use `to` instead."
@@ -131,7 +120,7 @@ class EMAModel:
         ema_kwargs = cls.extract_ema_kwargs(config)
         model = model_cls.from_pretrained(path)
 
-        ema_model = cls(model.parameters(), model_cls=model_cls, model_config=config)
+        ema_model = cls(model, model_cls=model_cls, model_config=config)
 
         ema_model.load_state_dict(ema_kwargs)
         return ema_model
@@ -143,13 +132,24 @@ class EMAModel:
         if self.model_config is None:
             raise ValueError("`save_pretrained` can only be used if `model_config` was defined at __init__.")
 
-        model = self.model_cls.from_config(self.model_config)
+        rank = int(os.getenv("RANK", "0"))
         state_dict = self.state_dict()
-        state_dict.pop("shadow_params", None)
+        state_dict.pop("model")
 
-        model.register_to_config(**state_dict)
-        self.copy_to(model.parameters())
-        model.save_pretrained(path)
+        model_to_save = self.model.module if hasattr(self.model, "module") else self.model
+        model_state_dict = {}
+        for k, v in model_to_save.named_parameters():
+            # only gather z3 params
+            params_to_fetch = _z3_params_to_fetch([v])
+            with deepspeed.zero.GatheredParameters(params_to_fetch, enabled=len(params_to_fetch) > 0):
+                vv = v.data.cpu()
+                if rank == 0:
+                    model_state_dict[k] = vv
+
+        if rank == 0:
+            self.model.register_to_config(**state_dict)
+            self.model.save_config(path)
+            torch.save(model_state_dict, os.path.join(path, "diffusion_pytorch_model.bin"))
 
     def get_decay(self, optimization_step: int) -> float:
         """
@@ -194,19 +194,38 @@ class EMAModel:
         self.cur_decay_value = decay
         one_minus_decay = 1 - decay
 
-        context_manager = contextlib.nullcontext
-        if is_transformers_available() and transformers.deepspeed.is_deepspeed_zero3_enabled():
-            import deepspeed
+        # https://github.com/microsoft/DeepSpeed/blob/master/deepspeed/runtime/zero/partition_parameters.py#L1543
+        for s_param, param in zip(self.model.parameters(), parameters):
+            s_tensor, tensor = None, None
+            if hasattr(s_param, "ds_tensor"): # EMA ZeRO-3
+                s_tensor = s_param.ds_tensor
+                if hasattr(param, "ds_tensor"): # DiT ZeRO-3
+                    tensor = param.ds_tensor
+                else: # DiT ZeRO-2
+                    rank, world_size = int(os.getenv("RANK")), int(os.getenv("WORLD_SIZE"))
+                    partition_size = math.ceil(param.numel()/world_size)
+                    start = partition_size * rank
+                    end = start + partition_size
 
-        for s_param, param in zip(self.shadow_params, parameters):
-            if is_transformers_available() and transformers.deepspeed.is_deepspeed_zero3_enabled():
-                context_manager = deepspeed.zero.GatheredParameters(param, modifier_rank=None)
+                    one_dim_param = param.data.contiguous().view(-1)
+                    if start < param.numel() and end <= param.numel():
+                        tensor = one_dim_param.narrow(0, start, partition_size)
+                    elif start < param.numel():
+                        elems_to_copy = param.numel() - start
+                        s_tensor = s_param.ds_tensor.narrow(0, 0, elems_to_copy)
+                        tensor = one_dim_param.narrow(0, start, elems_to_copy)
+                    else:
+                        continue
+            else: # DiT/EMA ZeRO-2
+                s_tensor = s_param.data
+                tensor = param.data
 
-            with context_manager():
-                if param.requires_grad:
-                    s_param.sub_(one_minus_decay * (s_param - param))
-                else:
-                    s_param.copy_(param)
+            assert s_tensor.shape == tensor.shape, f"mismatch shape, s_tensor: {s_tensor.shape}, tensor: {tensor.shape}"
+
+            if param.requires_grad:
+                s_tensor.sub_(one_minus_decay * (s_tensor - tensor))
+            else:
+                s_tensor.copy_(tensor)
 
     def copy_to(self, parameters: Iterable[torch.nn.Parameter]) -> None:
         """
@@ -218,7 +237,7 @@ class EMAModel:
                 `ExponentialMovingAverage` was initialized will be used.
         """
         parameters = list(parameters)
-        for s_param, param in zip(self.shadow_params, parameters):
+        for s_param, param in zip(self.model.parameters(), parameters):
             param.data.copy_(s_param.to(param.device).data)
 
 
@@ -229,10 +248,7 @@ class EMAModel:
             device: like `device` argument to `torch.Tensor.to`
         """
         # .to() on the tensors handles None correctly
-        self.shadow_params = [
-            p.to(device=device, dtype=dtype) if p.is_floating_point() else p.to(device=device)
-            for p in self.shadow_params
-        ]
+        self.model = self.model.to(device=device, dtype=dtype)
 
     def state_dict(self) -> dict:
         r"""
@@ -250,7 +266,7 @@ class EMAModel:
             "use_ema_warmup": self.use_ema_warmup,
             "inv_gamma": self.inv_gamma,
             "power": self.power,
-            "shadow_params": self.shadow_params,
+            "model": self.model.state_dict(),
         }
 
     def store(self, parameters: Iterable[torch.nn.Parameter]) -> None:
@@ -319,10 +335,19 @@ class EMAModel:
         if not isinstance(self.power, (float, int)):
             raise ValueError("Invalid power")
 
-        shadow_params = state_dict.get("shadow_params", None)
-        if shadow_params is not None:
-            self.shadow_params = shadow_params
-            if not isinstance(self.shadow_params, list):
-                raise ValueError("shadow_params must be a list")
-            if not all(isinstance(p, torch.Tensor) for p in self.shadow_params):
-                raise ValueError("shadow_params must all be Tensors")
+        model_state_dict = state_dict.get("model", None)
+        if model_state_dict is not None:
+            self.model.load_state_dict(model_state_dict)
+
+
+if __name__ == "__main__":
+    import ipdb
+    from opensora.models.diffusion.opensora_v1_3.modeling_opensora import OpenSoraT2V_v1_3
+
+    model_path = ""
+    ema_model = EMAModel.from_pretrained(model_path, OpenSoraT2V_v1_3)
+    ipdb.set_trace()
+
+    save_path = ""
+    ema_model.save_pretrained(save_path)
+    ema_model2 = EMAModel.from_pretrained(save_path, OpenSoraT2V_v1_3)
