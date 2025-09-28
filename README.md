@@ -1,6 +1,8 @@
 中文版本Readme请参考[README_cn.md](README_cn.md)
 
-Open-Sora Plan v1.5.0 is trained using the MindSpeed-MM toolkit, which is licensed under the Apache License 2.0. See https://www.apache.org/licenses/LICENSE-2.0 for more details.
+Open-Sora Plan v1.5.0 uses the mindspeed-mm suite for training. The mindspeed-mm suite is licensed under the Apache 2.0 license. Please visit https://gitee.com/ascend/MindSpeed-MM/blob/master/LICENSE for details.
+
+The megatron folder in the code is from megatron-LM. Users should follow the licensing terms at https://github.com/NVIDIA/Megatron-LM/blob/main/LICENSE.
 
 ### Prerequisites
 
