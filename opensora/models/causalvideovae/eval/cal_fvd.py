@@ -13,7 +13,8 @@ def trans(x):
     return x
 
 def calculate_fvd(videos1, videos2, device, method='styleganv'):
-
+    videos1 = videos1.to(device)
+    videos2 = videos2.to(device)
     if method == 'styleganv':
         from fvd.styleganv.fvd import get_fvd_feats, frechet_distance, load_i3d_pretrained
     elif method == 'videogpt':
