@@ -82,7 +82,7 @@ WFVAE详情请见[WF-VAE: Enhancing Video VAE by Wavelet-Driven Energy Flow for 
 
 在Open-Sora Plan v1.5.0中，我们将这种稀疏交互方式看作一种token上的信息下采样，越稀疏的Skiparse Attention是一种更偏语义级的信息交互，越密集的Skiparse Attention是一种更偏细粒度的信息交互。遵循神经网络中多尺度设计的准则，我们在网络中引入U形变化稀疏度的Skiparse Attention，即浅层采用稀疏度低的Skiparse Attention，并在最浅层使用Full 3D Attention，深层采用稀疏度高的Skiparse Attention。特别的，类比UNet的设计，我们在相同稀疏度的Stage之间引入了Long Skip Connection。我们将这种U形变化的基于Skiparse Attention的DiT称之为SUV。
 
-![SUV](https://img.remit.ee/api/file/BQACAgUAAyEGAASHRsPbAAIs_2ht4IRvJpsuYbGci4YXReH7gNVWAALHHAACVtxwV5-cDqKwBggCNgQ.png)
+![SUV](https://github.com/user-attachments/assets/6eb54e37-7077-4746-a4c6-9b7165dd48fe)
 
 在Open-Sora Plan v1.5.0中我们采用了基于MMDiT的SUV架构。对于video latents，我们对其进行skiparse attention操作，对于text embedding，我们仅对其进行repeat以对齐skiparse后的latent shape而不进行任何稀疏化操作。
 
@@ -186,3 +186,4 @@ Comming Soon...
 4、生成和理解统一的视频生成模型。3月份gpt-4o的更新让大家认识到了生成理解统一架构的生成模型能够获得与纯生成模型完全不同的能力。在视频领域，我们同样应该期待一个统一的生成模型能够为我们带来哪些惊喜。
 
 5、更好的Image-to-Video模型。目前Image-to-Video领域仍基本遵循SVD范式和Open-Sora Plan v1.2.0起采用的Inpainting范式。这两种范式都需要在Text-to-Video模型权重的基础上进行长时间的finetune。从应用意义上看，Text-to-Video更接近于学术上的探索，而Image-to-Video则更贴近现实的生产环境。因此，Image-to-Video的更新范式也会是Open-Sora Plan团队未来的重点探索方向。
+
