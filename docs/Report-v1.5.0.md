@@ -82,7 +82,7 @@ Under a predefined sparsity $k$, Skiparse Attention selects a subsequence of len
 
 In Open-Sora Plan v1.5.0, we interpret this sparse interaction pattern as a form of token-level information downsampling. Sparser Skiparse Attention performs more semantic-level interactions, while denser Skiparse Attention captures fine-grained information. Following the multi-scale design principle in neural networks, we introduce Skiparse Attention with U-shaped sparsity variation: low-sparsity Skiparse Attention is used in shallow layers, with Full 3D Attention applied at the shallowest layer, and high-sparsity Skiparse Attention in deeper layers. Inspired by the UNet architecture, we further incorporate long skip connections between stages with identical sparsity. This U-shaped DiT architecture based on Skiparse Attention is referred to as **SUV**.
 
-![SUV](https://img.remit.ee/api/file/BQACAgUAAyEGAASHRsPbAAIs_2ht4IRvJpsuYbGci4YXReH7gNVWAALHHAACVtxwV5-cDqKwBggCNgQ.png)
+![SUV](https://github.com/user-attachments/assets/6eb54e37-7077-4746-a4c6-9b7165dd48fe)
 
 In Open-Sora Plan v1.5.0, we adopt an SUV architecture based on MMDiT. Skiparse Attention is applied to the video latents, while the text embeddings are only repeated to align with the skiparse-processed latent shape, without any sparsification.
 
@@ -188,3 +188,4 @@ Test cases:
 4、Unified video generation models for both generation and understanding. The March release of GPT-4o demonstrates that unified architectures combining generation and understanding can offer fundamentally different capabilities compared to purely generative models. In the video domain, we should similarly anticipate the potential breakthroughs that such unified generative models might bring.
 
 5、Enhancing Image-to-Video generation models. Current approaches in this field still largely follow either the SVD paradigm or the inpainting-based paradigm adopted since Open-Sora Plan v1.2.0. Both approaches require extensive fine-tuning of pretrained Text-to-Video models. From a practical standpoint, Text-to-Video is more aligned with academic exploration, while Image-to-Video is more relevant to real-world production scenarios. As a result, developing a new paradigm for Image-to-Video will be a key focus for the Open-Sora Plan team moving forward.
+
