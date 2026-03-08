@@ -13,6 +13,7 @@ This project aims to create a simple and scalable repo, to reproduce [Sora](http
 <h5 align="left">
 
 [![arXiv](https://img.shields.io/badge/Arxiv-Open--Sora%20Plan-b31b1b.svg?logo=arXiv)](https://arxiv.org/abs/2412.00131)
+[![arXiv](https://img.shields.io/badge/Arxiv-Helios-b31b1b.svg?logo=arXiv)](https://arxiv.org/abs/2603.04379)
 [![arXiv](https://img.shields.io/badge/Arxiv-WF--VAE-b31b1b.svg?logo=arXiv)](https://arxiv.org/abs/2411.17459)
 [![License](https://img.shields.io/badge/License-Apache-yellow)](https://github.com/PKU-YuanGroup/Open-Sora-Plan/blob/main/LICENSE)  <br>
 [![slack badge](https://img.shields.io/badge/Discord-join-blueviolet?logo=discord&amp)](https://discord.gg/DFZg5678)
@@ -35,6 +36,7 @@ This project aims to create a simple and scalable repo, to reproduce [Sora](http
 
 # 📣 News
 
+* **[2026.03.08]** 👋👋👋 We introduce [Helios](https://github.com/PKU-YuanGroup/Helios), a breakthrough video generation model that achieves minute-scale, high-quality video synthesis at **19.5 FPS on a single H100** GPU — without relying on conventional long video anti-drifting strategies or standard video acceleration techniques. Welcome to check [Technical Report](https://huggingface.co/papers/2603.04379)!
 * **[2025.06.05]** 🔥🔥🔥 We release version 1.5.0, our most powerful model! By introducing a **higher-compression WFVAE** and an improved sparse DiT architecture, **SUV**, we achieve performance **comparable to HunyuanVideo (Open-Source)** using an 8B-scale model and 40 million video samples. Version 1.5.0 is **fully trained and inferred on Ascend 910-series accelerators**; Please check the [mindspeed_mmdit](https://github.com/PKU-YuanGroup/Open-Sora-Plan/tree/mindspeed_mmdit) branch for our new code and [Report-v1.5.0.md](docs/Report-v1.5.0.md) for our report. The GPU version is coming soon. 
 * **[2024.12.03]** ⚡️ We released our [arxiv paper](https://arxiv.org/abs/2412.00131) and WF-VAE [paper](https://arxiv.org/abs/2411.17459) for v1.3. The next more powerful version is coming soon.
 * **[2024.10.16]** 🎉 We released version 1.3.0, featuring: **WFVAE**, **prompt refiner**, **data filtering strategy**, **sparse attention**, and **bucket training strategy**. We also support 93x480p within **24G VRAM**. More details can be found at our latest [report](docs/Report-v1.3.0.md).
@@ -141,7 +143,14 @@ For more details, please refer to the [Contribution Guidelines](docs/Contributio
   year={2024}
 }
 ```
-
+```bibtex
+@article{helios,
+  title={Helios: Real Real-Time Long Video Generation Model},
+  author={Yuan, Shenghai and Yin, Yuanyang and Li, Zongjian and Huang, Xinwei and Yang, Xiao and Yuan, Li},
+  journal={arXiv preprint arXiv:2603.04379},
+  year={2026}
+}
+```
 ```bibtex
 @article{li2024wf,
   title={WF-VAE: Enhancing Video VAE by Wavelet-Driven Energy Flow for Latent Video Diffusion Model},
