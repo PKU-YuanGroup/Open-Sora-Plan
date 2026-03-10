@@ -114,7 +114,7 @@ class Attention(Attention_):
         current_length: int = attention_mask.shape[-1]
         if current_length != target_length:
             print(f'attention_mask.shape, {attention_mask.shape}, current_length, {current_length}, target_length, {target_length}')
-            attention_mask = F.pad(attention_mask, (0, target_length), value=0.0)
+            attention_mask = F.pad(attention_mask, (0, target_length - current_length), value=0.0)
 
         if out_dim == 3:
             if attention_mask.shape[0] < batch_size * head_size:
