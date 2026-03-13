@@ -14,7 +14,7 @@ def load_i3d_pretrained(device=torch.device('cpu')):
         print(f"preparing for download {i3D_WEIGHTS_URL}, you can download it by yourself.")
         os.system(f"wget {i3D_WEIGHTS_URL} -O {filepath}")
     i3d = torch.jit.load(filepath).eval().to(device)
-    i3d = torch.nn.DataParallel(i3d)
+    #i3d = torch.nn.DataParallel(i3d)
     return i3d
     
 
