@@ -12,6 +12,8 @@ from typing import List
 from collections import Counter, defaultdict
 import random
 
+from opensora.utils.temporal_utils import latent_frame_count, pad_temporal_frames, temporal_parallel_multiple
+
 
 IMG_EXTENSIONS = ['.jpg', '.JPG', '.jpeg', '.JPEG', '.png', '.PNG']
 
@@ -65,6 +67,13 @@ class Collate:
 
         self.patch_size = args.patch_size
         self.patch_size_t = args.patch_size_t
+        # The latent temporal axis is partitioned by sequence parallelism.
+        # Keep the value here so collation and dataset bucketing share the
+        # same divisibility contract.
+        self.sp_size = getattr(args, "sp_size", 1)
+        self.temporal_parallel_multiple = temporal_parallel_multiple(
+            self.sp_size, self.patch_size_t
+        )
 
         self.num_frames = args.num_frames
         self.max_thw = (self.num_frames, self.max_height, self.max_width)
@@ -130,10 +139,23 @@ class Collate:
             max_w = max([i[3] for i in batch_input_size])
         else:
             max_t, max_h, max_w = max_thw
-        pad_max_t, pad_max_h, pad_max_w = pad_to_multiple(max_t-1+self.ae_stride_t, t_ds_stride), \
-                                          pad_to_multiple(max_h, ds_stride), \
-                                          pad_to_multiple(max_w, ds_stride)
-        pad_max_t = pad_max_t + 1 - self.ae_stride_t
+        # A causal VAE maps ``T`` raw frames to ``1 + ceil((T - 1) /
+        # ae_stride_t)`` latents.  The old padding only considered the
+        # temporal patch size, so an otherwise valid batch could reach the
+        # sequence-parallel all-to-all with a latent frame count that was not
+        # divisible by ``sp_size``.  Round the latent count to the LCM of both
+        # requirements and map it back to a raw, VAE-aligned length.
+        pad_max_t = pad_temporal_frames(
+            max_t,
+            ae_stride_thw[0],
+            patch_size_t=self.patch_size_t,
+            sp_size=self.sp_size,
+            # A single-frame batch is intentionally kept as an image.  The
+            # training loop uses this shape to disable sequence parallelism.
+            preserve_single_frame=self.sp_size > 1,
+        )
+        pad_max_h, pad_max_w = pad_to_multiple(max_h, ds_stride), \
+                               pad_to_multiple(max_w, ds_stride)
         each_pad_t_h_w = [
             [
                 pad_max_t - i.shape[1],
@@ -150,13 +172,19 @@ class Collate:
 
         max_tube_size = [pad_max_t, pad_max_h, pad_max_w]
         max_latent_size = [
-            ((max_tube_size[0]-1) // ae_stride_thw[0] + 1),
+            latent_frame_count(max_tube_size[0], ae_stride_thw[0]),
             max_tube_size[1] // ae_stride_thw[1],
             max_tube_size[2] // ae_stride_thw[2]
             ]
+        if max_t > 1:
+            assert max_latent_size[0] % self.temporal_parallel_multiple == 0, (
+                f"padded latent frame count ({max_latent_size[0]}) must be "
+                f"divisible by temporal parallel multiple "
+                f"({self.temporal_parallel_multiple})"
+            )
         valid_latent_size = [
             [
-                int(math.ceil((i[1]-1) / ae_stride_thw[0])) + 1,
+                latent_frame_count(i[1], ae_stride_thw[0]),
                 int(math.ceil(i[2] / ae_stride_thw[1])),
                 int(math.ceil(i[3] / ae_stride_thw[2]))
                 ] for i in batch_input_size]
