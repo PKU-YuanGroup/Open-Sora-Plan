@@ -30,6 +30,7 @@ from accelerate.logging import get_logger
 import gc
 
 from opensora.utils.dataset_utils import DecordInit
+from opensora.utils.temporal_utils import find_closest_y, temporal_parallel_multiple
 from opensora.utils.utils import text_preprocessing
 from opensora.dataset.transform import get_params, maxhwresize, add_masking_notice, calculate_statistics, \
     add_aesthetic_notice_image, add_aesthetic_notice_video
@@ -110,21 +111,6 @@ class DataSetProg(metaclass=SingletonMeta):
 
 dataset_prog = DataSetProg()
 
-def find_closest_y(x, vae_stride_t=4, model_ds_t=1):
-    min_num_frames = 29
-    if x < min_num_frames:
-        return -1  
-    for y in range(x, min_num_frames - 1, -1):
-        if (y - 1) % vae_stride_t == 0 and ((y - 1) // vae_stride_t + 1) % model_ds_t == 0:
-            # 4, 8: y in [29, 61, 93, 125, 157, 189, 221, 253, 285, 317, 349, 381, 413, 445, 477, 509, ...]
-            # 4, 4: y in [29, 45, 61, 77, 93, 109, 125, 141, 157, 173, 189, 205, 221, 237, 253, 269, 285, 301, 317, 333, 349, 365, 381, 397, 413, 429, 445, 461, 477, 493, 509, ...]
-            # 8, 1: y in [33, 41, 49, 57, 65, 73, 81, 89, 97, 105]
-            # 8, 2: y in [41, 57, 73, 89, 105]
-            # 8, 4: y in [57, 89]
-            # 8, 8: y in [57]
-            return y
-    return -1 
-
 def filter_resolution(h, w, max_h_div_w_ratio=17/16, min_h_div_w_ratio=8 / 16):
     if h / w <= max_h_div_w_ratio and h / w >= min_h_div_w_ratio:
         return True
@@ -188,7 +174,14 @@ class T2V_dataset(Dataset):
         self.force_resolution = args.force_resolution
         self.max_hxw = args.max_hxw
         self.min_hxw = args.min_hxw
-        self.sp_size = args.sp_size
+        self.sp_size = getattr(args, "sp_size", 1)
+        self.patch_size_t = getattr(args, "patch_size_t", 1)
+        # Bucket frame counts so the VAE output is compatible with both
+        # sequence-parallel partitioning and temporal patching.  Collate uses
+        # the same least-common-multiple rule for dynamic batches.
+        self.temporal_parallel_multiple = temporal_parallel_multiple(
+            self.sp_size, self.patch_size_t
+        )
         assert self.speed_factor >= 1
         self.video_reader = 'decord' if args.use_decord else 'opencv'
         self.ae_stride_t = args.ae_stride_t
@@ -500,8 +493,10 @@ class T2V_dataset(Dataset):
                         # frame_indices = frame_indices[:self.num_frames]  # head crop
                     # to find a suitable end_frame_idx, to ensure we do not need pad video
                     end_frame_idx = find_closest_y(
-                        len(frame_indices), vae_stride_t=self.ae_stride_t, model_ds_t=self.sp_size
-                        )
+                        len(frame_indices),
+                        vae_stride_t=self.ae_stride_t,
+                        model_ds_t=self.temporal_parallel_multiple,
+                    )
                     if end_frame_idx == -1:  # too short that can not be encoded exactly by videovae
                         cnt_too_short += 1
                         continue
@@ -514,6 +509,9 @@ class T2V_dataset(Dataset):
 
                 elif path.endswith('.jpg'):  # image
                     cnt_img_after_filter += 1
+                    # Keep image samples as one frame.  Collate preserves this
+                    # shape for image-only batches, where the training loop
+                    # intentionally disables sequence parallelism.
                     i['sample_frame_index'] = [0]
                     new_cap_list.append(i)
                 
@@ -645,8 +643,10 @@ class T2V_dataset(Dataset):
 
         # to find a suitable end_frame_idx, to ensure we do not need pad video
         end_frame_idx = find_closest_y(
-            len(frame_indices), vae_stride_t=self.ae_stride_t, model_ds_t=self.sp_size
-            )
+            len(frame_indices),
+            vae_stride_t=self.ae_stride_t,
+            model_ds_t=self.temporal_parallel_multiple,
+        )
         if end_frame_idx == -1:  # too short that can not be encoded exactly by videovae
             raise IndexError(f'video ({path}) has {clip_total_frames} frames, but need to sample {len(frame_indices)} frames ({frame_indices})')
         frame_indices = frame_indices[:end_frame_idx]
