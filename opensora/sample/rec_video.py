@@ -42,23 +42,12 @@ def custom_to_video(x: torch.Tensor, fps: float = 2.0, output_file: str = 'outpu
 def read_video(video_path: str, num_frames: int, sample_rate: int) -> torch.Tensor:
     decord_vr = VideoReader(video_path, ctx=cpu(0))
     total_frames = len(decord_vr)
-    sample_frames_len = sample_rate * num_frames
-
-    # if total_frames > sample_frames_len:
-    #     s = random.randint(0, total_frames - sample_frames_len - 1)
-    #     s = 0
-    #     e = s + sample_frames_len
-    #     num_frames = num_frames
-    # else:
-    # s = 0
-    # e = total_frames
-    # num_frames = int(total_frames / sample_frames_len * num_frames)
-    s = 0
-    e = sample_frames_len
-    print(f'sample_frames_len {sample_frames_len}, only can sample {num_frames * sample_rate}', video_path,
-            total_frames)
-
-    frame_id_list = np.linspace(s, e - 1, num_frames, dtype=int)
+    if total_frames == 0:
+        raise ValueError(f"No frames available in {video_path}")
+    if num_frames < 1 or sample_rate < 1:
+        raise ValueError("num_frames and sample_rate must be positive")
+    sample_frames_len = min(total_frames, sample_rate * num_frames)
+    frame_id_list = np.linspace(0, sample_frames_len - 1, num_frames, dtype=int)
     video_data = decord_vr.get_batch(frame_id_list).asnumpy()
     video_data = torch.from_numpy(video_data)
     video_data = video_data.permute(3, 0, 1, 2)  # (T, H, W, C) -> (C, T, H, W)
